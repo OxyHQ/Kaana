@@ -636,7 +636,8 @@ implemented against before. Each is a real gap, not a preference.
    request that cannot succeed, and the category is attributable so the breaker
    still takes the route out of rotation and a same-model failover to a
    deployment holding a DIFFERENT credential is still allowed. It is a
-   conformance check, so the next adapter inherits it.
+   conformance check, so the next adapter inherits it. Getting there also
+   surfaced item 19, which is the larger of the two findings.
 
    **A neighbouring gap the new code does not cover:** an upstream refusing to
    *bill* the platform is the same class of failure as one refusing its
@@ -752,6 +753,28 @@ contract fits one provider's shape and not another's.
     so it removes them by exact match before the pattern ever runs — but any
     other producer relying on the published pattern alone has this hole, and the
     pattern should probably swallow the value after a marker.
+
+19. **A published version number did not identify the contract it names, and
+    nothing gates that.** While this adapter was being written,
+    `@oxyhq/contracts` on `main` and `@oxyhq/contracts@0.27.0` on npm had
+    *different contents under the same version*: `main`'s `errors.ts` carried
+    `provider_credential_invalid` and the published tarball did not, because
+    #1019 merged after 0.27.0 shipped and did not bump the version. The
+    immediate effect here was a code that could not be adopted; the lasting one
+    is that "which 0.27.0 do you have" had no answer.
+
+    **No in-repo consumer could have seen it.** Everything inside the monorepo
+    resolves `workspace:*` and therefore reads `main`'s source; this repository
+    is the first consumer that installs the published artefact, so the two
+    copies had never been compared before. That is also why the fix belongs
+    upstream rather than here.
+
+    OxyHQ/oxy#1025 bumped and published `0.28.0`, closing the drift, and this
+    build is generated against it. What is still open is the gate: nothing
+    fails when a change to `packages/contracts/src` merges without a version
+    bump, so the same divergence can reopen silently on any later PR. A CI check
+    comparing the working tree's contract source against the published tarball
+    for the version in `package.json` would answer it once.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
