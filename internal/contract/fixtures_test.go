@@ -1,0 +1,354 @@
+package contract
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// The descriptor comparison proves Relay's STRUCTURE matches the contract. It
+// cannot prove the VALUES do: a timestamp in the wrong spelling, a model
+// reference that fails the published grammar, an error marked retryable under a
+// code that forbids it, a unit reported twice — all of those are structurally
+// perfect and rejected at Oxy's parse.
+//
+// So this file writes one fixture per wire shape, marshalled by the same Go
+// types the server uses, and `tools/contract/validate.mjs` parses each with the
+// published Zod schema itself. Nothing about the round trip is re-implemented:
+// the acceptance decision is made by the contract's own code.
+//
+// The invalid fixtures are the validator's vacuity floor. A validate.mjs that
+// silently accepted everything — a bad schema lookup, an empty directory, a
+// swallowed exception — would report the same success on the valid ones, so it
+// is required to REJECT each of these and fails if it does not.
+
+const fixtureDir = "testdata/wire"
+
+type fixture struct {
+	Schema string `json:"schema"`
+	Case   string `json:"case"`
+	Value  any    `json:"value"`
+}
+
+func TestWriteWireFixtures(t *testing.T) {
+	valid := validFixtures(t)
+	invalid := invalidFixtures()
+
+	// Floors, so "the validator found nothing wrong" cannot be what an empty
+	// directory looks like. They are exact rather than minimums for the same
+	// reason the not-applicable list is exact.
+	if len(valid) != 12 {
+		t.Fatalf("expected 12 valid fixtures, built %d; update the floor deliberately", len(valid))
+	}
+	if len(invalid) != 6 {
+		t.Fatalf("expected 6 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	}
+
+	writeFixtures(t, filepath.Join(fixtureDir, "valid"), valid)
+	writeFixtures(t, filepath.Join(fixtureDir, "invalid"), invalid)
+}
+
+func writeFixtures(t *testing.T, dir string, fixtures []fixture) {
+	t.Helper()
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("clearing %s: %v", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", dir, err)
+	}
+	for index, item := range fixtures {
+		encoded, err := json.MarshalIndent(item, "", "  ")
+		if err != nil {
+			t.Fatalf("%s/%s: %v", item.Schema, item.Case, err)
+		}
+		name := fmt.Sprintf("%02d-%s-%s.json", index, item.Schema, item.Case)
+		if err := os.WriteFile(filepath.Join(dir, name), append(encoded, '\n'), 0o644); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+}
+
+func pointerTo[T any](value T) *T { return &value }
+
+// sampleAttribution is the attribution block every produced shape carries.
+func sampleAttribution() Attribution {
+	return Attribution{
+		Principal: AuthenticatedPrincipal{
+			Billing:         BillingPrincipal{AccountID: "acc_01JQZ"},
+			ApplicationID:   "app_01JQZ",
+			CredentialID:    "cred_01JQZ",
+			Environment:     EnvironmentProduction,
+			InferenceScopes: []Scope{ScopeInvoke, ScopeModelsRead},
+		},
+		UserID:       pointerTo(UserID("usr_01JQZ")),
+		RequestID:    "req_01JQZABCDEF",
+		GenerationID: pointerTo(GenerationID("gen_01JQZABCDEF")),
+	}
+}
+
+// validFixtures deliberately populates every OPTIONAL field as well as every
+// required one. An optional field that drifted is invisible in a minimal
+// fixture, and minimal fixtures are exactly how a contract test stays green
+// through a rename.
+func validFixtures(t *testing.T) []fixture {
+	t.Helper()
+	attribution := sampleAttribution()
+	started := Timestamp("2026-08-16T09:41:00.000Z")
+	completed := Timestamp("2026-08-16T09:41:02.500Z")
+
+	request := Request{
+		SchemaVersion: RequestEnvelopeVersion,
+		Attribution:   attribution,
+		Target: RoutingTarget{
+			Kind:           TargetModel,
+			ModelReference: pointerTo(ModelReference("openai/gpt-5@2026-05-01")),
+		},
+		Modality: ModalityText,
+		Input: Input{
+			Format: InputMessages,
+			Messages: []Message{
+				{
+					Role:    RoleSystem,
+					Content: []ContentPart{{Type: ContentPartText, Text: pointerTo("be concise")}},
+				},
+				{
+					Role: RoleUser,
+					Name: pointerTo("ada"),
+					Content: []ContentPart{
+						{Type: ContentPartText, Text: pointerTo("describe this")},
+						{
+							Type:   ContentPartImage,
+							Detail: pointerTo(ImageDetailHigh),
+							Source: &ContentSource{Kind: ContentSourceURL, URL: pointerTo("https://example.test/a.png")},
+						},
+						{
+							Type: ContentPartFile,
+							Source: &ContentSource{
+								Kind:      ContentSourceInline,
+								MediaType: pointerTo("application/pdf"),
+								Data:      pointerTo("JVBERi0xLjQK"),
+							},
+							Filename: pointerTo("report.pdf"),
+						},
+						{
+							Type:   ContentPartAudio,
+							Source: &ContentSource{Kind: ContentSourceURL, URL: pointerTo("https://example.test/a.wav")},
+						},
+					},
+				},
+				{
+					Role:    RoleAssistant,
+					Content: []ContentPart{{Type: ContentPartText, Text: pointerTo("")}},
+					ToolCalls: []ToolCall{
+						{ID: "call_1", Name: "lookup", Arguments: `{"q":"x"}`},
+					},
+				},
+				{
+					Role:       RoleTool,
+					ToolCallID: pointerTo("call_1"),
+					Content:    []ContentPart{{Type: ContentPartText, Text: pointerTo("42")}},
+				},
+			},
+		},
+		Stream:          true,
+		MaxOutputTokens: pointerTo(1024),
+		Sampling: SamplingParameters{
+			Temperature:      pointerTo(0.7),
+			TopP:             pointerTo(0.95),
+			TopK:             pointerTo(40),
+			FrequencyPenalty: pointerTo(0.1),
+			PresencePenalty:  pointerTo(-0.1),
+			Seed:             pointerTo(7),
+			StopSequences:    []string{"\n\n"},
+		},
+		Tools: []ToolDefinition{{
+			Type:        "function",
+			Name:        "lookup",
+			Description: pointerTo("look something up"),
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+			Strict:      pointerTo(true),
+		}},
+		ToolChoice: &ToolChoice{Function: &ToolChoiceFunction{Type: "function", Name: "lookup"}},
+		ResponseFormat: &ResponseFormat{
+			Type:   ResponseFormatJSONSchema,
+			Name:   pointerTo("answer"),
+			Schema: map[string]any{"type": "object"},
+			Strict: pointerTo(true),
+		},
+		Client: ClientRequestMetadata{
+			APIFormat:       APIFormatResponses,
+			Endpoint:        "/v1/responses",
+			ClientRequestID: pointerTo("client-42"),
+			ReceivedAt:      started,
+			Labels:          map[string]string{"team": "search"},
+		},
+		IdempotencyKey: pointerTo(IdempotencyKey("idem_01JQZ")),
+		RoutingPolicy:  RoutingPolicyReference{RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("the request fixture does not satisfy Relay's own validation: %v", err)
+	}
+
+	textTarget := request
+	textTarget.Target = RoutingTarget{Kind: TargetRoutingProfile, RoutingProfile: pointerTo(RoutingProfileSlug("auto"))}
+	textTarget.Input = Input{Format: InputText, Text: pointerTo("embed me")}
+	textTarget.Modality = ModalityEmbedding
+	textTarget.ToolChoice = &ToolChoice{Mode: pointerTo(ToolChoiceAuto)}
+
+	batch := textTarget
+	batch.Input = Input{Format: InputTextBatch, Texts: []string{"a", "b"}}
+
+	usageReport := UsageReport{
+		SchemaVersion:          SchemaVersion,
+		RequestID:              attribution.RequestID,
+		GenerationID:           attribution.GenerationID,
+		Attribution:            attribution,
+		Outcome:                OutcomeCompleted,
+		Units:                  []UsageQuantity{{Unit: UnitInputTokens, Quantity: 314}, {Unit: UnitOutputTokens, Quantity: 204}},
+		UsageSource:            UsageProviderReported,
+		ResolvedModelReference: "openai/gpt-5@2026-05-01",
+		ServingProvider:        "openai",
+		DeploymentID:           pointerTo(DeploymentID("dep_openai_gpt5_use1")),
+		RouteSwitches:          0,
+		StartedAt:              started,
+		CompletedAt:            completed,
+		TimeToFirstTokenMs:     pointerTo(180),
+	}
+	if err := usageReport.Validate(); err != nil {
+		t.Fatalf("the usage report fixture does not satisfy Relay's own validation: %v", err)
+	}
+
+	failure := NewError(attribution.RequestID, CodeProviderOverloaded, "upstream is overloaded").
+		WithRetryAfter(2000).
+		WithUpstream(UpstreamOverloaded, &ProviderErrorPassthrough{
+			Provider: "openai",
+			Status:   pointerTo(503),
+			Code:     pointerTo("overloaded"),
+			Message:  pointerTo("slow down"),
+		})
+
+	return []fixture{
+		{Schema: "inferenceRequestSchema", Case: "messages-with-every-optional-field", Value: request},
+		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile", Value: textTarget},
+		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
+		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
+		{Schema: "inferenceErrorSchema", Case: "retryable-with-upstream", Value: failure},
+		{Schema: "inferenceStreamEventSchema", Case: "start", Value: &StreamStartEvent{
+			SchemaVersion: SchemaVersion, Type: EventStart, RequestID: attribution.RequestID, Seq: 0,
+			GenerationID: attribution.GenerationID, ResolvedModelReference: "openai/gpt-5@2026-05-01",
+			ServingProvider: "openai", StartedAt: started,
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "delta", Value: &StreamDeltaEvent{
+			SchemaVersion: SchemaVersion, Type: EventDelta, RequestID: attribution.RequestID, Seq: 1,
+			OutputIndex: 0, Channel: ChannelOutputText, Text: "hello",
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "tool-call", Value: &StreamToolCallEvent{
+			SchemaVersion: SchemaVersion, Type: EventToolCall, RequestID: attribution.RequestID, Seq: 2,
+			ToolCallID: "call_1", Name: pointerTo("lookup"), ArgumentsDelta: pointerTo(`{"q":`), Complete: false,
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "usage", Value: &StreamUsageEvent{
+			SchemaVersion: SchemaVersion, Type: EventUsage, RequestID: attribution.RequestID, Seq: 3,
+			Units: []UsageQuantity{{Unit: UnitOutputTokens, Quantity: 204}}, UsageSource: UsageProviderReported,
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "route-switch-deployment", Value: &StreamRouteSwitchEvent{
+			SchemaVersion: SchemaVersion, Type: EventRouteSwitch, RequestID: attribution.RequestID, Seq: 4,
+			Reason: SwitchDeploymentUnavailable,
+			Detail: RouteSwitchDetail{
+				Scope: SwitchScopeDeployment, ToProvider: "openai",
+				ModelReference: pointerTo(ModelReference("openai/gpt-5@2026-05-01")),
+				ToDeploymentID: pointerTo(DeploymentID("dep_openai_gpt5_usw2")),
+			},
+			OccurredAt: started,
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "error", Value: &StreamErrorEvent{
+			SchemaVersion: SchemaVersion, Type: EventError, RequestID: attribution.RequestID, Seq: 5,
+			Error: *failure,
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "done", Value: &StreamDoneEvent{
+			SchemaVersion: SchemaVersion, Type: EventDone, RequestID: attribution.RequestID, Seq: 6,
+			GenerationID: attribution.GenerationID, FinishReason: FinishStop, CompletedAt: completed,
+		}},
+	}
+}
+
+// invalidFixtures are values the published schemas MUST reject. Each is exactly
+// one mutation away from a valid fixture, so a validator that accepts one is
+// not merely lenient — it is not reading the schema it claims to.
+func invalidFixtures() []fixture {
+	attribution := sampleAttribution()
+	started := Timestamp("2026-08-16T09:41:00.000Z")
+
+	return []fixture{
+		{
+			Schema: "inferenceErrorSchema",
+			Case:   "non-retryable-code-marked-retryable",
+			Value: map[string]any{
+				"schemaVersion": 1, "code": "invalid_request", "message": "nope",
+				"retryable": true, "requestId": "req_01JQZABCDEF",
+			},
+		},
+		{
+			Schema: "inferenceErrorSchema",
+			Case:   "credential-shaped-message",
+			Value: map[string]any{
+				"schemaVersion": 1, "code": "provider_error",
+				"message":   "upstream rejected Bearer sk-abcdefghijklmnop",
+				"retryable": true, "requestId": "req_01JQZABCDEF",
+			},
+		},
+		{
+			Schema: "normalizedUsageReportSchema",
+			Case:   "one-unit-reported-twice",
+			Value: map[string]any{
+				"schemaVersion": 1, "requestId": "req_01JQZABCDEF", "attribution": attribution,
+				"outcome": "completed",
+				"units": []map[string]any{
+					{"unit": "input_tokens", "quantity": 1},
+					{"unit": "input_tokens", "quantity": 2},
+				},
+				"usageSource": "provider_reported", "resolvedModelReference": "openai/gpt-5@2026-05-01",
+				"servingProvider": "openai", "routeSwitches": 0,
+				"startedAt": started, "completedAt": started,
+			},
+		},
+		{
+			Schema: "normalizedUsageReportSchema",
+			Case:   "completed-before-started",
+			Value: map[string]any{
+				"schemaVersion": 1, "requestId": "req_01JQZABCDEF", "attribution": attribution,
+				"outcome": "completed", "units": []map[string]any{{"unit": "input_tokens", "quantity": 1}},
+				"usageSource": "provider_reported", "resolvedModelReference": "openai/gpt-5@2026-05-01",
+				"servingProvider": "openai", "routeSwitches": 0,
+				"startedAt": "2026-08-16T09:41:02.500Z", "completedAt": "2026-08-16T09:41:00.000Z",
+			},
+		},
+		{
+			Schema: "inferenceStreamEventSchema",
+			Case:   "unknown-event-type",
+			Value: map[string]any{
+				"schemaVersion": 1, "type": "heartbeat", "requestId": "req_01JQZABCDEF", "sequence": 1,
+			},
+		},
+		{
+			Schema: "inferenceRequestSchema",
+			Case:   "client-metadata-carrying-an-ip",
+			Value: map[string]any{
+				"schemaVersion": 1, "attribution": attribution,
+				"target":   map[string]any{"kind": "model", "modelReference": "openai/gpt-5"},
+				"modality": "text",
+				"input": map[string]any{
+					"format":   "messages",
+					"messages": []map[string]any{{"role": "user", "content": []map[string]any{{"type": "text", "text": "hi"}}}},
+				},
+				"stream": false, "sampling": map[string]any{}, "tools": []any{},
+				"client": map[string]any{
+					"apiFormat": "responses", "endpoint": "/v1/responses",
+					"receivedAt": started, "ip": "203.0.113.7",
+				},
+				"routingPolicy": map[string]any{"routingPolicyId": "rp_01JQZ", "policyVersion": 1},
+			},
+		},
+	}
+}

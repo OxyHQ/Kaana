@@ -1,0 +1,421 @@
+package contract
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
+// The discriminated unions below are flattened: one Go struct per union,
+// carrying the discriminator plus every variant's fields, with a field left
+// required only when every variant requires it.
+//
+// The alternative — an interface per union — buys type-level exhaustiveness at
+// the cost of a custom marshaller for each, and the exhaustiveness it buys is
+// already provided by contract_test.go comparing the flattened field set
+// against the published variants. Validate() carries the per-variant rules the
+// flattening cannot express, and is where a malformed union is refused.
+
+// ContentSourceKind discriminates where binary or remote content comes from.
+type ContentSourceKind string
+
+const (
+	ContentSourceURL    ContentSourceKind = "url"
+	ContentSourceInline ContentSourceKind = "inline"
+)
+
+var contentSourceKindValues = []ContentSourceKind{ContentSourceURL, ContentSourceInline}
+
+// ContentSource is transient by contract: neither form is persisted by default,
+// and neither appears in a receipt, a log line or a telemetry event.
+type ContentSource struct {
+	Kind      ContentSourceKind `json:"kind"`
+	URL       *string           `json:"url,omitempty"`
+	MediaType *string           `json:"mediaType,omitempty"`
+	Data      *string           `json:"data,omitempty"`
+}
+
+// ContentPartType discriminates one part of a message's content.
+type ContentPartType string
+
+const (
+	ContentPartText  ContentPartType = "text"
+	ContentPartImage ContentPartType = "image"
+	ContentPartAudio ContentPartType = "audio"
+	ContentPartFile  ContentPartType = "file"
+)
+
+var contentPartTypeValues = []ContentPartType{ContentPartText, ContentPartImage, ContentPartAudio, ContentPartFile}
+
+// ContentPart is one part of a message. A message is always a list of parts.
+type ContentPart struct {
+	Type     ContentPartType `json:"type"`
+	Text     *string         `json:"text,omitempty"`
+	Source   *ContentSource  `json:"source,omitempty"`
+	Detail   *ImageDetail    `json:"detail,omitempty"`
+	Filename *string         `json:"filename,omitempty"`
+}
+
+// ToolCall is a tool call an assistant made.
+//
+// Arguments is the JSON TEXT the model emitted, not a parsed object: models
+// emit invalid JSON often enough that parsing here would turn a recoverable
+// model mistake into a rejected message.
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// Message is one normalized message.
+type Message struct {
+	Role       MessageRole   `json:"role"`
+	Content    []ContentPart `json:"content"`
+	Name       *string       `json:"name,omitempty"`
+	ToolCallID *string       `json:"toolCallId,omitempty"`
+	ToolCalls  []ToolCall    `json:"toolCalls,omitempty"`
+}
+
+// InputFormat discriminates the request's input.
+type InputFormat string
+
+const (
+	InputMessages  InputFormat = "messages"
+	InputText      InputFormat = "text"
+	InputTextBatch InputFormat = "text_batch"
+)
+
+var inputFormatValues = []InputFormat{InputMessages, InputText, InputTextBatch}
+
+// Input is the request's input. Three formats, because the modalities genuinely
+// differ and pretending a batch is a one-message conversation loses the batch
+// boundary that metering and provider translation depend on.
+type Input struct {
+	Format   InputFormat `json:"format"`
+	Messages []Message   `json:"messages,omitempty"`
+	Text     *string     `json:"text,omitempty"`
+	Texts    []string    `json:"texts,omitempty"`
+}
+
+// SamplingParameters are all optional: absent means the route's own default.
+type SamplingParameters struct {
+	Temperature      *float64 `json:"temperature,omitempty"`
+	TopP             *float64 `json:"topP,omitempty"`
+	TopK             *int     `json:"topK,omitempty"`
+	FrequencyPenalty *float64 `json:"frequencyPenalty,omitempty"`
+	PresencePenalty  *float64 `json:"presencePenalty,omitempty"`
+	Seed             *int     `json:"seed,omitempty"`
+	StopSequences    []string `json:"stopSequences,omitempty"`
+}
+
+// ToolDefinition is a tool the model may call.
+//
+// Parameters is a JSON Schema document carried as an opaque object: validating
+// the customer's JSON Schema against a meta schema would reject documents
+// providers accept.
+type ToolDefinition struct {
+	Type        string         `json:"type"`
+	Name        string         `json:"name"`
+	Description *string        `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
+	Strict      *bool          `json:"strict,omitempty"`
+}
+
+// ToolChoiceFunction names the one tool the model must call.
+type ToolChoiceFunction struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+// ToolChoice is the contract's one union that is not discriminated by a field:
+// either a mode string or an object naming a function. It therefore needs a
+// hand-written codec, and contract_test.go pins that codec by round-tripping
+// both arms.
+type ToolChoice struct {
+	Mode     *ToolChoiceMode
+	Function *ToolChoiceFunction
+}
+
+// MarshalJSON renders whichever arm is set.
+func (t ToolChoice) MarshalJSON() ([]byte, error) {
+	switch {
+	case t.Mode != nil && t.Function != nil:
+		return nil, fmt.Errorf("contract: tool choice carries both a mode and a function")
+	case t.Mode != nil:
+		return json.Marshal(*t.Mode)
+	case t.Function != nil:
+		return json.Marshal(*t.Function)
+	default:
+		return nil, fmt.Errorf("contract: tool choice carries neither a mode nor a function")
+	}
+}
+
+// UnmarshalJSON accepts either arm and refuses anything else, rather than
+// leaving an empty ToolChoice that a translator would read as "auto".
+func (t *ToolChoice) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var mode ToolChoiceMode
+		if err := json.Unmarshal(trimmed, &mode); err != nil {
+			return err
+		}
+		for _, allowed := range toolChoiceModeValues {
+			if mode == allowed {
+				t.Mode, t.Function = &mode, nil
+				return nil
+			}
+		}
+		return fmt.Errorf("contract: %q is not a tool-choice mode", string(mode))
+	}
+	var function ToolChoiceFunction
+	if err := json.Unmarshal(trimmed, &function); err != nil {
+		return err
+	}
+	if function.Type != "function" || function.Name == "" {
+		return fmt.Errorf("contract: a tool-choice object must name a function")
+	}
+	t.Mode, t.Function = nil, &function
+	return nil
+}
+
+// ResponseFormatType discriminates a structured-output request.
+type ResponseFormatType string
+
+const (
+	ResponseFormatText       ResponseFormatType = "text"
+	ResponseFormatJSONObject ResponseFormatType = "json_object"
+	ResponseFormatJSONSchema ResponseFormatType = "json_schema"
+)
+
+var responseFormatTypeValues = []ResponseFormatType{ResponseFormatText, ResponseFormatJSONObject, ResponseFormatJSONSchema}
+
+// ResponseFormat is free text, any JSON object, or a named schema.
+type ResponseFormat struct {
+	Type   ResponseFormatType `json:"type"`
+	Name   *string            `json:"name,omitempty"`
+	Schema map[string]any     `json:"schema,omitempty"`
+	Strict *bool              `json:"strict,omitempty"`
+}
+
+// RoutingTargetKind discriminates the two questions a caller can ask: "serve
+// THIS model" versus "choose one for me".
+type RoutingTargetKind string
+
+const (
+	TargetModel          RoutingTargetKind = "model"
+	TargetRoutingProfile RoutingTargetKind = "routing_profile"
+)
+
+var routingTargetKindValues = []RoutingTargetKind{TargetModel, TargetRoutingProfile}
+
+// RoutingTarget is what the request asks to be served.
+type RoutingTarget struct {
+	Kind           RoutingTargetKind   `json:"kind"`
+	ModelReference *ModelReference     `json:"modelReference,omitempty"`
+	RoutingProfile *RoutingProfileSlug `json:"routingProfile,omitempty"`
+}
+
+// RoutingPolicyReference records which policy, at which of the customer's own
+// revisions, a request was admitted under.
+//
+// It is a reference and not a snapshot. That is the contract as published, and
+// it is the reason Relay cannot enforce provider allowlists, residency, retention
+// or price ceilings from the envelope alone — see README, "What Oxy still has to
+// decide".
+type RoutingPolicyReference struct {
+	RoutingPolicyID string `json:"routingPolicyId"`
+	PolicyVersion   int    `json:"policyVersion"`
+}
+
+// ClientRequestMetadata is what the edge records about the CALL, as opposed to
+// its content.
+//
+// The contract makes this object strict as a privacy control: Oxy never
+// persists a user IP, raw, hashed or geo-derived, and this is the natural place
+// somebody would add one. Relay therefore never adds a field to it either, and
+// never logs its Labels beside request content.
+type ClientRequestMetadata struct {
+	APIFormat       APIFormat         `json:"apiFormat"`
+	Endpoint        string            `json:"endpoint"`
+	ClientRequestID *string           `json:"clientRequestId,omitempty"`
+	ReceivedAt      Timestamp         `json:"receivedAt"`
+	Labels          map[string]string `json:"labels,omitempty"`
+}
+
+// Request is the canonical internal envelope Oxy's public edge forwards.
+type Request struct {
+	SchemaVersion   int                    `json:"schemaVersion"`
+	Attribution     Attribution            `json:"attribution"`
+	Target          RoutingTarget          `json:"target"`
+	Modality        Modality               `json:"modality"`
+	Input           Input                  `json:"input"`
+	Stream          bool                   `json:"stream"`
+	MaxOutputTokens *int                   `json:"maxOutputTokens,omitempty"`
+	Sampling        SamplingParameters     `json:"sampling"`
+	Tools           []ToolDefinition       `json:"tools,omitempty"`
+	ToolChoice      *ToolChoice            `json:"toolChoice,omitempty"`
+	ResponseFormat  *ResponseFormat        `json:"responseFormat,omitempty"`
+	Client          ClientRequestMetadata  `json:"client"`
+	IdempotencyKey  *IdempotencyKey        `json:"idempotencyKey,omitempty"`
+	RoutingPolicy   RoutingPolicyReference `json:"routingPolicy"`
+}
+
+// Validate carries the per-variant and cross-field rules the Go types cannot
+// express, and it is the whole of what Relay checks about an envelope's
+// structure. It deliberately does NOT re-check anything the Oxy edge decided:
+// scopes, balances, account access and model permissions are the control
+// plane's, already resolved, and re-deriving them here is the replica-lag
+// hazard ADR 0006 rejects.
+func (r *Request) Validate() error {
+	if r.SchemaVersion != RequestEnvelopeVersion {
+		return fmt.Errorf("contract: envelope schemaVersion %d is not implemented by this build (expected %d)", r.SchemaVersion, RequestEnvelopeVersion)
+	}
+	if r.Attribution.RequestID == "" {
+		return fmt.Errorf("contract: attribution.requestId is required")
+	}
+	if r.Attribution.Principal.Billing.AccountID == "" {
+		return fmt.Errorf("contract: attribution.principal.billing.accountId is required")
+	}
+	if err := r.Target.validate(); err != nil {
+		return err
+	}
+	if err := r.Input.validate(); err != nil {
+		return err
+	}
+	if !isMember(r.Modality, modalityValues) {
+		return fmt.Errorf("contract: %q is not a modality", r.Modality)
+	}
+	if !isMember(r.Client.APIFormat, apiFormatValues) {
+		return fmt.Errorf("contract: %q is not an api format", r.Client.APIFormat)
+	}
+	if r.MaxOutputTokens != nil && *r.MaxOutputTokens <= 0 {
+		return fmt.Errorf("contract: maxOutputTokens must be positive")
+	}
+	if r.ToolChoice != nil && len(r.Tools) == 0 {
+		return fmt.Errorf("contract: a tool choice requires at least one tool definition")
+	}
+	seenTools := make(map[string]struct{}, len(r.Tools))
+	for _, tool := range r.Tools {
+		if _, duplicate := seenTools[tool.Name]; duplicate {
+			return fmt.Errorf("contract: tool names must be unique within one request (%q repeats)", tool.Name)
+		}
+		seenTools[tool.Name] = struct{}{}
+	}
+	return nil
+}
+
+func (t RoutingTarget) validate() error {
+	switch t.Kind {
+	case TargetModel:
+		if t.ModelReference == nil {
+			return fmt.Errorf("contract: a model target must name a model reference")
+		}
+		if !t.ModelReference.Valid() {
+			return fmt.Errorf("contract: %q is not a model reference", *t.ModelReference)
+		}
+		if t.RoutingProfile != nil {
+			return fmt.Errorf("contract: a model target cannot also name a routing profile")
+		}
+	case TargetRoutingProfile:
+		if t.RoutingProfile == nil {
+			return fmt.Errorf("contract: a routing-profile target must name a profile")
+		}
+		if !t.RoutingProfile.Valid() {
+			return fmt.Errorf("contract: %q is not a routing-profile slug", *t.RoutingProfile)
+		}
+		if t.ModelReference != nil {
+			return fmt.Errorf("contract: a routing-profile target cannot also name a model")
+		}
+	default:
+		return fmt.Errorf("contract: %q is not a routing-target kind", t.Kind)
+	}
+	return nil
+}
+
+func (i Input) validate() error {
+	switch i.Format {
+	case InputMessages:
+		if len(i.Messages) == 0 {
+			return fmt.Errorf("contract: a messages input must carry at least one message")
+		}
+		for index, message := range i.Messages {
+			if err := message.validate(); err != nil {
+				return fmt.Errorf("contract: input.messages[%d]: %w", index, err)
+			}
+		}
+	case InputText:
+		if i.Text == nil {
+			return fmt.Errorf("contract: a text input must carry text")
+		}
+	case InputTextBatch:
+		if len(i.Texts) == 0 {
+			return fmt.Errorf("contract: a text_batch input must carry at least one text")
+		}
+	default:
+		return fmt.Errorf("contract: %q is not an input format", i.Format)
+	}
+	return nil
+}
+
+func (m Message) validate() error {
+	if !isMember(m.Role, messageRoleValues) {
+		return fmt.Errorf("%q is not a message role", m.Role)
+	}
+	if m.Role == RoleTool && m.ToolCallID == nil {
+		return fmt.Errorf("a tool message must name the tool call it answers")
+	}
+	if m.Role != RoleTool && m.ToolCallID != nil {
+		return fmt.Errorf("only a tool message answers a tool call")
+	}
+	if m.Role != RoleAssistant && m.ToolCalls != nil {
+		return fmt.Errorf("only an assistant message makes tool calls")
+	}
+	for index, part := range m.Content {
+		if err := part.validate(); err != nil {
+			return fmt.Errorf("content[%d]: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func (p ContentPart) validate() error {
+	switch p.Type {
+	case ContentPartText:
+		if p.Text == nil {
+			return fmt.Errorf("a text part must carry text")
+		}
+	case ContentPartImage, ContentPartAudio, ContentPartFile:
+		if p.Source == nil {
+			return fmt.Errorf("a %s part must carry a source", p.Type)
+		}
+		return p.Source.validate()
+	default:
+		return fmt.Errorf("%q is not a content-part type", p.Type)
+	}
+	return nil
+}
+
+func (s ContentSource) validate() error {
+	switch s.Kind {
+	case ContentSourceURL:
+		if s.URL == nil || *s.URL == "" {
+			return fmt.Errorf("a url source must carry a url")
+		}
+	case ContentSourceInline:
+		if s.MediaType == nil || s.Data == nil {
+			return fmt.Errorf("an inline source must carry a media type and data")
+		}
+	default:
+		return fmt.Errorf("%q is not a content-source kind", s.Kind)
+	}
+	return nil
+}
+
+func isMember[T comparable](value T, allowed []T) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}

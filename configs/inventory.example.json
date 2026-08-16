@@ -1,0 +1,25 @@
+{
+  "$comment": [
+    "Relay's deployment inventory: which provider serves which model reference, and what that provider calls the model.",
+    "It holds no Oxy-owned concept — no account, application, credential, price or commercial permission. See AGENTS.md.",
+    "The entries below are illustrative. No live provider call has been made from this repository, so the upstream model ids here are unverified against a real provider."
+  ],
+  "deployments": [
+    {
+      "deploymentId": "dep_openai_gpt5_2026_05_01",
+      "provider": "openai",
+      "modelReference": "openai/gpt-5@2026-05-01",
+      "upstreamModelId": "gpt-5-2026-05-01",
+      "region": "us-east-1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openai_gpt5_2026_01_01",
+      "provider": "openai",
+      "modelReference": "openai/gpt-5@2026-01-01",
+      "upstreamModelId": "gpt-5-2026-01-01",
+      "region": "us-east-1",
+      "current": false
+    }
+  ]
+}

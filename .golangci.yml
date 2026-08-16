@@ -1,0 +1,25 @@
+# The linter set CI gates on. Kept small and justified: a linter nobody can
+# satisfy gets disabled with a nolint comment, and a repository full of nolint
+# comments has no linter at all.
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    # An unclosed response body leaks a connection per request, which on a
+    # streaming data plane is the failure that arrives a day later as
+    # exhaustion rather than as an error.
+    - bodyclose
+    # Relay's control flow turns on errors.Is/As — cancellation versus provider
+    # failure, ErrNoRoute, ErrUnsupported, ErrUpstream. A comparison written
+    # with == against a wrapped error silently stops matching.
+    - errorlint
+    # A context that is created and never cancelled keeps a request's resources
+    # alive past the request.
+    - contextcheck
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
