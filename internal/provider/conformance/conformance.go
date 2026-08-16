@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,7 @@ import (
 	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
 	"github.com/OxyHQ/Relay/internal/relay"
+	"github.com/OxyHQ/Relay/internal/rotation"
 )
 
 // Scenario names a behaviour the fake upstream must be able to perform. Each
@@ -207,6 +210,16 @@ func Run(t *testing.T, subject Subject) {
 		if !failure.Retryable {
 			t.Error("a transient rate limit was reported as non-retryable")
 		}
+		// The same classification is what failover and the circuit breakers
+		// read. An adapter that reported a rate limit under a category the
+		// platform treats as the request's fault would leave a saturated
+		// deployment in rotation forever, failing every request sent to it.
+		if failure.UpstreamCategory == nil {
+			t.Fatal("an upstream failure carries no upstreamCategory, so nothing can tell whether the deployment or the request is at fault")
+		}
+		if !provider.AttributableCategory(*failure.UpstreamCategory) {
+			t.Errorf("a rate limit was classified %q, which the platform reads as the request's fault: no failover and no breaker would ever see it", *failure.UpstreamCategory)
+		}
 	})
 
 	t.Run("classifies an exhausted quota as non-retryable", func(t *testing.T) {
@@ -257,6 +270,13 @@ func Run(t *testing.T, subject Subject) {
 		}
 		if got := run.upstream.RequestCount(); got != 0 {
 			t.Errorf("the upstream received %d requests for a request that should have been refused before translation completed", got)
+		}
+		// A refusal to translate is Relay's, not the provider's. Dressing it as
+		// an upstream failure would count it against the deployment's health
+		// and eventually take a perfectly healthy route out of rotation because
+		// one customer kept sending a request it cannot express.
+		if failure.UpstreamCategory != nil {
+			t.Errorf("a refusal to translate carries upstreamCategory %q, which would count against the deployment that never saw the request", *failure.UpstreamCategory)
 		}
 	})
 
@@ -398,22 +418,41 @@ func execute(t *testing.T, subject Subject, scenario Scenario, request *contract
 	upstream := subject.StartUpstream(t, scenario)
 	adapter := subject.NewAdapter(t, upstream.URL)
 
-	inventoryJSON := fmt.Sprintf(`{"deployments":[{
-		"deploymentId":"dep_conformance",
-		"provider":%q,
-		"modelReference":%q,
-		"upstreamModelId":%q,
-		"region":"test-region",
-		"current":true
-	}]}`, subject.Provider, subject.ModelReference, subject.UpstreamModelID)
+	// One deployment, deliberately. Failover is the executor's behaviour and is
+	// covered where two deployments exist; here its absence is an assertion —
+	// see assertWellFramedStream, which requires no route switch to appear.
+	inventoryJSON := fmt.Sprintf(`{
+		"snapshotId":"snap_conformance",
+		"issuedAt":%q,
+		"deployments":[{
+			"deploymentId":"dep_conformance",
+			"provider":%q,
+			"modelReference":%q,
+			"upstreamModelId":%q,
+			"region":"test-region",
+			"current":true
+		}]
+	}`, contract.NewTimestamp(time.Now()), subject.Provider, subject.ModelReference, subject.UpstreamModelID)
 
-	inv, err := inventory.Parse([]byte(inventoryJSON))
+	path := filepath.Join(t.TempDir(), "inventory.json")
+	if err := os.WriteFile(path, []byte(inventoryJSON), 0o600); err != nil {
+		t.Fatalf("writing the conformance inventory: %v", err)
+	}
+	store, err := inventory.NewStore(inventory.Config{Path: path})
 	if err != nil {
 		t.Fatalf("building the conformance inventory: %v", err)
 	}
 	registry, err := provider.NewRegistry(adapter)
 	if err != nil {
 		t.Fatalf("registering the adapter: %v", err)
+	}
+	executor, err := relay.NewExecutor(relay.Config{
+		Inventory: store,
+		Providers: registry,
+		Rotation:  rotation.NewRegistry(rotation.Policy{}, nil),
+	})
+	if err != nil {
+		t.Fatalf("building the executor: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -431,7 +470,7 @@ func execute(t *testing.T, subject Subject, scenario Scenario, request *contract
 		return nil
 	}
 
-	executed := relay.NewExecutor(inv, registry).Execute(ctx, request, sink)
+	executed := executor.Execute(ctx, request, sink)
 	result.report = executed.Report
 	result.failure = executed.Failure
 	result.upstreamEchoedCredential = scenario == ScenarioCredentialEchoed && upstream.RequestCount() > 0
@@ -463,6 +502,12 @@ func assertWellFramedStream(t *testing.T, r *run) {
 		switch event.EventType() {
 		case contract.EventStart:
 			starts++
+		case contract.EventRouteSwitch:
+			// The conformance inventory declares ONE deployment, so there is
+			// nowhere to switch to. A switch appearing here would mean the
+			// executor re-routed a request to a deployment that does not exist
+			// in the set it resolved.
+			t.Errorf("event %d is a route switch, and the conformance inventory has a single deployment", index)
 		case contract.EventDone, contract.EventError:
 			terminals++
 			if index != len(r.events)-1 {
@@ -549,7 +594,7 @@ func assertReport(t *testing.T, r *run, expected contract.RequestOutcome) {
 		t.Errorf("the report says %q, expected %q", r.report.Outcome, expected)
 	}
 	if r.report.RouteSwitches != 0 {
-		t.Errorf("the report counts %d route switches; failover is not implemented", r.report.RouteSwitches)
+		t.Errorf("the report counts %d route switches, and the conformance inventory declares one deployment", r.report.RouteSwitches)
 	}
 	if r.report.DeploymentID == nil || *r.report.DeploymentID == "" {
 		t.Error("the report names no deployment, so a charge cannot be attributed to a route")

@@ -39,20 +39,25 @@ internal/contract/              Go types for @oxyhq/contracts' inference module
   fixtures_test.go              wire fixtures for the Zod round-trip
 internal/edgeauth/              Ed25519 verification of the Oxy edge's signature
 internal/httpapi/               the Oxy-facing HTTP surface
-internal/inventory/             deployment inventory: reference → provider + upstream model id
+internal/inventory/             deployment inventory and its configuration snapshot store
 internal/provider/              the Adapter interface, registry and error vocabulary
   conformance/                  the suite every adapter must pass
   openaicompat/                 the ported OpenAI Chat Completions adapter
-internal/relay/                 the executor: framing, terminality, usage reports
+internal/providercost/          what a request cost Relay upstream; never a customer amount
+internal/relay/                 the executor: routing, failover, framing, usage reports
+internal/rotation/              per-deployment circuit breakers and health scoring
 internal/sse/                   SSE decoding (upstream) and encoding (downstream)
 tools/contract/                 Node tooling that derives and checks the contract
-configs/inventory.example.json  an illustrative inventory
+configs/inventory.example.json  an illustrative inventory snapshot
+configs/provider-rates.example.json  illustrative upstream rate cards
 ```
 
-Layers depend downward only: `httpapi → relay → provider → contract`, with
-`inventory` and `sse` as leaves. `contract` imports nothing of Relay's, which is
-what lets the drift gate compare it against the published package with nothing
-in between.
+Layers depend downward only: `httpapi → relay → {inventory, rotation,
+providercost, provider} → contract`, with `sse` as a leaf. `contract` imports
+nothing of Relay's, which is what lets the drift gate compare it against the
+published package with nothing in between — and specifically it cannot reach
+`providercost`, which is asserted rather than reviewed
+(`TestTheContractCannotReachAnAmount`).
 
 **Go** is the implementation language, as the epic prefers for a
 high-concurrency streaming data plane. Nothing here argued against it: a
@@ -160,6 +165,198 @@ the cut, and settles as `cancelled`. A partial stream is a settlement case, so
 an adapter that returned nothing on cancellation would make an exact refund
 impossible.
 
+## Same-model failover
+
+When a deployment fails in a way another one could survive, the same **model
+revision** is retried somewhere else. Never a different model: the platform
+forbids serving weights the customer did not ask for, and a fallback that
+crossed models would look exactly like a success.
+
+**That distinction is structural, not a rule someone remembers.** A reference
+resolves to an `inventory.RouteSet`: one model reference, and the endpoints that
+serve it. The reference is stored **once, for the whole set**, and an
+`inventory.Endpoint` carries none of its own — so a candidate that names
+different weights is not a case that has to be excluded, it is a value that
+cannot be constructed. `RouteSet.Candidates()` is the only place a route is
+built from an inventory, and it stamps the set's single reference onto every
+one. Two guards sit on top of that shape, and both are mutation-tested:
+`TestAnEndpointCannotCarryItsOwnModelReference` fails if a future change gives
+an endpoint its own model, and the emitter refuses to announce a switch whose
+origin and destination references differ.
+
+The `route_switch` event it emits is deployment-scoped and cannot be anything
+else: the fields that describe a substitution — `requestedModelId`,
+`fromModelReference`, `toModelReference`, `authorizedByPolicy` — are not set,
+and the function that builds the event takes no argument from which they could
+be.
+
+**A switch is only possible while nothing has been streamed.** Once output has
+reached the customer, retrying elsewhere would deliver the beginning of one
+answer and the whole of another, so the emitter refuses — and because the
+executor asks the emitter rather than keeping its own copy of the rule, there is
+one place that knows it. That is also why the `route_switch` event **precedes**
+the `start` event: the switch really did happen before anything was streamed,
+and the contract specifies event shapes without specifying their order.
+
+**A switch is announced at the attempt that replaces the failed one**, not at
+the moment of failure — the replacement's own breaker may refuse it, and
+announcing early would tell a customer their request moved somewhere it never
+went, and put a switch on the receipt that never happened.
+
+**What is never retried elsewhere:** a request the provider could not express (a
+refusal about the request, identical everywhere — retrying would make what a
+request *means* depend on which route happened to be healthy), a content filter,
+a cancellation, and any failure no adapter classified. One function decides,
+`provider.AttributableCategory`, and the circuit breakers read the same one, so
+the two can never drift apart.
+
+### The policy Relay is not sent, and what it does about it
+
+**Failover is off by default, and that default is a contract finding rather than
+caution.** The published `routingFallbackPolicySchema` gives the customer two
+booleans that govern exactly this feature — `disabled` and
+`sameModelDeployment` — and `routingPolicySchema` adds `allowedRegions` and
+`deniedRegions`, which govern where a request may be served at all. The envelope
+carries a routing policy **reference** and none of those values. Relay therefore
+cannot tell a customer who asked for failover from one who switched it off, and
+failing over anyway would silently override a control the platform advertises.
+
+So with no authorisation, a reference resolves to its **declared primary
+deployment and nowhere else** — exactly how this build behaved before failover
+existed. Choosing among deployments at all is the policy decision, so health
+ordering is withheld too, not just the retry.
+
+`RELAY_ASSUME_FAILOVER_AUTHORIZED=<reason>:<YYYY-MM-DD>` turns it on. It is
+deliberately awkward: it states that every caller of this process has a routing
+policy permitting same-model failover across every deployment in its inventory,
+which is true of a first-party canary and of nothing else. An empty value, a
+bare `true`, or a reason with no date either leave the default in place or
+refuse to start — never enable it. See item 11 below, which is the argument for
+the snapshot travelling.
+
+## Circuit breakers and health scoring
+
+One breaker and one health score per **deployment**. The unit is the deployment
+rather than the provider because a provider is usually several deployments in
+several regions, and taking all of them out because one is failing throws away
+the capacity failover exists to use.
+
+| State | Meaning |
+|---|---|
+| `closed` | admitting requests |
+| `open` | out of rotation until its cooldown expires |
+| `half_open` | the cooldown expired; one real request at a time decides its fate |
+
+**What trips one:** only a failure attributable to the deployment — the upstream
+refusing, timing out, rate limiting, exhausting a quota, or rejecting *Relay's
+own* credential. Three consecutive ones open it, and the count is consecutive
+rather than a rate because a rate needs a window and a window needs a traffic
+assumption.
+
+**What must never trip one:** a request the provider cannot express, a content
+filter, a client that hung up. Those fail identically everywhere, so counting
+them against a deployment would let one customer's malformed traffic take a
+healthy route out of rotation for everybody — a denial of service with extra
+steps. `Permit.NotAttributable` is how a caller says so rather than defaulting
+into it, and it is mutation-tested from both directions.
+
+**What probes it back in:** a cooldown, then **one real customer request**. Not
+a burst — half-open admits exactly one trial at a time, because everything that
+arrives the moment a cooldown expires is a thundering herd onto the provider
+that just stopped failing. And not a synthetic probe: a synthetic probe proves
+the provider answers some *other* request than the one it is failing, and Relay
+would be paying for it. A successful trial closes the breaker; a failed one
+reopens it with a doubled cooldown, capped, so a long outage is still retried
+within a bounded time.
+
+The **health score** is an exponential moving average of attributable outcomes,
+and it orders candidates: admitting breakers first, healthier before flakier,
+the inventory's declared order as the tie-break. A deployment nothing has routed
+to scores 1 — assuming the worst would sort it permanently last, and it would
+never receive the traffic that would prove otherwise.
+
+When every deployment of a model is out of rotation the request is refused with
+`deployment_unavailable`, carrying a retry hint that is **the moment the
+earliest breaker will admit its next trial** rather than a number chosen to look
+reasonable.
+
+## Configuration snapshots
+
+Relay's configuration arrives as a file the control plane publishes. If that
+pipeline stops, the data plane must not stop serving — and must not start
+pretending it knows things it no longer knows. Those are two requirements, and
+`inventory.Store` keeps them apart.
+
+**A failed reload changes nothing.** The last good snapshot stays installed,
+whole: a half-parsed inventory is never swapped in, so there is no state where
+some references resolve and others silently vanish.
+
+**What a stale snapshot may serve: any pinned reference, at any age.** The
+mapping from immutable weights to a provider's model id cannot go stale, and a
+pinned request is served or refused, never substituted — so the customer is told
+exactly which weights answered, as always.
+
+**What it may not serve: the choice of a current revision.** Which revision an
+unpinned reference resolves to is Oxy's decision and it is the one thing in the
+file that decays. Past the horizon (`RELAY_INVENTORY_MAX_AGE`, default one hour)
+an unpinned reference is refused with `service_unavailable`, retryable, naming
+the age and saying that a revision-pinned reference is still served. Guessing
+instead would serve weights Oxy may have replaced hours ago on a decision nobody
+made.
+
+**Prices do not enter this** — Relay holds none — which removes the hardest half
+of the usual stale-configuration problem. The only thing that decays here is a
+routing choice, and it degrades rather than breaking.
+
+**One requirement this places on the publisher:** staleness is measured from the
+snapshot's own `issuedAt`, not from when Relay last read the file. That is the
+only measure that survives the failure that matters — a publisher that has
+stopped running leaves a perfectly readable file on disk, and re-reading it
+every thirty seconds would report it fresh forever. So the snapshot must be
+**re-issued on a cadence shorter than the horizon even when nothing has
+changed**. An unchanged snapshot with an old `issuedAt` is indistinguishable,
+from here, from a control plane that has stopped publishing, and is treated as
+one.
+
+`GET /internal/v1/health` reports the snapshot id, its age, the horizon, whether
+unpinned references are still being resolved, and the last reload failure with
+no filesystem path in it.
+
+## Provider cost
+
+What the upstream will invoice Relay for a request. It is an **operator**
+number, and this is the only package in the repository that holds an amount of
+money at all.
+
+It is deliberately not the contract's money type. ADR 0006 gives Oxy every
+customer-facing amount and Relay its own upstream cost; `internal/contract` has
+no money type and must not acquire one, so the two cannot be confused by
+reaching for the same struct. Nothing here appears in any produced shape: the
+stream events, the usage report and the error body have no field it could
+occupy, and the descriptor gate fails on any field added to them that the
+contract does not have. The containment check is the same amount in two places —
+present in the operator log, absent from every byte the customer receives — with
+a control proving a non-zero cost was measured, so "no cost in the response"
+cannot be what an unpriced request also reports.
+
+**A failed failover attempt is off the customer's receipt and on Relay's cost.**
+The customer never received that output, so charging for it would be wrong; the
+provider invoices for it regardless, so dropping it would leave Relay
+reconciling against a number short by exactly its own failover traffic. That
+asymmetry is why this is a separate measurement rather than a field on the usage
+report.
+
+**An unknown cost is not a zero cost.** A deployment with no rate card, or a
+unit a card does not price, produces a measurement that says so and names the
+unpriced units. Summing unknowns as zero yields a reconciliation that looks
+complete and is quietly short by exactly the traffic nobody priced.
+
+Rate cards are optional (`RELAY_PROVIDER_RATES_PATH`), live in their own file
+read by their own package, and are keyed by deployment id. Amounts are integers
+in 1e-12 of the currency's major unit — the same scale as the published
+contract's money type, so an operator reconciling an invoice against the ledger
+is comparing like with like.
+
 ## The provider adapter interface
 
 ```go
@@ -246,10 +443,18 @@ bypass that ships.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RELAY_INVENTORY_PATH` | yes | deployment inventory (see `configs/inventory.example.json`) |
+| `RELAY_INVENTORY_PATH` | yes | deployment inventory snapshot (see `configs/inventory.example.json`) |
 | `RELAY_EDGE_PUBLIC_KEYS` | yes | `kid:base64,…` Ed25519 **public** keys; not secret |
 | `RELAY_PROVIDER_OPENAI_API_KEY` | no | absent ⇒ the provider reports `unconfigured` |
 | `RELAY_PROVIDER_OPENAI_BASE_URL` | no | default `https://api.openai.com/v1` |
+| `RELAY_PROVIDER_RATES_PATH` | no | upstream rate cards; absent ⇒ provider cost is not measured |
+| `RELAY_INVENTORY_MAX_AGE` | no | staleness horizon for unpinned resolution, default `1h` |
+| `RELAY_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
+| `RELAY_ASSUME_FAILOVER_AUTHORIZED` | no | `<reason>:<YYYY-MM-DD>`; absent ⇒ no failover, see above |
+| `RELAY_BREAKER_FAILURES_TO_OPEN` | no | default `3` |
+| `RELAY_BREAKER_COOLDOWN` | no | default `5s` |
+| `RELAY_BREAKER_MAX_COOLDOWN` | no | default `2m` |
+| `RELAY_BREAKER_SUCCESSES_TO_CLOSE` | no | default `1` |
 | `RELAY_ADDR` | no | default `:8080` |
 | `RELAY_EDGE_MAX_SKEW` | no | default `5m` |
 | `RELAY_MAX_ENVELOPE_BYTES` | no | default `16777216` |
@@ -260,20 +465,21 @@ golangci-lint run ./...
 cd tools/contract && npm ci && npm run generate && npm run validate
 ```
 
-## Explicitly out of scope for this PR
+## Explicitly out of scope
 
 Named here so nobody assumes otherwise. None of these is stubbed; each is simply
 absent, and the code refuses rather than pretending.
 
-- **Same-model deployment failover, circuit breakers and health scoring.** The
-  inventory refuses two deployments of one revision rather than choosing
-  silently; `routeSwitches` is structurally zero and no `route_switch` event can
-  be emitted.
-- **Cross-model fallback.** Would require the routing policy snapshot Relay is
-  not sent.
-- **Configuration snapshots for a control-plane outage.**
-- **Provider-cost measurement and reconciliation.** Relay reports units, never
-  money; there is no money type in `internal/contract` at all.
+- **Cross-model fallback.** Would require `routingFallbackPolicy`'s
+  `authorizedCrossModel` list, which arrives only inside the policy snapshot
+  Relay is not sent. Nothing here can express it: the route-switch event Relay
+  builds is deployment-scoped by construction.
+- **Failover without an operator acknowledgement.** Same-model failover is
+  built, tested and off by default, for the contract reason above and in item 11
+  below.
+- **Reconciliation of provider cost against provider invoices.** Relay measures
+  what each request cost it upstream; matching that against what a provider
+  actually billed is a finance process with no home in a data plane.
 - **Oxy-hosted open-weight serving (vLLM/SGLang) and any GPU scheduler.** The
   epic says not to block the first API-only launch on a scheduler.
 - **BYOK.** The provider-connection shapes are recorded not-applicable.
@@ -296,6 +502,8 @@ implemented against before. Each is a real gap, not a preference.
    zero-data-retention, licence constraints or price ceilings — it has no
    values to enforce. Either the envelope must carry the snapshot, or the ADRs
    should say plainly that Oxy enforces all of it and Relay only executes.
+   Item 11 is the sharpest instance of this and the one that blocks working
+   code.
 2. **A `routing_profile` target is unresolvable.** `routingTargetSchema` lets a
    request say "choose one for me", but the candidate list lives in the Oxy
    catalogue's `routingProfileSchema` and is not in the envelope. This build
@@ -349,6 +557,36 @@ implemented against before. Each is a real gap, not a preference.
     emitted by mistake is silently stripped at Oxy's parse rather than caught.
     The request's `client` block *is* strict, and that strictness is what makes
     its privacy rule enforceable — the same argument applies to the rest.
+11. **The customer's own switch for same-model failover never reaches the data
+    plane that implements it.** `routingFallbackPolicySchema` carries
+    `disabled`, `sameModelDeployment` and `authorizedCrossModel`;
+    `routingPolicySchema` carries `allowedRegions` and `deniedRegions`. Every
+    one of them governs what this repository's failover does, and the envelope
+    carries none of them — only `{routingPolicyId, policyVersion}`. So a Relay
+    that failed over by default would override, for every customer who set it,
+    a control the platform advertises to them. This build therefore ships
+    failover **off**, and choosing among the deployments of one model at all is
+    withheld with it, since that choice is governed by the same values. It
+    cannot even be pre-implemented speculatively: adding a snapshot field to the
+    Go request type fails the descriptor gate, because the published shape does
+    not have one. **This is the concrete case for the snapshot travelling.**
+    Failing that, Oxy should state that it resolves the deployment as well as
+    the model, and send one — at which point Relay's inventory and Oxy's
+    catalogue need the direction of exchange that item 8 already asks for.
+12. **The contract specifies event shapes and not their order.** Relay emits
+    `route_switch` *before* `start`, because the only switch it can safely
+    perform is one where nothing has been streamed yet, and saying so in order
+    is the truthful framing. The alternative reading — that `route_switch`
+    amends a `start` already sent — is only expressible for a switch that
+    happens mid-stream, which would duplicate output. If any consumer assumes
+    `start` is always the first event, that assumption should become a stated
+    rule in the contract rather than an implicit one.
+13. **A model-scope `route_switch` cannot be constructed for a pinned request.**
+    `routeSwitchDetail.requestedModelId` is the *unpinned* model line the
+    customer asked for, so a request that pinned a revision has no value that
+    satisfies the field. That is consistent with never substituting pinned
+    weights, but it means cross-model fallback is expressible only for unpinned
+    requests, which is worth stating rather than discovering.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md

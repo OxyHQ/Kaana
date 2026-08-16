@@ -35,8 +35,11 @@ import (
 //     before a cancellation. A separate Usage() method would invite being
 //     called on a stream that ended differently from the one it measured.
 //   - Health must be answerable without a customer request — it feeds the
-//     internal status surface, and later the health scoring and circuit
-//     breakers this PR leaves out — so it cannot be folded into Stream.
+//     internal status surface — so it cannot be folded into Stream. It is
+//     deliberately NOT what returns a deployment to rotation: that is one real
+//     customer request through a half-open breaker (internal/rotation), because
+//     a probe of the provider's model listing proves it answers some other
+//     request than the one it is failing.
 //
 // Everything an adapter does NOT do is as deliberate. It does not allocate
 // request or generation ids, assign sequence numbers, decide terminality, emit

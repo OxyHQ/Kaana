@@ -2,59 +2,159 @@ package relay_test
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/OxyHQ/Relay/internal/contract"
 	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Relay/internal/providercost"
 	"github.com/OxyHQ/Relay/internal/relay"
+	"github.com/OxyHQ/Relay/internal/rotation"
 )
 
-const testInventory = `{"deployments":[{
+// oneDeployment is the single-route inventory most of these tests run against.
+// Failover needs two, and builds its own; see failover_test.go.
+const oneDeployment = `{
   "deploymentId":"dep_test","provider":"stub",
   "modelReference":"stub/model@2026-05-01","upstreamModelId":"model",
-  "region":"test-region","current":true}]}`
+  "region":"test-region","current":true}`
 
 /* -------------------------------------------------------------------------- */
 /*  Adapters the tests script                                                 */
 /* -------------------------------------------------------------------------- */
 
 type scriptedAdapter struct {
+	slug   contract.ProviderSlug
 	stream func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error)
+	// translate, when set, replaces the pass-through translation.
+	translate func(request *contract.Request, route provider.Route) (*provider.Call, error)
+
+	mutex sync.Mutex
+	calls int
 }
 
-func (s *scriptedAdapter) Provider() contract.ProviderSlug { return "stub" }
+func (s *scriptedAdapter) Provider() contract.ProviderSlug {
+	if s.slug == "" {
+		return "stub"
+	}
+	return s.slug
+}
 
 func (s *scriptedAdapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if s.translate != nil {
+		return s.translate(request, route)
+	}
 	return &provider.Call{Route: route, Stream: request.Stream}, nil
 }
 
 func (s *scriptedAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+	s.mutex.Lock()
+	s.calls++
+	s.mutex.Unlock()
 	return s.stream(ctx, call, out)
 }
 
 func (s *scriptedAdapter) Health(context.Context) provider.Health {
-	return provider.Health{Provider: "stub", Status: provider.HealthOK, CheckedAt: contract.NewTimestamp(time.Now())}
+	return provider.Health{Provider: s.Provider(), Status: provider.HealthOK, CheckedAt: contract.NewTimestamp(time.Now())}
 }
 
-func execute(t *testing.T, adapter provider.Adapter, request *contract.Request) ([]contract.StreamEvent, relay.Result) {
+// attempts is how many times this adapter's Stream was entered. Failover tests
+// turn on it: "the request was retried elsewhere" and "the request was retried
+// on the same deployment twice" produce the same stream and different counts.
+func (s *scriptedAdapter) attempts() int {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.calls
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Harness                                                                   */
+/* -------------------------------------------------------------------------- */
+
+// harness builds an executor over a written inventory snapshot, the way the
+// binary does. The snapshot is a real file because the store's whole purpose is
+// re-reading one, and a test that bypassed it would exercise a wiring nothing
+// runs.
+type harness struct {
+	deployments string
+	adapters    []provider.Adapter
+	rotation    *rotation.Registry
+	costs       *providercost.Cards
+	issuedAt    time.Time
+	now         func() time.Time
+	// failoverAuthorized stands in for the routing-policy value the envelope
+	// does not carry. Every test that exercises failover sets it, because with
+	// it false Relay deliberately never chooses among deployments at all — see
+	// relay.Config.AssumeFailoverAuthorized, and the test that pins that
+	// default.
+	failoverAuthorized bool
+}
+
+func (h harness) build(t *testing.T) *relay.Executor {
 	t.Helper()
-	inv, err := inventory.Parse([]byte(testInventory))
-	if err != nil {
-		t.Fatalf("parsing the inventory: %v", err)
+
+	issuedAt := h.issuedAt
+	if issuedAt.IsZero() {
+		issuedAt = time.Now()
 	}
-	registry, err := provider.NewRegistry(adapter)
+	document := fmt.Sprintf(`{"snapshotId":"snap_relay_test","issuedAt":%q,"deployments":[%s]}`,
+		contract.NewTimestamp(issuedAt), h.deployments)
+
+	path := filepath.Join(t.TempDir(), "inventory.json")
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatalf("writing the inventory: %v", err)
+	}
+	store, err := inventory.NewStore(inventory.Config{
+		Path:   path,
+		Now:    h.now,
+		Logger: slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatalf("building the inventory store: %v", err)
+	}
+
+	registry, err := provider.NewRegistry(h.adapters...)
 	if err != nil {
 		t.Fatalf("registering: %v", err)
 	}
+	rotationRegistry := h.rotation
+	if rotationRegistry == nil {
+		rotationRegistry = rotation.NewRegistry(rotation.Policy{}, h.now)
+	}
+	executor, err := relay.NewExecutor(relay.Config{
+		Inventory:                store,
+		Providers:                registry,
+		Rotation:                 rotationRegistry,
+		Costs:                    h.costs,
+		AssumeFailoverAuthorized: h.failoverAuthorized,
+		Now:                      h.now,
+	})
+	if err != nil {
+		t.Fatalf("building the executor: %v", err)
+	}
+	return executor
+}
+
+func (h harness) run(t *testing.T, request *contract.Request) ([]contract.StreamEvent, relay.Result) {
+	t.Helper()
 	var events []contract.StreamEvent
-	result := relay.NewExecutor(inv, registry).Execute(context.Background(), request, func(event contract.StreamEvent) error {
+	result := h.build(t).Execute(context.Background(), request, func(event contract.StreamEvent) error {
 		events = append(events, event)
 		return nil
 	})
 	return events, result
+}
+
+func execute(t *testing.T, adapter provider.Adapter, request *contract.Request) ([]contract.StreamEvent, relay.Result) {
+	t.Helper()
+	return harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}}.run(t, request)
 }
 
 func baseRequest() *contract.Request {

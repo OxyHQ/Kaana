@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/OxyHQ/Relay/internal/contract"
@@ -51,4 +52,43 @@ type ErrUpstream struct {
 
 func (e ErrUpstream) Error() string {
 	return fmt.Sprintf("%s (%s): %s", e.Code, e.Category, e.Detail)
+}
+
+// AttributableCategory reports whether an upstream failure of this category
+// says something about the DEPLOYMENT rather than about the request.
+//
+// It is the single decision that same-model failover and the circuit breakers
+// both turn on, which is why it is one function on the error vocabulary rather
+// than a rule restated in each. The categories that qualify are the ones where
+// sending the identical request to another deployment could plausibly succeed.
+// The rest would be refused again wherever they were sent, and counting them
+// against a deployment would let one customer's malformed traffic take a
+// healthy route out of rotation for everybody.
+func AttributableCategory(category contract.UpstreamErrorCategory) bool {
+	switch category {
+	case contract.UpstreamRateLimit, contract.UpstreamQuota, contract.UpstreamTimeout,
+		contract.UpstreamOverloaded, contract.UpstreamServerError, contract.UpstreamAuthentication:
+		// Authentication belongs here because the credential a provider
+		// refused is RELAY's, not the customer's: another deployment holds a
+		// different one, and this deployment cannot serve anything until an
+		// operator rotates a key.
+		return true
+	case contract.UpstreamInvalidReq, contract.UpstreamContentFilter, contract.UpstreamUnknown:
+		return false
+	}
+	return false
+}
+
+// DeploymentAttributable reports whether a failure is attributable to the
+// deployment that produced it.
+//
+// An error an adapter did not classify is never attributable: nobody can say
+// whether the upstream did the work before it failed, so a second attempt might
+// pay for it twice.
+func DeploymentAttributable(err error) bool {
+	var upstream ErrUpstream
+	if !errors.As(err, &upstream) {
+		return false
+	}
+	return AttributableCategory(upstream.Category)
 }

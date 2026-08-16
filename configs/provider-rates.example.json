@@ -1,0 +1,33 @@
+{
+  "$comment": [
+    "What the UPSTREAM provider charges Relay, per deployment. Optional: with no rate card file, provider cost is not measured, and every measurement says so rather than reporting zero.",
+    "This is not a customer price and never becomes one. Oxy owns every customer-facing amount (ADR 0006); Relay measures units, reports them, and separately records what its providers will invoice it. Nothing here reaches a stream event, a usage report or an error body — see internal/providercost.",
+    "amountPerUnit is an integer in 1e-12 of the currency's major unit, the same scale as the published contract's money type so an operator reconciling an invoice against the ledger is comparing like with like. A provider quoting $2.50 per million input tokens is 2500000 here.",
+    "Every unit a deployment can report should be priced. A unit that is measured and not priced is named in the measurement rather than silently treated as free, so a reconciliation cannot look complete while being short.",
+    "The numbers below are invented placeholders. No provider's real rates are published in this repository."
+  ],
+  "rateCards": [
+    {
+      "deploymentId": "dep_openai_gpt5_2026_05_01_use1",
+      "currency": "USD",
+      "rates": [
+        { "unit": "requests", "amountPerUnit": 0 },
+        { "unit": "input_tokens", "amountPerUnit": 1000000 },
+        { "unit": "cached_input_tokens", "amountPerUnit": 100000 },
+        { "unit": "output_tokens", "amountPerUnit": 8000000 },
+        { "unit": "reasoning_tokens", "amountPerUnit": 8000000 }
+      ]
+    },
+    {
+      "deploymentId": "dep_openai_gpt5_2026_05_01_usw2",
+      "currency": "USD",
+      "rates": [
+        { "unit": "requests", "amountPerUnit": 0 },
+        { "unit": "input_tokens", "amountPerUnit": 1000000 },
+        { "unit": "cached_input_tokens", "amountPerUnit": 100000 },
+        { "unit": "output_tokens", "amountPerUnit": 8000000 },
+        { "unit": "reasoning_tokens", "amountPerUnit": 8000000 }
+      ]
+    }
+  ]
+}
