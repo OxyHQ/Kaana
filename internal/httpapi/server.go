@@ -36,8 +36,10 @@ import (
 
 	"github.com/OxyHQ/Relay/internal/contract"
 	"github.com/OxyHQ/Relay/internal/edgeauth"
+	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
 	"github.com/OxyHQ/Relay/internal/relay"
+	"github.com/OxyHQ/Relay/internal/rotation"
 	"github.com/OxyHQ/Relay/internal/sse"
 )
 
@@ -61,6 +63,8 @@ type Server struct {
 	executor         *relay.Executor
 	verifier         *edgeauth.Verifier
 	registry         *provider.Registry
+	inventory        *inventory.Store
+	rotation         *rotation.Registry
 	logger           *slog.Logger
 	maxEnvelopeBytes int64
 }
@@ -69,9 +73,12 @@ type Server struct {
 // mode, not even for local development, because a bypass that exists is a
 // bypass that ships.
 type Config struct {
-	Executor         *relay.Executor
-	Verifier         *edgeauth.Verifier
-	Registry         *provider.Registry
+	Executor  *relay.Executor
+	Verifier  *edgeauth.Verifier
+	Registry  *provider.Registry
+	Inventory *inventory.Store
+	Rotation  *rotation.Registry
+	// Logger is optional; nil uses the default logger.
 	Logger           *slog.Logger
 	MaxEnvelopeBytes int64
 }
@@ -85,6 +92,10 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("httpapi: no edge signature verifier")
 	case config.Registry == nil:
 		return nil, fmt.Errorf("httpapi: no adapter registry")
+	case config.Inventory == nil:
+		return nil, fmt.Errorf("httpapi: no inventory store")
+	case config.Rotation == nil:
+		return nil, fmt.Errorf("httpapi: no rotation registry")
 	}
 	logger := config.Logger
 	if logger == nil {
@@ -98,6 +109,8 @@ func New(config Config) (*Server, error) {
 		executor:         config.Executor,
 		verifier:         config.Verifier,
 		registry:         config.Registry,
+		inventory:        config.Inventory,
+		rotation:         config.Rotation,
 		logger:           logger,
 		maxEnvelopeBytes: limit,
 	}, nil
@@ -209,7 +222,15 @@ func (s *Server) logResult(requestID contract.RequestID, result relay.Result, el
 			"model", result.Report.ResolvedModelReference,
 			"outcome", result.Report.Outcome,
 			"usageSource", result.Report.UsageSource,
+			"routeSwitches", result.Report.RouteSwitches,
 		)
+	}
+	if len(result.UpstreamCost.Attempts) > 0 {
+		// What the providers will invoice for this request, including attempts
+		// that failed and produced nothing for the customer. It is here, in an
+		// operator log, and in no response body: Relay measures its own cost
+		// and never quotes an amount to anyone.
+		attributes = append(attributes, "upstreamCost", result.UpstreamCost)
 	}
 	if result.Failure != nil {
 		attributes = append(attributes, "code", result.Failure.Code, "retryable", result.Failure.Retryable)
@@ -223,10 +244,28 @@ func (s *Server) logResult(requestID contract.RequestID, result relay.Result, el
 /*  Health                                                                    */
 /* -------------------------------------------------------------------------- */
 
+// deploymentHealth is one route's rotation state, joined to what the inventory
+// says it is. It names a deployment id — which Oxy issues and already receives
+// on every usage report — a provider slug and a health score, and nothing else:
+// no upstream URL, no region-level capacity, no credential state.
+type deploymentHealth struct {
+	rotation.Health
+	Provider contract.ProviderSlug `json:"provider"`
+}
+
 type healthResponse struct {
 	ContractVersion string             `json:"contractVersion"`
 	CheckedAt       contract.Timestamp `json:"checkedAt"`
 	Providers       []provider.Health  `json:"providers"`
+	// Configuration is what the data plane is serving from. An operator reading
+	// a wave of refusals needs to see a snapshot that stopped advancing here,
+	// rather than inferring it from the shape of the errors.
+	Configuration inventory.SnapshotStatus `json:"configuration"`
+	// Deployments is the rotation state of every route in the snapshot. A
+	// deployment that is out of rotation is the difference between "the
+	// provider is down" and "we stopped asking", and only this surface says
+	// which.
+	Deployments []deploymentHealth `json:"deployments"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -239,9 +278,23 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		ContractVersion: contract.ContractVersion,
 		CheckedAt:       contract.NewTimestamp(time.Now()),
 		Providers:       make([]provider.Health, 0),
+		Configuration:   s.inventory.Status(),
+		Deployments:     make([]deploymentHealth, 0),
 	}
 	for _, adapter := range s.registry.All() {
 		response.Providers = append(response.Providers, adapter.Health(r.Context()))
+	}
+
+	endpoints := s.inventory.Current().Deployments()
+	ids := make([]contract.DeploymentID, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		ids = append(ids, endpoint.DeploymentID)
+	}
+	for index, health := range s.rotation.Project(ids) {
+		response.Deployments = append(response.Deployments, deploymentHealth{
+			Health:   health,
+			Provider: endpoints[index].Provider,
+		})
 	}
 	writeJSON(w, http.StatusOK, response)
 }

@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,9 +22,12 @@ type Sink func(contract.StreamEvent) error
 // error with a done — none of which any adapter's own tests would catch,
 // because each adapter would be internally consistent with itself.
 type emitter struct {
-	sink          Sink
-	requestID     contract.RequestID
-	generationID  *contract.GenerationID
+	sink         Sink
+	requestID    contract.RequestID
+	generationID *contract.GenerationID
+	// provider is the deployment currently being attempted. It changes when the
+	// executor fails over, so that the start event names the provider that
+	// actually answered rather than the first one tried.
 	provider      contract.ProviderSlug
 	sequence      int
 	started       bool
@@ -36,15 +40,17 @@ type emitter struct {
 	admittedAt time.Time
 }
 
-func newEmitter(sink Sink, requestID contract.RequestID, generationID *contract.GenerationID, slug contract.ProviderSlug, admittedAt time.Time) *emitter {
+func newEmitter(sink Sink, requestID contract.RequestID, generationID *contract.GenerationID, admittedAt time.Time) *emitter {
 	return &emitter{
 		sink:         sink,
 		requestID:    requestID,
 		generationID: generationID,
-		provider:     slug,
 		admittedAt:   admittedAt,
 	}
 }
+
+// serving names the deployment about to be attempted.
+func (e *emitter) serving(slug contract.ProviderSlug) { e.provider = slug }
 
 func (e *emitter) next() int {
 	sequence := e.sequence
@@ -149,6 +155,65 @@ func (e *emitter) Usage(units []contract.UsageQuantity, source contract.UsageSou
 		Seq:           e.next(),
 		Units:         units,
 		UsageSource:   source,
+	})
+}
+
+// errSwitchTooLate reports that the stream has already started, so the request
+// can no longer be moved.
+//
+// It is a value rather than a formatted error because the executor's failover
+// loop matches on it: this is the difference between "there is nowhere left to
+// go" — an ordinary outcome — and a stream that could not be written to, which
+// is a delivery failure.
+var errSwitchTooLate = errors.New("relay: a route switch follows the stream's start event; retrying now would duplicate output the customer already has")
+
+// routeSwitch reports that an attempt failed and the request is being retried
+// on another deployment of the same model revision.
+//
+// Two rules are enforced here rather than by the caller, because both are the
+// kind that a future change would breach without noticing:
+//
+//  1. **It refuses once the stream has started.** A switch after output has
+//     begun would re-run a request whose first tokens the customer already has,
+//     and the second attempt would emit a second start event describing a
+//     stream that had already been described. So failover is possible exactly
+//     while nothing has been emitted, and that is why this event PRECEDES the
+//     start event rather than amending it: the switch really did happen before
+//     anything was streamed, and saying so in order is the honest framing. The
+//     contract specifies event shapes and not their order; see README.
+//
+//  2. **It refuses a switch between two different model references.** The
+//     destination is a route from the same RouteSet as the origin, so the two
+//     references are the same value by construction — this check is what makes
+//     that a fact the code asserts rather than one a reader has to trust. The
+//     event it builds is deployment-scoped and has no parameter that could make
+//     it anything else: the fields that describe a model substitution
+//     (requestedModelId, fromModelReference, toModelReference,
+//     authorizedByPolicy) are not set, and there is no argument here from which
+//     they could be.
+func (e *emitter) routeSwitch(reason contract.RouteSwitchReason, from, to provider.Route, at time.Time) error {
+	if e.started {
+		return errSwitchTooLate
+	}
+	if from.ModelReference != to.ModelReference {
+		return fmt.Errorf("relay: a route switch from %q to %q would substitute the model, which no policy in this envelope authorises",
+			from.ModelReference, to.ModelReference)
+	}
+	reference := to.ModelReference
+	deployment := to.DeploymentID
+	return e.send(&contract.StreamRouteSwitchEvent{
+		SchemaVersion: contract.SchemaVersion,
+		Type:          contract.EventRouteSwitch,
+		RequestID:     e.requestID,
+		Seq:           e.next(),
+		Reason:        reason,
+		Detail: contract.RouteSwitchDetail{
+			Scope:          contract.SwitchScopeDeployment,
+			ToProvider:     to.Provider,
+			ModelReference: &reference,
+			ToDeploymentID: &deployment,
+		},
+		OccurredAt: contract.NewTimestamp(at),
 	})
 }
 

@@ -54,6 +54,55 @@ and is answerable to it.
   `schemaVersion`, whole, before any field is interpreted.
 - **A version is never inferred from the presence of a field.**
 
+## Routing, failover and health
+
+- **Failover is same-model or it is nothing.** A request's candidates all come
+  from one `inventory.RouteSet`, which holds the model reference ONCE for the
+  whole set; an `inventory.Endpoint` never names a model. Do not add a model
+  reference to `Endpoint`, and do not build a `provider.Route` from an inventory
+  anywhere but `RouteSet.Candidates()` — those two facts are the guarantee, and
+  the code that emits a `route_switch` has no argument that could make it a
+  substitution.
+- **Relay chooses among the deployments of one model only when a routing policy
+  authorises it.** `routingFallbackPolicy` gives the customer `disabled` and
+  `sameModelDeployment`, and the envelope carries none of it, so the default is
+  to use the declared primary and nothing else. The override is a dated,
+  reasoned acknowledgement; never widen it to a bare boolean, and never derive
+  authorisation from the inventory — the inventory is global and the policy is
+  per customer.
+- **A route switch is announced at the attempt that replaces the failed one**,
+  never at the moment of failure: the replacement's breaker may refuse it, and a
+  switch nobody made must not reach a receipt.
+- **Only `provider.AttributableCategory` decides what a deployment is blamed
+  for.** Failover and the circuit breakers read that one function. A customer
+  fault, a content filter, a cancellation and an unclassified failure trip
+  nothing and are retried nowhere — otherwise one customer's malformed traffic
+  takes a healthy route out of rotation for everybody.
+- **A deployment returns to rotation on one REAL request through a half-open
+  breaker**, one at a time. Never a synthetic probe: it proves the provider
+  answers a different request from the one it is failing, and Relay pays for it.
+- **A pinned reference is served from a snapshot of any age; an unpinned one is
+  refused past the horizon.** The mapping from immutable weights to a provider's
+  model id cannot go stale; which revision is *current* is Oxy's decision and
+  does. A failed reload never disturbs what is being served.
+- **Staleness is measured from the snapshot's own `issuedAt`**, never from when
+  the file was last read — a publisher that has stopped leaves a readable file
+  behind, and re-reading it would report it fresh forever.
+
+## Provider cost
+
+- **`internal/providercost` is the only package that may hold an amount**, it is
+  never the contract's money type, and `internal/contract` must not be able to
+  reach it (asserted, not reviewed).
+- **A cost never enters a stream event, a usage report, an error body or a
+  response of any kind.** It is an operator number; the customer's amount is
+  Oxy's and always was.
+- **An unknown cost is never a zero cost.** A deployment with no rate card, or a
+  measured unit nobody priced, says so and names what it could not price.
+- **A failed failover attempt is off the customer's receipt and on Relay's
+  cost.** Do not merge the two: the customer never received that output and the
+  provider will invoice for it regardless.
+
 ## Adapters
 
 - **One implementation of `provider.Adapter` and one fake upstream per

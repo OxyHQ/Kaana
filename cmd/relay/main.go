@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,7 +25,9 @@ import (
 	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
 	"github.com/OxyHQ/Relay/internal/provider/openaicompat"
+	"github.com/OxyHQ/Relay/internal/providercost"
 	"github.com/OxyHQ/Relay/internal/relay"
+	"github.com/OxyHQ/Relay/internal/rotation"
 )
 
 func main() {
@@ -42,9 +45,24 @@ func run(logger *slog.Logger) error {
 	if inventoryPath == "" {
 		return errors.New("RELAY_INVENTORY_PATH is required: without a deployment inventory nothing can be routed")
 	}
-	inv, err := inventory.Load(inventoryPath)
+	inventoryStore, err := inventory.NewStore(inventory.Config{
+		Path:           inventoryPath,
+		MaxSnapshotAge: durationFromEnv("RELAY_INVENTORY_MAX_AGE", inventory.DefaultMaxSnapshotAge),
+		Logger:         logger,
+	})
 	if err != nil {
 		return err
+	}
+
+	// Upstream rate cards are optional and hold no customer-facing amount. An
+	// absent file means provider cost is not measured, which every measurement
+	// then says rather than reporting zero.
+	var costs *providercost.Cards
+	if ratesPath := os.Getenv("RELAY_PROVIDER_RATES_PATH"); ratesPath != "" {
+		costs, err = providercost.Load(ratesPath)
+		if err != nil {
+			return err
+		}
 	}
 
 	keys, err := edgeauth.ParsePublicKeys(os.Getenv("RELAY_EDGE_PUBLIC_KEYS"))
@@ -68,18 +86,48 @@ func run(logger *slog.Logger) error {
 	// Refuse to start when the inventory routes somewhere this process cannot
 	// reach. The alternative is discovering it on a customer request, as a
 	// deployment_unavailable for a provider that was never loaded.
-	for _, slug := range inv.Providers() {
+	for _, slug := range inventoryStore.Current().Providers() {
 		if _, found := registry.Lookup(slug); !found {
 			return fmt.Errorf("the inventory routes to provider %q, which this build has no adapter for", slug)
 		}
 	}
 
+	rotationRegistry := rotation.NewRegistry(rotation.Policy{
+		FailuresToOpen:   intFromEnv("RELAY_BREAKER_FAILURES_TO_OPEN", 0),
+		Cooldown:         durationFromEnv("RELAY_BREAKER_COOLDOWN", 0),
+		MaxCooldown:      durationFromEnv("RELAY_BREAKER_MAX_COOLDOWN", 0),
+		SuccessesToClose: intFromEnv("RELAY_BREAKER_SUCCESSES_TO_CLOSE", 0),
+	}, nil)
+
+	failoverAck, err := failoverAcknowledgement(os.Getenv("RELAY_ASSUME_FAILOVER_AUTHORIZED"))
+	if err != nil {
+		return err
+	}
+	if failoverAck != "" {
+		logger.Warn("same-model failover is enabled without a routing policy to authorise it",
+			"acknowledgement", failoverAck,
+			"meaning", "every caller of this process is asserted to have a routing policy permitting same-model deployment failover across every deployment in this inventory")
+	}
+
+	executor, err := relay.NewExecutor(relay.Config{
+		Inventory:                inventoryStore,
+		Providers:                registry,
+		Rotation:                 rotationRegistry,
+		Costs:                    costs,
+		AssumeFailoverAuthorized: failoverAck != "",
+	})
+	if err != nil {
+		return err
+	}
+
 	server, err := httpapi.New(httpapi.Config{
-		Executor:         relay.NewExecutor(inv, registry),
+		Executor:         executor,
 		Verifier:         verifier,
 		Registry:         registry,
+		Inventory:        inventoryStore,
+		Rotation:         rotationRegistry,
 		Logger:           logger,
-		MaxEnvelopeBytes: intFromEnv("RELAY_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
+		MaxEnvelopeBytes: int64FromEnv("RELAY_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
 	})
 	if err != nil {
 		return err
@@ -105,10 +153,15 @@ func run(logger *slog.Logger) error {
 		"contractVersion", contract.ContractVersion,
 		"providers", providerSlugs(registry),
 		"edgeKeyIds", verifier.KeyIDs(),
+		"snapshotId", inventoryStore.Current().SnapshotID(),
+		"costMeasured", costs != nil,
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
+		durationFromEnv("RELAY_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
 
 	failed := make(chan error, 1)
 	go func() {
@@ -128,6 +181,85 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// failoverAcknowledgement reads the operator's statement that same-model
+// failover is safe here despite the envelope carrying no routing policy.
+//
+// It is deliberately awkward to set. The published routing policy has a
+// customer-facing switch for this behaviour that Relay is not sent, so enabling
+// failover without it overrides a control on the customer's behalf — defensible
+// for a first-party canary where the operator IS the caller, and for nothing
+// else. Requiring a reason and a date means the setting cannot arrive as an
+// empty string, cannot be copied forward without someone reading it, and names
+// whoever will be asked about it. An unparseable value refuses to start rather
+// than falling back to either behaviour: both defaults would be wrong to
+// choose silently.
+func failoverAcknowledgement(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	reason, date, found := strings.Cut(trimmed, ":")
+	if !found || strings.TrimSpace(reason) == "" {
+		return "", fmt.Errorf("RELAY_ASSUME_FAILOVER_AUTHORIZED must be `<reason>:<YYYY-MM-DD>`; it states who accepted serving failover without a routing policy, and when")
+	}
+	if _, err := time.Parse("2006-01-02", strings.TrimSpace(date)); err != nil {
+		return "", fmt.Errorf("RELAY_ASSUME_FAILOVER_AUTHORIZED carries %q where a YYYY-MM-DD date belongs: %w", date, err)
+	}
+	return trimmed, nil
+}
+
+// reloadSnapshots re-reads the configuration snapshot on a fixed interval.
+//
+// A failed reload is not an outage and must not stop this loop: the case it
+// exists for is a control plane that is failing repeatedly, and the store goes
+// on serving the last good snapshot throughout. What degrades, and only after
+// the staleness horizon, is the resolution of UNPINNED references — see
+// inventory.Store.
+func reloadSnapshots(
+	ctx context.Context,
+	store *inventory.Store,
+	rotationRegistry *rotation.Registry,
+	adapters *provider.Registry,
+	logger *slog.Logger,
+	every time.Duration,
+) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := store.Reload(); err != nil {
+				// Already logged by the store, together with the snapshot it is
+				// still serving.
+				continue
+			}
+			current := store.Current()
+			for _, slug := range current.Providers() {
+				if _, found := adapters.Lookup(slug); !found {
+					// Not fatal: the rest of the snapshot is servable, and
+					// killing a healthy process over one unroutable provider
+					// would turn a partial configuration error into an outage.
+					logger.Warn("the installed snapshot routes to a provider this build has no adapter for",
+						"provider", slug, "snapshotId", current.SnapshotID())
+				}
+			}
+			rotationRegistry.Retain(deploymentIDs(current))
+		}
+	}
+}
+
+func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
+	endpoints := current.Deployments()
+	ids := make([]contract.DeploymentID, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		ids = append(ids, endpoint.DeploymentID)
+	}
+	return ids
 }
 
 // buildAdapters constructs every provider this build can serve.
@@ -175,7 +307,7 @@ func durationFromEnv(name string, fallback time.Duration) time.Duration {
 	return parsed
 }
 
-func intFromEnv(name string, fallback int64) int64 {
+func int64FromEnv(name string, fallback int64) int64 {
 	value := os.Getenv(name)
 	if value == "" {
 		return fallback
@@ -185,4 +317,8 @@ func intFromEnv(name string, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+func intFromEnv(name string, fallback int) int {
+	return int(int64FromEnv(name, int64(fallback)))
 }

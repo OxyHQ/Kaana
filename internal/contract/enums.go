@@ -184,6 +184,11 @@ var usageUnitValues = []UsageUnit{
 	UnitVideoMilliseconds, UnitCharacters, UnitEmbeddings,
 }
 
+// Valid reports whether the unit is one the contract declares. A unit that is
+// not is a unit nothing can be settled or priced against, so a configuration
+// naming one is refused where it is read rather than where it is summed.
+func (u UsageUnit) Valid() bool { return isMember(u, usageUnitValues) }
+
 // UsageSource records where a metered quantity came from. An estimate that is
 // indistinguishable from a reported number is an estimate nobody can reconcile.
 type UsageSource string

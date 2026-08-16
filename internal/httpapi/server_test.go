@@ -5,11 +5,15 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +23,9 @@ import (
 	"github.com/OxyHQ/Relay/internal/httpapi"
 	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Relay/internal/providercost"
 	"github.com/OxyHQ/Relay/internal/relay"
+	"github.com/OxyHQ/Relay/internal/rotation"
 	"github.com/OxyHQ/Relay/internal/sse"
 )
 
@@ -114,6 +120,54 @@ type harness struct {
 	adapter *stubAdapter
 	keyID   string
 	private ed25519.PrivateKey
+	logs    *lockedBuffer
+}
+
+// lockedBuffer collects the operator log so a test can assert what was written
+// there rather than to the customer.
+type lockedBuffer struct {
+	mutex   sync.Mutex
+	content strings.Builder
+}
+
+func (b *lockedBuffer) Write(payload []byte) (int, error) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.content.Write(payload)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.content.String()
+}
+
+// Rate card numbers for the stub deployment. They are invented and distinctive:
+// XTS is the ISO 4217 code reserved for testing, and the amounts are chosen so
+// the resulting total appears nowhere else in a response by coincidence.
+const (
+	testCurrency          = "XTS"
+	testRequestRate       = 13_000_000_000
+	testOutputTokenRate   = 7_000_000_000
+	testCostForThreeChunk = testRequestRate + 3*testOutputTokenRate
+)
+
+// testRateCards prices the stub deployment, so the containment check below has
+// a real amount to look for rather than a zero that would be absent anyway.
+func testRateCards(t *testing.T) *providercost.Cards {
+	t.Helper()
+	document := fmt.Sprintf(`{"rateCards":[{
+		"deploymentId":"dep_stub",
+		"currency":%q,
+		"rates":[
+			{"unit":"requests","amountPerUnit":%d},
+			{"unit":"output_tokens","amountPerUnit":%d}
+		]}]}`, testCurrency, testRequestRate, testOutputTokenRate)
+	cards, err := providercost.Parse([]byte(document))
+	if err != nil {
+		t.Fatalf("building the test rate cards: %v", err)
+	}
+	return cards
 }
 
 func newHarness(t *testing.T, adapter *stubAdapter) *harness {
@@ -129,10 +183,21 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 	if err != nil {
 		t.Fatalf("building the verifier: %v", err)
 	}
-	inv, err := inventory.Parse([]byte(`{"deployments":[{
-		"deploymentId":"dep_stub","provider":"stub",
-		"modelReference":"stub/model@2026-05-01","upstreamModelId":"model",
-		"region":"test-region","current":true}]}`))
+	path := filepath.Join(t.TempDir(), "inventory.json")
+	inventoryJSON := fmt.Sprintf(`{
+		"snapshotId":"snap_stub",
+		"issuedAt":%q,
+		"deployments":[{
+			"deploymentId":"dep_stub","provider":"stub",
+			"modelReference":"stub/model@2026-05-01","upstreamModelId":"model",
+			"region":"test-region","current":true}]}`, contract.NewTimestamp(time.Now()))
+	if err := os.WriteFile(path, []byte(inventoryJSON), 0o600); err != nil {
+		t.Fatalf("writing the inventory: %v", err)
+	}
+	logs := &lockedBuffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	store, err := inventory.NewStore(inventory.Config{Path: path, Logger: logger})
 	if err != nil {
 		t.Fatalf("building the inventory: %v", err)
 	}
@@ -140,11 +205,23 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 	if err != nil {
 		t.Fatalf("registering the adapter: %v", err)
 	}
+	rotationRegistry := rotation.NewRegistry(rotation.Policy{}, nil)
+	executor, err := relay.NewExecutor(relay.Config{
+		Inventory: store,
+		Providers: registry,
+		Rotation:  rotationRegistry,
+		Costs:     testRateCards(t),
+	})
+	if err != nil {
+		t.Fatalf("building the executor: %v", err)
+	}
 	api, err := httpapi.New(httpapi.Config{
-		Executor: relay.NewExecutor(inv, registry),
-		Verifier: verifier,
-		Registry: registry,
-		Logger:   slog.New(slog.DiscardHandler),
+		Executor:  executor,
+		Verifier:  verifier,
+		Registry:  registry,
+		Inventory: store,
+		Rotation:  rotationRegistry,
+		Logger:    logger,
 	})
 	if err != nil {
 		t.Fatalf("building the server: %v", err)
@@ -152,7 +229,7 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
-	return &harness{server: server, adapter: adapter, keyID: keyID, private: private}
+	return &harness{server: server, adapter: adapter, keyID: keyID, private: private, logs: logs}
 }
 
 // sign produces the headers the Oxy edge would send. It signs with
@@ -278,14 +355,24 @@ func TestASignedEnvelopeIsServedAndAnUnsignedOneIsNot(t *testing.T) {
 	t.Run("signed", func(t *testing.T) {
 		harness := newHarness(t, &stubAdapter{chunks: 2})
 		response := harness.post(t, context.Background(), envelope(t, nil), true)
-		defer func() { _ = response.Body.Close() }()
 
 		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
 			t.Fatalf("a signed envelope was answered %d", response.StatusCode)
 		}
 		if got := response.Header.Get(httpapi.HeaderRequestID); got != "req_test" {
 			t.Errorf("the response echoes request id %q", got)
 		}
+
+		// The stream is drained before the adapter is inspected. Status and
+		// headers arrive as soon as the response is opened, which is BEFORE the
+		// executor has reached the adapter — asserting on the count here without
+		// waiting for the stream to end measures scheduling order.
+		if _, err := io.Copy(io.Discard, response.Body); err != nil {
+			t.Fatalf("draining the stream: %v", err)
+		}
+		_ = response.Body.Close()
+
 		if _, _, calls := harness.adapter.snapshot(); calls != 1 {
 			t.Errorf("the adapter was called %d times for one signed envelope", calls)
 		}
@@ -457,6 +544,89 @@ func TestStreamsNormalizedEventsThenAUsageReport(t *testing.T) {
 	// to be the envelope's, unchanged.
 	if report.Attribution.Principal.Billing.AccountID != "acc_test" {
 		t.Errorf("the report bills %q", report.Attribution.Principal.Billing.AccountID)
+	}
+}
+
+// TestUpstreamCostNeverReachesTheCustomer is the containment gate on provider
+// cost.
+//
+// Relay measures what a request cost it upstream and never quotes an amount to
+// anyone: the money is an operator number, and the contract has no field on any
+// produced shape that could carry it. The check is the same amount in two
+// places — present in the operator log, absent from every byte the customer
+// receives — so "no cost in the response" cannot be what a request that was
+// never priced also reports.
+func TestUpstreamCostNeverReachesTheCustomer(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{chunks: 3})
+	response := harness.post(t, context.Background(), envelope(t, nil), true)
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("reading the stream: %v", err)
+	}
+	_ = response.Body.Close()
+
+	// Positive control: the cost was measured, and this is the number to look
+	// for. Without it, every assertion below would pass on a build that never
+	// priced anything.
+	amount := strconv.Itoa(testCostForThreeChunk)
+	logged := harness.logs.String()
+	if !strings.Contains(logged, amount) {
+		t.Fatalf("the upstream cost %s was not measured or not logged, so the containment check measures nothing:\n%s", amount, logged)
+	}
+
+	served := string(body)
+	for _, forbidden := range []string{amount, testCurrency, "upstreamCost", "currency", "cost"} {
+		if strings.Contains(served, forbidden) {
+			t.Errorf("the customer's stream carries %q, which is an amount Relay does not quote:\n%s", forbidden, served)
+		}
+	}
+}
+
+// TestTheHealthSurfaceProjectsRotationAndConfiguration: a deployment out of
+// rotation and a snapshot that has stopped advancing are the two states an
+// operator cannot infer from the shape of a customer's errors.
+func TestTheHealthSurfaceProjectsRotationAndConfiguration(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{chunks: 1})
+
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, harness.server.URL+"/internal/v1/health", readerOf(nil))
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	harness.sign(request, nil)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("requesting health: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	var projected struct {
+		Configuration inventory.SnapshotStatus `json:"configuration"`
+		Deployments   []struct {
+			DeploymentID string  `json:"deploymentId"`
+			Provider     string  `json:"provider"`
+			State        string  `json:"state"`
+			Score        float64 `json:"score"`
+		} `json:"deployments"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&projected); err != nil {
+		t.Fatalf("decoding health: %v", err)
+	}
+
+	if projected.Configuration.SnapshotID != "snap_stub" {
+		t.Errorf("health names snapshot %q", projected.Configuration.SnapshotID)
+	}
+	if !projected.Configuration.ServesUnpinnedReferences {
+		t.Error("a snapshot issued moments ago is reported as too stale to resolve unpinned references")
+	}
+	if len(projected.Deployments) != 1 {
+		t.Fatalf("health projects %d deployments, the inventory declares 1", len(projected.Deployments))
+	}
+	if projected.Deployments[0].DeploymentID != "dep_stub" || projected.Deployments[0].Provider != "stub" {
+		t.Errorf("health projects deployment %+v", projected.Deployments[0])
+	}
+	if projected.Deployments[0].State != string(rotation.StateClosed) {
+		t.Errorf("an untouched deployment is projected as %q", projected.Deployments[0].State)
 	}
 }
 
