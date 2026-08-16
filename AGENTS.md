@@ -118,9 +118,27 @@ and is answerable to it.
 - **Refuse in `Translate` what the provider cannot express**, with a
   non-retryable code and the field named. Silently dropping a parameter changes
   what the model does while reporting success.
-- **An adapter classifies its own failures.** Never infer retryability from an
-  HTTP status: a 429 from an exhausted daily quota and a 429 from a burst limit
-  are the same status and opposite answers.
+- **An adapter classifies its own failures**, from the provider's own error TYPE
+  first. Never infer retryability from an HTTP status: a 429 from an exhausted
+  daily quota and a 429 from a burst limit are the same status and opposite
+  answers — and a failure arriving mid-stream, after a 200, has no status at all.
+  Every streaming protocol can fail that way, and an adapter that reads the frame
+  it cannot use and stops reports a truncated answer as a completed one.
+- **The contract's usage units PARTITION a request, and the normalising
+  arithmetic is NOT portable between adapters.** An OpenAI-compatible
+  `prompt_tokens` includes its cached tokens; Anthropic's `input_tokens` excludes
+  them and its `output_tokens` includes reasoning. Copying one adapter's
+  subtraction into another mis-bills silently, because a nested report and a
+  disjoint one are the same non-negative integers. State the PHYSICAL request in
+  the conformance subject and let the suite do the arithmetic.
+- **An adapter redacts its OWN credential by exact match before the contract's
+  pattern runs.** The published pattern is bearer-shaped: against an echoed
+  `x-api-key: <value>` it matches the marker and not the value, so redacting
+  removes the evidence, keeps the credential, and the result then PASSES the
+  contract's refusal. `provider.RedactSecret` cannot miss for that reason.
+- **A parameter the provider REQUIRES and the contract makes optional is
+  refused, never supplied.** Choosing it at the adapter, or per deployment,
+  changes what the model does while reporting success.
 - **`Stream` returns the units it measured even when it fails.** A partial
   stream is a settlement case; an adapter that returns nothing on cancellation
   makes an exact refund impossible.

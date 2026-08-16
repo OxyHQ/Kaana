@@ -52,11 +52,30 @@ const (
 	ScenarioToolCalls Scenario = "tool_calls"
 	// ScenarioNonStreaming answers with a single complete response.
 	ScenarioNonStreaming Scenario = "non_streaming"
+	// ScenarioMidStreamError writes some output and then fails, without ever
+	// having sent a failing HTTP status: the status was 200 and the failure
+	// arrived inside the stream. Every streaming protocol has a spelling for
+	// this — an `event: error` frame, an error object among the data frames —
+	// and an adapter that treats it as the end of a normal stream reports a
+	// request that failed as one that completed.
+	ScenarioMidStreamError Scenario = "mid_stream_error"
 	// ScenarioRateLimited refuses with a transient rate limit.
 	ScenarioRateLimited Scenario = "rate_limited"
-	// ScenarioQuotaExhausted refuses with an account-level quota exhaustion,
-	// which is the same HTTP status as a rate limit and the opposite answer.
+	// ScenarioQuotaExhausted refuses with an account-level exhaustion of the
+	// PLATFORM's account with the provider — the failure a human raises rather
+	// than one that clears on its own.
+	//
+	// Which status carries it is the provider's business and not this suite's:
+	// OpenAI-compatible providers send it as a 429 indistinguishable from a
+	// burst limit, Anthropic sends a 402 that no rate limit uses. What the
+	// suite requires either way is that the adapter tells the two apart, since
+	// they are opposite answers to "should this be retried".
 	ScenarioQuotaExhausted Scenario = "quota_exhausted"
+	// ScenarioCredentialRefused refuses the PLATFORM's own credential — the
+	// upstream saying "this key is not valid", about a key no customer has ever
+	// seen. It is a different failure from every other one here: nothing the
+	// client does fixes it, and nothing about the request is wrong.
+	ScenarioCredentialRefused Scenario = "credential_refused"
 	// ScenarioCredentialEchoed refuses with an error whose text echoes the
 	// credential the caller sent. Providers really do this, and it is the
 	// single most likely way an upstream key reaches a customer.
@@ -84,6 +103,58 @@ type Upstream struct {
 	RequestCount func() int
 }
 
+// Refusal is a request one provider genuinely cannot express, and how the
+// adapter must refuse it.
+//
+// It is a LIST on Subject rather than a single value because a provider has as
+// many refusal classes as it has, and covering one of them was an accident of
+// the first adapter having exactly one. A protocol that cannot do embeddings
+// and a protocol that requires a parameter the contract makes optional are two
+// different refusals with two different fields at fault, and an adapter that
+// gets the second one wrong invents a value on the customer's behalf.
+type Refusal struct {
+	// Name identifies the case in test output.
+	Name string
+	// Request is refused before anything is sent upstream.
+	Request *contract.Request
+	// Code is the contract code the customer sees. It must be non-retryable:
+	// a request the provider cannot express cannot succeed on a retry.
+	Code contract.ErrorCode
+	// Param is the request field at fault, named in full. A refusal that names
+	// no field tells the customer their request is wrong and not which part of
+	// it, so the suite requires one.
+	Param string
+}
+
+// StreamedUsage is what the fake upstream PHYSICALLY consumed and produced in
+// the streaming and non-streaming scenarios, stated as whole-request totals
+// rather than in the provider's own fields.
+//
+// It is declared this way because the units the contract meters in PARTITION a
+// request (OxyHQ/oxy#1019): `cached_input_tokens` is disjoint from
+// `input_tokens`, and `reasoning_tokens` from `output_tokens`, so a price
+// applied to every reported unit sums to exactly the request. Providers do not
+// agree on which of their own numbers nest — an OpenAI-compatible
+// `prompt_tokens` includes its cached tokens while an Anthropic `input_tokens`
+// excludes them — so the normalising arithmetic is different per adapter and
+// the invariant is the same for all of them.
+//
+// Getting it wrong is silent and financial in both directions: a nested report
+// forwarded unchanged charges the cached and reasoning tokens twice, and a
+// subtraction applied where the provider had already excluded them charges for
+// less than was served.
+type StreamedUsage struct {
+	// PromptTokens is every input token the request consumed, cached or not.
+	PromptTokens int
+	// CachedPromptTokens is how many of PromptTokens were served from the
+	// provider's prompt cache.
+	CachedPromptTokens int
+	// OutputTokens is every token generated, reasoning included.
+	OutputTokens int
+	// ReasoningTokens is how many of OutputTokens were reasoning.
+	ReasoningTokens int
+}
+
 // Subject is what an adapter author supplies.
 type Subject struct {
 	// Name identifies the adapter in test output.
@@ -94,6 +165,9 @@ type Subject struct {
 	ModelReference contract.ModelReference
 	// UpstreamModelID is what the fake upstream expects to be called.
 	UpstreamModelID string
+	// StreamedUsage is what the fake upstream consumed and produced, in totals
+	// the contract's units must partition.
+	StreamedUsage StreamedUsage
 	// APIKey is the credential the adapter is configured with. The suite
 	// asserts this exact string never appears in anything a customer receives,
 	// so it must be the one NewAdapter uses.
@@ -107,9 +181,10 @@ type Subject struct {
 	// would test nothing, because translation is the part most likely to be
 	// wrong.
 	StartUpstream func(t *testing.T, scenario Scenario) *Upstream
-	// Unsupported is a request the provider genuinely cannot express, and the
-	// code it must be refused with. The code must be non-retryable.
-	Unsupported func() (*contract.Request, contract.ErrorCode)
+	// Refusals are the requests this provider genuinely cannot express. At
+	// least one is required: an adapter that refuses nothing has either not
+	// looked, or is translating something it should be refusing.
+	Refusals func() []Refusal
 }
 
 // Run executes the suite.
@@ -149,6 +224,7 @@ func Run(t *testing.T, subject Subject) {
 		if run.report.TimeToFirstTokenMs == nil {
 			t.Error("output was produced; the report carries no time to first token")
 		}
+		assertUsagePartitionsTheRequest(t, run.report.Units, subject.StreamedUsage)
 	})
 
 	t.Run("produces the same normalized shape from a non-streamed upstream", func(t *testing.T) {
@@ -160,6 +236,34 @@ func Run(t *testing.T, subject Subject) {
 		assertReport(t, run, contract.OutcomeCompleted)
 		if !run.sawEvent(contract.EventDelta) {
 			t.Error("a non-streamed response produced no output events")
+		}
+		// The same request, metered by the other of the adapter's two read
+		// paths. They normalize the same provider numbers and are written
+		// separately, so one of them drifting is not a hypothetical.
+		assertUsagePartitionsTheRequest(t, run.report.Units, subject.StreamedUsage)
+	})
+
+	t.Run("classifies a failure that arrives after the response started", func(t *testing.T) {
+		// The upstream answered 200 and began streaming, so no HTTP status will
+		// ever carry this failure. An adapter that reads the frame it cannot
+		// use and stops would report a truncated answer as a completed one.
+		run := execute(t, subject, ScenarioMidStreamError, streamingRequest(subject), nil)
+		assertWellFramedStream(t, run)
+		failure := assertFailure(t, run)
+
+		if failure.UpstreamCategory == nil {
+			t.Fatal("a mid-stream failure carries no upstreamCategory, so neither failover nor a circuit breaker can see it")
+		}
+		if !provider.AttributableCategory(*failure.UpstreamCategory) {
+			t.Errorf("a mid-stream overload was classified %q, which the platform reads as the request's fault", *failure.UpstreamCategory)
+		}
+		if run.report == nil {
+			t.Fatal("a request that failed part-way produced no usage report, so what the upstream already did cannot be settled")
+		}
+		switch run.report.Outcome {
+		case contract.OutcomePartial, contract.OutcomeFailed:
+		default:
+			t.Errorf("a mid-stream failure settled as %q", run.report.Outcome)
 		}
 	})
 
@@ -233,6 +337,32 @@ func Run(t *testing.T, subject Subject) {
 		}
 	})
 
+	t.Run("classifies a refused platform credential as nobody's to retry", func(t *testing.T) {
+		// The upstream refused RELAY's credential. Three classifications are
+		// available and two of them are wrong: `authentication_failed` sends the
+		// customer to rotate their own key, and `provider_error` — retryable —
+		// sends every client into a retry loop against a request that cannot
+		// succeed until an operator rotates ours.
+		run := execute(t, subject, ScenarioCredentialRefused, streamingRequest(subject), nil)
+		failure := assertFailure(t, run)
+
+		if failure.Code == contract.CodeAuthenticationFailed {
+			t.Error("a refused PLATFORM credential was reported as the customer's authentication failing, which sends them to rotate a key that is not the problem")
+		}
+		if failure.Retryable {
+			t.Errorf("a refused platform credential was reported retryable under code %q; no client retry reaches the operator who has to rotate the key", failure.Code)
+		}
+		if failure.UpstreamCategory == nil {
+			t.Fatal("a refused platform credential carries no upstreamCategory, so no breaker can take this route out of rotation")
+		}
+		// Non-retryable for the CLIENT and attributable to the DEPLOYMENT are
+		// not in tension: the key belongs to this route, and another deployment
+		// of the same model holds a different one.
+		if !provider.AttributableCategory(*failure.UpstreamCategory) {
+			t.Errorf("a refused platform credential was classified %q, so a route with a dead key stays in rotation failing every request sent to it", *failure.UpstreamCategory)
+		}
+	})
+
 	t.Run("never lets an upstream credential reach the customer", func(t *testing.T) {
 		if subject.APIKey == "" {
 			t.Fatal("the subject declares no API key, so this check would pass vacuously")
@@ -255,30 +385,37 @@ func Run(t *testing.T, subject Subject) {
 		}
 	})
 
-	t.Run("refuses a request it cannot express before spending anything", func(t *testing.T) {
-		request, expected := subject.Unsupported()
-		if expected.Retryable() {
-			t.Fatalf("the subject expects refusal with %q, which is retryable; a request the provider cannot express can never succeed on a retry", expected)
-		}
-		run := execute(t, subject, ScenarioStreaming, request, nil)
-		failure := assertFailure(t, run)
-		if failure.Code != expected {
-			t.Errorf("refused with %q, the subject expects %q", failure.Code, expected)
-		}
-		if failure.Retryable {
-			t.Error("a request the provider cannot express was reported retryable")
-		}
-		if got := run.upstream.RequestCount(); got != 0 {
-			t.Errorf("the upstream received %d requests for a request that should have been refused before translation completed", got)
-		}
-		// A refusal to translate is Relay's, not the provider's. Dressing it as
-		// an upstream failure would count it against the deployment's health
-		// and eventually take a perfectly healthy route out of rotation because
-		// one customer kept sending a request it cannot express.
-		if failure.UpstreamCategory != nil {
-			t.Errorf("a refusal to translate carries upstreamCategory %q, which would count against the deployment that never saw the request", *failure.UpstreamCategory)
-		}
-	})
+	for _, refusal := range subject.Refusals() {
+		t.Run("refuses before spending anything: "+refusal.Name, func(t *testing.T) {
+			if refusal.Code.Retryable() {
+				t.Fatalf("the subject expects refusal with %q, which is retryable; a request the provider cannot express can never succeed on a retry", refusal.Code)
+			}
+			run := execute(t, subject, ScenarioStreaming, refusal.Request, nil)
+			failure := assertFailure(t, run)
+			if failure.Code != refusal.Code {
+				t.Errorf("refused with %q, the subject expects %q", failure.Code, refusal.Code)
+			}
+			if failure.Retryable {
+				t.Error("a request the provider cannot express was reported retryable")
+			}
+			if failure.Param == nil {
+				t.Errorf("the refusal names no field, so the customer is told their request is wrong and not which part of it (expected %q)", refusal.Param)
+			} else if *failure.Param != refusal.Param {
+				t.Errorf("the refusal names field %q, the subject expects %q", *failure.Param, refusal.Param)
+			}
+			if got := run.upstream.RequestCount(); got != 0 {
+				t.Errorf("the upstream received %d requests for a request that should have been refused before translation completed", got)
+			}
+			// A refusal to translate is Relay's, not the provider's. Dressing it
+			// as an upstream failure would count it against the deployment's
+			// health and eventually take a perfectly healthy route out of
+			// rotation because one customer kept sending a request it cannot
+			// express.
+			if failure.UpstreamCategory != nil {
+				t.Errorf("a refusal to translate carries upstreamCategory %q, which would count against the deployment that never saw the request", *failure.UpstreamCategory)
+			}
+		})
+	}
 
 	t.Run("a client disconnect cancels the upstream call", func(t *testing.T) {
 		// The control runs first: it establishes what an UNINTERRUPTED request
@@ -376,8 +513,74 @@ func requireSubject(t *testing.T, subject Subject) {
 		t.Fatalf("conformance: %q must be revision-pinned", subject.ModelReference)
 	case subject.UpstreamModelID == "":
 		t.Fatal("conformance: the subject declares no upstream model id")
-	case subject.NewAdapter == nil, subject.NewUnconfigured == nil, subject.StartUpstream == nil, subject.Unsupported == nil:
+	case subject.NewAdapter == nil, subject.NewUnconfigured == nil, subject.StartUpstream == nil, subject.Refusals == nil:
 		t.Fatal("conformance: the subject is incomplete")
+	}
+	if len(subject.Refusals()) == 0 {
+		t.Fatal("conformance: the subject declares no refusal, so the check that a request the provider cannot express costs nothing would pass vacuously")
+	}
+	for index, refusal := range subject.Refusals() {
+		if refusal.Name == "" || refusal.Request == nil || refusal.Code == "" || refusal.Param == "" {
+			t.Fatalf("conformance: refusal %d is incomplete", index)
+		}
+	}
+	requireMeasurableUsage(t, subject.StreamedUsage)
+}
+
+// requireMeasurableUsage is the vacuity floor under the partition check.
+//
+// Every one of these bounds exists because the check below it goes quiet
+// without it: with no cached tokens, an adapter that never reports
+// cached_input_tokens passes; with cached equal to the whole prompt, an adapter
+// that subtracts when it should not produces zero and so does a correct one.
+// The failure this measures is worth real money, so the fixture is required to
+// be one where both readings differ and both are visible.
+func requireMeasurableUsage(t *testing.T, usage StreamedUsage) {
+	t.Helper()
+	switch {
+	case usage.CachedPromptTokens <= 0:
+		t.Fatal("conformance: the scenario reports no cached input tokens, so nothing distinguishes a nested report from a disjoint one")
+	case usage.ReasoningTokens <= 0:
+		t.Fatal("conformance: the scenario reports no reasoning tokens, so nothing distinguishes a nested report from a disjoint one")
+	case usage.PromptTokens <= usage.CachedPromptTokens:
+		t.Fatal("conformance: every prompt token is a cached one, so an adapter reporting zero uncached input tokens cannot be told from a correct one")
+	case usage.OutputTokens <= usage.ReasoningTokens:
+		t.Fatal("conformance: every output token is a reasoning one, so an adapter reporting zero visible output tokens cannot be told from a correct one")
+	}
+}
+
+// assertUsagePartitionsTheRequest is the money check.
+//
+// The contract's units partition a request: each token is counted once, under
+// exactly one unit, so a price applied to every unit sums to what was served.
+// Providers report their own numbers with their own nesting, and the adapter is
+// what turns one into the other — silently, since a nested report and a disjoint
+// one are the same four non-negative integers and both look plausible on a
+// receipt.
+func assertUsagePartitionsTheRequest(t *testing.T, units []contract.UsageQuantity, expected StreamedUsage) {
+	t.Helper()
+	reported := make(map[contract.UsageUnit]int, len(units))
+	for _, quantity := range units {
+		reported[quantity.Unit] = quantity.Quantity
+	}
+
+	if got := reported[contract.UnitInputTokens] + reported[contract.UnitCachedInputTokens]; got != expected.PromptTokens {
+		t.Errorf("input_tokens (%d) + cached_input_tokens (%d) = %d, and the request consumed %d prompt tokens: the units do not partition the request, so a price applied to each of them does not sum to it",
+			reported[contract.UnitInputTokens], reported[contract.UnitCachedInputTokens], got, expected.PromptTokens)
+	}
+	if got := reported[contract.UnitOutputTokens] + reported[contract.UnitReasoningTokens]; got != expected.OutputTokens {
+		t.Errorf("output_tokens (%d) + reasoning_tokens (%d) = %d, and the request produced %d output tokens: the units do not partition the request",
+			reported[contract.UnitOutputTokens], reported[contract.UnitReasoningTokens], got, expected.OutputTokens)
+	}
+	if got := reported[contract.UnitCachedInputTokens]; got != expected.CachedPromptTokens {
+		t.Errorf("cached_input_tokens is %d, and %d prompt tokens were served from the cache: a cached token charged at the uncached price is a real overcharge",
+			got, expected.CachedPromptTokens)
+	}
+	if got := reported[contract.UnitReasoningTokens]; got != expected.ReasoningTokens {
+		t.Errorf("reasoning_tokens is %d, and %d output tokens were reasoning", got, expected.ReasoningTokens)
+	}
+	if got := reported[contract.UnitRequests]; got != 1 {
+		t.Errorf("the report meters %d requests; a per-request price has nothing to multiply otherwise", got)
 	}
 }
 
@@ -612,10 +815,22 @@ func assertReport(t *testing.T, r *run, expected contract.RequestOutcome) {
 /*  Fixtures                                                                  */
 /* -------------------------------------------------------------------------- */
 
+// maxOutputTokens is populated on every fixture below.
+//
+// Not as a courtesy to any one provider, though one of them requires it: a
+// minimal fixture exercises the translation of nothing optional, and this is a
+// field whose absence an adapter could paper over by inventing a default. It is
+// also the one optional request field a provider is known to make mandatory,
+// which is a contract finding rather than a fixture detail — see README, "What
+// Oxy still has to decide".
+const maxOutputTokens = 256
+
 func streamingRequest(subject Subject) *contract.Request {
 	reference := subject.ModelReference
+	limit := maxOutputTokens
 	return &contract.Request{
-		SchemaVersion: contract.RequestEnvelopeVersion,
+		MaxOutputTokens: &limit,
+		SchemaVersion:   contract.RequestEnvelopeVersion,
 		Attribution: contract.Attribution{
 			Principal: contract.AuthenticatedPrincipal{
 				Billing:         contract.BillingPrincipal{AccountID: "acc_conformance"},

@@ -47,6 +47,18 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 		UpstreamModelID: "test-model-2026-05-01",
 		APIKey:          fakeAPIKey,
 
+		// The fake's own numbers, restated as the physical request they
+		// describe. This protocol NESTS both children: `prompt_tokens` (11)
+		// includes its 3 cached tokens and `completion_tokens` (5) includes its
+		// 2 reasoning tokens, so both subtractions apply here — where the same
+		// declaration for Anthropic needs only one of them.
+		StreamedUsage: conformance.StreamedUsage{
+			PromptTokens:       11,
+			CachedPromptTokens: 3,
+			OutputTokens:       5,
+			ReasoningTokens:    2,
+		},
+
 		NewAdapter: func(t *testing.T, upstreamURL string) provider.Adapter {
 			t.Helper()
 			adapter, err := New(Config{Provider: slug, BaseURL: upstreamURL, APIKey: fakeAPIKey})
@@ -70,10 +82,10 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 		// An embedding request is something chat completions genuinely cannot
 		// express, as opposed to something this adapter merely has not
 		// implemented.
-		Unsupported: func() (*contract.Request, contract.ErrorCode) {
+		Refusals: func() []conformance.Refusal {
 			reference := contract.ModelReference(string(slug) + "/test-model@2026-05-01")
 			text := "embed me"
-			return &contract.Request{
+			embedding := &contract.Request{
 				SchemaVersion: contract.RequestEnvelopeVersion,
 				Attribution: contract.Attribution{
 					Principal: contract.AuthenticatedPrincipal{
@@ -95,7 +107,13 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 					ReceivedAt: contract.NewTimestamp(time.Now()),
 				},
 				RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: "rp_conformance", PolicyVersion: 1},
-			}, contract.CodeUnsupportedModality
+			}
+			return []conformance.Refusal{{
+				Name:    "an embedding request",
+				Request: embedding,
+				Code:    contract.CodeUnsupportedModality,
+				Param:   "modality",
+			}}
 		},
 	}
 }

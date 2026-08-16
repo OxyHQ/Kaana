@@ -3,6 +3,9 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/OxyHQ/Relay/internal/contract"
 )
@@ -77,6 +80,58 @@ func AttributableCategory(category contract.UpstreamErrorCategory) bool {
 		return false
 	}
 	return false
+}
+
+// secretRedactionMarker replaces a credential found in text bound outward.
+const secretRedactionMarker = "[redacted]"
+
+// RedactSecret removes an exact secret from text before it can be shown to
+// anyone.
+//
+// The contract's own refusal pattern is a SHAPE heuristic — `bearer <token>`,
+// `authorization:`, `api_key=`, `sk-…` — and it was written against providers
+// that authenticate with a bearer token. It is not enough on its own for a
+// provider that authenticates with a differently named header: an upstream
+// echoing `x-api-key: <value>` matches the marker and not the value, so
+// redacting the marker leaves the credential in a message the contract then
+// accepts, because the thing that made it look like a credential is the thing
+// that was removed.
+//
+// An adapter is holding the exact bytes it sent, so it does not need a
+// heuristic. This is the exact match, applied first, and the shape-based
+// redaction still runs after it for the credentials Relay is not holding —
+// another tenant's key quoted back by a shared gateway, for instance.
+//
+// A short secret would eat ordinary text, and that is the right trade: text a
+// customer cannot read is recoverable, and a leaked upstream credential is not.
+func RedactSecret(text, secret string) string {
+	if secret == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, secret, secretRedactionMarker)
+}
+
+// RetryAfterMs reads HTTP's own Retry-After header, in either of the two forms
+// the standard defines.
+//
+// It lives here rather than in one adapter because the header is HTTP's and not
+// any provider's, and because the alternative to reading it is inventing a
+// number and presenting it to the customer as the provider's advice. A provider
+// that sends none leaves the client to its own backoff, which is honest.
+func RetryAfterMs(header http.Header) int {
+	value := header.Get("Retry-After")
+	if value == "" {
+		return 0
+	}
+	if seconds, err := time.ParseDuration(value + "s"); err == nil && seconds > 0 {
+		return int(seconds.Milliseconds())
+	}
+	if at, err := http.ParseTime(value); err == nil {
+		if wait := time.Until(at); wait > 0 {
+			return int(wait.Milliseconds())
+		}
+	}
+	return 0
 }
 
 // DeploymentAttributable reports whether a failure is attributable to the

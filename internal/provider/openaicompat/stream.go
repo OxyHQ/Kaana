@@ -74,6 +74,13 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			continue
 		}
 
+		if chunk.Error != nil {
+			// A failure that arrived after a 200, in the place a chunk belongs.
+			// The units measured so far travel with it: the upstream did that
+			// work and will invoice for it whether or not the answer arrived.
+			return outcome, a.streamFailure(*chunk.Error)
+		}
+
 		if chunk.Usage != nil {
 			outcome.Units = normalizeUsage(chunk.Usage)
 			outcome.UsageSource = contract.UsageProviderReported
@@ -413,10 +420,11 @@ func (a *Adapter) upstreamFailure(response *http.Response) error {
 		passthrough.Code = &code
 	}
 	if parsed.Error.Message != "" {
-		// Redacted when the error body is built. Provider errors routinely
-		// echo the request that caused them, which is where an upstream
-		// credential escapes.
-		message := parsed.Error.Message
+		// Provider errors routinely echo the request that caused them, which is
+		// where an upstream credential escapes. The adapter's own key is removed
+		// by exact match here, before the contract's shape-based redaction runs
+		// over whatever else the message contains.
+		message := a.safeText(parsed.Error.Message)
 		passthrough.Message = &message
 	}
 
@@ -430,12 +438,18 @@ func (a *Adapter) upstreamFailure(response *http.Response) error {
 	case status == http.StatusTooManyRequests:
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = fmt.Sprintf("%s rate-limited this request", a.config.Provider)
-		failure.RetryAfterMs = retryAfterMs(response.Header)
+		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
-		// Relay's own credential was refused, NOT the customer's. Mapping this
-		// to authentication_failed would tell a customer their key is bad when
-		// the key at fault is ours, and send them to rotate the wrong secret.
-		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamAuthentication
+		// Relay's own credential was refused, NOT the customer's.
+		// `authentication_failed` would tell a customer their key is bad when
+		// the key at fault is ours; `provider_error` would tell them to retry a
+		// request that cannot succeed until an operator rotates a key.
+		// `provider_credential_invalid` is the platform group's one
+		// non-retryable code and exists for exactly this. The category stays
+		// `authentication`, which is attributable — so the breaker still takes
+		// this deployment out of rotation, and a failover to a deployment
+		// holding a different credential is still permitted.
+		failure.Code, failure.Category = contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication
 		failure.Detail = fmt.Sprintf("%s refused the platform's credential for this route", a.config.Provider)
 	case status == http.StatusNotFound:
 		// The upstream does not have the model this route names. From the
@@ -449,7 +463,7 @@ func (a *Adapter) upstreamFailure(response *http.Response) error {
 	case status == http.StatusServiceUnavailable:
 		failure.Code, failure.Category = contract.CodeProviderOverloaded, contract.UpstreamOverloaded
 		failure.Detail = fmt.Sprintf("%s is overloaded", a.config.Provider)
-		failure.RetryAfterMs = retryAfterMs(response.Header)
+		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
 	case status >= 500:
 		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
 		failure.Detail = fmt.Sprintf("%s returned an internal error", a.config.Provider)
@@ -466,21 +480,53 @@ func (a *Adapter) upstreamFailure(response *http.Response) error {
 	return failure
 }
 
-// retryAfterMs reads the standard header. A provider that does not send one
-// leaves the client to its own backoff, which is better than a number invented
-// here and presented as the provider's advice.
-func retryAfterMs(header http.Header) int {
-	value := header.Get("Retry-After")
-	if value == "" {
-		return 0
+// streamFailure classifies an error object that arrived INSIDE the stream,
+// after the upstream had already answered 200.
+//
+// There is no status to classify from, so the provider's own error type is all
+// there is. An unrecognised one is reported as an unclassified provider failure
+// rather than guessed at: a failure nobody can attribute must not take a
+// deployment out of rotation for everybody.
+func (a *Adapter) streamFailure(reported upstreamError) error {
+	failure := provider.ErrUpstream{
+		Passthrough: &contract.ProviderErrorPassthrough{Provider: a.config.Provider},
 	}
-	if seconds, err := time.ParseDuration(value + "s"); err == nil && seconds > 0 {
-		return int(seconds.Milliseconds())
+	if reported.Type != "" {
+		kind := reported.Type
+		failure.Passthrough.Code = &kind
 	}
-	if at, err := http.ParseTime(value); err == nil {
-		if wait := time.Until(at); wait > 0 {
-			return int(wait.Milliseconds())
-		}
+	if reported.Message != "" {
+		message := a.safeText(reported.Message)
+		failure.Passthrough.Message = &message
 	}
-	return 0
+
+	switch reported.Type {
+	case "insufficient_quota":
+		failure.Code, failure.Category = contract.CodeQuotaExceeded, contract.UpstreamQuota
+		failure.Detail = fmt.Sprintf("the %s account serving this route is out of quota", a.config.Provider)
+	case "rate_limit_exceeded":
+		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
+		failure.Detail = fmt.Sprintf("%s rate-limited this request part-way through it", a.config.Provider)
+	case "server_error", "internal_error", "overloaded_error":
+		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
+		failure.Detail = fmt.Sprintf("%s failed part-way through the response", a.config.Provider)
+	case "content_filter", "content_policy_violation":
+		failure.Code, failure.Category = contract.CodeUpstreamContentFiltered, contract.UpstreamContentFilter
+		failure.Detail = "the provider's content filter stopped this response"
+	default:
+		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamUnknown
+		failure.Detail = fmt.Sprintf("%s failed part-way through the response and named no reason this build knows", a.config.Provider)
+	}
+	return failure
+}
+
+// safeText renders upstream text for a customer.
+//
+// It removes THIS adapter's own credential by exact match before applying the
+// contract's shape-based redaction. The contract's pattern is a heuristic keyed
+// to the shapes providers echo — `bearer <token>`, `sk-…` — and a provider that
+// echoes a key some other way would defeat it; the adapter holds the exact bytes
+// it sent, so it does not have to guess. See provider.RedactSecret.
+func (a *Adapter) safeText(text string) string {
+	return contract.SafeErrorText(provider.RedactSecret(text, a.config.APIKey))
 }

@@ -242,11 +242,52 @@ var notApplicable = map[string]string{
 	"providerConnectionStatusSchema":     "byok: out of scope for the first PR",
 	"providerConnectionValidationSchema": "byok: out of scope for the first PR",
 	"providerSecretReferenceSchema":      "byok: out of scope for the first PR",
+
+	// Account billing. Balances, invoices, payment providers and auto-recharge
+	// are the control plane's by definition: AGENTS.md forbids a customer
+	// balance or a billing ledger in this repository, so these shapes are not
+	// merely unimplemented here — implementing one would be the boundary
+	// breach. Published in @oxyhq/contracts 0.28.0.
+	"accountBillingStateSchema":     "billing: customer balances are Oxy's; a balance here is a second ledger",
+	"autoRechargeSchema":            "billing: recharging a customer's balance is a control-plane action",
+	"autoRechargeAttemptSchema":     "billing: recharging a customer's balance is a control-plane action",
+	"autoRechargeStatusSchema":      "billing: recharging a customer's balance is a control-plane action",
+	"billingInvoiceSchema":          "billing: invoicing a customer is Oxy's",
+	"billingInvoiceStatusSchema":    "billing: invoicing a customer is Oxy's",
+	"billingModeSchema":             "billing: prepaid or invoiced is a customer-account property",
+	"billingProfileSchema":          "billing: a customer's billing profile is an Oxy entity",
+	"billingProfileStatusSchema":    "billing: a customer's billing profile is an Oxy entity",
+	"externalPaymentSchema":         "billing: payment processing is Oxy's, and Relay holds no payment credential",
+	"externalPaymentKindSchema":     "billing: payment processing is Oxy's",
+	"externalPaymentProviderSchema": "billing: payment processing is Oxy's",
+
+	// Reconciliation compares what Oxy charged against what a provider
+	// invoiced. Relay measures its own upstream cost (internal/providercost)
+	// and deliberately does not reconcile it — see the README's out-of-scope
+	// list. Published in @oxyhq/contracts 0.28.0.
+	"reconciliationReportSchema":          "reconciliation: a finance process with no home in a data plane",
+	"reconciliationRunSchema":             "reconciliation: a finance process with no home in a data plane",
+	"reconciliationRunStatusSchema":       "reconciliation: a finance process with no home in a data plane",
+	"reconciliationDiscrepancySchema":     "reconciliation: a finance process with no home in a data plane",
+	"reconciliationDiscrepancyKindSchema": "reconciliation: a finance process with no home in a data plane",
+
+	// Entitlements, plans and cost centres are what a customer bought and how
+	// they attribute it. Relay is told the outcome of that decision — an
+	// already-authorized envelope — and never re-derives it (ADR 0006).
+	// Published in @oxyhq/contracts 0.28.0.
+	"costCenterSchema":            "entitlement: cost attribution is an Oxy account structure",
+	"costCenterSpendSchema":       "entitlement: cost attribution is an Oxy account structure",
+	"costCenterStatusSchema":      "entitlement: cost attribution is an Oxy account structure",
+	"planAllowanceSchema":         "entitlement: what a customer bought is resolved at the edge",
+	"payAsYouGoEntitlementSchema": "entitlement: what a customer bought is resolved at the edge",
+	"productEntitlementSchema":    "entitlement: what a customer bought is resolved at the edge",
+	"productPlanSchema":           "entitlement: plans are an Oxy product concern",
+	"productPlanStatusSchema":     "entitlement: plans are an Oxy product concern",
 }
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 46
+const expectedNotApplicableCount = 71
 
 type enumBinding struct {
 	goType  reflect.Type

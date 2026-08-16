@@ -71,6 +71,8 @@ func totalChunksFor(scenario conformance.Scenario) int {
 		return 6
 	case conformance.ScenarioToolCalls:
 		return 3
+	case conformance.ScenarioMidStreamError:
+		return 2
 	default:
 		return 0
 	}
@@ -96,6 +98,9 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case conformance.ScenarioQuotaExhausted:
 		writeUpstreamError(w, http.StatusTooManyRequests, "insufficient_quota", "you exceeded your current quota")
+		return
+	case conformance.ScenarioCredentialRefused:
+		writeUpstreamError(w, http.StatusUnauthorized, "invalid_api_key", "incorrect api key provided")
 		return
 	case conformance.ScenarioCredentialEchoed:
 		// Providers really do echo the request back in an error. This is the
@@ -165,6 +170,15 @@ func (f *fakeUpstream) writeStream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-time.After(chunkInterval):
 		}
+	}
+
+	if f.scenario == conformance.ScenarioMidStreamError {
+		// A 200 was already sent and output already streamed, so this failure
+		// has no HTTP status and never will: this protocol spells it as an
+		// error object where a chunk belongs.
+		_, _ = fmt.Fprint(w, `data: {"error":{"message":"the engine is currently overloaded","type":"server_error","code":null}}`+"\n\n")
+		flusher.Flush()
+		return
 	}
 
 	// The terminal frame carries the finish reason, and the usage frame after

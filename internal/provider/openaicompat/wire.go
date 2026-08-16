@@ -120,9 +120,16 @@ type fileRefSpec struct {
 /* -------------------------------------------------------------------------- */
 
 // chatChunk is one streamed frame.
+//
+// Error is on the frame because this protocol can fail AFTER a 200: the
+// upstream opens the stream, writes some output, and then writes an error
+// object where a chunk belongs. There is no status left to carry that failure,
+// so a decoder that ignored the field would report a truncated answer as a
+// completed one.
 type chatChunk struct {
 	Choices []streamChoice `json:"choices"`
 	Usage   *chatUsage     `json:"usage"`
+	Error   *upstreamError `json:"error"`
 }
 
 type streamChoice struct {
@@ -192,11 +199,13 @@ type completionTokensInfo struct {
 }
 
 // upstreamErrorBody is the error envelope every OpenAI-compatible provider
-// returns.
+// returns, over HTTP and inside the stream alike.
 type upstreamErrorBody struct {
-	Error struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    any    `json:"code"`
-	} `json:"error"`
+	Error upstreamError `json:"error"`
+}
+
+type upstreamError struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Code    any    `json:"code"`
 }
