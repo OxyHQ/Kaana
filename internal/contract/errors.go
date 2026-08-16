@@ -35,8 +35,13 @@ const (
 	CodeProviderError              ErrorCode = "provider_error"
 	CodeProviderTimeout            ErrorCode = "provider_timeout"
 	CodeProviderOverloaded         ErrorCode = "provider_overloaded"
-	CodeServiceUnavailable         ErrorCode = "service_unavailable"
-	CodeInternalError              ErrorCode = "internal_error"
+	// CodeProviderCredentialInvalid is an upstream refusing the PLATFORM's own
+	// credential — the counterpart of byok_credential_invalid on the other side
+	// of the BYOK boundary. It is the platform group's one non-retryable code,
+	// because no retry reaches the operator who has to rotate a key.
+	CodeProviderCredentialInvalid ErrorCode = "provider_credential_invalid"
+	CodeServiceUnavailable        ErrorCode = "service_unavailable"
+	CodeInternalError             ErrorCode = "internal_error"
 )
 
 var errorCodeValues = []ErrorCode{
@@ -46,7 +51,8 @@ var errorCodeValues = []ErrorCode{
 	CodeSpendingLimitExceeded, CodeQuotaExceeded, CodeBYOKCredentialInvalid, CodePolicyViolation,
 	CodeCommercialPermissionDenied, CodeNoRouteAvailable, CodeUpstreamContentFiltered,
 	CodeCancelled, CodeRateLimited, CodeDeploymentUnavailable, CodeProviderError,
-	CodeProviderTimeout, CodeProviderOverloaded, CodeServiceUnavailable, CodeInternalError,
+	CodeProviderTimeout, CodeProviderOverloaded, CodeProviderCredentialInvalid,
+	CodeServiceUnavailable, CodeInternalError,
 }
 
 // nonRetryableErrorCodes are the codes for which an identical retried request
@@ -59,6 +65,7 @@ var nonRetryableErrorCodes = []ErrorCode{
 	CodeOutputLimitExceeded, CodeIdempotencyConflict, CodeInsufficientBalance,
 	CodeSpendingLimitExceeded, CodeQuotaExceeded, CodeBYOKCredentialInvalid, CodePolicyViolation,
 	CodeCommercialPermissionDenied, CodeNoRouteAvailable, CodeUpstreamContentFiltered, CodeCancelled,
+	CodeProviderCredentialInvalid,
 }
 
 var nonRetryableSet = func() map[ErrorCode]struct{} {
