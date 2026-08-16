@@ -1,0 +1,52 @@
+package contract
+
+// BillingPrincipal is the financially responsible principal, and the only
+// identity a charge may be booked against.
+//
+// It is its own type rather than a field on a larger principal object for the
+// same reason the contract makes it one: a function taking "who pays" cannot
+// then be handed a user, a session, a device or an application.
+type BillingPrincipal struct {
+	AccountID AccountID `json:"accountId"`
+}
+
+// AuthenticatedPrincipal is who authenticated, as resolved by the Oxy edge
+// before a request is forwarded.
+//
+// Relay authorizes nothing about a customer against it. It has no account graph
+// to re-derive access from, and re-deriving would reintroduce exactly the
+// replication lag that makes revocation unsafe (ADR 0006).
+type AuthenticatedPrincipal struct {
+	Billing         BillingPrincipal `json:"billing"`
+	ApplicationID   ApplicationID    `json:"applicationId"`
+	CredentialID    CredentialID     `json:"credentialId"`
+	Environment     Environment      `json:"environment"`
+	InferenceScopes []Scope          `json:"inferenceScopes"`
+}
+
+// Attribution is the block carried by every request, event and usage report.
+//
+// UserID is the optional delegated end user. It is attribution only: it never
+// changes which account is charged, and it lives outside BillingPrincipal so no
+// code path can read it as the payer.
+type Attribution struct {
+	Principal    AuthenticatedPrincipal `json:"principal"`
+	UserID       *UserID                `json:"userId,omitempty"`
+	RequestID    RequestID              `json:"requestId"`
+	GenerationID *GenerationID          `json:"generationId,omitempty"`
+}
+
+// HasScope reports whether the authenticated principal carries a scope.
+//
+// Relay uses this for one thing only — refusing an envelope that was never
+// authorized to invoke inference at all, which is a malformed instruction from
+// the edge rather than a customer authorization decision. Everything a customer
+// can be told "no" about is decided at the edge, before forwarding.
+func (a Attribution) HasScope(scope Scope) bool {
+	for _, granted := range a.Principal.InferenceScopes {
+		if granted == scope {
+			return true
+		}
+	}
+	return false
+}

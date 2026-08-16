@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.24.4"
+
+jobs:
+  go:
+    name: build, vet, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gofmt
+        # `gofmt -l` prints unformatted files and exits 0 either way, so the
+        # exit status is not the gate — the output is.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.6.2
+
+      - name: go test
+        # -race because the data plane is concurrent by nature: a stream, a
+        # cancellation and an upstream read all touch the same request.
+        run: go test -race -count=1 ./...
+
+  contract:
+    name: contract drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tools/contract/package-lock.json
+
+      - name: install the pinned contracts package
+        run: npm ci
+        working-directory: tools/contract
+
+      - name: the committed descriptor is what the pinned package produces
+        # Catches a hand-edited descriptor and a version bump nobody
+        # re-derived. The package version is pinned exactly, so regeneration is
+        # deterministic and any diff is a real change.
+        run: |
+          npm run generate --silent
+          if ! git diff --exit-code -- ../../internal/contract/descriptor.json; then
+            echo "descriptor.json does not match the pinned @oxyhq/contracts package."
+            echo "Run 'npm ci && npm run generate' in tools/contract and review the diff."
+            exit 1
+          fi
+        working-directory: tools/contract
+
+      - name: the Go types match the published contract
+        run: go test -count=1 ./internal/contract/...
+
+      - name: the shapes Relay produces parse under the published Zod schemas
+        # Reads the fixtures the step above wrote. It fails on an empty fixture
+        # directory and on any rejection control it accepts, so a silent no-op
+        # cannot pass as a clean run.
+        run: npm run validate --silent
+        working-directory: tools/contract
