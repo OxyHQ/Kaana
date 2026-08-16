@@ -43,6 +43,7 @@ internal/inventory/             deployment inventory and its configuration snaps
 internal/provider/              the Adapter interface, registry and error vocabulary
   conformance/                  the suite every adapter must pass
   openaicompat/                 the ported OpenAI Chat Completions adapter
+  anthropic/                    the ported Anthropic Messages API adapter
 internal/providercost/          what a request cost Relay upstream; never a customer amount
 internal/relay/                 the executor: routing, failover, framing, usage reports
 internal/rotation/              per-deployment circuit breakers and health scoring
@@ -67,7 +68,7 @@ on top of it.
 
 ## The contract is not re-invented here
 
-`@oxyhq/contracts@0.27.0` is the wire contract, and the Go types in
+`@oxyhq/contracts@0.28.0` is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 
@@ -90,7 +91,12 @@ upstream appears on the next regeneration.
 - `ContractVersion` equals the published `INFERENCE_CONTRACT_VERSION`.
 
 CI regenerates the descriptor and fails on any diff, which catches a hand-edit
-and a version bump nobody re-derived.
+and a version bump nobody re-derived. The bump to `0.28.0` is what that gate is
+for: it brought 25 shapes from two new modules — account billing, entitlements
+and reconciliation — every one of which is a control-plane concept this
+repository is forbidden to hold, so all 25 are recorded not-applicable with the
+reason naming the owner, and `expectedNotApplicableCount` moved in the same
+change.
 
 **What it catches:** a field renamed, added, removed, or flipped between
 required and optional; a scalar's type changed; a reference repointed; a version
@@ -388,9 +394,14 @@ content through `Emitter`, which stamps `requestId`, `sequence` and
 `schemaVersion` itself — removing the whole class of bug where one provider's
 events are unattributable or repeat a sequence.
 
-## The ported adapter
+## The ported adapters
 
-`internal/provider/openaicompat` is a port of Alia's `openai` provider
+Two protocols are implemented, and the second one exists to test the first one's
+abstraction rather than to add a provider.
+
+### `openaicompat` — OpenAI Chat Completions
+
+A port of Alia's `openai` provider
 (`packages/api/src/internal/providers/lib/providers/openai.ts`).
 
 **Why that one.** Seven of Alia's adapters — openai, together, xai, cerebras,
@@ -399,9 +410,7 @@ and the word in their error string, because they all speak the OpenAI Chat
 Completions protocol. Porting the *protocol* rather than a provider makes the
 next six a `Config` and a conformance registration.
 `TestOneProtocolServesSeveralProviders` runs the full suite under three more
-slugs to keep that claim honest. Only `openai` is wired in `cmd/relay`: a
-provider with no credential and no inventory entry would be a claim this build
-cannot support.
+slugs to keep that claim honest.
 
 **What the port deliberately changes.** Alia's `proxy()` returned the upstream's
 raw stream to its caller — no normalization, no usage, no cancellation, no error
@@ -410,30 +419,100 @@ streamed request reported no usage at all**; a faithful port of that would be a
 billing hole. And it substituted `temperature: 0.7` / `max_tokens: 8192` when the
 caller set none, which silently changes every request nobody configured.
 
+### `anthropic` — the Messages API
+
+A port of Alia's `anthropic` provider
+(`.../providers/anthropic.ts`), and the answer to a question one adapter cannot
+settle: whether `provider.Adapter` describes a provider or describes the first
+one written against it.
+
+**Why that one.** It disagrees with chat completions on every axis the interface
+names — named SSE events instead of one repeated frame closed by `[DONE]`;
+indexed content **blocks** whose kind is declared once in the event that opens
+them; reasoning as a block type rather than a field; usage split across two
+events with a **cumulative** output count; a failure that can arrive *inside* the
+stream after a 200; `x-api-key` with a mandatory `anthropic-version` instead of a
+bearer token; the system prompt hoisted out of the message list; a tool result
+carried as a user message; and `max_tokens` **required**. A second
+OpenAI-compatible provider would have exercised none of that.
+
+Its usage fields also nest the *other way round*, which is the finding with money
+attached: `input_tokens` **excludes** cached tokens where an OpenAI-compatible
+`prompt_tokens` includes them, while `output_tokens` includes reasoning exactly
+as `completion_tokens` does. So one of the two normalising subtractions the
+contract's partition needs applies here and **the other must not** — and an
+adapter written by copying the first one would under-report every cached request.
+
+**What the port deliberately changes.** Alia's conversion read only a text delta
+and `message_stop`: tool calls, reasoning, stop reasons and the whole of `usage`
+were dropped, so a request that called a tool produced no tool call downstream
+and every request reported no usage at all. It also defaulted `max_tokens: 8192`
+and `temperature: 0.7`, and forced `stream: true`.
+
+**What it refuses rather than inventing.** `max_tokens` is required upstream and
+optional in the contract, so a request that omits `maxOutputTokens` is refused
+with the field named. Choosing a ceiling here — or per deployment, which only
+moves the invention into a config file — would truncate an answer the customer
+asked to be unbounded and report success. That is item 14 below.
+
 **No live provider call has been made from this repository.** There are no
-provider credentials here, in the tests, or in CI. The adapter is exercised
+provider credentials here, in the tests, or in CI. Both adapters are exercised
 against a fake upstream that speaks the real wire format, including its habit of
-echoing the request's `Authorization` header back inside an error message.
+echoing the request's credential header back inside an error message.
+
+### What the second adapter changed
+
+The `Adapter` interface itself did not change: `Provider`/`Translate`/`Stream`/
+`Health`, `Call`, `Route` and `Outcome` all held. Three things around it did, and
+each was a gap rather than a preference:
+
+- **`Emitter` has nowhere to put provider-opaque block metadata.** A thinking
+  block's `signature` is what makes multi-turn tool use with reasoning work, and
+  no contract stream event has a field for it. The adapter reads it so it cannot
+  be mistaken for output, and drops it. Item 17.
+- **The conformance suite could only be told about one refusal**, which was an
+  accident of the first adapter having exactly one. It now takes a list.
+- **Credential redaction could not be left to the contract's pattern.** It is
+  keyed to bearer-token shapes; against `x-api-key: <value>` it matches the
+  marker and not the value, so redacting *removes the evidence and keeps the
+  credential*. `provider.RedactSecret` removes the adapter's own key by exact
+  match first. Item 18.
 
 ## The conformance harness
 
 `internal/provider/conformance` is the suite an adapter must pass. An author
-supplies four things — how to build the adapter, how to start a fake upstream
-speaking that provider's **real** wire format, one request the provider genuinely
-cannot express, and the route it serves — and gets twelve checks back:
+supplies five things — how to build the adapter, how to start a fake upstream
+speaking that provider's **real** wire format, the route it serves, the requests
+the provider genuinely cannot express, and what its fake upstream physically
+consumed and produced — and gets back:
 
 slug validity and stability · event framing (one `start` first, monotonic
 sequences, `requestId` and `schemaVersion` on every event, exactly one terminal)
 · a revision-pinned resolved model · the same normalized shape from a
-non-streamed upstream · a provider that reports no usage settling as an estimate
-· tool calls a client can reassemble · a transient 429 classified retryable ·
-an exhausted quota on the same status classified non-retryable · **the
-configured credential never reaching the customer**, with a control asserting
-the upstream actually echoed it · a refusal that spends nothing upstream ·
-cancellation, with its control · health with and without a credential.
+non-streamed upstream · **units that partition the request**, on both read paths
+· a provider that reports no usage settling as an estimate · tool calls a client
+can reassemble · a transient throttle classified retryable · an exhausted
+account classified non-retryable · **a refused PLATFORM credential classified
+non-retryable and still attributable** · **a failure that arrives after the
+response started** · **the configured credential never reaching the customer**, with a
+control asserting the upstream actually echoed it · one refusal per class, each
+spending nothing upstream and naming the field at fault · cancellation, with its
+control · health with and without a credential.
 
 The suite drives the adapter through the **real executor**, because an adapter is
 only correct in the shape it is actually used.
+
+**What the second adapter changed here, and which half of it was general.** Six
+changes, and the distinction matters:
+
+| Addition | General, or the suite having been OpenAI-shaped? |
+|---|---|
+| Units partition the request (`StreamedUsage`) | **General.** It is the contract's own rule, and it caught the double-charge on the *first* adapter when that adapter's subtraction was removed — the suite had no check that would have. |
+| A failure arriving mid-stream, after a 200 | **General.** Both protocols can do it; neither adapter handled it before, and `openaicompat` was reporting a truncated answer as a completed one. |
+| A refused platform credential (`provider_credential_invalid`) | **General**, and newly expressible: the code landed in `@oxyhq/contracts@0.28.0` while this branch was open. Both adapters were reporting it as retryable. |
+| A list of refusals rather than one | **The suite was OpenAI-shaped.** One slot fit because the first adapter had exactly one refusal class. |
+| `maxOutputTokens` populated in the fixture | **The suite was OpenAI-shaped**, in the sense that a minimal fixture only passes for a provider that requires nothing the contract makes optional. Populating optional fields is this repository's own rule anyway. |
+| "an exhausted quota on the *same status*" | **Was OpenAI-specific prose.** The invariant is that an adapter tells a throttle from an exhausted account; that they share a status is one provider's habit. Wording only. |
 
 ## Running it
 
@@ -447,6 +526,8 @@ bypass that ships.
 | `RELAY_EDGE_PUBLIC_KEYS` | yes | `kid:base64,…` Ed25519 **public** keys; not secret |
 | `RELAY_PROVIDER_OPENAI_API_KEY` | no | absent ⇒ the provider reports `unconfigured` |
 | `RELAY_PROVIDER_OPENAI_BASE_URL` | no | default `https://api.openai.com/v1` |
+| `RELAY_PROVIDER_ANTHROPIC_API_KEY` | no | absent ⇒ the provider reports `unconfigured` |
+| `RELAY_PROVIDER_ANTHROPIC_BASE_URL` | no | default `https://api.anthropic.com/v1` |
 | `RELAY_PROVIDER_RATES_PATH` | no | upstream rate cards; absent ⇒ provider cost is not measured |
 | `RELAY_INVENTORY_MAX_AGE` | no | staleness horizon for unpinned resolution, default `1h` |
 | `RELAY_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
@@ -526,19 +607,45 @@ implemented against before. Each is a real gap, not a preference.
    one) — Oxy must correlate settlement by `requestId` alone. Workable, but it
    should be a stated decision.
 5. **`cached_input_tokens` and `reasoning_tokens` are not defined as subsets or
-   siblings.** Every OpenAI-compatible provider *nests* them: `prompt_tokens`
-   includes cached, `completion_tokens` includes reasoning. The contract's units
-   are a flat list. Relay reports them **disjoint** — input excludes cached,
-   output excludes reasoning — so a price applied to every unit sums to the
-   request. Under the other reading Oxy would double-charge cached and reasoning
-   tokens. This is real money on a reasoning model and needs to be written down.
-6. **The closed error set has no non-retryable platform-side failure.** Every
-   customer-fault code is non-retryable and every platform/upstream code is
-   retryable. So when an upstream refuses *Relay's own* credential, the honest
-   classification (`provider_error`, category `authentication`) tells clients to
-   retry a request that cannot succeed until an operator rotates a key. A
-   non-retryable platform code — or making `service_unavailable` non-retryable —
-   would close this.
+   siblings.** *Answered by OxyHQ/oxy#1019: the units **partition** a request,
+   which is what Relay already reported and what the ledger's arithmetic already
+   assumed.* Two things follow that the answer does not cover, and the second
+   adapter is where both surfaced.
+
+   First, **the normalising subtraction is per provider and is not the same
+   subtraction**. An OpenAI-compatible `prompt_tokens` includes its cached
+   tokens; Anthropic's `input_tokens` is documented as excluding both of its
+   cache counts, with the prompt total being
+   `cache_read + cache_creation + input_tokens`. Copying the first adapter's
+   arithmetic into the second would under-report every cached request. Both
+   halves are now a conformance check rather than a comment.
+
+   Second, **there is no unit for a cache WRITE**. Anthropic reports
+   `cache_creation_input_tokens` separately and prices it at 1.25× to 2× the base
+   input rate, against 0.1× for a read. Relay folds writes into `input_tokens`,
+   because the alternative — reporting them as `cached_input_tokens` — would
+   price the most expensive input tokens in the request at the cheapest rate on
+   the card. The units still partition the request; what is lost is the premium,
+   on Relay's own cost side. A `cache_write_input_tokens` unit would close it.
+6. **The closed error set has no non-retryable platform-side failure.**
+   *Answered by OxyHQ/oxy#1019, which added `provider_credential_invalid`
+   (non-retryable), published in `@oxyhq/contracts@0.28.0` and adopted here.*
+   Both adapters now report an upstream refusing the PLATFORM's credential under
+   that code, with category `authentication`. The two halves pull in opposite
+   directions on purpose: the code is non-retryable so a client stops hammering a
+   request that cannot succeed, and the category is attributable so the breaker
+   still takes the route out of rotation and a same-model failover to a
+   deployment holding a DIFFERENT credential is still allowed. It is a
+   conformance check, so the next adapter inherits it.
+
+   **A neighbouring gap the new code does not cover:** an upstream refusing to
+   *bill* the platform is the same class of failure as one refusing its
+   credential — only an operator can fix it, no retry helps — and has no code of
+   its own either. Anthropic sends it as a 402 `billing_error`. Relay reports it
+   as `quota_exceeded`, which is non-retryable and correct about retryability and
+   wrong about whose account is exhausted: a customer reading it goes looking at
+   their own balance. `provider_credential_invalid`'s sibling would be something
+   like `provider_account_unbillable`.
 7. **Nothing specifies how Relay authenticates the edge.** See
    `internal/edgeauth` for what Relay implements and why it follows ADR 0012's
    asymmetric reasoning rather than a shared secret.
@@ -587,6 +694,64 @@ implemented against before. Each is a real gap, not a preference.
     satisfies the field. That is consistent with never substituting pinned
     weights, but it means cross-model fallback is expressible only for unpinned
     requests, which is worth stating rather than discovering.
+
+The five below came from implementing the SECOND adapter. They are the ones a
+single implementation could not have found, because each is a place where the
+contract fits one provider's shape and not another's.
+
+14. **`maxOutputTokens` is optional, and at least one provider requires it.**
+    The Anthropic Messages API rejects a request with no `max_tokens`. The
+    contract makes the field optional and says nothing about what its absence
+    means, so an adapter has three options and two of them are wrong: invent a
+    ceiling (silently truncates an answer the caller asked to be unbounded, and
+    reports success), take one from the deployment descriptor (the same
+    invention, moved to a config file nobody reads), or refuse. This build
+    refuses, with `invalid_request` and `param: maxOutputTokens`, which means a
+    request that is valid under the contract and served by one provider is
+    refused by another. Either the contract should require the field, or
+    `modelDeploymentSchema` should carry a per-deployment output ceiling and the
+    contract should say that an absent value means it — but it should say which.
+
+15. **There is no unit for cache-write tokens.** See item 5. A provider that
+    prices a cache write at a premium and a cache read at a tenth of the input
+    rate cannot be metered exactly against the published unit list.
+
+16. **`refusal` has no finish reason of its own.** The Messages API stops with
+    `stop_reason: "refusal"` when the model declines, and `stop_details` carries
+    a category. The contract's finish reasons are `stop`, `length`,
+    `tool_calls`, `content_filter` and `cancelled`. Relay reports
+    `content_filter`, which is the closest true statement — output was withheld
+    on safety grounds — but it says an upstream filter acted where in fact the
+    model declined, and those are different things to a customer deciding
+    whether to rephrase. (The contract does carry a `refusal` DELTA channel, so
+    the vocabulary already knows the distinction elsewhere.)
+
+17. **No stream event can carry provider-opaque block metadata.** An
+    extended-thinking response returns a `signature` per thinking block, and the
+    provider REQUIRES those blocks back, unmodified, on the next turn of a
+    tool-use conversation. `streamDeltaEvent` has `channel` and `text` and
+    nothing that could hold it, and the request side has no content-part type
+    for a thinking block either — so the round trip is not expressible in either
+    direction, and multi-turn tool use with reasoning cannot be served through
+    this contract at all. Relay reads the signature so it cannot be mistaken for
+    output, and drops it. This is a design decision rather than an oversight to
+    patch: an opaque per-block blob crossing the boundary needs a home nobody has
+    chosen yet.
+
+18. **`safeErrorTextSchema`'s credential pattern is bearer-shaped, and
+    redacting against it can make a leak WORSE.** The published pattern refuses
+    `authorization:`, `bearer <token>`, `api_key=` and `sk-…`. A provider that
+    authenticates with a header of its own name echoes
+    `{x-api-key: <value>}`, where the pattern matches the marker and not the
+    value — so redacting the match produces `{x-[redacted] <value>}`, which no
+    longer trips the refinement and is therefore *accepted* by the contract with
+    the credential intact. Measured, not theorised: removing
+    `provider.RedactSecret` from the Anthropic adapter puts exactly that string
+    in the customer-visible error event, and the conformance suite catches it.
+    Relay's fix is local and complete — an adapter holds the exact bytes it sent,
+    so it removes them by exact match before the pattern ever runs — but any
+    other producer relying on the published pattern alone has this hole, and the
+    pattern should probably swallow the value after a marker.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md

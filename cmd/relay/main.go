@@ -24,6 +24,7 @@ import (
 	"github.com/OxyHQ/Relay/internal/httpapi"
 	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Relay/internal/provider/anthropic"
 	"github.com/OxyHQ/Relay/internal/provider/openaicompat"
 	"github.com/OxyHQ/Relay/internal/providercost"
 	"github.com/OxyHQ/Relay/internal/relay"
@@ -264,27 +265,42 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 
 // buildAdapters constructs every provider this build can serve.
 //
-// One adapter is wired: `openai`, over the OpenAI Chat Completions protocol.
-// The other providers Alia speaks to over the same protocol are a Config away,
-// and the conformance suite already runs against several of them — but a
-// provider nobody has credentials or an inventory entry for would be a claim
-// this build cannot support, so only the one is registered.
+// Two protocols are wired: OpenAI Chat Completions, which seven of the
+// providers Alia speaks to share, and the Anthropic Messages API, which is one
+// provider's own. Registering an adapter is not a claim that a credential
+// exists for it — an unconfigured adapter reports itself `unconfigured` on the
+// health surface rather than failing at the first request, which is what lets
+// an operator see the gap before a customer does. What would be a claim this
+// build cannot support is an INVENTORY entry routing to a provider with no
+// credential, and the server refuses to start when the inventory names a
+// provider it has no adapter for at all.
 func buildAdapters() ([]provider.Adapter, error) {
-	baseURL := os.Getenv("RELAY_PROVIDER_OPENAI_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+	openaiBaseURL := os.Getenv("RELAY_PROVIDER_OPENAI_BASE_URL")
+	if openaiBaseURL == "" {
+		openaiBaseURL = "https://api.openai.com/v1"
 	}
 	openai, err := openaicompat.New(openaicompat.Config{
 		Provider: "openai",
-		BaseURL:  baseURL,
-		// Absent is a supported state: the adapter reports itself unconfigured
-		// on the health surface rather than failing at the first request.
-		APIKey: os.Getenv("RELAY_PROVIDER_OPENAI_API_KEY"),
+		BaseURL:  openaiBaseURL,
+		APIKey:   os.Getenv("RELAY_PROVIDER_OPENAI_API_KEY"),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return []provider.Adapter{openai}, nil
+
+	anthropicBaseURL := os.Getenv("RELAY_PROVIDER_ANTHROPIC_BASE_URL")
+	if anthropicBaseURL == "" {
+		anthropicBaseURL = "https://api.anthropic.com/v1"
+	}
+	claude, err := anthropic.New(anthropic.Config{
+		BaseURL: anthropicBaseURL,
+		APIKey:  os.Getenv("RELAY_PROVIDER_ANTHROPIC_API_KEY"),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return []provider.Adapter{openai, claude}, nil
 }
 
 func providerSlugs(registry *provider.Registry) []contract.ProviderSlug {
