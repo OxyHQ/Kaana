@@ -8,33 +8,58 @@ import (
 	"github.com/OxyHQ/Relay/internal/contract"
 )
 
-// TestRedactSecretCoversWhatTheContractsPatternDoesNot is the reason
-// RedactSecret exists, stated as a test rather than as a comment.
+// TestRedactSecretIsStillTheOnlyControl answers the question the contract's own
+// rewrite raises: `@oxyhq/contracts@0.29.0` closed the header-name hole this
+// repository reported, so is an adapter-side redaction still needed?
 //
-// The contract's credential-shaped-text pattern was written against providers
-// that authenticate with a bearer token. Against one that authenticates with a
-// header of its own name, an echoed request matches the MARKER and not the
-// VALUE — so redacting alone removes the thing that made the text look like a
-// credential and leaves the credential.
-func TestRedactSecretCoversWhatTheContractsPatternDoesNot(t *testing.T) {
-	const secret = "relay-test-fake-credential-0000"
-	echoed := "request rejected: headers were {x-api-key: " + secret + "}"
+// It is, for two separate reasons, and the second is a leak.
+//
+// The published refinement is a REFUSAL and says so: a producer whose message
+// still looks like it carries a credential loses the message, not the
+// credential. And it cannot see a credential with no marker, no issued-token
+// prefix and no placeholder beside it — the contract states that limit outright,
+// because refusing those bytes means refusing request ids.
+//
+// An adapter is holding the exact bytes it sent. It does not need a heuristic.
+func TestRedactSecretIsStillTheOnlyControl(t *testing.T) {
+	const secret = "relay0test0fake0credential0value"
 
-	// The control, and the whole argument: the contract's own redaction is not
-	// enough here. If this assertion ever fails because the published pattern
-	// grew a rule for this shape, RedactSecret is still correct and this test
-	// should be rewritten around whatever it no longer covers — not deleted.
-	if !strings.Contains(contract.SafeErrorText(echoed), secret) {
-		t.Fatal("the contract's pattern now redacts a header-named credential's value, so this test no longer measures the gap it was written for")
-	}
+	t.Run("a shape the contract now recognises: the diagnostic survives", func(t *testing.T) {
+		echoed := "request rejected: headers were {x-api-key: " + secret + "}"
 
-	safe := contract.SafeErrorText(RedactSecret(echoed, secret))
-	if strings.Contains(safe, secret) {
-		t.Errorf("the credential survived redaction: %q", safe)
-	}
-	if !strings.Contains(safe, "request rejected") {
-		t.Errorf("the diagnostic was destroyed along with the credential: %q", safe)
-	}
+		// Without the adapter's redaction the contract refuses the whole string,
+		// so nothing leaks — and the customer is told nothing either.
+		withheld := contract.SafeErrorText(echoed)
+		if strings.Contains(withheld, secret) {
+			t.Fatal("the contract's refusal let a marked credential through")
+		}
+		if strings.Contains(withheld, "request rejected") {
+			t.Fatal("the refusal preserved the diagnostic, so this case no longer measures what it was written for")
+		}
+
+		// With it, the value is gone and the message still says what happened.
+		safe := contract.SafeErrorText(RedactSecret(echoed, secret))
+		if strings.Contains(safe, secret) {
+			t.Errorf("the credential survived redaction: %q", safe)
+		}
+		if !strings.Contains(safe, "request rejected") {
+			t.Errorf("the diagnostic was lost even though the secret was removable: %q", safe)
+		}
+	})
+
+	t.Run("a shape the contract cannot see: the credential leaks without it", func(t *testing.T) {
+		// No marker, no issued-token prefix, no placeholder beside it. The
+		// contract accepts this string by design; internal/contract's fixture
+		// table pins that against the published schema itself.
+		echoed := "the key " + secret + " was not accepted"
+
+		if !strings.Contains(contract.SafeErrorText(echoed), secret) {
+			t.Fatal("the published pattern now recognises an unmarked credential; re-derive what it still cannot see rather than deleting this case")
+		}
+		if got := contract.SafeErrorText(RedactSecret(echoed, secret)); strings.Contains(got, secret) {
+			t.Errorf("the credential reached the customer: %q", got)
+		}
+	})
 }
 
 func TestRedactSecretLeavesTextAloneWhenThereIsNoSecret(t *testing.T) {

@@ -39,9 +39,12 @@ func TestEveryFailureThisProviderNamesMapsOntoTheClosedVocabulary(t *testing.T) 
 		// not: an exhausted account arrives on a status no rate limit uses, so
 		// the two are never confusable here — and are still classified by TYPE,
 		// because that is what the mid-stream case has and a status is not.
+		// `provider_billing_refused` rather than `quota_exceeded`: the account
+		// at fault is the platform's with this provider, and the customer's own
+		// ceiling is a different failure with a different remedy.
 		"the platform's own account cannot be billed": {
 			kind: errorBilling, status: http.StatusPaymentRequired,
-			code: contract.CodeQuotaExceeded, category: contract.UpstreamQuota,
+			code: contract.CodeProviderBillingRefused, category: contract.UpstreamQuota,
 			retryable: false, attributable: true,
 		},
 		// Non-retryable AND attributable, which is the pairing that makes this
@@ -215,4 +218,35 @@ func errorBodyOf(kind string) io.ReadCloser {
 
 func asUpstream(err error, target *provider.ErrUpstream) bool {
 	return errors.As(err, target)
+}
+
+// TestStopReasonsMapOntoTheContractsFinishReasons pins the distinction this
+// port asked the contract for and got: a model DECLINING to answer is a
+// property of the answer, and a content filter is an upstream system removing
+// one. `refusal` joined `inferenceFinishReasonSchema` in
+// @oxyhq/contracts@0.29.0 (contract version 1.1.0); before it, this row had to
+// report `content_filter` and say something that was not quite true.
+func TestStopReasonsMapOntoTheContractsFinishReasons(t *testing.T) {
+	for reason, want := range map[string]contract.FinishReason{
+		"end_turn":                      contract.FinishStop,
+		"stop_sequence":                 contract.FinishStop,
+		"pause_turn":                    contract.FinishStop,
+		"max_tokens":                    contract.FinishLength,
+		"model_context_window_exceeded": contract.FinishLength,
+		"tool_use":                      contract.FinishToolCalls,
+		"refusal":                       contract.FinishRefusal,
+		// The provider's versioning policy allows new stop reasons. An
+		// unrecognised one is reported as a normal stop rather than guessed at:
+		// inventing a category would put a wrong reason on a receipt.
+		"some_future_reason": contract.FinishStop,
+	} {
+		t.Run(reason, func(t *testing.T) {
+			if got := mapStopReason(reason); got != want {
+				t.Errorf("%q became %q, expected %q", reason, got, want)
+			}
+		})
+	}
+	if mapStopReason("refusal") == contract.FinishContentFilter {
+		t.Error("a model refusal is reported as a content filter, which says an upstream system removed the answer")
+	}
 }

@@ -466,10 +466,11 @@ func mapStopReason(reason string) contract.FinishReason {
 	case "tool_use":
 		return contract.FinishToolCalls
 	case "refusal":
-		// The model declined. `content_filter` is the contract's only finish
-		// reason for output withheld on safety grounds; reporting `stop` would
-		// tell a customer the model finished answering.
-		return contract.FinishContentFilter
+		// The MODEL declined, which is a property of the answer — as against a
+		// content filter, which is an upstream system removing one. The contract
+		// separates the two, so collapsing them here would report the terminal
+		// event less specifically than the stream that produced it.
+		return contract.FinishRefusal
 	default:
 		// An unrecognised reason is reported as a normal stop rather than
 		// guessed at. The alternative — inventing a category — would put a
@@ -568,12 +569,12 @@ func (a *Adapter) classify(detail errorDetail, status int) provider.ErrUpstream 
 		failure.Detail = fmt.Sprintf("%s rate-limited this request", Slug)
 
 	case errorBilling:
-		// The PLATFORM's account with this provider cannot pay, which no retry
-		// and no customer can fix. It is reported under the contract's only
-		// non-retryable exhaustion code, and the detail says whose account it
-		// is: a customer reading `quota_exceeded` would otherwise go looking at
-		// their own balance. See README, "What Oxy still has to decide".
-		failure.Code, failure.Category = contract.CodeQuotaExceeded, contract.UpstreamQuota
+		// The PLATFORM's account with this provider cannot be billed, which no
+		// retry and no customer can fix. `quota_exceeded` — the closest code
+		// before the contract had this one — is the customer's own ceiling, so
+		// reporting it here is retryability-correct and diagnostically wrong:
+		// it reads as actionable and the action does nothing.
+		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
 		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", Slug)
 
 	case errorAuthentication, errorPermission:
