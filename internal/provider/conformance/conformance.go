@@ -326,14 +326,23 @@ func Run(t *testing.T, subject Subject) {
 		}
 	})
 
-	t.Run("classifies an exhausted quota as non-retryable", func(t *testing.T) {
+	t.Run("classifies an exhausted platform account as neither a throttle nor the customer's balance", func(t *testing.T) {
 		run := execute(t, subject, ScenarioQuotaExhausted, streamingRequest(subject), nil)
 		failure := assertFailure(t, run)
 		if failure.Retryable {
-			t.Errorf("an exhausted quota was reported retryable under code %q; only a human raises a quota", failure.Code)
+			t.Errorf("an exhausted account was reported retryable under code %q; only a human raises it", failure.Code)
 		}
 		if failure.Code == contract.CodeRateLimited {
-			t.Error("an exhausted quota was classified as a rate limit; they are the same status and opposite answers")
+			t.Error("an exhausted account was classified as a rate limit; on one provider they share a status and they are opposite answers")
+		}
+		// The account is the PLATFORM's with this provider. Every code below
+		// names the CUSTOMER's money, and each one sends them to top up, raise
+		// or wait on something that is not what failed — right about
+		// retryability and wrong about who can act, which reads as actionable
+		// while the action does nothing.
+		switch failure.Code {
+		case contract.CodeQuotaExceeded, contract.CodeInsufficientBalance, contract.CodeSpendingLimitExceeded:
+			t.Errorf("the platform's own account with the provider was reported as %q, which names the customer's money", failure.Code)
 		}
 	})
 
@@ -368,7 +377,7 @@ func Run(t *testing.T, subject Subject) {
 			t.Fatal("the subject declares no API key, so this check would pass vacuously")
 		}
 		run := execute(t, subject, ScenarioCredentialEchoed, streamingRequest(subject), nil)
-		_ = assertFailure(t, run)
+		failure := assertFailure(t, run)
 
 		encoded, err := json.Marshal(run.events)
 		if err != nil {
@@ -382,6 +391,20 @@ func Run(t *testing.T, subject Subject) {
 		// mentioned it also reports.
 		if !run.upstreamEchoedCredential {
 			t.Fatal("the fake upstream did not echo the credential, so this check measured nothing")
+		}
+
+		// And the customer must still be told what went wrong. There are two
+		// ways to keep a credential out of an error and only one of them is
+		// acceptable: removing the VALUE, which an adapter can do because it is
+		// holding the bytes it sent, or letting the contract's refusal throw the
+		// whole message away. The second passes the assertion above while
+		// destroying the diagnostic, so it is a distinct failure and is checked
+		// as one.
+		if failure.ProviderError == nil || failure.ProviderError.Message == nil {
+			t.Fatal("the upstream's message was dropped entirely, so the customer is told a request failed and nothing about why")
+		}
+		if *failure.ProviderError.Message == contract.WithheldErrorText {
+			t.Error("the upstream's diagnostic was withheld wholesale: the adapter left the credential in the text and the contract's last-resort refusal removed the message with it. Redact the configured credential by exact match (provider.RedactSecret) so the message survives")
 		}
 	})
 

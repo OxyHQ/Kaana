@@ -33,17 +33,19 @@ type fixture struct {
 }
 
 func TestWriteWireFixtures(t *testing.T) {
-	valid := validFixtures(t)
-	invalid := invalidFixtures()
+	valid := append(validFixtures(t), credentialTextFixtures(false)...)
+	invalid := append(invalidFixtures(), credentialTextFixtures(true)...)
 
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
 	// reason the not-applicable list is exact.
-	if len(valid) != 12 {
-		t.Fatalf("expected 12 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// 12 wire shapes plus the 6 credential-text strings the published schema
+	// must ACCEPT; 6 controls plus the 6 it must REJECT.
+	if len(valid) != 18 {
+		t.Fatalf("expected 18 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 6 {
-		t.Fatalf("expected 6 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 12 {
+		t.Fatalf("expected 12 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	writeFixtures(t, filepath.Join(fixtureDir, "valid"), valid)
@@ -271,6 +273,101 @@ func validFixtures(t *testing.T) []fixture {
 			GenerationID: attribution.GenerationID, FinishReason: FinishStop, CompletedAt: completed,
 		}},
 	}
+}
+
+// credentialTextCases is the table that verifies Relay's Go reading of the
+// published credential refusal against the published predicate ITSELF.
+//
+// The contract expresses that refusal as four regexes inside a `.refine()`, so
+// it cannot be read off the descriptor, and two of them use a negative
+// lookahead that Go's RE2 engine cannot express — this package restates them
+// with a capture and a second check. A restatement is a re-implementation, and
+// a test that re-implements the code under test measures the re-implementation.
+//
+// So every string below travels BOTH ways: `TestCredentialShapedAgreesWithGo`
+// asserts Relay's own CredentialShaped() classifies it as stated, and each one
+// is also emitted as a fixture — refused ones as invalid controls the published
+// schema must REJECT, accepted ones as valid fixtures it must PARSE. The two
+// halves disagreeing is what a drifted restatement looks like.
+//
+// The accepted half is not decoration. A refusal that fires on everything
+// closes the hole and destroys every diagnostic with it, and the second entry
+// below is exactly the string Relay emits after provider.RedactSecret has done
+// its work: if the contract refused that, correct redaction would be
+// indistinguishable from no redaction at all.
+var credentialTextCases = []struct {
+	name    string
+	text    string
+	refused bool
+}{
+	// The header spelling a literal `authorization|api_key` pattern missed, and
+	// the reason the prefix group exists.
+	{"header-named-credential", "request rejected: headers were {x-api-key: relay0fake0credential0value}", true},
+	// The residue a SPAN redaction leaves: the marker is gone, the secret is
+	// not. Refusing this is what stops a producer from redacting the wrong half.
+	{"span-redacted-marker", "request rejected: headers were {x-[redacted] relay0fake0credential0value}", true},
+	{"bare-bearer-token", "upstream said: Bearer abcdefghijklmnop", true},
+	// No marker at all: the layer that survives a producer stripping one.
+	{"issued-token-grammar", "the key sk-abcdefghijklmnop was not accepted", true},
+	{"json-web-token", "value eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpM", true},
+	{"cloud-provider-key", "the value AIzaSyD0abcdefghijklmnopqrstuvwxyz01 was rejected", true},
+
+	{"ordinary-diagnostic", "model claude-opus is overloaded; retry in 2s (request 01JABCDEF)", false},
+	// What Relay emits once the adapter has removed the value it sent.
+	{"correctly-redacted-value", "request rejected: headers were {x-api-key: [redacted]}", false},
+	{"marker-with-a-short-value", "authorization: none", false},
+	{"marker-with-a-masked-value", "api_key=***", false},
+	// An opaque run that is a request id and not a credential. Refusing this is
+	// what an entropy heuristic would do, and the reason the contract does not
+	// use one.
+	{"opaque-request-id", "request 01JABCDEFGHJKMNPQRSTVWXYZ failed upstream", false},
+	// The contract's STATED blind spot, pinned so it stays a known limit rather
+	// than an assumption: a credential with no marker, no issued-token prefix
+	// and no placeholder beside it is bytes that look like a request id. This
+	// string carries a secret and the published schema accepts it — which is
+	// why the control that matters is provider.RedactSecret, applied by the
+	// adapter that still holds the bytes it sent.
+	{"unmarked-credential-the-pattern-cannot-see", "the key relay0fake0credential0value was not accepted", false},
+}
+
+// TestCredentialShapedAgreesWithGo is half the check; validate.mjs is the other
+// half, and neither is sufficient alone.
+func TestCredentialShapedAgreesWithGo(t *testing.T) {
+	for _, testCase := range credentialTextCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := CredentialShaped(testCase.text); got != testCase.refused {
+				t.Errorf("CredentialShaped(%q) = %t, the contract's own predicate says %t", testCase.text, got, testCase.refused)
+			}
+			// SafeErrorText withholds the WHOLE string or none of it. A span
+			// redaction here is the defect this table exists for.
+			safe := SafeErrorText(testCase.text)
+			if testCase.refused && safe == testCase.text {
+				t.Error("a credential-shaped message was emitted unchanged")
+			}
+			if !testCase.refused && safe != testCase.text {
+				t.Errorf("an acceptable diagnostic was altered:\n want %q\n got  %q", testCase.text, safe)
+			}
+		})
+	}
+}
+
+// credentialTextFixtures renders the table above as wire fixtures.
+func credentialTextFixtures(refused bool) []fixture {
+	var fixtures []fixture
+	for _, testCase := range credentialTextCases {
+		if testCase.refused != refused {
+			continue
+		}
+		fixtures = append(fixtures, fixture{
+			Schema: "inferenceErrorSchema",
+			Case:   "message-" + testCase.name,
+			Value: map[string]any{
+				"schemaVersion": 1, "code": "provider_error", "message": testCase.text,
+				"retryable": true, "requestId": "req_01JQZABCDEF",
+			},
+		})
+	}
+	return fixtures
 }
 
 // invalidFixtures are values the published schemas MUST reject. Each is exactly

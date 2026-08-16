@@ -125,10 +125,17 @@ const (
 	FinishLength        FinishReason = "length"
 	FinishToolCalls     FinishReason = "tool_calls"
 	FinishContentFilter FinishReason = "content_filter"
-	FinishCancelled     FinishReason = "cancelled"
+	// FinishRefusal is the MODEL declining to answer, which is a property of
+	// the answer; a content filter is an upstream system removing one. The
+	// delta channels already separate the two, so a terminal event that
+	// collapsed them would be less specific than the stream that produced it.
+	FinishRefusal   FinishReason = "refusal"
+	FinishCancelled FinishReason = "cancelled"
 )
 
-var finishReasonValues = []FinishReason{FinishStop, FinishLength, FinishToolCalls, FinishContentFilter, FinishCancelled}
+var finishReasonValues = []FinishReason{
+	FinishStop, FinishLength, FinishToolCalls, FinishContentFilter, FinishRefusal, FinishCancelled,
+}
 
 // RouteSwitchReason is why a route changed mid-request.
 type RouteSwitchReason string

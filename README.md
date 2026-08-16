@@ -68,7 +68,7 @@ on top of it.
 
 ## The contract is not re-invented here
 
-`@oxyhq/contracts@0.28.0` is the wire contract, and the Go types in
+`@oxyhq/contracts@0.29.0` (contract version 1.1.0) is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 
@@ -495,7 +495,9 @@ can reassemble · a transient throttle classified retryable · an exhausted
 account classified non-retryable · **a refused PLATFORM credential classified
 non-retryable and still attributable** · **a failure that arrives after the
 response started** · **the configured credential never reaching the customer**, with a
-control asserting the upstream actually echoed it · one refusal per class, each
+control asserting the upstream actually echoed it AND that the customer still
+receives the upstream's diagnostic rather than losing it to the contract's
+refusal · one refusal per class, each
 spending nothing upstream and naming the field at fault · cancellation, with its
 control · health with and without a credential.
 
@@ -639,14 +641,14 @@ implemented against before. Each is a real gap, not a preference.
    conformance check, so the next adapter inherits it. Getting there also
    surfaced item 19, which is the larger of the two findings.
 
-   **A neighbouring gap the new code does not cover:** an upstream refusing to
-   *bill* the platform is the same class of failure as one refusing its
-   credential — only an operator can fix it, no retry helps — and has no code of
-   its own either. Anthropic sends it as a 402 `billing_error`. Relay reports it
-   as `quota_exceeded`, which is non-retryable and correct about retryability and
-   wrong about whose account is exhausted: a customer reading it goes looking at
-   their own balance. `provider_credential_invalid`'s sibling would be something
-   like `provider_account_unbillable`.
+   **The neighbouring gap is closed too.** An upstream refusing to *bill* the
+   platform is the same class of failure — only an operator can act, no retry
+   helps — and reporting it as `quota_exceeded` was correct about retryability
+   and wrong about whose account is exhausted, which reads as actionable while
+   the action does nothing. `provider_billing_refused` landed in
+   `@oxyhq/contracts@0.29.0`; Anthropic's 402 `billing_error` and an
+   OpenAI-compatible `insufficient_quota` both map to it, and the conformance
+   suite refuses any code that names the CUSTOMER's money for that scenario.
 7. **Nothing specifies how Relay authenticates the edge.** See
    `internal/edgeauth` for what Relay implements and why it follows ADR 0012's
    asymmetric reasoning rather than a shared secret.
@@ -717,15 +719,13 @@ contract fits one provider's shape and not another's.
     prices a cache write at a premium and a cache read at a tenth of the input
     rate cannot be metered exactly against the published unit list.
 
-16. **`refusal` has no finish reason of its own.** The Messages API stops with
-    `stop_reason: "refusal"` when the model declines, and `stop_details` carries
-    a category. The contract's finish reasons are `stop`, `length`,
-    `tool_calls`, `content_filter` and `cancelled`. Relay reports
-    `content_filter`, which is the closest true statement — output was withheld
-    on safety grounds — but it says an upstream filter acted where in fact the
-    model declined, and those are different things to a customer deciding
-    whether to rephrase. (The contract does carry a `refusal` DELTA channel, so
-    the vocabulary already knows the distinction elsewhere.)
+16. **`refusal` had no finish reason of its own.** *Closed in
+    `@oxyhq/contracts@0.29.0`.* The Messages API stops with
+    `stop_reason: "refusal"` when the model declines; the contract's finish
+    reasons ended at `content_filter`, so Relay had to report a filter acting
+    where the model had declined — different things to a customer deciding
+    whether to rephrase, and a distinction the delta channels already carried.
+    `refusal` is now a finish reason and this adapter emits it.
 
 17. **No stream event can carry provider-opaque block metadata.** An
     extended-thinking response returns a `signature` per thinking block, and the
@@ -739,20 +739,31 @@ contract fits one provider's shape and not another's.
     patch: an opaque per-block blob crossing the boundary needs a home nobody has
     chosen yet.
 
-18. **`safeErrorTextSchema`'s credential pattern is bearer-shaped, and
-    redacting against it can make a leak WORSE.** The published pattern refuses
-    `authorization:`, `bearer <token>`, `api_key=` and `sk-…`. A provider that
-    authenticates with a header of its own name echoes
-    `{x-api-key: <value>}`, where the pattern matches the marker and not the
-    value — so redacting the match produces `{x-[redacted] <value>}`, which no
-    longer trips the refinement and is therefore *accepted* by the contract with
-    the credential intact. Measured, not theorised: removing
-    `provider.RedactSecret` from the Anthropic adapter puts exactly that string
-    in the customer-visible error event, and the conformance suite catches it.
-    Relay's fix is local and complete — an adapter holds the exact bytes it sent,
-    so it removes them by exact match before the pattern ever runs — but any
-    other producer relying on the published pattern alone has this hole, and the
-    pattern should probably swallow the value after a marker.
+18. **`safeErrorTextSchema`'s credential pattern was bearer-shaped, and
+    redacting against it made a leak worse.** *Closed in
+    `@oxyhq/contracts@0.29.0`.* The old pattern refused `authorization:`,
+    `bearer <token>`, `api_key=` and `sk-…`. An upstream echoing
+    `{x-api-key: <value>}` matched the **marker** and not the **value**, so
+    redacting the match produced `{x-[redacted] <value>}` — which no longer
+    tripped the refinement and was therefore *accepted* with the credential
+    intact. The rewrite is four independent signals, one of which is a
+    placeholder standing beside a surviving opaque value: the residue of exactly
+    that span redaction.
+
+    **Two things this repository has to keep doing, and they are the reason the
+    item stays here rather than being deleted.** First, `SafeErrorText` no
+    longer redacts a span — it withholds the whole message or none of it, since
+    a span redaction is now both wrong and *refused*. Second, the published
+    refinement is a last-resort refusal and says so: it cannot see a credential
+    with no marker, no issued-token prefix and no placeholder beside it, because
+    refusing those bytes means refusing request ids. `provider.RedactSecret`,
+    applied by the adapter that still holds the bytes it sent, is the control —
+    and it earns its place twice over. Where the pattern *does* recognise the
+    shape, redacting the value is what keeps the customer's diagnostic instead
+    of losing the whole message to the refusal; where it does not, redaction is
+    the only thing between the credential and the customer.
+    `internal/contract`'s fixture table pins both halves against the published
+    schema itself, including a string that carries a secret and is accepted.
 
 19. **A published version number did not identify the contract it names, and
     nothing gates that.** While this adapter was being written,

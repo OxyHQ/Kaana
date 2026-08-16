@@ -131,11 +131,16 @@ and is answerable to it.
   subtraction into another mis-bills silently, because a nested report and a
   disjoint one are the same non-negative integers. State the PHYSICAL request in
   the conformance subject and let the suite do the arithmetic.
-- **An adapter redacts its OWN credential by exact match before the contract's
-  pattern runs.** The published pattern is bearer-shaped: against an echoed
-  `x-api-key: <value>` it matches the marker and not the value, so redacting
-  removes the evidence, keeps the credential, and the result then PASSES the
-  contract's refusal. `provider.RedactSecret` cannot miss for that reason.
+- **An adapter redacts its OWN credential by exact match; the contract's pattern
+  is a last-resort REFUSAL and never the control.** `provider.RedactSecret`
+  removes the value the adapter is holding — the only thing that works on a
+  credential with no marker and no issued-token prefix, which the published
+  pattern states it cannot see. Relying on the refusal instead loses the whole
+  diagnostic, which the conformance suite fails you for.
+- **Never redact by replacing the span a credential pattern matched.** The span
+  is the MARKER and the secret is what follows it, so a span redaction converts
+  "this string is dangerous" into "this string is fine" with the key still in
+  it. `contract.SafeErrorText` withholds the whole message or none of it.
 - **A parameter the provider REQUIRES and the contract makes optional is
   refused, never supplied.** Choosing it at the adapter, or per deployment,
   changes what the model does while reporting success.

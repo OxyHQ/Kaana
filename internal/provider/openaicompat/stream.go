@@ -433,8 +433,13 @@ func (a *Adapter) upstreamFailure(response *http.Response) error {
 	case status == http.StatusTooManyRequests && parsed.Error.Type == "insufficient_quota":
 		// A quota is an account-level ceiling that only a human raises; a rate
 		// limit clears on its own. Same status, opposite retryability.
-		failure.Code, failure.Category = contract.CodeQuotaExceeded, contract.UpstreamQuota
-		failure.Detail = fmt.Sprintf("the %s account serving this route is out of quota", a.config.Provider)
+		//
+		// The account at fault is the PLATFORM's with this provider, never the
+		// customer's, so this is `provider_billing_refused` rather than
+		// `quota_exceeded`: the latter names the customer's own ceiling and
+		// would send them to top up an account that is not the one at fault.
+		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
+		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", a.config.Provider)
 	case status == http.StatusTooManyRequests:
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = fmt.Sprintf("%s rate-limited this request", a.config.Provider)
@@ -502,8 +507,8 @@ func (a *Adapter) streamFailure(reported upstreamError) error {
 
 	switch reported.Type {
 	case "insufficient_quota":
-		failure.Code, failure.Category = contract.CodeQuotaExceeded, contract.UpstreamQuota
-		failure.Detail = fmt.Sprintf("the %s account serving this route is out of quota", a.config.Provider)
+		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
+		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", a.config.Provider)
 	case "rate_limit_exceeded":
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = fmt.Sprintf("%s rate-limited this request part-way through it", a.config.Provider)
