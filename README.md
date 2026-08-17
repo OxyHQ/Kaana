@@ -109,6 +109,34 @@ resulting reference. It also changed two shapes Relay already implements — a
 descriptor test named each one as a field or enum member Go was missing rather
 than leaving them to be noticed at runtime.
 
+### The `refusal` content part, and which dialect can carry one
+
+1.2.0's `refusal` variant is a REQUEST-side shape: it lets a customer replay a
+conversation in which the assistant declined. It is content and not a failure —
+the request succeeded and the provider billed for it — so it is normalized like
+any other part and never converted into an error.
+
+The two dialects answer differently, and the difference is stated rather than
+smoothed over:
+
+- **`openaicompat` carries it, on the MESSAGE.** This protocol keeps an
+  assistant's refusal in the message's own `refusal` field, which is also where
+  the adapter already READS one from on the way back. The contract models it as a
+  content part, so `translateMessage` lifts it out of the content list and onto
+  the field. Two refusals in one message are refused rather than joined: the field
+  holds one string, and concatenating them would invent a refusal the model never
+  produced.
+- **`anthropic` refuses it, with the real reason.** The messages api has no
+  refusal block; a refusal arrives as ordinary `text` with
+  `stop_reason: "refusal"`. Replaying one as text would tell the model that a
+  refusal was the assistant's own prose, and it would answer a different
+  conversation while the request reported success. So it is refused with
+  `unsupported_modality` and the reason names `stop_reason`, because "this
+  protocol has nowhere to put it" and "this protocol keeps it somewhere else" are
+  different answers and only one is a request the customer can fix.
+
+Neither adapter invents a field, which is the rule that decided both.
+
 **What it catches:** a field renamed, added, removed, or flipped between
 required and optional; a scalar's type changed; a reference repointed; a version
 literal changed; a variant added to a discriminated union; an enum member added
