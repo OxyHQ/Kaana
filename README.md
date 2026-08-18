@@ -732,7 +732,16 @@ on the first request, which is why a default here is not the kind of invention a
 default sampling parameter would be — no live call has been made from this
 repository to any of them.
 
+This block shows the SHAPE of the per-provider variables. It is not a
+deployment, and the provider list in it is not the one to deploy — see
+[What the deployment must supply](#what-the-deployment-must-supply-and-what-happens-when-it-does-not),
+which declares only the slugs whose key exists.
+
 ```bash
+# ILLUSTRATIVE — shows the variable shapes, NOT a deployable provider set.
+# Declaring a slug with no key starts cleanly and serves nothing: the adapter
+# reports `unconfigured` and refuses every request routed to it. Deploy only
+# the slugs whose key exists.
 RELAY_PROVIDERS=cerebras,openrouter,openai
 RELAY_PROVIDER_CEREBRAS_API_KEY=…
 RELAY_PROVIDER_OPENROUTER_API_KEY=…,…,…          # a pool of three
