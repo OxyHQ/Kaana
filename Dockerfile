@@ -64,6 +64,18 @@ ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/relay ./cmd/relay
 
+# The inventory publisher ships in the SAME image and runs as a different task.
+# One image because they are one module built from one commit, and a publisher
+# lagging the serving binary would produce snapshots against a contract the
+# reader has moved past. What separates them is the task definition: the
+# publisher's overrides `entryPoint` to the binary below and runs under a role
+# holding `s3:PutObject` on one key, which the serving task's role does not.
+#
+# Forgetting the override fails loudly rather than silently — the publisher task
+# would start `relay`, which refuses to boot without an inventory snapshot.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/relay-publisher ./cmd/relay-publisher
+
 # The mount point for the configuration snapshot, created here because the
 # runtime stage has no shell to mkdir with. A volume mounted over it brings its
 # own ownership and shadows this directory entirely, so the chown governs only
@@ -72,13 +84,22 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # invents.
 RUN mkdir -p /out/etc/relay && chown -R 65532:65532 /out/etc/relay
 
+# The attribution table is copied into a directory of its OWN, not into
+# /etc/relay: that path is a mount point, and a volume mounted over it shadows
+# the directory entirely — so a table placed there would vanish on exactly the
+# tasks that mount the snapshot.
+RUN mkdir -p /out/etc/relay-publisher && cp configs/model-attribution.json /out/etc/relay-publisher/ \
+    && chown -R 65532:65532 /out/etc/relay-publisher
+
 # distroless/static carries the CA bundle the provider adapters need for TLS to
 # api.openai.com and api.anthropic.com, plus tzdata, and nothing else — no
 # shell, no package manager, no libc. The :nonroot tag runs as uid 65532.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
 COPY --from=build /out/relay /usr/local/bin/relay
+COPY --from=build /out/relay-publisher /usr/local/bin/relay-publisher
 COPY --from=build --chown=65532:65532 /out/etc/relay /etc/relay
+COPY --from=build --chown=65532:65532 /out/etc/relay-publisher /etc/relay-publisher
 
 # Where the image reads its configuration snapshot. This is the image's own
 # contract with whatever publishes the snapshot, so the task definition does not
@@ -87,6 +108,11 @@ COPY --from=build --chown=65532:65532 /out/etc/relay /etc/relay
 # provider cost is not measured, and every measurement says so rather than
 # reporting zero.
 ENV RELAY_INVENTORY_PATH=/etc/relay/inventory.json
+
+# The publisher's attribution table. It carries no secret — it is a public
+# statement of who released which weights — so unlike the snapshot it is baked
+# in: it changes when a human adds a model, which is a commit, not a cadence.
+ENV RELAY_PUBLISHER_ATTRIBUTION_PATH=/etc/relay-publisher/model-attribution.json
 
 # Documentation only, and it matches cmd/relay's default RELAY_ADDR.
 EXPOSE 8080
