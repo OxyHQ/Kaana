@@ -47,12 +47,20 @@ type Config struct {
 	Provider contract.ProviderSlug
 	// BaseURL is the provider's API root, e.g. https://api.openai.com/v1.
 	BaseURL string
-	// APIKey is Relay's own credential for this provider. It is read from the
-	// process environment, never from a request, never from a file in this
-	// repository, and never written to a log, an error or a usage record. An
-	// empty key is a supported state: the adapter reports itself unconfigured
+	// APIKeys are Relay's own credentials for this provider, in the order they
+	// are to be spent. They are read from the process environment, never from a
+	// request, never from a file in this repository, and never written to a
+	// log, an error or a usage record.
+	//
+	// It is a list because one provider account's capacity is not the same
+	// thing as one provider's capacity: when the account behind a key has
+	// nothing left, the next key is a different account that does. An empty
+	// list is a supported state — the adapter reports itself unconfigured
 	// rather than failing at the first request.
-	APIKey string
+	APIKeys []string
+	// Keys is how this pool behaves when a provider says something about one of
+	// its credentials. Its zero value is the conservative one.
+	Keys provider.KeyPolicy
 	// Headers are extra non-secret headers the provider expects. OpenRouter's
 	// attribution headers are the reason this exists.
 	Headers map[string]string
@@ -64,8 +72,9 @@ type Config struct {
 
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
 type Adapter struct {
-	config Config
-	client *http.Client
+	config      Config
+	client      *http.Client
+	credentials *provider.KeyPool
 }
 
 // New builds an adapter, refusing a configuration that could not serve.
@@ -76,13 +85,41 @@ func New(config Config) (*Adapter, error) {
 	if config.BaseURL == "" {
 		return nil, fmt.Errorf("openaicompat: %s has no base URL", config.Provider)
 	}
+	// The quota-header mapping comes from this package's own table rather than
+	// from the caller: which header means "credits remaining" is knowledge
+	// about a provider's wire protocol, and an operator who mapped a rate-limit
+	// header onto it would retire every key the first time the provider
+	// throttled one.
+	credentials, err := provider.NewKeyPool(config.Provider, config.APIKeys, config.Keys, quotaHeadersFor(config.Provider))
+	if err != nil {
+		return nil, err
+	}
 	client := config.HTTPClient
 	if client == nil {
 		client = &http.Client{}
 	}
 	config.BaseURL = strings.TrimSuffix(config.BaseURL, "/")
-	return &Adapter{config: config, client: client}, nil
+	return &Adapter{config: config, client: client, credentials: credentials}, nil
 }
+
+// quotaHeadersFor is what each provider speaking this protocol declares about
+// its own response headers.
+//
+// It is EMPTY, and the emptiness is asserted with an exact count in
+// credential_test.go rather than left to be noticed. No provider served here
+// documents a remaining-credits header on a chat-completions response, and no
+// live provider call has been made from this repository to discover one — so
+// there is nothing to declare, and a plausible guess is precisely the failure
+// this mapping exists to prevent. Every provider's quota state is therefore
+// learned from the provider's own refusal, and is `unknown` until then.
+//
+// Adding an entry is the way a verified header signal arrives. It is a
+// deliberate act with a count to move, not a line to append.
+func quotaHeadersFor(slug contract.ProviderSlug) provider.QuotaHeaders {
+	return declaredQuotaHeaders[slug]
+}
+
+var declaredQuotaHeaders = map[contract.ProviderSlug]provider.QuotaHeaders{}
 
 // Provider implements provider.Adapter.
 func (a *Adapter) Provider() contract.ProviderSlug { return a.config.Provider }
@@ -200,11 +237,14 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 // proves both reachability and that the configured credential is accepted,
 // which are the two things a route decision turns on.
 func (a *Adapter) Health(ctx context.Context) provider.Health {
+	now := time.Now()
+	pool := a.credentials.Projection(now)
 	health := provider.Health{
-		Provider:  a.config.Provider,
-		CheckedAt: contract.NewTimestamp(time.Now()),
+		Provider:    a.config.Provider,
+		CheckedAt:   contract.NewTimestamp(now),
+		Credentials: &pool,
 	}
-	if a.config.APIKey == "" {
+	if !a.credentials.Configured() {
 		// Distinct from unavailable on purpose: an operator reading
 		// "unavailable" goes looking at the provider, and the answer is here.
 		health.Status = provider.HealthUnconfigured
@@ -212,19 +252,30 @@ func (a *Adapter) Health(ctx context.Context) provider.Health {
 		return health
 	}
 
+	attempt := a.credentials.Begin()
+	key, leased := attempt.Next(now)
+	if !leased {
+		// Keys are declared and none of them can be used. That is a real
+		// unavailability with a cause an operator can act on, and it is not
+		// something a probe could discover — there is nothing to probe with.
+		health.Status = provider.HealthUnavailable
+		health.Detail = fmt.Sprintf("all %d credentials for this provider are out of rotation", pool.Declared)
+		return health
+	}
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.BaseURL+"/models", nil)
 	if err != nil {
 		health.Status = provider.HealthUnavailable
-		health.Detail = contract.SafeErrorText(err.Error())
+		health.Detail = a.safeText(err.Error(), key)
 		return health
 	}
-	a.authorize(request)
+	a.authorize(request, key)
 
 	startedAt := time.Now()
 	response, err := a.client.Do(request)
 	if err != nil {
 		health.Status = provider.HealthUnavailable
-		health.Detail = contract.SafeErrorText(err.Error())
+		health.Detail = a.safeText(err.Error(), key)
 		return health
 	}
 	defer func() { _ = response.Body.Close() }()
@@ -241,25 +292,34 @@ func (a *Adapter) Health(ctx context.Context) provider.Health {
 		health.Status = provider.HealthUnavailable
 		health.Detail = fmt.Sprintf("the provider answered %d", response.StatusCode)
 	}
+	if health.Status == provider.HealthOK && pool.Usable < pool.Declared {
+		// The provider answered with the key it was probed with, and some of
+		// the pool is spent or refused. Reporting that as plain `ok` would hide
+		// a pool draining towards the moment it cannot serve at all, which is
+		// the one thing an operator wants to see before a customer does.
+		health.Status = provider.HealthDegraded
+		health.Detail = fmt.Sprintf("%d of %d credentials for this provider are out of rotation",
+			pool.Declared-pool.Usable, pool.Declared)
+	}
 	return health
 }
 
-// authorize applies the credential. It is the only method that touches it, and
-// it is deliberately not part of Call: a translated call that carried a
-// credential would be one struct away from a debug log.
-func (a *Adapter) authorize(request *http.Request) {
-	if a.config.APIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+a.config.APIKey)
-	}
+// authorize applies one leased credential. It is the only method that touches
+// a secret, and it is deliberately not part of Call: a translated call that
+// carried a credential would be one struct away from a debug log.
+func (a *Adapter) authorize(request *http.Request, key provider.Key) {
+	request.Header.Set("Authorization", "Bearer "+key.Secret())
 }
 
-func (a *Adapter) send(ctx context.Context, call *provider.Call) (*http.Response, error) {
+// Send implements provider.CredentialedSender: it performs the upstream call
+// with one leased credential.
+func (a *Adapter) Send(ctx context.Context, call *provider.Call, key provider.Key) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, call.Method, call.URL, bytes.NewReader(call.Body))
 	if err != nil {
 		return nil, fmt.Errorf("openaicompat: building the upstream request: %w", err)
 	}
 	request.Header = call.Header.Clone()
-	a.authorize(request)
+	a.authorize(request, key)
 	return a.client.Do(request)
 }
 

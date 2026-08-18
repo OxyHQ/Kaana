@@ -118,6 +118,11 @@ and is answerable to it.
 - **Refuse in `Translate` what the provider cannot express**, with a
   non-retryable code and the field named. Silently dropping a parameter changes
   what the model does while reporting success.
+- **An adapter classifies its own failures, and stops there.** What that
+  classification means for the KEY is `provider.Walk`'s, once, for every adapter
+  — an adapter that reimplemented the rotation rules would be free to
+  reimplement them differently. Adapters supply `Send`, `Refuse` and
+  `TransportFailure`; `Refuse` closes the response body it read.
 - **An adapter classifies its own failures**, from the provider's own error TYPE
   first. Never infer retryability from an HTTP status: a 429 from an exhausted
   daily quota and a 429 from a burst limit are the same status and opposite
@@ -151,6 +156,68 @@ and is answerable to it.
   design, and it is why an adapter cannot decline to honour it.
 - **Never invent a default the caller did not send.** An absent sampling
   parameter means the route's own default.
+
+## Provider credentials and key pools
+
+A credential is a POOL per provider, and the pool is a different rotation from
+the deployment breaker. `internal/provider/credential.go` holds all of it.
+
+- **A key leaves rotation only when something REPORTED that it has nothing
+  left** — the provider refusing with its own exhaustion error, or a header that
+  provider's declared mapping says means remaining credits, reading zero.
+  `unknown` is not `exhausted`, `unavailable` is not `exhausted`, and every
+  failure nobody classified leaves the key exactly as it was. Getting this
+  backwards disables working credentials on ambiguous signals, which is worse
+  than the problem a pool solves.
+- **An exhausted key rotates the request to the next one; a REFUSED key does
+  not.** Exhaustion is expected and the next key is another account. A refused
+  credential is a configuration fault or a provider-side auth failure, and under
+  the second every remaining key is refused identically — so walking multiplies
+  one failure into a call per key and retires the whole pool on a blip. Both
+  directions are conformance checks, and they are a matched pair.
+- **A request the PROVIDER refused is retried on nothing.** The next credential
+  would be refused identically.
+- **The verdict is read from the code the ADAPTER chose, never from a status.**
+  `CredentialVerdictFor` is the one function, as `AttributableCategory` is for
+  the deployment; the two answer different questions and disagree on purpose.
+- **Key rotation is not a route switch** — same deployment, no `route_switch`,
+  no routing-policy authorisation. Never weaken
+  `RELAY_ASSUME_FAILOVER_AUTHORIZED`'s default to make it work.
+- **A refused credential is not failed over onto the same provider slug.** One
+  slug is one adapter and one pool, so "another deployment holds a different
+  credential" is true across slugs and false within one; failing over there
+  reproduces the pool walk one deployment at a time and burns a key per
+  deployment on one blip.
+- **A rotation happens only before the response body is read**, so a failure
+  arriving mid-stream rotates nothing: the request is committed to the key that
+  opened the stream.
+- **A retirement is a flat window, never permanent and never a backoff.** A
+  quota resets on a cycle and the provider's own reset time wins over the
+  window; a process that has permanently disabled every credential it holds is
+  the worse failure.
+- **A quota header mapping is per provider, lives in the ADAPTER package, and
+  maps a header to a MEANING** — never a generic name, since
+  `x-ratelimit-remaining` is a burst limit at most providers. The shipped
+  mapping is empty under an exact-count assertion; an entry needs a verified
+  source.
+- **A key's identity outside `internal/provider` is its 1-based POSITION** —
+  not the secret and not a hash of it, since a fingerprint confirms a guess.
+- **A provider slug resolves to an adapter, an address and a pool in
+  `cmd/relay`, never in the inventory** — a credential there is a copy of an Oxy
+  entity, an address there makes one process's reachability global.
+- **Provider slugs are not a closed list; PROTOCOLS are.** A build can only
+  construct an adapter it contains, so an unknown protocol is refused; a slug
+  that declares a protocol and a base URL needs no Go change.
+- **The env var name, the SSM leaf and the GitHub secret name are ONE string**,
+  and a whole key pool lives in one `_API_KEY` variable — credentials are a
+  static list resolved at task launch, so a name per key would grow it with the
+  pool. Two slugs folding onto one variable name are refused, never resolved.
+- **The snapshot, the adapter set and the credential list move on different
+  clocks, and no pairing may be fatal.** An undeclared provider in a snapshot is
+  a WARNING, not a refusal to start: stopping takes every supported provider
+  down over one unsupported one, and only on the next restart. A credential
+  delivered for a provider nobody serves is warned about here because nothing
+  outside the process can see it.
 
 ## Secrets and customer data
 

@@ -73,12 +73,20 @@ const apiVersion = "2023-06-01"
 type Config struct {
 	// BaseURL is the API root, e.g. https://api.anthropic.com/v1.
 	BaseURL string
-	// APIKey is Relay's own credential. It is read from the process
-	// environment, never from a request, never from a file in this repository,
-	// and never written to a log, an error or a usage record. An empty key is a
-	// supported state: the adapter reports itself unconfigured rather than
-	// failing at the first request.
-	APIKey string
+	// APIKeys are Relay's own credentials, in the order they are to be spent.
+	// They are read from the process environment, never from a request, never
+	// from a file in this repository, and never written to a log, an error or a
+	// usage record.
+	//
+	// It is a list because one provider account's capacity is not the same
+	// thing as one provider's capacity: when the account behind a key has
+	// nothing left, the next key is a different account that does. An empty
+	// list is a supported state — the adapter reports itself unconfigured
+	// rather than failing at the first request.
+	APIKeys []string
+	// Keys is how this pool behaves when the provider says something about one
+	// of its credentials. Its zero value is the conservative one.
+	Keys provider.KeyPolicy
 	// HTTPClient is optional; a nil client uses a default with no global
 	// timeout, because the deadline belongs to the request context and a
 	// client-level timeout would cut a legitimately long generation.
@@ -87,8 +95,9 @@ type Config struct {
 
 // Adapter implements provider.Adapter for the Anthropic Messages API.
 type Adapter struct {
-	config Config
-	client *http.Client
+	config      Config
+	client      *http.Client
+	credentials *provider.KeyPool
 }
 
 // Slug is the catalogue slug this adapter serves. It is a constant rather than
@@ -101,13 +110,28 @@ func New(config Config) (*Adapter, error) {
 	if config.BaseURL == "" {
 		return nil, fmt.Errorf("anthropic: no base URL")
 	}
+	// This provider documents no remaining-credits response header on a
+	// messages call, and no live call has been made from this repository to
+	// discover one, so there is nothing to declare and a guess would be the
+	// failure a declared mapping exists to prevent. The pool therefore learns
+	// this provider's quota state from its own `billing_error` refusal, and
+	// reports it `unknown` until then. credential_test.go asserts the emptiness
+	// with an exact count.
+	credentials, err := provider.NewKeyPool(Slug, config.APIKeys, config.Keys, quotaHeaders)
+	if err != nil {
+		return nil, err
+	}
 	client := config.HTTPClient
 	if client == nil {
 		client = &http.Client{}
 	}
 	config.BaseURL = strings.TrimSuffix(config.BaseURL, "/")
-	return &Adapter{config: config, client: client}, nil
+	return &Adapter{config: config, client: client, credentials: credentials}, nil
 }
+
+// quotaHeaders is what this provider declares about its own response headers.
+// Empty, deliberately: see New.
+var quotaHeaders = provider.QuotaHeaders{}
 
 // Provider implements provider.Adapter.
 func (a *Adapter) Provider() contract.ProviderSlug { return Slug }
@@ -248,11 +272,14 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 // both reachability and that the configured credential is accepted, which are
 // the two things a route decision turns on.
 func (a *Adapter) Health(ctx context.Context) provider.Health {
+	now := time.Now()
+	pool := a.credentials.Projection(now)
 	health := provider.Health{
-		Provider:  Slug,
-		CheckedAt: contract.NewTimestamp(time.Now()),
+		Provider:    Slug,
+		CheckedAt:   contract.NewTimestamp(now),
+		Credentials: &pool,
 	}
-	if a.config.APIKey == "" {
+	if !a.credentials.Configured() {
 		// Distinct from unavailable on purpose: an operator reading
 		// "unavailable" goes looking at the provider, and the answer is here.
 		health.Status = provider.HealthUnconfigured
@@ -260,19 +287,29 @@ func (a *Adapter) Health(ctx context.Context) provider.Health {
 		return health
 	}
 
+	attempt := a.credentials.Begin()
+	key, leased := attempt.Next(now)
+	if !leased {
+		// Keys are declared and none of them can be used. There is nothing to
+		// probe with, and the cause is one an operator can act on.
+		health.Status = provider.HealthUnavailable
+		health.Detail = fmt.Sprintf("all %d credentials for this provider are out of rotation", pool.Declared)
+		return health
+	}
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.BaseURL+"/models", nil)
 	if err != nil {
 		health.Status = provider.HealthUnavailable
-		health.Detail = a.safeText(err.Error())
+		health.Detail = a.safeText(err.Error(), key)
 		return health
 	}
-	a.authorize(request)
+	a.authorize(request, key)
 
 	startedAt := time.Now()
 	response, err := a.client.Do(request)
 	if err != nil {
 		health.Status = provider.HealthUnavailable
-		health.Detail = a.safeText(err.Error())
+		health.Detail = a.safeText(err.Error(), key)
 		return health
 	}
 	defer func() { _ = response.Body.Close() }()
@@ -289,19 +326,26 @@ func (a *Adapter) Health(ctx context.Context) provider.Health {
 		health.Status = provider.HealthUnavailable
 		health.Detail = fmt.Sprintf("the provider answered %d", response.StatusCode)
 	}
+	if health.Status == provider.HealthOK && pool.Usable < pool.Declared {
+		// The provider answered with the key it was probed with, and some of
+		// the pool is spent or refused. Reporting that as plain `ok` would hide
+		// a pool draining towards the moment it cannot serve at all, which is
+		// the one thing an operator wants to see before a customer does.
+		health.Status = provider.HealthDegraded
+		health.Detail = fmt.Sprintf("%d of %d credentials for this provider are out of rotation",
+			pool.Declared-pool.Usable, pool.Declared)
+	}
 	return health
 }
 
-// authorize applies the credential. It is the only method that touches it, and
-// it is deliberately not part of Call: a translated call that carried a
-// credential would be one struct away from a debug log.
+// authorize applies one leased credential. It is the only method that touches a
+// secret, and it is deliberately not part of Call: a translated call that
+// carried a credential would be one struct away from a debug log.
 //
 // The header is `x-api-key` rather than `Authorization`, which is not a detail
 // — see safeText.
-func (a *Adapter) authorize(request *http.Request) {
-	if a.config.APIKey != "" {
-		request.Header.Set("x-api-key", a.config.APIKey)
-	}
+func (a *Adapter) authorize(request *http.Request, key provider.Key) {
+	request.Header.Set("x-api-key", key.Secret())
 	request.Header.Set("anthropic-version", apiVersion)
 }
 
@@ -314,17 +358,19 @@ func (a *Adapter) authorize(request *http.Request) {
 // marker and the VALUE beside it matches nothing, so redacting alone would
 // leave the credential in a message the contract then accepts. An exact match
 // against the key the adapter is holding cannot miss for that reason.
-func (a *Adapter) safeText(text string) string {
-	return contract.SafeErrorText(provider.RedactSecret(text, a.config.APIKey))
+func (a *Adapter) safeText(text string, key provider.Key) string {
+	return contract.SafeErrorText(provider.RedactSecret(text, key.Secret()))
 }
 
-func (a *Adapter) send(ctx context.Context, call *provider.Call) (*http.Response, error) {
+// Send implements provider.CredentialedSender: it performs the upstream call
+// with one leased credential.
+func (a *Adapter) Send(ctx context.Context, call *provider.Call, key provider.Key) (*http.Response, error) {
 	request, err := http.NewRequestWithContext(ctx, call.Method, call.URL, bytes.NewReader(call.Body))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: building the upstream request: %w", err)
 	}
 	request.Header = call.Header.Clone()
-	a.authorize(request)
+	a.authorize(request, key)
 	return a.client.Do(request)
 }
 

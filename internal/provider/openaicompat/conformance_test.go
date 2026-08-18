@@ -9,13 +9,19 @@ import (
 	"github.com/OxyHQ/Relay/internal/provider/conformance"
 )
 
-// fakeAPIKey is a test credential and nothing else. The conformance suite
-// asserts this exact string never reaches a customer, which is the only reason
-// it is a literal rather than a random value: the assertion needs something to
-// look for. It deliberately avoids any real provider's key prefix so a secret
-// scanner has nothing to flag. No real provider key appears in this repository,
-// in a test, or in CI.
-const fakeAPIKey = "relay-conformance-fake-credential-0000"
+// The fake credentials are test strings and nothing else. The conformance
+// suite asserts these exact strings never reach a customer, which is the only
+// reason they are literals rather than random values: the assertion needs
+// something to look for. They deliberately avoid any real provider's key prefix
+// so a secret scanner has nothing to flag. No real provider key appears in this
+// repository, in a test, or in CI.
+//
+// There are two because a pool of one cannot tell an adapter that rotates on
+// exhaustion from one that cannot rotate at all.
+const (
+	fakeAPIKey       = "relay-conformance-fake-credential-0000"
+	fakeSecondAPIKey = "relay-conformance-fake-credential-0001"
+)
 
 // TestOpenAICompatConformance runs the whole provider suite against the ported
 // adapter.
@@ -45,7 +51,7 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 		Provider:        slug,
 		ModelReference:  contract.ModelReference(string(slug) + "/test-model@2026-05-01"),
 		UpstreamModelID: "test-model-2026-05-01",
-		APIKey:          fakeAPIKey,
+		APIKeys:         []string{fakeAPIKey, fakeSecondAPIKey},
 
 		// The fake's own numbers, restated as the physical request they
 		// describe. This protocol NESTS both children: `prompt_tokens` (11)
@@ -61,7 +67,7 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 
 		NewAdapter: func(t *testing.T, upstreamURL string) provider.Adapter {
 			t.Helper()
-			adapter, err := New(Config{Provider: slug, BaseURL: upstreamURL, APIKey: fakeAPIKey})
+			adapter, err := New(Config{Provider: slug, BaseURL: upstreamURL, APIKeys: []string{fakeAPIKey, fakeSecondAPIKey}})
 			if err != nil {
 				t.Fatalf("building the %s adapter: %v", slug, err)
 			}

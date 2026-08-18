@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OxyHQ/Relay/internal/contract"
 	"github.com/OxyHQ/Relay/internal/provider"
@@ -20,9 +21,23 @@ func testRoute() provider.Route {
 	}
 }
 
+// leasedKey takes a credential out of the adapter's own pool.
+//
+// A provider.Key cannot be constructed outside internal/provider — its secret
+// is unexported — so a test that needs one asks the pool, which is also the
+// only way an adapter ever gets one.
+func leasedKey(t *testing.T, adapter *Adapter) provider.Key {
+	t.Helper()
+	key, leased := adapter.credentials.Begin().Next(time.Now())
+	if !leased {
+		t.Fatal("the test adapter's pool leased no credential")
+	}
+	return key
+}
+
 func newTestAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	adapter, err := New(Config{BaseURL: "https://upstream.invalid/v1", APIKey: fakeAPIKey})
+	adapter, err := New(Config{BaseURL: "https://upstream.invalid/v1", APIKeys: []string{fakeAPIKey}})
 	if err != nil {
 		t.Fatalf("building the adapter: %v", err)
 	}

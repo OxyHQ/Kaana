@@ -30,22 +30,24 @@ import (
 // provisional count from the opening event — which is why a stream that never
 // reached its final `message_delta` is reported as an estimate rather than as
 // the provider's own number.
+// Which credential the call is made with, and what happens when the provider
+// says something about it, is provider.Walk's — one implementation for every
+// adapter, because "this key is spent" and "this key is refused" are opposite
+// decisions about a pool and an adapter free to restate them is free to restate
+// them differently.
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 
-	response, err := a.send(ctx, call)
+	response, key, err := provider.Walk(ctx, a.credentials, call, a)
 	if err != nil {
-		return outcome, a.transportFailure(ctx, err)
+		return outcome, err
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return outcome, a.upstreamFailure(response)
-	}
 	if call.Stream {
-		return a.readStream(ctx, response.Body, call, out)
+		return a.readStream(ctx, response.Body, call, out, key)
 	}
-	return a.readComplete(response.Body, call, out)
+	return a.readComplete(response.Body, call, out, key)
 }
 
 // readStream consumes the provider's event stream.
@@ -57,7 +59,7 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 // a reasoning delta from an answer delta and a tool call's arguments from
 // either. There is no terminal sentinel: `message_stop` ends the stream, and a
 // stream that simply stops was cut off.
-func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider.Call, out provider.Emitter, key provider.Key) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 
 	if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
@@ -129,7 +131,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			if event.Error != nil {
 				detail = *event.Error
 			}
-			return measured(outcome, meter), a.midStreamFailure(detail)
+			return measured(outcome, meter), a.midStreamFailure(detail, key)
 
 		case eventMessageStop, eventPing:
 			// message_stop ends the stream; the read loop ends with the body.
@@ -144,7 +146,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 	}
 
 	if err := decoder.Err(); err != nil {
-		return measured(outcome, meter), a.transportFailure(ctx, err)
+		return measured(outcome, meter), a.TransportFailure(ctx, err)
 	}
 	if ctx.Err() != nil {
 		// The scanner can end cleanly on a cancelled request, which would
@@ -216,7 +218,7 @@ func (a *Adapter) emitDelta(out provider.Emitter, blocks *blockTracker, event st
 // The same normalized events are produced either way. Relay's own surface is
 // always an event stream; `stream` on the envelope controls the UPSTREAM call,
 // and the Oxy edge renders whichever dialect the customer asked for.
-func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider.Emitter, key provider.Key) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 
 	raw, err := io.ReadAll(body)
@@ -484,8 +486,9 @@ func mapStopReason(reason string) contract.FinishReason {
 /*  Failures                                                                  */
 /* -------------------------------------------------------------------------- */
 
-// transportFailure classifies a failure that happened before or during the read.
-func (a *Adapter) transportFailure(ctx context.Context, err error) error {
+// TransportFailure implements provider.CredentialedSender: it classifies a
+// failure that happened before or during the read.
+func (a *Adapter) TransportFailure(ctx context.Context, err error) error {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(ctx.Err(), context.Canceled):
 		// The caller withdrew. Returned unclassified so the executor can settle
@@ -509,15 +512,17 @@ func (a *Adapter) transportFailure(ctx context.Context, err error) error {
 	}
 }
 
-// upstreamFailure classifies a non-2xx response.
-func (a *Adapter) upstreamFailure(response *http.Response) error {
+// Refuse implements provider.CredentialedSender: it classifies a non-2xx
+// response and closes it.
+func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+	_ = response.Body.Close()
 
 	var parsed errorBody
 	_ = json.Unmarshal(body, &parsed)
 
 	status := response.StatusCode
-	failure := a.classify(parsed.Error, status)
+	failure := a.classify(parsed.Error, status, key)
 	failure.Passthrough.Status = &status
 	if failure.Code.Retryable() {
 		if wait := provider.RetryAfterMs(response.Header); wait > 0 {
@@ -534,8 +539,8 @@ func (a *Adapter) upstreamFailure(response *http.Response) error {
 // primary rule rather than a refinement of the status: here there is no status
 // at all, and a failure nobody classified is retried nowhere and trips no
 // breaker — so an overloaded provider would keep receiving traffic.
-func (a *Adapter) midStreamFailure(detail errorDetail) error {
-	return a.classify(detail, 0)
+func (a *Adapter) midStreamFailure(detail errorDetail, key provider.Key) error {
+	return a.classify(detail, 0, key)
 }
 
 // classify maps the provider's own error vocabulary onto the contract's.
@@ -546,7 +551,7 @@ func (a *Adapter) midStreamFailure(detail errorDetail) error {
 // with the other — where an OpenAI-compatible provider sends both as a 429.
 // Reading the type is what makes one adapter's classification mean the same
 // thing as the other's.
-func (a *Adapter) classify(detail errorDetail, status int) provider.ErrUpstream {
+func (a *Adapter) classify(detail errorDetail, status int, key provider.Key) provider.ErrUpstream {
 	failure := provider.ErrUpstream{
 		Passthrough: &contract.ProviderErrorPassthrough{Provider: Slug},
 	}
@@ -559,7 +564,7 @@ func (a *Adapter) classify(detail errorDetail, status int) provider.ErrUpstream 
 		// travels any further: this is the field an upstream echoes a request
 		// into, and the contract's shape-based redaction does not cover a
 		// header this provider names differently. See Adapter.safeText.
-		message := a.safeText(detail.Message)
+		message := a.safeText(detail.Message, key)
 		failure.Passthrough.Message = &message
 	}
 

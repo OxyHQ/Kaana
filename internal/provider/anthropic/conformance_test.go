@@ -16,7 +16,10 @@ import (
 // scanner has nothing to flag — and, not incidentally, so that the contract's
 // credential-SHAPE pattern cannot be what saves it. No real provider key
 // appears in this repository, in a test, or in CI.
-const fakeAPIKey = "relay-conformance-fake-credential-0000"
+const (
+	fakeAPIKey       = "relay-conformance-fake-credential-0000"
+	fakeSecondAPIKey = "relay-conformance-fake-credential-0001"
+)
 
 const fakeModelReference = contract.ModelReference("anthropic/claude-fake@2026-05-01")
 
@@ -31,7 +34,7 @@ func subject() conformance.Subject {
 		Provider:        Slug,
 		ModelReference:  fakeModelReference,
 		UpstreamModelID: "claude-fake-2026-05-01",
-		APIKey:          fakeAPIKey,
+		APIKeys:         []string{fakeAPIKey, fakeSecondAPIKey},
 
 		// The fake's own numbers, restated as the physical request they
 		// describe. `input_tokens` here EXCLUDES both cache counts, so the
@@ -47,7 +50,7 @@ func subject() conformance.Subject {
 
 		NewAdapter: func(t *testing.T, upstreamURL string) provider.Adapter {
 			t.Helper()
-			adapter, err := New(Config{BaseURL: upstreamURL, APIKey: fakeAPIKey})
+			adapter, err := New(Config{BaseURL: upstreamURL, APIKeys: []string{fakeAPIKey, fakeSecondAPIKey}})
 			if err != nil {
 				t.Fatalf("building the anthropic adapter: %v", err)
 			}

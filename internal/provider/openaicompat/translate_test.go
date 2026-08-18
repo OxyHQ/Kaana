@@ -27,7 +27,7 @@ func testRoute() provider.Route {
 
 func testAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	adapter, err := New(Config{Provider: "openai", BaseURL: "https://upstream.invalid/v1", APIKey: fakeAPIKey})
+	adapter, err := New(Config{Provider: "openai", BaseURL: "https://upstream.invalid/v1", APIKeys: []string{fakeAPIKey}})
 	if err != nil {
 		t.Fatalf("building the adapter: %v", err)
 	}

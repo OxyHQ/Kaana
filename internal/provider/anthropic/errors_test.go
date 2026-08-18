@@ -107,7 +107,7 @@ func TestEveryFailureThisProviderNamesMapsOntoTheClosedVocabulary(t *testing.T) 
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			failure := adapter.classify(errorDetail{Type: testCase.kind, Message: "upstream said so"}, testCase.status)
+			failure := adapter.classify(errorDetail{Type: testCase.kind, Message: "upstream said so"}, testCase.status, leasedKey(t, adapter))
 
 			if failure.Code != testCase.code {
 				t.Errorf("code is %q, expected %q", failure.Code, testCase.code)
@@ -141,7 +141,8 @@ func TestEveryFailureThisProviderNamesMapsOntoTheClosedVocabulary(t *testing.T) 
 // their own key, and `provider_error` would send every client into a retry loop
 // against a request that cannot succeed until an operator rotates ours.
 func TestARefusedPlatformCredentialDoesNotBlameTheCustomerAndIsNotRetried(t *testing.T) {
-	failure := newTestAdapter(t).classify(errorDetail{Type: errorAuthentication, Message: "invalid x-api-key"}, http.StatusUnauthorized)
+	adapterUnderTest := newTestAdapter(t)
+	failure := adapterUnderTest.classify(errorDetail{Type: errorAuthentication, Message: "invalid x-api-key"}, http.StatusUnauthorized, leasedKey(t, adapterUnderTest))
 
 	if failure.Code != contract.CodeProviderCredentialInvalid {
 		t.Errorf("a refused platform credential is reported as %q", failure.Code)
@@ -181,7 +182,7 @@ func TestRetryAfterIsCarriedOnlyWhereTheContractAllowsIt(t *testing.T) {
 			}
 
 			var upstream provider.ErrUpstream
-			if !asUpstream(adapter.upstreamFailure(response), &upstream) {
+			if !asUpstream(adapter.Refuse(response, leasedKey(t, adapter)), &upstream) {
 				t.Fatal("the adapter did not classify the failure")
 			}
 			if upstream.RetryAfterMs != testCase.want {
@@ -198,7 +199,8 @@ func TestRetryAfterIsCarriedOnlyWhereTheContractAllowsIt(t *testing.T) {
 // provider's header name makes possible.
 func TestUpstreamErrorTextLosesTheCredentialAndKeepsTheDiagnostic(t *testing.T) {
 	echoed := "request rejected: headers were {x-api-key: " + fakeAPIKey + "}"
-	failure := newTestAdapter(t).classify(errorDetail{Type: errorInvalidRequest, Message: echoed}, http.StatusBadRequest)
+	echoingAdapter := newTestAdapter(t)
+	failure := echoingAdapter.classify(errorDetail{Type: errorInvalidRequest, Message: echoed}, http.StatusBadRequest, leasedKey(t, echoingAdapter))
 
 	if failure.Passthrough.Message == nil {
 		t.Fatal("the upstream's message was dropped entirely")
@@ -248,5 +250,19 @@ func TestStopReasonsMapOntoTheContractsFinishReasons(t *testing.T) {
 	}
 	if mapStopReason("refusal") == contract.FinishContentFilter {
 		t.Error("a model refusal is reported as a content filter, which says an upstream system removed the answer")
+	}
+}
+
+// TestThisProviderDeclaresNoQuotaHeader is an exact count, not a floor.
+//
+// The Messages API documents no remaining-credits header on a messages
+// response, and no live call has been made from this repository to discover
+// one. This provider's exhaustion is therefore learned from its own
+// `billing_error` refusal, which is the strongest signal there is — the
+// provider, about the exact credential that was sent. A guess here would retire
+// healthy keys, which is the failure a declared mapping exists to prevent.
+func TestThisProviderDeclaresNoQuotaHeader(t *testing.T) {
+	if len(quotaHeaders) != 0 {
+		t.Errorf("this provider declares %d quota headers; this build verified none, so the count is 0 until one is", len(quotaHeaders))
 	}
 }

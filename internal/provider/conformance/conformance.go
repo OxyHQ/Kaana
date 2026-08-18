@@ -80,6 +80,24 @@ const (
 	// credential the caller sent. Providers really do this, and it is the
 	// single most likely way an upstream key reaches a customer.
 	ScenarioCredentialEchoed Scenario = "credential_echoed"
+	// ScenarioRequestRefused refuses the REQUEST, with the provider's own
+	// invalid-request error, after the credential was accepted.
+	//
+	// It is a different failure from the refusals an adapter makes in Translate
+	// — those never reach a provider — and it is the case where retrying on
+	// another credential turns one customer error into a call per key, each
+	// refused identically.
+	ScenarioRequestRefused Scenario = "request_refused"
+	// ScenarioFirstCredentialExhausted refuses the FIRST credential the fake
+	// upstream ever sees with the provider's own exhaustion error, and serves
+	// any other one normally.
+	//
+	// It is the only scenario whose behaviour depends on WHICH key arrived, and
+	// that is the point: a pool exists because one provider account's capacity
+	// is not one provider's capacity, and the invariant is that the second key
+	// serves a request the first could not while the customer sees an ordinary
+	// completed stream — no route switch, one deployment, the same model.
+	ScenarioFirstCredentialExhausted Scenario = "first_credential_exhausted"
 )
 
 // Upstream is a running fake provider.
@@ -168,10 +186,16 @@ type Subject struct {
 	// StreamedUsage is what the fake upstream consumed and produced, in totals
 	// the contract's units must partition.
 	StreamedUsage StreamedUsage
-	// APIKey is the credential the adapter is configured with. The suite
-	// asserts this exact string never appears in anything a customer receives,
-	// so it must be the one NewAdapter uses.
-	APIKey string
+	// APIKeys are the credentials the adapter is configured with, in the order
+	// it will spend them. The suite asserts that none of these exact strings
+	// ever appears in anything a customer receives, so they must be the ones
+	// NewAdapter uses.
+	//
+	// At least two are required. One key cannot distinguish an adapter that
+	// rotates on exhaustion from one that cannot rotate at all, and a suite
+	// that could not tell them apart would pass a build whose pool is a list of
+	// one thing.
+	APIKeys []string
 	// NewAdapter builds the adapter under test, pointed at a fake upstream.
 	NewAdapter func(t *testing.T, upstreamURL string) provider.Adapter
 	// NewUnconfigured builds the adapter with no credential.
@@ -373,19 +397,9 @@ func Run(t *testing.T, subject Subject) {
 	})
 
 	t.Run("never lets an upstream credential reach the customer", func(t *testing.T) {
-		if subject.APIKey == "" {
-			t.Fatal("the subject declares no API key, so this check would pass vacuously")
-		}
 		run := execute(t, subject, ScenarioCredentialEchoed, streamingRequest(subject), nil)
 		failure := assertFailure(t, run)
-
-		encoded, err := json.Marshal(run.events)
-		if err != nil {
-			t.Fatalf("encoding the emitted stream: %v", err)
-		}
-		if strings.Contains(string(encoded), subject.APIKey) {
-			t.Fatalf("the configured upstream credential appears in the customer-visible stream:\n%s", encoded)
-		}
+		assertNoCredentialInStream(t, subject, run)
 		// Positive control on the test itself: the upstream must actually have
 		// echoed the credential, or "no leak" is what a scenario that never
 		// mentioned it also reports.
@@ -405,6 +419,81 @@ func Run(t *testing.T, subject Subject) {
 		}
 		if *failure.ProviderError.Message == contract.WithheldErrorText {
 			t.Error("the upstream's diagnostic was withheld wholesale: the adapter left the credential in the text and the contract's last-resort refusal removed the message with it. Redact the configured credential by exact match (provider.RedactSecret) so the message survives")
+		}
+	})
+
+	t.Run("serves an exhausted credential from the next key in the pool", func(t *testing.T) {
+		// The provider refused the first key because the account behind it has
+		// nothing left. That is a statement about the CREDENTIAL, and the next
+		// key is a different account — so the request is served, and the
+		// customer's stream is an ordinary completed one.
+		run := execute(t, subject, ScenarioFirstCredentialExhausted, streamingRequest(subject), nil)
+
+		// assertWellFramedStream fails on a route_switch, and that is the half
+		// of this test that keeps key failover on its own axis: a key rotation
+		// is not a re-route. Same deployment, same provider, same weights, a
+		// different credential — nothing the customer was told about their
+		// route has changed, so nothing about it is announced.
+		assertWellFramedStream(t, run)
+		assertTerminal(t, run, contract.EventDone)
+		assertReport(t, run, contract.OutcomeCompleted)
+
+		if got := run.upstream.RequestCount(); got != 2 {
+			t.Fatalf("the upstream received %d requests; the first credential was exhausted and the second served the request, which is exactly two", got)
+		}
+		if run.report.RouteSwitches != 0 {
+			t.Errorf("the usage report counts %d route switches for a request that never left its deployment", run.report.RouteSwitches)
+		}
+		// The failed attempt produced nothing, so it must contribute nothing to
+		// the receipt. If its units leaked in, the partition would be doubled.
+		assertUsagePartitionsTheRequest(t, run.report.Units, subject.StreamedUsage)
+		assertNoCredentialInStream(t, subject, run)
+	})
+
+	t.Run("does not walk the pool when a credential is refused", func(t *testing.T) {
+		// A refused credential and an exhausted one are opposite decisions
+		// about the pool, which is why this check and the one above it are a
+		// matched pair: a build that never rotates passes this one and fails
+		// that one, and a build that always rotates passes that one and fails
+		// this one.
+		//
+		// Walking here would be wrong twice over. Under a provider-side auth
+		// failure every remaining key is refused identically, so the walk turns
+		// one failure into a call per key AND retires the whole pool on a blip.
+		run := execute(t, subject, ScenarioCredentialRefused, streamingRequest(subject), nil)
+		_ = assertFailure(t, run)
+		if got := run.upstream.RequestCount(); got != 1 {
+			t.Errorf("the upstream received %d requests for one refused credential; %d keys were declared and none of the others could have been accepted",
+				got, len(subject.APIKeys))
+		}
+	})
+
+	t.Run("does not retry a request the provider itself refused", func(t *testing.T) {
+		// The credential was accepted and the REQUEST was refused. Every other
+		// credential in the pool would be refused identically, so a rotation
+		// here multiplies one customer error into a call per key — and does it
+		// on a failure the customer can fix and nobody else can.
+		run := execute(t, subject, ScenarioRequestRefused, streamingRequest(subject), nil)
+		failure := assertFailure(t, run)
+		if failure.Retryable {
+			t.Errorf("a request the provider refused was reported retryable under code %q", failure.Code)
+		}
+		if got := run.upstream.RequestCount(); got != 1 {
+			t.Errorf("the upstream received %d requests for one refused request; %d credentials were declared and none of them changes what the request says",
+				got, len(subject.APIKeys))
+		}
+	})
+
+	t.Run("spends each credential at most once on an exhausted pool", func(t *testing.T) {
+		// Every key refuses, so the request walks the whole pool and reports
+		// the last refusal. The bound is what is being checked: a request can
+		// make at most as many upstream calls as the pool has keys, because a
+		// key is never leased twice for one request. Nobody configured that
+		// ceiling — it is a property of the walk.
+		run := execute(t, subject, ScenarioQuotaExhausted, streamingRequest(subject), nil)
+		_ = assertFailure(t, run)
+		if got, want := run.upstream.RequestCount(), len(subject.APIKeys); got != want {
+			t.Errorf("the upstream received %d requests for a pool of %d exhausted keys", got, want)
 		}
 	})
 
@@ -519,10 +608,54 @@ func Run(t *testing.T, subject Subject) {
 		if err != nil {
 			t.Fatalf("encoding health: %v", err)
 		}
-		if subject.APIKey != "" && strings.Contains(string(encoded), subject.APIKey) {
-			t.Fatalf("the health projection carries a credential: %s", encoded)
+		for position, key := range subject.APIKeys {
+			if strings.Contains(string(encoded), key) {
+				t.Fatalf("the health projection carries the credential at position %d: %s", position+1, encoded)
+			}
 		}
 	})
+}
+
+// assertNoCredentialInStream requires that no credential the adapter holds
+// appears in anything the customer receives.
+//
+// Every key is checked, not just the one that was used: a rotation means the
+// bytes of a second credential were in this process during this request, and
+// "the key we happened to send" is the weaker of the two claims.
+func assertNoCredentialInStream(t *testing.T, subject Subject, r *run) {
+	t.Helper()
+	encoded, err := json.Marshal(r.events)
+	if err != nil {
+		t.Fatalf("encoding the emitted stream: %v", err)
+	}
+	for position, key := range subject.APIKeys {
+		if strings.Contains(string(encoded), key) {
+			t.Fatalf("the upstream credential at position %d appears in the customer-visible stream:\n%s", position+1, encoded)
+		}
+	}
+}
+
+// requireCredentialPool is the vacuity floor under every key-pool check.
+//
+// A pool of one cannot distinguish rotating from not rotating, and two keys
+// that are the same string cannot distinguish "the second key served it" from
+// "the first key was retried". Both would leave the checks below passing on a
+// build with no pool at all.
+func requireCredentialPool(t *testing.T, subject Subject) {
+	t.Helper()
+	if len(subject.APIKeys) < 2 {
+		t.Fatalf("conformance: the subject declares %d credentials; at least 2 are required, or every key-pool check passes vacuously", len(subject.APIKeys))
+	}
+	seen := make(map[string]int, len(subject.APIKeys))
+	for index, key := range subject.APIKeys {
+		if strings.TrimSpace(key) == "" {
+			t.Fatalf("conformance: the credential at position %d is empty, so the checks that it never reaches a customer would match everything or nothing", index+1)
+		}
+		if first, duplicate := seen[key]; duplicate {
+			t.Fatalf("conformance: the credentials at positions %d and %d are the same string, so a rotation is indistinguishable from a retry", first, index+1)
+		}
+		seen[key] = index + 1
+	}
 }
 
 func requireSubject(t *testing.T, subject Subject) {
@@ -539,6 +672,7 @@ func requireSubject(t *testing.T, subject Subject) {
 	case subject.NewAdapter == nil, subject.NewUnconfigured == nil, subject.StartUpstream == nil, subject.Refusals == nil:
 		t.Fatal("conformance: the subject is incomplete")
 	}
+	requireCredentialPool(t, subject)
 	if len(subject.Refusals()) == 0 {
 		t.Fatal("conformance: the subject declares no refusal, so the check that a request the provider cannot express costs nothing would pass vacuously")
 	}

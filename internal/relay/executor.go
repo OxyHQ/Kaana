@@ -203,6 +203,27 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 			continue
 		}
 
+		if abandoned != nil && sharesTheRefusedCredential(abandoned, route) {
+			// The abandoned attempt failed because the provider refused the
+			// PLATFORM's credential, and this candidate is served by the same
+			// provider — so it draws on the same credential pool and would be
+			// refused identically.
+			//
+			// Failing over here would reproduce, one deployment at a time,
+			// exactly the walk the pool itself refuses to make: each attempt
+			// leases and burns the next key, so one provider-side authentication
+			// blip retires as many credentials as the model has deployments.
+			// A candidate served by a DIFFERENT provider holds a different pool
+			// and is still tried, which is the case that made this failure
+			// attributable in the first place.
+			//
+			// This is route SELECTION, not a route switch: nothing was
+			// attempted here, so nothing is announced.
+			permit.NotAttributable()
+			skipped = append(skipped, route.DeploymentID)
+			continue
+		}
+
 		if abandoned != nil {
 			err := emit.routeSwitch(switchReason(abandoned.err), abandoned.route, route, e.now())
 			switch {
@@ -509,6 +530,22 @@ func (e *Executor) everyRouteOutOfRotation(
 /* -------------------------------------------------------------------------- */
 /*  Classification                                                            */
 /* -------------------------------------------------------------------------- */
+
+// sharesTheRefusedCredential reports whether a candidate would be sent the same
+// credential that has just been refused.
+//
+// Two deployments of one provider slug resolve to one adapter and therefore to
+// one credential pool, so "another deployment holds a different credential" —
+// the reason a refused credential is attributable at all — is true across
+// provider slugs and false within one.
+//
+// It reads provider.CredentialVerdictFor, the same function the pool reads, so
+// the executor and the pool cannot come to differ about what a refused
+// credential means.
+func sharesTheRefusedCredential(abandoned *attempt, candidate provider.Route) bool {
+	return provider.CredentialVerdictFor(abandoned.err) == provider.CredentialRejected &&
+		abandoned.route.Provider == candidate.Provider
+}
 
 // switchReason maps a failure to the contract's reason for the route switch the
 // customer is shown.

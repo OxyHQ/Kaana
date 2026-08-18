@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -75,7 +76,11 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	adapters, err := buildAdapters()
+	providerConfigs, err := parseProviders(os.Getenv)
+	if err != nil {
+		return err
+	}
+	adapters, err := buildAdapters(providerConfigs)
 	if err != nil {
 		return err
 	}
@@ -84,13 +89,32 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	// Refuse to start when the inventory routes somewhere this process cannot
-	// reach. The alternative is discovering it on a customer request, as a
-	// deployment_unavailable for a provider that was never loaded.
-	for _, slug := range inventoryStore.Current().Providers() {
-		if _, found := registry.Lookup(slug); !found {
-			return fmt.Errorf("the inventory routes to provider %q, which this build has no adapter for", slug)
-		}
+	// A snapshot naming a provider this process does not serve is a
+	// degradation, not a reason to stop.
+	//
+	// The inventory is published by the control plane and the adapter set is
+	// fixed at deploy time, so the two move on different clocks: a provider can
+	// appear in a snapshot before the deploy that gives this build its
+	// credential. Refusing to start there would take routing for every
+	// SUPPORTED provider down over one unsupported one, and it would do it on
+	// the next task replacement rather than when the snapshot changed — the
+	// reload path already treats the same condition as a warning, so the two
+	// answers were the same question answered twice.
+	//
+	// What the customer gets instead is the refusal the executor already
+	// produces: a reference served only by an unroutable provider resolves to
+	// no admissible candidate and is refused, retryably, while every other
+	// reference is served. The operator gets this line.
+	warnAboutUnroutableProviders(logger, inventoryStore.Current(), registry)
+
+	// A credential delivered for a provider this process does not serve is the
+	// one failure with no downstream signal at all: the task starts, the health
+	// probe passes, the rollout completes and the provider is simply absent.
+	if unused := unusedProviderCredentials(os.Environ(), providerConfigs); len(unused) > 0 {
+		logger.Warn("a provider credential was delivered for a provider this process does not serve",
+			"variables", unused,
+			"declared", providerSlugsFrom(providerConfigs),
+			"meaning", "the credential is never read; either add the provider to RELAY_PROVIDERS or remove the secret from the deployment")
 	}
 
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{
@@ -263,44 +287,375 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 	return ids
 }
 
-// buildAdapters constructs every provider this build can serve.
+// Provider configuration.
 //
-// Two protocols are wired: OpenAI Chat Completions, which seven of the
-// providers Alia speaks to share, and the Anthropic Messages API, which is one
-// provider's own. Registering an adapter is not a claim that a credential
-// exists for it — an unconfigured adapter reports itself `unconfigured` on the
-// health surface rather than failing at the first request, which is what lets
-// an operator see the gap before a customer does. What would be a claim this
-// build cannot support is an INVENTORY entry routing to a provider with no
-// credential, and the server refuses to start when the inventory names a
-// provider it has no adapter for at all.
-func buildAdapters() ([]provider.Adapter, error) {
-	openaiBaseURL := os.Getenv("RELAY_PROVIDER_OPENAI_BASE_URL")
-	if openaiBaseURL == "" {
-		openaiBaseURL = "https://api.openai.com/v1"
-	}
-	openai, err := openaicompat.New(openaicompat.Config{
-		Provider: "openai",
-		BaseURL:  openaiBaseURL,
-		APIKey:   os.Getenv("RELAY_PROVIDER_OPENAI_API_KEY"),
-	})
-	if err != nil {
-		return nil, err
+// Which providers this process serves, where each one is, and what credentials
+// it holds are three separate questions, and none of them is the inventory's.
+// The inventory is a control-plane snapshot of which deployments serve which
+// model; a credential in it would be a copy of an Oxy entity, and a base URL in
+// it would make one process's reachability a global fact. So the inventory
+// names a provider SLUG and this file resolves that slug to an adapter, an
+// address and a pool of keys.
+//
+//	RELAY_PROVIDERS                                   openai,openrouter,cerebras,anthropic
+//	RELAY_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
+//	RELAY_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
+//	RELAY_PROVIDER_<SLUG>_API_KEY                     one credential, or several separated by commas
+//	RELAY_PROVIDER_<SLUG>_HEADERS                      Name=Value pairs the provider expects, separated by commas
+//	RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
+//	RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
+//
+// A whole POOL lives in the one _API_KEY variable rather than in numbered
+// siblings, and that is a deployment property rather than a stylistic one: the
+// variable name, the SSM parameter leaf and the GitHub secret name have to be
+// one string for the deploy sync to work, and one name per provider keeps a
+// growing pool out of the task definition's static secret list entirely.
+// Adding a key becomes a parameter VALUE change; adding a provider stays one
+// new name.
+//
+// The one closed list in any of this is the PROTOCOL. It names which adapter
+// implementation to construct, and a build can only construct one it contains,
+// so an unknown value is refused rather than defaulted. Provider SLUGS are not
+// a closed list: knownProviders below is a defaults table, and any slug that
+// declares a protocol and a base URL is servable without a Go change.
+const (
+	protocolOpenAICompatible  = "openai_compatible"
+	protocolAnthropicMessages = "anthropic_messages"
+)
+
+// knownProviders is the protocol and published API root for the slugs this
+// build has been written against.
+//
+// A default here is not an invention the way a default sampling parameter would
+// be: an address that is wrong fails loudly on the first request, with a DNS
+// failure or a 404, rather than quietly changing what the model does. Every
+// entry is overridable, and a slug that is not in this table must declare both
+// values — there is no address to guess for a name this build has never seen.
+//
+// The roots are the providers' published ones. No live call has been made from
+// this repository to any of them.
+var knownProviders = map[contract.ProviderSlug]providerConfig{
+	"openai":     {Protocol: protocolOpenAICompatible, BaseURL: "https://api.openai.com/v1"},
+	"anthropic":  {Protocol: protocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1"},
+	"openrouter": {Protocol: protocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1"},
+	"cerebras":   {Protocol: protocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1"},
+}
+
+// providerConfig is one provider this process serves.
+type providerConfig struct {
+	Slug     contract.ProviderSlug
+	Protocol string
+	BaseURL  string
+	// APIKeys is the provider's key pool, in the order it is to be spent. It is
+	// the one field here that holds a secret, it comes from the environment,
+	// and it is never logged, echoed or projected.
+	APIKeys []string
+	Keys    provider.KeyPolicy
+	// Headers are the non-secret headers this provider expects on every
+	// request. OpenRouter's attribution headers are the reason the field
+	// exists, and a provider wired without them is compliant until it is not,
+	// which is worse than being wired wrong.
+	Headers map[string]string
+}
+
+// parseProviders reads the provider configuration from the environment.
+//
+// It takes its own getenv so the whole of it is testable without a process
+// environment, which matters because most of what it does is refuse.
+func parseProviders(getenv func(string) string) ([]providerConfig, error) {
+	declared := splitList(getenv("RELAY_PROVIDERS"))
+	if len(declared) == 0 {
+		return nil, errors.New("RELAY_PROVIDERS is required: it lists the provider slugs this process serves, and an empty one would leave every inventory route unservable")
 	}
 
-	anthropicBaseURL := os.Getenv("RELAY_PROVIDER_ANTHROPIC_BASE_URL")
-	if anthropicBaseURL == "" {
-		anthropicBaseURL = "https://api.anthropic.com/v1"
+	configs := make([]providerConfig, 0, len(declared))
+	seenSlug := make(map[contract.ProviderSlug]struct{}, len(declared))
+	seenPrefix := make(map[string]contract.ProviderSlug, len(declared))
+
+	var err error
+	for _, name := range declared {
+		slug := contract.ProviderSlug(name)
+		if !slug.Valid() {
+			return nil, fmt.Errorf("RELAY_PROVIDERS names %q, which is not a provider slug", name)
+		}
+		if _, duplicate := seenSlug[slug]; duplicate {
+			return nil, fmt.Errorf("RELAY_PROVIDERS names %q twice", slug)
+		}
+		seenSlug[slug] = struct{}{}
+
+		prefix := environmentPrefix(slug)
+		if other, collides := seenPrefix[prefix]; collides {
+			// `open-router` and `open.router` are two slugs and one variable
+			// name. Left alone, the second would silently be configured with
+			// the first one's address and credentials.
+			return nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
+		}
+		seenPrefix[prefix] = slug
+
+		config := knownProviders[slug]
+		config.Slug = slug
+		if declaredProtocol := strings.TrimSpace(getenv(prefix + "_PROTOCOL")); declaredProtocol != "" {
+			config.Protocol = declaredProtocol
+		}
+		if declaredBaseURL := strings.TrimSpace(getenv(prefix + "_BASE_URL")); declaredBaseURL != "" {
+			config.BaseURL = declaredBaseURL
+		}
+
+		switch config.Protocol {
+		case protocolOpenAICompatible:
+		case protocolAnthropicMessages:
+			if slug != anthropic.Slug {
+				// The Messages API adapter reports its slug as a constant,
+				// because that wire format belongs to one provider. Serving it
+				// under another name would attribute every event and every
+				// usage record to `anthropic` while the inventory routed to
+				// something else.
+				return nil, fmt.Errorf("provider %q declares the %s protocol, which this build serves only as %q", slug, protocolAnthropicMessages, anthropic.Slug)
+			}
+		case "":
+			return nil, fmt.Errorf("%s_PROTOCOL is required: this build has no protocol for the provider slug %q", prefix, slug)
+		default:
+			return nil, fmt.Errorf("%s_PROTOCOL is %q; this build speaks %s and %s", prefix, config.Protocol, protocolOpenAICompatible, protocolAnthropicMessages)
+		}
+
+		if config.BaseURL == "" {
+			return nil, fmt.Errorf("%s_BASE_URL is required: this build knows no address for the provider slug %q", prefix, slug)
+		}
+
+		config.Headers, err = parseHeaders(getenv(prefix + "_HEADERS"))
+		if err != nil {
+			return nil, fmt.Errorf("%s_HEADERS: %w", prefix, err)
+		}
+		if len(config.Headers) > 0 && config.Protocol != protocolOpenAICompatible {
+			// Only the chat-completions adapter carries extra headers. Accepting
+			// them for another protocol would drop them silently, which is the
+			// same failure as never having set them and harder to see.
+			return nil, fmt.Errorf("%s_HEADERS is set, and the %s protocol sends no extra headers", prefix, config.Protocol)
+		}
+
+		onSeparateAccounts, err := parseDeclaredBool(getenv(prefix + "_KEYS_ON_SEPARATE_ACCOUNTS"))
+		if err != nil {
+			return nil, fmt.Errorf("%s_KEYS_ON_SEPARATE_ACCOUNTS: %w", prefix, err)
+		}
+
+		config.APIKeys = splitList(getenv(prefix + "_API_KEY"))
+		config.Keys = provider.KeyPolicy{
+			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
+			OnSeparateAccounts: onSeparateAccounts,
+		}
+		configs = append(configs, config)
 	}
-	claude, err := anthropic.New(anthropic.Config{
-		BaseURL: anthropicBaseURL,
-		APIKey:  os.Getenv("RELAY_PROVIDER_ANTHROPIC_API_KEY"),
-	})
-	if err != nil {
-		return nil, err
+	return configs, nil
+}
+
+// environmentPrefix is the variable name a slug reads its configuration from.
+//
+// The transform is total and its output is always a legal environment variable
+// name: a slug is `[a-z0-9._-]`, the two characters an environment variable
+// cannot carry are folded to `_`, and the constant prefix means the result
+// never begins with a digit. Nothing is unrepresentable, so nothing has to be
+// rejected for being unspellable.
+//
+// What the folding DOES create is collisions — `open-router` and `open.router`
+// are two slugs and one variable name — and parseProviders refuses those rather
+// than resolving them, because the loser would silently be configured with the
+// winner's address and credentials.
+//
+// This name is also the SSM parameter leaf and the GitHub secret name. They are
+// one string on purpose: the deploy sync derives the parameter path from the
+// secret name, so a design where they differ breaks the sync silently.
+func environmentPrefix(slug contract.ProviderSlug) string {
+	replaced := strings.NewReplacer(".", "_", "-", "_").Replace(string(slug))
+	return "RELAY_PROVIDER_" + strings.ToUpper(replaced)
+}
+
+// splitList reads a comma-separated environment value, discarding the empty
+// entries a trailing separator leaves behind.
+func splitList(value string) []string {
+	items := make([]string, 0, 4)
+	for _, item := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
+}
+
+// credentialHeaders are the header names an operator may not set here.
+//
+// Two different reasons, both silent if unguarded. An authentication header is
+// applied by the adapter at send time and would be overwritten, so a credential
+// placed here would look configured, do nothing, and sit in a plain environment
+// variable outside the pool that exists to manage it. `anthropic-version` is
+// pinned in code beside the parser that reads that provider's responses, and an
+// operator changing it would change the JSON that package decodes.
+var credentialHeaders = map[string]struct{}{
+	"authorization":       {},
+	"proxy-authorization": {},
+	"x-api-key":           {},
+	"api-key":             {},
+	"anthropic-version":   {},
+}
+
+// parseHeaders reads `Name=Value,Name=Value`.
+//
+// The separator is `=` rather than `:` because these values are routinely URLs,
+// and a header value carrying a comma is not representable — said here rather
+// than discovered by an operator whose attribution header arrived truncated.
+func parseHeaders(value string) (map[string]string, error) {
+	pairs := splitList(value)
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	headers := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		name, headerValue, found := strings.Cut(pair, "=")
+		name, headerValue = strings.TrimSpace(name), strings.TrimSpace(headerValue)
+		switch {
+		case !found || name == "":
+			return nil, fmt.Errorf("%q is not a `Name=Value` pair", pair)
+		case headerValue == "":
+			return nil, fmt.Errorf("header %q has no value", name)
+		}
+		if _, refused := credentialHeaders[strings.ToLower(name)]; refused {
+			return nil, fmt.Errorf("header %q is applied by the adapter and must not be set here", name)
+		}
+		if _, duplicate := headers[name]; duplicate {
+			return nil, fmt.Errorf("header %q is declared twice", name)
+		}
+		headers[name] = headerValue
+	}
+	return headers, nil
+}
+
+// unusedProviderCredentials names credentials the process was handed for a
+// provider it does not serve.
+//
+// It is the one failure in this area that nothing downstream can see. A
+// credential missing from the deployment stops the task; a provider missing
+// from the inventory refuses a request; but a key delivered for a provider that
+// was never declared produces a process that starts, answers its health probe,
+// reports its rollout complete, and routes to nothing — every signal green. The
+// only place both halves are visible is here.
+//
+// It warns rather than refuses. Retiring a provider means removing it from this
+// list before deleting its parameter, and a refusal would turn the safe order
+// into the one that stops every task.
+func unusedProviderCredentials(environment []string, configs []providerConfig) []string {
+	declared := make(map[string]struct{}, len(configs))
+	for _, config := range configs {
+		declared[environmentPrefix(config.Slug)] = struct{}{}
 	}
 
-	return []provider.Adapter{openai, claude}, nil
+	unused := make([]string, 0)
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if !found || !strings.HasPrefix(name, "RELAY_PROVIDER_") || !strings.HasSuffix(name, "_API_KEY") {
+			continue
+		}
+		if _, serves := declared[strings.TrimSuffix(name, "_API_KEY")]; !serves {
+			unused = append(unused, name)
+		}
+	}
+	sort.Strings(unused)
+	return unused
+}
+
+// parseDeclaredBool reads a value an operator sets to state a fact about the
+// deployment, and refuses anything it cannot read.
+//
+// It refuses rather than falling back for the same reason
+// failoverAcknowledgement does: the variables in this family exist so a human
+// states something the process cannot work out for itself, and a spelling that
+// quietly means "not set" gives them the default while they believe they
+// changed it. `TRUE` disabling key rotation, silently, is not a defensible
+// answer to somebody who wrote `TRUE`.
+func parseDeclaredBool(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return false, nil
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%q is neither `true` nor `false`", strings.TrimSpace(value))
+	}
+}
+
+func durationOrZero(value string) time.Duration {
+	parsed, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+	return parsed
+}
+
+// buildAdapters constructs every provider this process serves.
+//
+// Registering an adapter is not a claim that a credential exists for it — a
+// provider with an empty pool reports itself `unconfigured` on the health
+// surface rather than failing at the first request, which is what lets an
+// operator see the gap before a customer does. What would be a claim this build
+// cannot support is an INVENTORY entry routing to a provider that was never
+// declared here, and the server refuses to start in that state.
+func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
+	adapters := make([]provider.Adapter, 0, len(configs))
+	for _, config := range configs {
+		switch config.Protocol {
+		case protocolOpenAICompatible:
+			adapter, err := openaicompat.New(openaicompat.Config{
+				Provider: config.Slug,
+				BaseURL:  config.BaseURL,
+				APIKeys:  config.APIKeys,
+				Keys:     config.Keys,
+				Headers:  config.Headers,
+			})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
+		case protocolAnthropicMessages:
+			adapter, err := anthropic.New(anthropic.Config{
+				BaseURL: config.BaseURL,
+				APIKeys: config.APIKeys,
+				Keys:    config.Keys,
+			})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
+		default:
+			return nil, fmt.Errorf("provider %q declares the protocol %q, which parseProviders should have refused", config.Slug, config.Protocol)
+		}
+	}
+	return adapters, nil
+}
+
+// warnAboutUnroutableProviders names every provider the installed snapshot
+// routes to that this build cannot reach.
+func warnAboutUnroutableProviders(logger *slog.Logger, current *inventory.Inventory, registry *provider.Registry) {
+	unroutable := make([]contract.ProviderSlug, 0)
+	for _, slug := range current.Providers() {
+		if _, found := registry.Lookup(slug); !found {
+			unroutable = append(unroutable, slug)
+		}
+	}
+	if len(unroutable) == 0 {
+		return
+	}
+	logger.Warn("the installed snapshot routes to providers this build has no adapter for",
+		"providers", unroutable,
+		"snapshotId", current.SnapshotID(),
+		"meaning", "references served only by those providers are refused; every other reference is served normally")
+}
+
+func providerSlugsFrom(configs []providerConfig) []contract.ProviderSlug {
+	slugs := make([]contract.ProviderSlug, 0, len(configs))
+	for _, config := range configs {
+		slugs = append(slugs, config.Slug)
+	}
+	return slugs
 }
 
 func providerSlugs(registry *provider.Registry) []contract.ProviderSlug {
