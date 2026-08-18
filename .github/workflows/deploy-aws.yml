@@ -1,0 +1,261 @@
+name: Deploy to AWS
+
+# Relay's release path: build the arm64 image, push it to ECR, register a task
+# definition that names the image by DIGEST, and repoint the service at that
+# revision.
+#
+# # Why the digest and not a tag
+#
+# `update-service --force-new-deployment` against a `:latest` tag relaunches
+# whatever `:latest` resolves to at that moment, which is not necessarily the
+# image this run built — another push, or a retry of an older run, moves the tag
+# underneath it. A revision naming `…@sha256:…` is answerable: `what is running`
+# is read off the task definition instead of inferred from a mutable tag.
+#
+# # Who owns what
+#
+# Terraform owns what a revision CONTAINS — the roles, the log configuration,
+# the environment, the `secrets` block, the volume the configuration snapshot is
+# mounted from. CI owns which revision RUNS. This job therefore derives its
+# revision from the family's current one and replaces exactly one field, the
+# image, so a Terraform change to the shape is picked up by the next deploy and
+# a deploy never overwrites the shape. The service's `ignore_changes =
+# [task_definition]` in oxy-infra is the other half of that bargain.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/deploy-aws.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-relay
+  # NOT cancel-in-progress. A cancelled run leaves a rollout it started still
+  # running, unmonitored: the service goes on replacing tasks, and nobody is
+  # left watching for the FAILED that would have failed this job. Two deploys
+  # queue instead.
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 237343248947.dkr.ecr.us-west-2.amazonaws.com
+  # The ECS service, the ECR repository suffix and the container name inside the
+  # task definition. All three are `relay`; the task-definition FAMILY carries
+  # the oxy- prefix that oxy-infra's app-service module gives every family.
+  APP: relay
+  FAMILY: oxy-relay
+  CLUSTER: oxy-cluster
+
+jobs:
+  deploy:
+    # workflow_dispatch can be run against arbitrary refs; only deploys from the
+    # protected main branch may assume the AWS deploy role.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::237343248947:role/oxy-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync provider credentials -> SSM (GitHub is the source of truth)
+        # The ONLY secrets Relay holds are the upstream provider credentials.
+        # The Oxy edge's key is a PUBLIC key and is ordinary environment, set in
+        # the task definition in plain sight — Relay verifies envelopes and
+        # cannot construct one, which is the whole point of the asymmetric
+        # scheme and is lost the moment a signing key is stored here.
+        #
+        # The SYNC_ prefix keeps these clear of the AWS CLI's own reserved
+        # credential variables, so exporting one cannot shadow the OIDC role
+        # assumed above.
+        #
+        # RELAY_SECRETS below and this env: block are two halves of one fact and
+        # move together. A name in the list with no mapping here reads as an
+        # unset repository secret and is skipped in silence, which is how the
+        # OPENAI/ANTHROPIC pair sat in the list while the only credential that
+        # existed — CEREBRAS — was never synced at all. The loop now separates
+        # the two cases instead of collapsing them.
+        env:
+          SYNC_RELAY_PROVIDER_OPENAI_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENAI_API_KEY }}
+          SYNC_RELAY_PROVIDER_ANTHROPIC_API_KEY: ${{ secrets.RELAY_PROVIDER_ANTHROPIC_API_KEY }}
+          SYNC_RELAY_PROVIDER_CEREBRAS_API_KEY: ${{ secrets.RELAY_PROVIDER_CEREBRAS_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Every credential that may reach SSM. A name absent here never
+          # reaches Parameter Store no matter what is set on the repository, so
+          # SSM and GitHub drift apart on the next rotation without erroring.
+          #
+          # OPENAI and ANTHROPIC are the two `cmd/relay` actually reads today;
+          # CEREBRAS is provisioned ahead of the adapter that will read it, and
+          # syncing it keeps the GitHub copy authoritative in the meantime.
+          RELAY_SECRETS="RELAY_PROVIDER_OPENAI_API_KEY RELAY_PROVIDER_ANTHROPIC_API_KEY RELAY_PROVIDER_CEREBRAS_API_KEY"
+
+          for k in $RELAY_SECRETS; do
+            # An UNSET repository secret still leaves SYNC_$k defined-and-empty,
+            # so a printenv that fails outright means the env: block above is
+            # missing this name — a workflow bug, not a missing credential.
+            # Collapsing the two with `|| true` is what makes that bug invisible.
+            if ! v=$(printenv "SYNC_$k"); then
+              echo "::error::$k is in RELAY_SECRETS but has no SYNC_$k entry in this step's env: block, so it can never be synced"
+              exit 1
+            fi
+            # Defence in depth, and no more than that: a secret left empty or as
+            # a single dash is almost always a mistake — never set, or scripted
+            # with a placeholder body — and skipping preserves whatever SSM
+            # already holds rather than replacing a working credential with
+            # garbage. A real but WRONG value propagates; this is not a review.
+            if [ -z "$v" ] || [ "$v" = "-" ]; then
+              echo "::warning::skip empty/placeholder secret $k; /oxy/$APP/$k unchanged"
+              continue
+            fi
+            aws ssm put-parameter --name "/oxy/$APP/$k" --value "$v" --type SecureString --overwrite >/dev/null
+            echo "synced -> /oxy/$APP/$k"
+          done
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (linux/arm64)
+        id: image
+        run: |
+          set -euo pipefail
+          IMG="$ECR_REGISTRY/oxy/$APP"
+          # --platform is stated rather than inherited: BuildKit takes the
+          # target from the host when none is given, so a runner change would
+          # silently ship the wrong architecture.
+          docker buildx build \
+            --platform linux/arm64 \
+            -t "$IMG:${{ github.sha }}" \
+            -t "$IMG:latest" \
+            --push \
+            --metadata-file /tmp/build-metadata.json \
+            .
+          DIGEST=$(jq -r '."containerimage.digest"' /tmp/build-metadata.json)
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::the build produced no image digest (got '$DIGEST')"; exit 1 ;;
+          esac
+          echo "image=$IMG@$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "pushed $IMG@$DIGEST"
+
+      - name: Deploy to ECS (skipped until the service exists)
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
+            --query 'services[0].status' --output text 2>/dev/null || echo NONE)
+          if [ "$STATUS" != "ACTIVE" ]; then
+            echo "::warning::ECS service $APP is not ACTIVE (status=$STATUS); the image is in ECR at $IMAGE, nothing to deploy"
+            exit 0
+          fi
+
+          BASE=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition')
+
+          # Assert the container this job is about to rewrite is actually there.
+          # A jq assignment that matches nothing succeeds and returns the
+          # document unchanged, so without this the job would register a
+          # revision still carrying the OLD image and report a clean deploy.
+          MATCHED=$(printf '%s' "$BASE" | jq --arg c "$APP" '[.containerDefinitions[] | select(.name == $c)] | length')
+          if [ "$MATCHED" != "1" ]; then
+            echo "::error::task definition $FAMILY has $MATCHED containers named '$APP'; expected exactly 1"
+            exit 1
+          fi
+
+          # Everything except the image comes from the family's current revision
+          # — Terraform's shape, carried forward. The dropped keys are the ones
+          # describe-task-definition adds and register-task-definition refuses.
+          printf '%s' "$BASE" | jq --arg c "$APP" --arg img "$IMAGE" '
+            del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+            | .containerDefinitions |= map(if .name == $c then .image = $img else . end)
+          ' > /tmp/task-definition.json
+
+          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/task-definition.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "registered $ARN"
+
+          # Read the field back. A register that silently kept the old image
+          # would otherwise be indistinguishable from a successful one right up
+          # until someone asked what version was live.
+          REGISTERED=$(aws ecs describe-task-definition --task-definition "$ARN" \
+            --query "taskDefinition.containerDefinitions[?name=='$APP'].image | [0]" --output text)
+          if [ "$REGISTERED" != "$IMAGE" ]; then
+            echo "::error::$ARN names image '$REGISTERED', expected '$IMAGE'"
+            exit 1
+          fi
+
+          # register-task-definition does NOT repoint a service. Naming the
+          # revision here is what makes this deploy the one being watched below.
+          aws ecs update-service --cluster "$CLUSTER" --service "$APP" --task-definition "$ARN" >/dev/null
+          echo "deploying $ARN; polling rollout state"
+
+          # Poll the PRIMARY deployment to steady state. The AWS services-stable
+          # waiter caps at 10 minutes, which is tight while a fresh task pulls
+          # the image and warms up against the target group.
+          DEADLINE=$(( $(date +%s) + 20 * 60 ))
+          while :; do
+            if [ "$(date +%s)" -gt "$DEADLINE" ]; then
+              echo "::error::deployment did not stabilize within 20 minutes"
+              aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
+                --query 'services[0].deployments' --output table || true
+              exit 1
+            fi
+            PRIMARY=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
+              --query 'services[0].deployments[?status==`PRIMARY`] | [0]')
+            PRIMARY_TD=$(printf '%s' "$PRIMARY" | jq -r '.taskDefinition // ""')
+            ROLLOUT=$(printf '%s' "$PRIMARY" | jq -r '.rolloutState // "IN_PROGRESS"')
+            RUNNING=$(printf '%s' "$PRIMARY" | jq -r '.runningCount // 0')
+            DESIRED=$(printf '%s' "$PRIMARY" | jq -r '.desiredCount // 0')
+            echo "  rolloutState=$ROLLOUT  running=$RUNNING/$DESIRED"
+
+            # Identity, not just state. A COMPLETED belonging to somebody else's
+            # revision — a concurrent apply, a manual rollback — is not this
+            # deploy succeeding, and counting it as one is how a job reports
+            # green for a change that never went out.
+            if [ "$PRIMARY_TD" != "$ARN" ]; then
+              echo "::error::the PRIMARY deployment is $PRIMARY_TD, not the revision this run registered ($ARN)"
+              exit 1
+            fi
+
+            case "$ROLLOUT" in
+              COMPLETED)
+                # A service parked at desiredCount=0 reaches COMPLETED with
+                # nothing launched, because there was nothing to launch. That
+                # is a legitimate state — it is how the service is held while a
+                # prerequisite is missing — so it is not a failure. But the word
+                # "deployed" would be a lie about it, and this job is the last
+                # thing anyone reads before believing the change went out.
+                if [ "$DESIRED" = "0" ]; then
+                  echo "::warning::rollout COMPLETED with desiredCount=0: $ARN is the service's revision, but no task is running it. This run proves the image built and the revision registered, and nothing about whether Relay serves."
+                  exit 0
+                fi
+                echo "deployed $APP at $IMAGE ($RUNNING/$DESIRED tasks running)"
+                exit 0
+                ;;
+              FAILED)
+                echo "::error::rollout failed"
+                aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
+                  --query 'services[0].events[0:10]' --output table || true
+                exit 1
+                ;;
+            esac
+            sleep 15
+          done
