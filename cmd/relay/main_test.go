@@ -438,4 +438,19 @@ func TestOneConditionHasOneMessage(t *testing.T) {
 	if !strings.Contains(string(source), message+`providers this build has no adapter for"`) {
 		t.Error("the message this test filters on is not the one the source emits")
 	}
+
+	// The count above is anchored BEFORE the plural, so re-adding the old
+	// inline loop is a second match rather than an invisible one — which is
+	// what it is mutation-tested against. What it cannot see is a second
+	// warning for this condition worded differently enough to miss the anchor,
+	// so the condition itself is counted too: there is exactly one place that
+	// asks whether a snapshot's provider has an adapter, and re-adding a loop
+	// has to ask again.
+	//
+	// An exact count rather than a floor, and deliberately blunt: a legitimate
+	// future use of Lookup here fails this and has to say why, which is the
+	// cheapest way to make somebody look at the log the alarm reads.
+	if count := strings.Count(string(source), ".Lookup("); count != 1 {
+		t.Errorf("the snapshot's providers are checked against the registry in %d places; each one is a warning an alarm has to know about separately", count)
+	}
 }
