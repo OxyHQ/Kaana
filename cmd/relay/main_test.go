@@ -15,6 +15,7 @@ import (
 	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
 	"github.com/OxyHQ/Relay/internal/provider/openaicompat"
+	"github.com/OxyHQ/Relay/internal/providerconfig"
 	"github.com/OxyHQ/Relay/internal/rotation"
 )
 
@@ -101,11 +102,11 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 	// change rests on. A build that still hardwired one provider would fail
 	// here rather than at a customer request.
 	for _, slug := range []contract.ProviderSlug{"openai", "openrouter", "cerebras"} {
-		if got := byName[slug].Protocol; got != protocolOpenAICompatible {
-			t.Errorf("%s resolves to protocol %q, expected %q", slug, got, protocolOpenAICompatible)
+		if got := byName[slug].Protocol; got != providerconfig.ProtocolOpenAICompatible {
+			t.Errorf("%s resolves to protocol %q, expected %q", slug, got, providerconfig.ProtocolOpenAICompatible)
 		}
 	}
-	if byName["anthropic"].Protocol != protocolAnthropicMessages {
+	if byName["anthropic"].Protocol != providerconfig.ProtocolAnthropicMessages {
 		t.Errorf("anthropic resolves to protocol %q", byName["anthropic"].Protocol)
 	}
 	addresses := map[contract.ProviderSlug]string{
@@ -185,7 +186,7 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 		"two slugs reading one variable": {
 			"RELAY_PROVIDERS":                     "open-router,open.router",
 			"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-			"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": protocolOpenAICompatible,
+			"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		},
 		"a provider this build knows no protocol for": {
 			"RELAY_PROVIDERS":              "groq",
@@ -198,14 +199,14 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 		},
 		"a provider this build knows no address for": {
 			"RELAY_PROVIDERS":              "groq",
-			"RELAY_PROVIDER_GROQ_PROTOCOL": protocolOpenAICompatible,
+			"RELAY_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		},
 		// The Messages API adapter reports its slug as a constant, so serving
 		// it under another name would attribute every event and every usage
 		// record to `anthropic` while the inventory routed elsewhere.
 		"the messages api under another provider's name": {
 			"RELAY_PROVIDERS":                 "bedrock",
-			"RELAY_PROVIDER_BEDROCK_PROTOCOL": protocolAnthropicMessages,
+			"RELAY_PROVIDER_BEDROCK_PROTOCOL": providerconfig.ProtocolAnthropicMessages,
 			"RELAY_PROVIDER_BEDROCK_BASE_URL": "https://bedrock.example.invalid/v1",
 		},
 	} {
@@ -220,7 +221,7 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 	// or a parser that refused everything would pass every case here.
 	accepted := map[string]string{
 		"RELAY_PROVIDERS":              "groq",
-		"RELAY_PROVIDER_GROQ_PROTOCOL": protocolOpenAICompatible,
+		"RELAY_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		"RELAY_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
 	}
 	if _, err := parseProviders(lookup(accepted)); err != nil {
@@ -322,9 +323,9 @@ func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{
 		"RELAY_PROVIDERS":                     "cerebras,open-router",
 		"RELAY_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
-		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    protocolOpenAICompatible,
+		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
 		"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": protocolOpenAICompatible,
+		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 	}))
 	if err != nil {
 		t.Fatalf("the configuration was refused: %v", err)
@@ -354,9 +355,9 @@ func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
 	served, err := parseProviders(lookup(map[string]string{
 		"RELAY_PROVIDERS":                     "cerebras,open-router,openai",
 		"RELAY_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
-		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    protocolOpenAICompatible,
+		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
 		"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": protocolOpenAICompatible,
+		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 	}))
 	if err != nil {
 		t.Fatalf("the control configuration was refused: %v", err)

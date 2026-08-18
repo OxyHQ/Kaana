@@ -31,7 +31,9 @@ wrong, not the boundary. `AGENTS.md` states the rules a reviewer applies.
 ## Layout
 
 ```
-cmd/relay/                      the binary: env config, wiring, graceful drain
+cmd/relay/                      the serving binary: env config, wiring, graceful drain
+cmd/relay-publisher/            the publishing binary: builds the inventory and re-issues it
+internal/awssig/                AWS SigV4, so the publisher can write one S3 object
 internal/contract/              Go types for @oxyhq/contracts' inference module
   descriptor.json               GENERATED from the published package
   descriptor_test.go            the drift gate
@@ -45,13 +47,16 @@ internal/provider/              the Adapter interface, registry and error vocabu
   conformance/                  the suite every adapter must pass
   openaicompat/                 the ported OpenAI Chat Completions adapter
   anthropic/                    the ported Anthropic Messages API adapter
+internal/providerconfig/        where a provider lives: the defaults table both commands read
 internal/providercost/          what a request cost Relay upstream; never a customer amount
+internal/publisher/             builds the inventory from the providers' own model lists
 internal/relay/                 the executor: routing, failover, framing, usage reports
 internal/rotation/              per-deployment circuit breakers and health scoring
 internal/sse/                   SSE decoding (upstream) and encoding (downstream)
 tools/contract/                 Node tooling that derives and checks the contract
 configs/inventory.example.json  an illustrative inventory snapshot
-configs/inventory.json          the measured Cerebras snapshot, for a publisher to re-issue
+configs/inventory.json          the first measured Cerebras snapshot, now produced by the publisher
+configs/model-attribution.json  who RELEASED the weights a provider serves; the publisher's only editorial input
 configs/provider-rates.example.json  illustrative upstream rate cards
 ```
 
@@ -495,6 +500,126 @@ one.
 `GET /internal/v1/health` reports the snapshot id, its age, the horizon, whether
 unpinned references are still being resolved, and the last reload failure with
 no filesystem path in it.
+
+## Publishing the inventory
+
+`cmd/relay-publisher` is the publisher the section above describes a requirement
+for. It is a **separate process** from the one that serves, it asks the
+providers themselves what they serve, and it re-issues the snapshot on a cadence
+inside the horizon whether or not anything changed.
+
+### Why it is a second command and not a goroutine
+
+Writing the inventory decides which deployment every model reference resolves
+to. That is a much larger authority than serving one request, and it is the
+whole reason for the split: the permission to write the object belongs to a task
+role that does nothing else, rather than to the role the serving process runs
+under. `sts:AssumeRole` into a narrow role would not have achieved it — the
+permission to assume would sit on the shared role, so every task holding that
+role could assume it too.
+
+### Where each field comes from
+
+| Field | Source |
+|---|---|
+| `provider` | `RELAY_PROVIDERS`, filtered to the slugs that hold a credential |
+| `upstreamModelId` | that provider's own `GET /models`, verbatim |
+| `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
+| `current` | true; each model line has exactly one revision, its observation |
+| `deploymentId` | derived from the three above, so an unchanged re-issue keeps its ids |
+| `issuedAt` | the clock, every cycle |
+| `snapshotId` | a hash of the routing CONTENT, so it moves only when routing does |
+
+The last two are deliberately different clocks. An operator asking "is the
+publisher alive" reads `issuedAt`; asking "did routing change" reads
+`snapshotId`. One value answering both would move every cycle and answer
+neither.
+
+### The revision label is an observation, and it is carried forward
+
+These providers expose no immutable revision handle — the ids are bare aliases
+and `created` is 0 — so a reference pins `@observed-<date>`: the date this
+publisher FIRST saw the alias. That date is read back out of the previously
+published snapshot on every cycle and reused forever.
+
+Recomputing it would re-point every reference a customer has pinned, every day,
+with everything green. So the previous snapshot is this job's only state, and a
+read that FAILS is not treated as a first run: the cycle refuses rather than
+re-date. Only a genuine 404 — nothing published yet — mints today's date.
+
+### What it refuses, and what it merely drops
+
+| Condition | Result |
+|---|---|
+| a declared provider holds no credential | dropped from the snapshot, warned; naming it would refuse its references or pin a permanent `unconfigured` alarm |
+| a provider serves a model nobody attributed | dropped, warned; inferring a publisher from a model id is a claim about somebody else's work |
+| one provider cannot be asked | its routes are absent for that cycle; the others still publish |
+| no provider could be asked | the cycle refuses and the published snapshot is left alone |
+| the previous snapshot cannot be read | the cycle refuses rather than re-date every reference |
+| `RELAY_INVENTORY_BUCKET` is empty | refuses to start, naming the variable; there is no default, because publishing to a guessed bucket succeeds silently |
+| a cadence at or past the horizon | refuses to start rather than clamping |
+| a provider speaking no `GET /models` | refuses; a hand-written list is the checked-in file this command replaces |
+
+### Ordering is load-bearing
+
+Failover is off by default, so a reference resolves to the deployment declared
+FIRST and no other. Deployments are emitted in the order `RELAY_PROVIDERS`
+declares their providers, and only providers holding a credential are emitted at
+all — so every declared route is servable, and the operator's provider list is
+the one place a primary is chosen.
+
+Two providers of one model line produce ONE reference with two endpoints, which
+is the failover set. That is why the observation date is keyed by model LINE and
+not by provider: keying it per provider would mint two revisions of one line,
+which the reader refuses outright as two `current` revisions.
+
+### The half of this that is Oxy's
+
+`configs/model-attribution.json` maps a provider's own model id onto a canonical
+`<publisher>/<model>` line. That is model IDENTITY, which ADR 0006 assigns to
+**Oxy** — while `upstreamModelId` and `current`, in the same file, are execution
+and are Relay's. The inventory is the one artefact that has to carry both, so
+neither side owns it outright.
+
+It lives here because ADR 0006's "What crosses the boundary" declares exactly
+one Oxy→Relay channel, the per-request envelope, and no channel by which a
+catalogue could publish an inventory. The response is to hold the smallest
+possible amount of it, declaratively, and never to derive it: an unattributed
+model is dropped rather than guessed at. If Oxy grows such a channel, that file
+is what it replaces and nothing around it moves.
+
+### Running it
+
+Everything `cmd/relay` reads about providers, this reads too, from the same
+variables through `internal/providerconfig` — so the two commands cannot
+disagree about where a provider lives. It uses ONE key from a pool: listing
+models is a single unmetered call whose failure means "ask again later", and the
+serving process owns the rotation.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `RELAY_PROVIDERS` | yes | the slugs to ask; the same list the serving process reads |
+| `RELAY_PROVIDER_<SLUG>_API_KEY` | yes, per slug | a slug with no key is dropped with a warning |
+| `RELAY_INVENTORY_BUCKET` | yes | the S3 bucket to publish into; never defaulted |
+| `RELAY_INVENTORY_KEY` | yes | the object key, e.g. `inventory/current.json` |
+| `AWS_REGION` | yes | the bucket's region |
+| `RELAY_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `RELAY_INVENTORY_MAX_AGE` |
+| `RELAY_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/relay-publisher/model-attribution.json`, baked into the image |
+
+Credentials come from the ECS task role — `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
+or `_FULL_URI`, refreshed before expiry — falling back to
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN`. Neither is
+defaulted into existence; with neither present the signer refuses and names what
+is missing.
+
+The image carries both binaries. A publisher task overrides `entryPoint` to
+`/usr/local/bin/relay-publisher`; forgetting the override starts `relay`, which
+refuses to boot without a snapshot, so the mistake is loud.
+
+`internal/awssig` is a hundred lines of SigV4 rather than the AWS SDK, because
+this module has no dependencies and needs one `GET` and one `PUT`. It is checked
+against AWS's own published `get-vanilla` test vector, not against a second
+reading of the specification by the same author.
 
 ## Provider cost
 
@@ -978,12 +1103,17 @@ would go green and start degrading an hour later. The snapshot has to be
 re-issued on a cadence shorter than the horizon, which is a property of a
 publisher, not of a file — see "Configuration snapshots".
 
-So `/etc/relay` is a volume, and something outside this repository publishes
-into it. Two mechanisms fit ECS Fargate, and neither is built here:
+So `/etc/relay` is a volume, and something publishes into it. **The publisher is
+`cmd/relay-publisher`, in this repository** — see "Publishing the inventory". It
+writes one S3 object; what carries that object into the volume is a deployment
+choice, and two mechanisms fit ECS Fargate:
 
 - **A sidecar syncing from S3** into a task-scoped volume shared with the relay
-  container. The publisher writes one object; Relay's own reload loop picks the
-  file up within `RELAY_INVENTORY_RELOAD_INTERVAL`.
+  container. Relay's own reload loop picks the file up within
+  `RELAY_INVENTORY_RELOAD_INTERVAL`. The sidecar should download to a temporary
+  file and `rename(2)` over the destination: a reader that catches a partial
+  write survives it from the second snapshot onward, but on the FIRST there is
+  no last-good snapshot to fall back to and the process exits non-zero.
 - **An EFS access point** mounted by both the publisher and Relay.
 
 Until one exists, the container exits non-zero at startup with
@@ -993,13 +1123,14 @@ routes nothing, and failing loudly beats serving `configs/inventory.example.json
 whose routes and upstream model ids are illustrative and were never verified
 against a real provider.
 
-**What the publisher publishes is in `configs/inventory.json`.** Its two upstream
-model ids were read from the Cerebras API with the account's own key rather than
-from documentation, so it is content a publisher can issue as-is — but only by
-re-stamping `issuedAt`. Committed, the file carries a frozen one, and an hour
-after that instant every unpinned reference in it is refused while every pinned
-one is still served. That is the whole difference between a snapshot and a
-publisher, and it is why mounting this file verbatim is not a deployment.
+**`configs/inventory.json` is the first snapshot, measured by hand; it is not a
+deployment.** Its two upstream model ids were read from the Cerebras API with
+the account's own key rather than from documentation, and the publisher now
+produces the same content from the same source on a cadence. Committed, the file
+carries a frozen `issuedAt`, and an hour after that instant every unpinned
+reference in it is refused while every pinned one is still served. That is the
+whole difference between a snapshot and a publisher, and it is why mounting this
+file verbatim is not a deployment.
 
 `RELAY_PROVIDER_RATES_PATH` is left unset unless a real rate card is published
 the same way. Unset means provider cost is not measured, and every measurement

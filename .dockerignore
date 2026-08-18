@@ -19,6 +19,16 @@
 !cmd/**
 !internal/**
 
+# The publisher's attribution table, and ONLY it. Named as one file rather than
+# as `configs/**` on purpose: the hazard this file's header describes is the
+# example inventory and the example rate card — placeholder routes and invented
+# prices that a single environment variable could point a production process at.
+# The attribution table is neither. It is a public statement of who released
+# which weights, it carries no route, no address, no price and no credential,
+# and the publisher cannot start without it. A second file added to `configs/`
+# still does not enter the image.
+!configs/model-attribution.json
+
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the
 # builder on every build.

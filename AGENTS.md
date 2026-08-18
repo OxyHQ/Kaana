@@ -89,6 +89,53 @@ and is answerable to it.
   the file was last read — a publisher that has stopped leaves a readable file
   behind, and re-reading it would report it fresh forever.
 
+## The inventory publisher
+
+`cmd/relay-publisher` builds the snapshot and re-issues it. `internal/publisher`
+holds the logic; `internal/awssig` is the signer.
+
+- **It re-issues on a cadence INSIDE the horizon even when nothing changed.**
+  That is `inventory.Store`'s requirement, not a preference: an unchanged
+  snapshot with an old `issuedAt` is indistinguishable from a publisher that has
+  stopped. A cadence at or past `inventory.DefaultMaxSnapshotAge` is refused,
+  never clamped.
+- **`issuedAt` and `snapshotId` are different clocks.** `issuedAt` moves every
+  cycle; `snapshotId` hashes the routing CONTENT and moves only when routing
+  does. One value answering both questions answers neither.
+- **The revision label is an OBSERVATION, carried forward from the previously
+  published snapshot, forever.** Recomputing it re-points every reference a
+  customer pinned, daily, with everything green. A read that FAILED is not a
+  first run — refuse the cycle rather than re-date. Only a 404 mints today.
+- **The observation is keyed by model LINE, never by provider.** Two providers of
+  one line must be one reference with two endpoints; keying per provider mints
+  two `current` revisions of one line, which the reader refuses outright.
+- **The snapshot is validated by `inventory.Parse` — the real reader — before it
+  is written.** A snapshot Relay would refuse is one that publishes green while
+  the data plane serves its last good one.
+- **A model nobody attributed is DROPPED and named, never guessed.** Inferring a
+  publisher namespace from a model id is a claim about somebody else's work made
+  on a substring. `configs/model-attribution.json` is declared, and it is the
+  half of the inventory that is Oxy's — hold the smallest possible amount of it.
+- **A provider with no credential is dropped, not declared**, and one provider
+  failing never withdraws the others. A cycle in which nobody answered refuses
+  and leaves the published snapshot alone.
+- **Order is per REFERENCE:** failover is off by default, so the first declared
+  deployment of a reference is the only one tried. Emit in `RELAY_PROVIDERS`
+  order and only for providers holding a key, so every declared route is
+  servable.
+- **Never default `RELAY_INVENTORY_BUCKET`.** A plausible default turns a
+  variable that never arrived into "published somewhere else, everything green".
+- **It runs in its own process under its own task role.** The write decides all
+  routing, so the permission never joins the serving role — and `sts:AssumeRole`
+  into a narrow role does not help, because the assume permission would sit on
+  the shared role.
+- **One key from the pool, never a walk.** Listing models is a single unmetered
+  question whose failure means "ask again later"; rotation belongs to the
+  serving process.
+- **`internal/awssig` is checked against AWS's published `get-vanilla` vector**,
+  not a second reading of the spec by the same author. Adding the AWS SDK would
+  be this module's first dependency.
+
 ## Provider cost
 
 - **`internal/providercost` is the only package that may hold an amount**, it is

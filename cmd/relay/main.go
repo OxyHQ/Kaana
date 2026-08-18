@@ -27,6 +27,7 @@ import (
 	"github.com/OxyHQ/Relay/internal/provider"
 	"github.com/OxyHQ/Relay/internal/provider/anthropic"
 	"github.com/OxyHQ/Relay/internal/provider/openaicompat"
+	"github.com/OxyHQ/Relay/internal/providerconfig"
 	"github.com/OxyHQ/Relay/internal/providercost"
 	"github.com/OxyHQ/Relay/internal/relay"
 	"github.com/OxyHQ/Relay/internal/rotation"
@@ -312,30 +313,12 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 // The one closed list in any of this is the PROTOCOL. It names which adapter
 // implementation to construct, and a build can only construct one it contains,
 // so an unknown value is refused rather than defaulted. Provider SLUGS are not
-// a closed list: knownProviders below is a defaults table, and any slug that
+// a closed list: `providerconfig.Known` is a defaults table, and any slug that
 // declares a protocol and a base URL is servable without a Go change.
-const (
-	protocolOpenAICompatible  = "openai_compatible"
-	protocolAnthropicMessages = "anthropic_messages"
-)
-
-// knownProviders is the protocol and published API root for the slugs this
-// build has been written against.
 //
-// A default here is not an invention the way a default sampling parameter would
-// be: an address that is wrong fails loudly on the first request, with a DNS
-// failure or a 404, rather than quietly changing what the model does. Every
-// entry is overridable, and a slug that is not in this table must declare both
-// values — there is no address to guess for a name this build has never seen.
-//
-// The roots are the providers' published ones. No live call has been made from
-// this repository to any of them.
-var knownProviders = map[contract.ProviderSlug]providerConfig{
-	"openai":     {Protocol: protocolOpenAICompatible, BaseURL: "https://api.openai.com/v1"},
-	"anthropic":  {Protocol: protocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1"},
-	"openrouter": {Protocol: protocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1"},
-	"cerebras":   {Protocol: protocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1"},
-}
+// The protocol names, the defaults table and the environment prefix live in
+// `internal/providerconfig` because the publisher command resolves the same
+// address from the same variable, and two copies of an address drift silently.
 
 // providerConfig is one provider this process serves.
 type providerConfig struct {
@@ -359,7 +342,7 @@ type providerConfig struct {
 // It takes its own getenv so the whole of it is testable without a process
 // environment, which matters because most of what it does is refuse.
 func parseProviders(getenv func(string) string) ([]providerConfig, error) {
-	declared := splitList(getenv("RELAY_PROVIDERS"))
+	declared := providerconfig.SplitList(getenv("RELAY_PROVIDERS"))
 	if len(declared) == 0 {
 		return nil, errors.New("RELAY_PROVIDERS is required: it lists the provider slugs this process serves, and an empty one would leave every inventory route unservable")
 	}
@@ -379,7 +362,7 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 		}
 		seenSlug[slug] = struct{}{}
 
-		prefix := environmentPrefix(slug)
+		prefix := providerconfig.EnvironmentPrefix(slug)
 		if other, collides := seenPrefix[prefix]; collides {
 			// `open-router` and `open.router` are two slugs and one variable
 			// name. Left alone, the second would silently be configured with
@@ -388,8 +371,8 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 		}
 		seenPrefix[prefix] = slug
 
-		config := knownProviders[slug]
-		config.Slug = slug
+		known := providerconfig.Known[slug]
+		config := providerConfig{Slug: slug, Protocol: known.Protocol, BaseURL: known.BaseURL}
 		if declaredProtocol := strings.TrimSpace(getenv(prefix + "_PROTOCOL")); declaredProtocol != "" {
 			config.Protocol = declaredProtocol
 		}
@@ -398,20 +381,20 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 		}
 
 		switch config.Protocol {
-		case protocolOpenAICompatible:
-		case protocolAnthropicMessages:
+		case providerconfig.ProtocolOpenAICompatible:
+		case providerconfig.ProtocolAnthropicMessages:
 			if slug != anthropic.Slug {
 				// The Messages API adapter reports its slug as a constant,
 				// because that wire format belongs to one provider. Serving it
 				// under another name would attribute every event and every
 				// usage record to `anthropic` while the inventory routed to
 				// something else.
-				return nil, fmt.Errorf("provider %q declares the %s protocol, which this build serves only as %q", slug, protocolAnthropicMessages, anthropic.Slug)
+				return nil, fmt.Errorf("provider %q declares the %s protocol, which this build serves only as %q", slug, providerconfig.ProtocolAnthropicMessages, anthropic.Slug)
 			}
 		case "":
 			return nil, fmt.Errorf("%s_PROTOCOL is required: this build has no protocol for the provider slug %q", prefix, slug)
 		default:
-			return nil, fmt.Errorf("%s_PROTOCOL is %q; this build speaks %s and %s", prefix, config.Protocol, protocolOpenAICompatible, protocolAnthropicMessages)
+			return nil, fmt.Errorf("%s_PROTOCOL is %q; this build speaks %s and %s", prefix, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages)
 		}
 
 		if config.BaseURL == "" {
@@ -422,7 +405,7 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s_HEADERS: %w", prefix, err)
 		}
-		if len(config.Headers) > 0 && config.Protocol != protocolOpenAICompatible {
+		if len(config.Headers) > 0 && config.Protocol != providerconfig.ProtocolOpenAICompatible {
 			// Only the chat-completions adapter carries extra headers. Accepting
 			// them for another protocol would drop them silently, which is the
 			// same failure as never having set them and harder to see.
@@ -434,7 +417,7 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			return nil, fmt.Errorf("%s_KEYS_ON_SEPARATE_ACCOUNTS: %w", prefix, err)
 		}
 
-		config.APIKeys = splitList(getenv(prefix + "_API_KEY"))
+		config.APIKeys = providerconfig.SplitList(getenv(prefix + "_API_KEY"))
 		config.Keys = provider.KeyPolicy{
 			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
 			OnSeparateAccounts: onSeparateAccounts,
@@ -442,39 +425,6 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 		configs = append(configs, config)
 	}
 	return configs, nil
-}
-
-// environmentPrefix is the variable name a slug reads its configuration from.
-//
-// The transform is total and its output is always a legal environment variable
-// name: a slug is `[a-z0-9._-]`, the two characters an environment variable
-// cannot carry are folded to `_`, and the constant prefix means the result
-// never begins with a digit. Nothing is unrepresentable, so nothing has to be
-// rejected for being unspellable.
-//
-// What the folding DOES create is collisions — `open-router` and `open.router`
-// are two slugs and one variable name — and parseProviders refuses those rather
-// than resolving them, because the loser would silently be configured with the
-// winner's address and credentials.
-//
-// This name is also the SSM parameter leaf and the GitHub secret name. They are
-// one string on purpose: the deploy sync derives the parameter path from the
-// secret name, so a design where they differ breaks the sync silently.
-func environmentPrefix(slug contract.ProviderSlug) string {
-	replaced := strings.NewReplacer(".", "_", "-", "_").Replace(string(slug))
-	return "RELAY_PROVIDER_" + strings.ToUpper(replaced)
-}
-
-// splitList reads a comma-separated environment value, discarding the empty
-// entries a trailing separator leaves behind.
-func splitList(value string) []string {
-	items := make([]string, 0, 4)
-	for _, item := range strings.Split(value, ",") {
-		if trimmed := strings.TrimSpace(item); trimmed != "" {
-			items = append(items, trimmed)
-		}
-	}
-	return items
 }
 
 // credentialHeaders are the header names an operator may not set here.
@@ -499,7 +449,7 @@ var credentialHeaders = map[string]struct{}{
 // and a header value carrying a comma is not representable — said here rather
 // than discovered by an operator whose attribution header arrived truncated.
 func parseHeaders(value string) (map[string]string, error) {
-	pairs := splitList(value)
+	pairs := providerconfig.SplitList(value)
 	if len(pairs) == 0 {
 		return nil, nil
 	}
@@ -540,7 +490,7 @@ func parseHeaders(value string) (map[string]string, error) {
 func unusedProviderCredentials(environment []string, configs []providerConfig) []string {
 	declared := make(map[string]struct{}, len(configs))
 	for _, config := range configs {
-		declared[environmentPrefix(config.Slug)] = struct{}{}
+		declared[providerconfig.EnvironmentPrefix(config.Slug)] = struct{}{}
 	}
 
 	unused := make([]string, 0)
@@ -599,7 +549,7 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 	adapters := make([]provider.Adapter, 0, len(configs))
 	for _, config := range configs {
 		switch config.Protocol {
-		case protocolOpenAICompatible:
+		case providerconfig.ProtocolOpenAICompatible:
 			adapter, err := openaicompat.New(openaicompat.Config{
 				Provider: config.Slug,
 				BaseURL:  config.BaseURL,
@@ -611,7 +561,7 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 				return nil, err
 			}
 			adapters = append(adapters, adapter)
-		case protocolAnthropicMessages:
+		case providerconfig.ProtocolAnthropicMessages:
 			adapter, err := anthropic.New(anthropic.Config{
 				BaseURL: config.BaseURL,
 				APIKeys: config.APIKeys,
