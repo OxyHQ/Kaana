@@ -1,13 +1,21 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Relay/internal/inventory"
 	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Relay/internal/provider/openaicompat"
+	"github.com/OxyHQ/Relay/internal/rotation"
 )
 
 // TestFailoverAcknowledgementCannotBeSetByAccident.
@@ -453,4 +461,148 @@ func TestOneConditionHasOneMessage(t *testing.T) {
 	if count := strings.Count(string(source), ".Lookup("); count != 1 {
 		t.Errorf("the snapshot's providers are checked against the registry in %d places; each one is a warning an alarm has to know about separately", count)
 	}
+
+	// And that the two paths still CALL it. Both counts above are satisfied by
+	// a build where startup or reload has quietly stopped asking: one spelling
+	// of one message, one Lookup, inside a function nobody invokes. Measured —
+	// deleting either call site left this test, and the whole package, green.
+	//
+	// TestTheReloadPathActuallyWarns covers the reload side behaviourally,
+	// which is the stronger instrument and the path that fires without a
+	// deploy. The startup call has no equivalent — run() reads the process
+	// environment and exits — so it is held here, by counting.
+	const call = "warnAboutUnroutableProviders("
+	if calls := strings.Count(string(source), call) - strings.Count(string(source), "func "+call); calls != 2 {
+		t.Errorf("the condition is reported from %d places; it is asked on exactly two paths, startup and reload, and a path that stops asking loses the only signal it has", calls)
+	}
+}
+
+// TestTheReloadPathActuallyWarns.
+//
+// TestOneConditionHasOneMessage above counts the message and the condition in
+// the source, and both counts stay right when the RELOAD path stops calling
+// the function at all: delete the call in reloadSnapshots and the message
+// still appears once, `.Lookup(` still appears once, and the whole cmd/relay
+// package still passes. Measured, not reasoned about — that mutation was
+// applied and survived, which is what this test exists to answer.
+//
+// It is the worse half of the condition to lose. Startup runs on a deploy,
+// where somebody is already watching; the reload loop is the path that fires
+// with no deploy at all, on a snapshot the control plane changed underneath a
+// running task, and it is the only warning anyone gets for it.
+//
+// So this runs the real loop against a real store and reads the real log.
+func TestTheReloadPathActuallyWarns(t *testing.T) {
+	// An adapter for `openai`, and a snapshot that routes to `cerebras`. The
+	// slugs differ on purpose: this is exactly the condition — a published
+	// snapshot naming a provider this build cannot reach.
+	unroutable := newTestRegistry(t, "openai")
+	routable := newTestRegistry(t, "cerebras")
+
+	for _, testCase := range []struct {
+		name     string
+		adapters *provider.Registry
+		warns    bool
+	}{
+		// The control. Without it a test that never warns for any reason —
+		// a loop that never ticks, a store that never reloads — reads as
+		// agreement with the case above.
+		{name: "the snapshot routes somewhere this build cannot reach", adapters: unroutable, warns: true},
+		{name: "the snapshot routes only where it can", adapters: routable, warns: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			logs := &syncBuffer{}
+			logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			store := newTestStore(t, "cerebras", logger)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				reloadSnapshots(ctx, store, rotation.NewRegistry(rotation.Policy{}, nil), testCase.adapters, logger, time.Millisecond)
+			}()
+
+			// Wait for the condition rather than for a duration: a fixed sleep
+			// is either flaky or slow, and this loop ticks every millisecond.
+			deadline := time.After(10 * time.Second)
+			for {
+				if strings.Contains(logs.String(), unroutableMessage) == testCase.warns {
+					break
+				}
+				select {
+				case <-deadline:
+					t.Fatalf("after 10s the reload log %s the warning; it reads:\n%s",
+						map[bool]string{true: "still lacks", false: "carries"}[testCase.warns], logs.String())
+				case <-time.After(time.Millisecond):
+				}
+			}
+			cancel()
+			<-done
+		})
+	}
+}
+
+// unroutableMessage is the string an alarm filters on, spelled here exactly
+// once more than the source does. TestOneConditionHasOneMessage is what keeps
+// the source side to one spelling; this is the test side of the same fact.
+const unroutableMessage = "the installed snapshot routes to providers this build has no adapter for"
+
+// newTestRegistry builds a registry holding one adapter for one slug. The
+// adapter needs no credential — an empty key pool is a legal, `unconfigured`
+// adapter, and nothing here ever sends a request.
+func newTestRegistry(t *testing.T, slug contract.ProviderSlug) *provider.Registry {
+	t.Helper()
+	adapter, err := openaicompat.New(openaicompat.Config{
+		Provider: slug,
+		BaseURL:  "https://relay-test.invalid/v1",
+	})
+	if err != nil {
+		t.Fatalf("building the %s adapter: %v", slug, err)
+	}
+	registry, err := provider.NewRegistry(adapter)
+	if err != nil {
+		t.Fatalf("registering the %s adapter: %v", slug, err)
+	}
+	return registry
+}
+
+// newTestStore publishes a snapshot naming one deployment of one provider.
+func newTestStore(t *testing.T, slug contract.ProviderSlug, logger *slog.Logger) *inventory.Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "inventory.json")
+	document := fmt.Sprintf(`{
+		"snapshotId":"snap_test",
+		"issuedAt":%q,
+		"deployments":[{
+			"deploymentId":"dep_test","provider":%q,
+			"modelReference":"test/model@2026-05-01","upstreamModelId":"model",
+			"region":"test-region","current":true}]}`,
+		contract.NewTimestamp(time.Now()), slug)
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatalf("writing the inventory: %v", err)
+	}
+	store, err := inventory.NewStore(inventory.Config{Path: path, Logger: logger})
+	if err != nil {
+		t.Fatalf("building the inventory store: %v", err)
+	}
+	return store
+}
+
+// syncBuffer is a log sink safe to read while the reload goroutine writes.
+type syncBuffer struct {
+	mu     sync.Mutex
+	buffer strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }
