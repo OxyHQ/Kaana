@@ -883,6 +883,25 @@ snapshot may not name a provider whose key does not exist, because there is no
 value of `RELAY_PROVIDERS` that serves it without either refusing its references
 or pinning an alarm on.
 
+**And naming a servable provider is not enough — it has to be declared FIRST.**
+Failover is off by default, so choosing among the deployments of one model is
+withheld entirely and a reference resolves to the deployment the inventory
+declared first and no other. A reference whose first declared deployment sits on
+a provider this process does not serve is therefore refused even when a later
+deployment of the same reference is one it does, and no health ordering rescues
+it, because health ordering is withheld by the same default. So the requirement
+on the snapshot is per REFERENCE and not per file: for every reference meant to
+be served, a servable deployment has to be the first one declared. See "The
+policy Relay is not sent".
+
+**Adding a provider runs in one order and retiring one runs in the reverse**,
+both for the same reason — the third constraint above is the only fatal one.
+Add: the repository secret and its name in the workflow's allow-list, then run
+the workflow so the parameter exists, then the slug in `RELAY_PROVIDERS` and the
+parameter's name in `secrets[]`. Retire: out of `secrets[]` and
+`RELAY_PROVIDERS`, deploy, and only then delete the parameter. Deleting it while
+it is still named stops every task rather than that provider's routes.
+
 **Provider credentials are the only secrets**, one per declared slug. The
 deployed set is a subset of these, tracking whichever keys exist:
 
