@@ -82,21 +82,42 @@ jobs:
         # The SYNC_ prefix keeps these clear of the AWS CLI's own reserved
         # credential variables, so exporting one cannot shadow the OIDC role
         # assumed above.
+        #
+        # RELAY_SECRETS below and this env: block are two halves of one fact and
+        # move together. A name in the list with no mapping here reads as an
+        # unset repository secret and is skipped in silence, which is how the
+        # OPENAI/ANTHROPIC pair sat in the list while the only credential that
+        # existed — CEREBRAS — was never synced at all. The loop now separates
+        # the two cases instead of collapsing them.
         env:
           SYNC_RELAY_PROVIDER_OPENAI_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENAI_API_KEY }}
           SYNC_RELAY_PROVIDER_ANTHROPIC_API_KEY: ${{ secrets.RELAY_PROVIDER_ANTHROPIC_API_KEY }}
+          SYNC_RELAY_PROVIDER_CEREBRAS_API_KEY: ${{ secrets.RELAY_PROVIDER_CEREBRAS_API_KEY }}
         run: |
           set -euo pipefail
-          RELAY_SECRETS="RELAY_PROVIDER_OPENAI_API_KEY RELAY_PROVIDER_ANTHROPIC_API_KEY"
+          # Every credential that may reach SSM. A name absent here never
+          # reaches Parameter Store no matter what is set on the repository, so
+          # SSM and GitHub drift apart on the next rotation without erroring.
+          #
+          # OPENAI and ANTHROPIC are the two `cmd/relay` actually reads today;
+          # CEREBRAS is provisioned ahead of the adapter that will read it, and
+          # syncing it keeps the GitHub copy authoritative in the meantime.
+          RELAY_SECRETS="RELAY_PROVIDER_OPENAI_API_KEY RELAY_PROVIDER_ANTHROPIC_API_KEY RELAY_PROVIDER_CEREBRAS_API_KEY"
 
           for k in $RELAY_SECRETS; do
-            v=$(printenv "SYNC_$k" || true)
-            # Defence in depth. A secret left empty or as a single dash is
-            # almost always a mistake — the repository secret was never set, or
-            # was scripted with a placeholder body. Skipping preserves whatever
-            # SSM already holds rather than replacing a working credential with
-            # garbage, which is a failure that only shows up at the next task
-            # launch.
+            # An UNSET repository secret still leaves SYNC_$k defined-and-empty,
+            # so a printenv that fails outright means the env: block above is
+            # missing this name — a workflow bug, not a missing credential.
+            # Collapsing the two with `|| true` is what makes that bug invisible.
+            if ! v=$(printenv "SYNC_$k"); then
+              echo "::error::$k is in RELAY_SECRETS but has no SYNC_$k entry in this step's env: block, so it can never be synced"
+              exit 1
+            fi
+            # Defence in depth, and no more than that: a secret left empty or as
+            # a single dash is almost always a mistake — never set, or scripted
+            # with a placeholder body — and skipping preserves whatever SSM
+            # already holds rather than replacing a working credential with
+            # garbage. A real but WRONG value propagates; this is not a review.
             if [ -z "$v" ] || [ "$v" = "-" ]; then
               echo "::warning::skip empty/placeholder secret $k; /oxy/$APP/$k unchanged"
               continue
