@@ -710,6 +710,7 @@ silently sharing an address and a pool.
 | `RELAY_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
 | `RELAY_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | the provider's API root |
 | `RELAY_PROVIDER_<SLUG>_API_KEY` | no | one credential, or a pool separated by commas; absent ⇒ the provider reports `unconfigured` |
+| `RELAY_PROVIDER_<SLUG>_HEADERS` | no | `Name=Value` pairs the provider expects, comma-separated (OpenRouter's attribution headers) |
 | `RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
 | `RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT provider accounts; only then does a throttle rotate |
 
@@ -721,12 +722,70 @@ default sampling parameter would be — no live call has been made from this
 repository to any of them.
 
 ```bash
-RELAY_PROVIDERS=openai,openrouter,anthropic
-RELAY_PROVIDER_OPENAI_API_KEY=…
+RELAY_PROVIDERS=cerebras,openrouter,openai
+RELAY_PROVIDER_CEREBRAS_API_KEY=…
 RELAY_PROVIDER_OPENROUTER_API_KEY=…,…,…          # a pool of three
 RELAY_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS=true
-RELAY_PROVIDER_ANTHROPIC_API_KEY=…
+RELAY_PROVIDER_OPENROUTER_HEADERS=HTTP-Referer=https://oxy.so,X-Title=Oxy
+RELAY_PROVIDER_OPENAI_API_KEY=…
 ```
+
+**The one closed list here is the PROTOCOL.** It names which adapter
+implementation to construct, and a build can only construct one it contains, so
+an unknown value is refused rather than defaulted. Provider **slugs are not a
+closed list**: the built-in table is defaults, and any slug that declares a
+protocol and a base URL is servable with no Go change.
+
+### What these names have to agree with
+
+The variable name is also the SSM parameter leaf and the GitHub secret name, and
+the three are one string because the deploy sync derives the parameter path from
+the secret name — a design where they differ breaks the sync with no error.
+
+The slug→variable transform is total, and its output is always a legal
+environment variable name: a slug is `[a-z0-9._-]`, the two characters a
+variable name cannot carry are folded to `_`, and the constant prefix means the
+result never begins with a digit. What the folding creates is **collisions** —
+`open-router` and `open.router` are two slugs and one variable name — and those
+are refused at startup rather than resolved, because the loser would silently be
+configured with the winner's address and credentials.
+
+**A whole pool lives in the one `_API_KEY` variable**, not in numbered siblings.
+That is a deployment property rather than a preference: credentials are
+delivered as a static list resolved once at task launch, so a name per key would
+grow that list with the pool and make a missing key inside one an invisible
+deploy-time edit. One name per provider keeps adding a KEY a parameter *value*
+change, and adding a PROVIDER one new name. A credential containing a comma is
+not representable, and a blank or duplicated entry is refused where it is read.
+
+### The three things that move on different clocks
+
+The published snapshot, this build's adapter set and the deployment's credential
+list are updated by different people at different times, and each pairing fails
+differently. None of them is fatal, and one of them is invisible from outside:
+
+| State | What happens |
+|---|---|
+| a provider is declared with no credential | the process starts and the adapter reports `unconfigured`; a request to it is refused non-retryably, naming the operator's gap |
+| the snapshot routes to a provider this build has no adapter for | a startup **warning** naming it; references served only by that provider are refused, every other reference is served |
+| a credential is delivered for a provider that was never declared | a startup **warning** naming the variable — the only signal there is |
+
+The second used to refuse to start. It no longer does, because the inventory is
+published by the control plane while the adapter set is fixed at deploy time: a
+provider can appear in a snapshot before the deploy that gives this build its
+credential, and stopping there would take routing for every SUPPORTED provider
+down over one unsupported one — on the next task replacement rather than when
+the snapshot changed, since the reload path already treated the identical
+condition as a warning. Two answers to one question, and the fatal one was
+reachable only by restarting.
+
+The third is the one worth stating plainly, because **no check outside the
+process can see it**: the task starts, the health probe passes, the rollout
+reports complete, and the provider is simply absent. The environment and the
+provider list are only both visible here, so this is where it is named. It
+warns rather than refuses — retiring a provider means removing it from the list
+before deleting its parameter, and a refusal would turn the safe order into the
+one that stops every task.
 | `RELAY_INVENTORY_MAX_AGE` | no | staleness horizon for unpinned resolution, default `1h` |
 | `RELAY_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
 | `RELAY_ASSUME_FAILOVER_AUTHORIZED` | no | `<reason>:<YYYY-MM-DD>`; absent ⇒ no failover, see above |

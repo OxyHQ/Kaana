@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -88,13 +89,32 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	// Refuse to start when the inventory routes somewhere this process cannot
-	// reach. The alternative is discovering it on a customer request, as a
-	// deployment_unavailable for a provider that was never loaded.
-	for _, slug := range inventoryStore.Current().Providers() {
-		if _, found := registry.Lookup(slug); !found {
-			return fmt.Errorf("the inventory routes to provider %q, which this build has no adapter for", slug)
-		}
+	// A snapshot naming a provider this process does not serve is a
+	// degradation, not a reason to stop.
+	//
+	// The inventory is published by the control plane and the adapter set is
+	// fixed at deploy time, so the two move on different clocks: a provider can
+	// appear in a snapshot before the deploy that gives this build its
+	// credential. Refusing to start there would take routing for every
+	// SUPPORTED provider down over one unsupported one, and it would do it on
+	// the next task replacement rather than when the snapshot changed — the
+	// reload path already treats the same condition as a warning, so the two
+	// answers were the same question answered twice.
+	//
+	// What the customer gets instead is the refusal the executor already
+	// produces: a reference served only by an unroutable provider resolves to
+	// no admissible candidate and is refused, retryably, while every other
+	// reference is served. The operator gets this line.
+	warnAboutUnroutableProviders(logger, inventoryStore.Current(), registry)
+
+	// A credential delivered for a provider this process does not serve is the
+	// one failure with no downstream signal at all: the task starts, the health
+	// probe passes, the rollout completes and the provider is simply absent.
+	if unused := unusedProviderCredentials(os.Environ(), providerConfigs); len(unused) > 0 {
+		logger.Warn("a provider credential was delivered for a provider this process does not serve",
+			"variables", unused,
+			"declared", providerSlugsFrom(providerConfigs),
+			"meaning", "the credential is never read; either add the provider to RELAY_PROVIDERS or remove the secret from the deployment")
 	}
 
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{
@@ -281,8 +301,23 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 //	RELAY_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
 //	RELAY_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
 //	RELAY_PROVIDER_<SLUG>_API_KEY                     one credential, or several separated by commas
+//	RELAY_PROVIDER_<SLUG>_HEADERS                      Name=Value pairs the provider expects, separated by commas
 //	RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
 //	RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
+//
+// A whole POOL lives in the one _API_KEY variable rather than in numbered
+// siblings, and that is a deployment property rather than a stylistic one: the
+// variable name, the SSM parameter leaf and the GitHub secret name have to be
+// one string for the deploy sync to work, and one name per provider keeps a
+// growing pool out of the task definition's static secret list entirely.
+// Adding a key becomes a parameter VALUE change; adding a provider stays one
+// new name.
+//
+// The one closed list in any of this is the PROTOCOL. It names which adapter
+// implementation to construct, and a build can only construct one it contains,
+// so an unknown value is refused rather than defaulted. Provider SLUGS are not
+// a closed list: knownProviders below is a defaults table, and any slug that
+// declares a protocol and a base URL is servable without a Go change.
 const (
 	protocolOpenAICompatible  = "openai_compatible"
 	protocolAnthropicMessages = "anthropic_messages"
@@ -316,6 +351,11 @@ type providerConfig struct {
 	// and it is never logged, echoed or projected.
 	APIKeys []string
 	Keys    provider.KeyPolicy
+	// Headers are the non-secret headers this provider expects on every
+	// request. OpenRouter's attribution headers are the reason the field
+	// exists, and a provider wired without them is compliant until it is not,
+	// which is worse than being wired wrong.
+	Headers map[string]string
 }
 
 // parseProviders reads the provider configuration from the environment.
@@ -332,6 +372,7 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 	seenSlug := make(map[contract.ProviderSlug]struct{}, len(declared))
 	seenPrefix := make(map[string]contract.ProviderSlug, len(declared))
 
+	var err error
 	for _, name := range declared {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
@@ -381,6 +422,17 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			return nil, fmt.Errorf("%s_BASE_URL is required: this build knows no address for the provider slug %q", prefix, slug)
 		}
 
+		config.Headers, err = parseHeaders(getenv(prefix + "_HEADERS"))
+		if err != nil {
+			return nil, fmt.Errorf("%s_HEADERS: %w", prefix, err)
+		}
+		if len(config.Headers) > 0 && config.Protocol != protocolOpenAICompatible {
+			// Only the chat-completions adapter carries extra headers. Accepting
+			// them for another protocol would drop them silently, which is the
+			// same failure as never having set them and harder to see.
+			return nil, fmt.Errorf("%s_HEADERS is set, and the %s protocol sends no extra headers", prefix, config.Protocol)
+		}
+
 		config.APIKeys = splitList(getenv(prefix + "_API_KEY"))
 		config.Keys = provider.KeyPolicy{
 			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
@@ -392,9 +444,21 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 }
 
 // environmentPrefix is the variable name a slug reads its configuration from.
-// A slug's grammar admits `.` and `-`, which an environment variable name does
-// not, so two slugs can collapse onto one prefix — which parseProviders
-// refuses rather than resolving.
+//
+// The transform is total and its output is always a legal environment variable
+// name: a slug is `[a-z0-9._-]`, the two characters an environment variable
+// cannot carry are folded to `_`, and the constant prefix means the result
+// never begins with a digit. Nothing is unrepresentable, so nothing has to be
+// rejected for being unspellable.
+//
+// What the folding DOES create is collisions — `open-router` and `open.router`
+// are two slugs and one variable name — and parseProviders refuses those rather
+// than resolving them, because the loser would silently be configured with the
+// winner's address and credentials.
+//
+// This name is also the SSM parameter leaf and the GitHub secret name. They are
+// one string on purpose: the deploy sync derives the parameter path from the
+// secret name, so a design where they differ breaks the sync silently.
 func environmentPrefix(slug contract.ProviderSlug) string {
 	replaced := strings.NewReplacer(".", "_", "-", "_").Replace(string(slug))
 	return "RELAY_PROVIDER_" + strings.ToUpper(replaced)
@@ -410,6 +474,86 @@ func splitList(value string) []string {
 		}
 	}
 	return items
+}
+
+// credentialHeaders are the header names an operator may not set here.
+//
+// Two different reasons, both silent if unguarded. An authentication header is
+// applied by the adapter at send time and would be overwritten, so a credential
+// placed here would look configured, do nothing, and sit in a plain environment
+// variable outside the pool that exists to manage it. `anthropic-version` is
+// pinned in code beside the parser that reads that provider's responses, and an
+// operator changing it would change the JSON that package decodes.
+var credentialHeaders = map[string]struct{}{
+	"authorization":       {},
+	"proxy-authorization": {},
+	"x-api-key":           {},
+	"api-key":             {},
+	"anthropic-version":   {},
+}
+
+// parseHeaders reads `Name=Value,Name=Value`.
+//
+// The separator is `=` rather than `:` because these values are routinely URLs,
+// and a header value carrying a comma is not representable — said here rather
+// than discovered by an operator whose attribution header arrived truncated.
+func parseHeaders(value string) (map[string]string, error) {
+	pairs := splitList(value)
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	headers := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		name, headerValue, found := strings.Cut(pair, "=")
+		name, headerValue = strings.TrimSpace(name), strings.TrimSpace(headerValue)
+		switch {
+		case !found || name == "":
+			return nil, fmt.Errorf("%q is not a `Name=Value` pair", pair)
+		case headerValue == "":
+			return nil, fmt.Errorf("header %q has no value", name)
+		}
+		if _, refused := credentialHeaders[strings.ToLower(name)]; refused {
+			return nil, fmt.Errorf("header %q is applied by the adapter and must not be set here", name)
+		}
+		if _, duplicate := headers[name]; duplicate {
+			return nil, fmt.Errorf("header %q is declared twice", name)
+		}
+		headers[name] = headerValue
+	}
+	return headers, nil
+}
+
+// unusedProviderCredentials names credentials the process was handed for a
+// provider it does not serve.
+//
+// It is the one failure in this area that nothing downstream can see. A
+// credential missing from the deployment stops the task; a provider missing
+// from the inventory refuses a request; but a key delivered for a provider that
+// was never declared produces a process that starts, answers its health probe,
+// reports its rollout complete, and routes to nothing — every signal green. The
+// only place both halves are visible is here.
+//
+// It warns rather than refuses. Retiring a provider means removing it from this
+// list before deleting its parameter, and a refusal would turn the safe order
+// into the one that stops every task.
+func unusedProviderCredentials(environment []string, configs []providerConfig) []string {
+	declared := make(map[string]struct{}, len(configs))
+	for _, config := range configs {
+		declared[environmentPrefix(config.Slug)] = struct{}{}
+	}
+
+	unused := make([]string, 0)
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if !found || !strings.HasPrefix(name, "RELAY_PROVIDER_") || !strings.HasSuffix(name, "_API_KEY") {
+			continue
+		}
+		if _, serves := declared[strings.TrimSuffix(name, "_API_KEY")]; !serves {
+			unused = append(unused, name)
+		}
+	}
+	sort.Strings(unused)
+	return unused
 }
 
 func durationOrZero(value string) time.Duration {
@@ -438,6 +582,7 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 				BaseURL:  config.BaseURL,
 				APIKeys:  config.APIKeys,
 				Keys:     config.Keys,
+				Headers:  config.Headers,
 			})
 			if err != nil {
 				return nil, err
@@ -458,6 +603,32 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 		}
 	}
 	return adapters, nil
+}
+
+// warnAboutUnroutableProviders names every provider the installed snapshot
+// routes to that this build cannot reach.
+func warnAboutUnroutableProviders(logger *slog.Logger, current *inventory.Inventory, registry *provider.Registry) {
+	unroutable := make([]contract.ProviderSlug, 0)
+	for _, slug := range current.Providers() {
+		if _, found := registry.Lookup(slug); !found {
+			unroutable = append(unroutable, slug)
+		}
+	}
+	if len(unroutable) == 0 {
+		return
+	}
+	logger.Warn("the installed snapshot routes to providers this build has no adapter for",
+		"providers", unroutable,
+		"snapshotId", current.SnapshotID(),
+		"meaning", "references served only by those providers are refused; every other reference is served normally")
+}
+
+func providerSlugsFrom(configs []providerConfig) []contract.ProviderSlug {
+	slugs := make([]contract.ProviderSlug, 0, len(configs))
+	for _, config := range configs {
+		slugs = append(slugs, config.Slug)
+	}
+	return slugs
 }
 
 func providerSlugs(registry *provider.Registry) []contract.ProviderSlug {

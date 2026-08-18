@@ -200,6 +200,19 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
 - **A provider slug resolves to an adapter, an address and a pool in
   `cmd/relay`, never in the inventory** — a credential there is a copy of an Oxy
   entity, an address there makes one process's reachability global.
+- **Provider slugs are not a closed list; PROTOCOLS are.** A build can only
+  construct an adapter it contains, so an unknown protocol is refused; a slug
+  that declares a protocol and a base URL needs no Go change.
+- **The env var name, the SSM leaf and the GitHub secret name are ONE string**,
+  and a whole key pool lives in one `_API_KEY` variable — credentials are a
+  static list resolved at task launch, so a name per key would grow it with the
+  pool. Two slugs folding onto one variable name are refused, never resolved.
+- **The snapshot, the adapter set and the credential list move on different
+  clocks, and no pairing may be fatal.** An undeclared provider in a snapshot is
+  a WARNING, not a refusal to start: stopping takes every supported provider
+  down over one unsupported one, and only on the next restart. A credential
+  delivered for a provider nobody serves is warned about here because nothing
+  outside the process can see it.
 
 ## Secrets and customer data
 

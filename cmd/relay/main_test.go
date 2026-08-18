@@ -247,3 +247,112 @@ func TestADuplicatedCredentialRefusesToStart(t *testing.T) {
 func lookup(environment map[string]string) func(string) string {
 	return func(name string) string { return environment[name] }
 }
+
+// TestPerProviderHeadersAreConfigurableAndNeverCarryACredential.
+//
+// OpenRouter is served by an adapter whose `Headers` field exists for its
+// attribution headers, and a provider wired without them is compliant until it
+// is not — which is worse than being wired wrong, because nothing fails until
+// the provider decides it should.
+func TestPerProviderHeadersAreConfigurableAndNeverCarryACredential(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{
+		"RELAY_PROVIDERS":                   "openrouter",
+		"RELAY_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer=https://oxy.so, X-Title=Oxy ",
+	}))
+	if err != nil {
+		t.Fatalf("the headers were refused: %v", err)
+	}
+	headers := configs[0].Headers
+	// `=` is the separator precisely so a value can be a URL, which is what an
+	// attribution header holds.
+	if headers["HTTP-Referer"] != "https://oxy.so" || headers["X-Title"] != "Oxy" {
+		t.Errorf("the headers parsed as %v", headers)
+	}
+
+	for name, environment := range map[string]map[string]string{
+		"a pair with no value": {
+			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer",
+		},
+		"a value with no name": {
+			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "=Oxy",
+		},
+		"the same header twice": {
+			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "X-Title=Oxy,X-Title=Other",
+		},
+		// A credential here would look configured, be overwritten by the
+		// adapter at send time, and sit in a plain variable outside the pool
+		// that exists to manage it.
+		"an authorization header": {
+			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "Authorization=Bearer fake-key",
+		},
+		"a provider key header": {
+			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "x-api-key=fake-key",
+		},
+		// The Messages API adapter carries no extra headers, so accepting them
+		// would drop them silently — the same outcome as never setting them and
+		// harder to see.
+		"headers for a protocol that sends none": {
+			"RELAY_PROVIDERS": "anthropic", "RELAY_PROVIDER_ANTHROPIC_HEADERS": "X-Title=Oxy",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseProviders(lookup(environment)); err == nil {
+				t.Error("the configuration was accepted")
+			}
+		})
+	}
+}
+
+// TestACredentialForAProviderNobodyServesIsNamed.
+//
+// It is the one failure in this area with no downstream signal: the task
+// starts, the health probe passes, the rollout reports complete, and the
+// provider is simply absent. Every check the infrastructure can run says green,
+// because from outside the process there is nothing wrong with it.
+func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{
+		"RELAY_PROVIDERS":                     "cerebras,open-router",
+		"RELAY_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
+		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    protocolOpenAICompatible,
+		"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
+		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": protocolOpenAICompatible,
+	}))
+	if err != nil {
+		t.Fatalf("the configuration was refused: %v", err)
+	}
+
+	environment := []string{
+		"RELAY_PROVIDER_CEREBRAS_API_KEY=fake-cerebras-key",
+		// The slug is `open-router`, and its variables fold the hyphen to an
+		// underscore. A check that compared slugs rather than prefixes would
+		// report this one as unused.
+		"RELAY_PROVIDER_OPEN_ROUTER_API_KEY=fake-openrouter-key",
+		"RELAY_PROVIDER_OPENAI_API_KEY=fake-openai-key",
+		// Neither of these is a provider credential, and a pattern that matched
+		// on the prefix alone would name both.
+		"RELAY_PROVIDER_RATES_PATH=/etc/relay/rates.json",
+		"RELAY_PROVIDER_CEREBRAS_BASE_URL=https://cerebras.example.invalid/v1",
+		"PATH=/usr/bin",
+	}
+
+	unused := unusedProviderCredentials(environment, configs)
+	if len(unused) != 1 || unused[0] != "RELAY_PROVIDER_OPENAI_API_KEY" {
+		t.Fatalf("named %v as unused; exactly the openai key is", unused)
+	}
+
+	// The control: with openai declared too, nothing is unused — or a check
+	// that named everything would pass the assertion above by accident.
+	served, err := parseProviders(lookup(map[string]string{
+		"RELAY_PROVIDERS":                     "cerebras,open-router,openai",
+		"RELAY_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
+		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    protocolOpenAICompatible,
+		"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
+		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": protocolOpenAICompatible,
+	}))
+	if err != nil {
+		t.Fatalf("the control configuration was refused: %v", err)
+	}
+	if unused := unusedProviderCredentials(environment, served); len(unused) != 0 {
+		t.Errorf("named %v as unused when every provider is served", unused)
+	}
+}
