@@ -264,15 +264,11 @@ func reloadSnapshots(
 				continue
 			}
 			current := store.Current()
-			for _, slug := range current.Providers() {
-				if _, found := adapters.Lookup(slug); !found {
-					// Not fatal: the rest of the snapshot is servable, and
-					// killing a healthy process over one unroutable provider
-					// would turn a partial configuration error into an outage.
-					logger.Warn("the installed snapshot routes to a provider this build has no adapter for",
-						"provider", slug, "snapshotId", current.SnapshotID())
-				}
-			}
+			// The same call the startup path makes, deliberately: one condition
+			// with two spellings is one condition an alarm can only half see,
+			// and this is the signal an operator has left for a snapshot that
+			// routes somewhere this build cannot reach.
+			warnAboutUnroutableProviders(logger, current, adapters)
 			rotationRegistry.Retain(deploymentIDs(current))
 		}
 	}
@@ -634,6 +630,11 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 
 // warnAboutUnroutableProviders names every provider the installed snapshot
 // routes to that this build cannot reach.
+//
+// Startup and reload both call it, and that is the whole reason it is a
+// function: the condition is identical on both paths, it is not fatal on
+// either, and the only instrument anyone has for it is a log filter — which a
+// second spelling of the same message would silently half-miss.
 func warnAboutUnroutableProviders(logger *slog.Logger, current *inventory.Inventory, registry *provider.Registry) {
 	unroutable := make([]contract.ProviderSlug, 0)
 	for _, slug := range current.Providers() {

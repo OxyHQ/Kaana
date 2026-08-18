@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -410,5 +411,46 @@ func TestADeclaredFactCannotBeUnsetBySpelling(t *testing.T) {
 		})); err == nil {
 			t.Errorf("%q was accepted, and it means whichever of the two an operator assumed", spelling)
 		}
+	}
+}
+
+// TestOneConditionHasOneMessage.
+//
+// A snapshot routing somewhere this build cannot reach is not fatal on either
+// path, so the only instrument for it is a log filter — and a second spelling
+// of the same message is one an alarm silently half-misses. Startup and reload
+// call the same function; this asserts the message exists exactly once in the
+// source, which is what a filter is written against.
+func TestOneConditionHasOneMessage(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("reading the source: %v", err)
+	}
+	// Anchored on the quote so a mention in a comment is not counted, and
+	// stopping before "provider" so a singular variant is a SECOND match rather
+	// than an invisible one.
+	const message = `"the installed snapshot routes to `
+	if count := strings.Count(string(source), message); count != 1 {
+		t.Errorf("the message an alarm filters on appears %d times; a second spelling is one the filter misses", count)
+	}
+	// The control: the string really is there, so a typo in this test cannot
+	// report a clean zero as agreement.
+	if !strings.Contains(string(source), message+`providers this build has no adapter for"`) {
+		t.Error("the message this test filters on is not the one the source emits")
+	}
+
+	// The count above is anchored BEFORE the plural, so re-adding the old
+	// inline loop is a second match rather than an invisible one — which is
+	// what it is mutation-tested against. What it cannot see is a second
+	// warning for this condition worded differently enough to miss the anchor,
+	// so the condition itself is counted too: there is exactly one place that
+	// asks whether a snapshot's provider has an adapter, and re-adding a loop
+	// has to ask again.
+	//
+	// An exact count rather than a floor, and deliberately blunt: a legitimate
+	// future use of Lookup here fails this and has to say why, which is the
+	// cheapest way to make somebody look at the log the alarm reads.
+	if count := strings.Count(string(source), ".Lookup("); count != 1 {
+		t.Errorf("the snapshot's providers are checked against the registry in %d places; each one is a warning an alarm has to know about separately", count)
 	}
 }
