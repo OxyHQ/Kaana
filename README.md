@@ -548,6 +548,96 @@ golangci-lint run ./...
 cd tools/contract && npm ci && npm run generate && npm run validate
 ```
 
+## Deploying it
+
+`Dockerfile` builds a `linux/arm64` image — Oxy's ECS cluster is Graviton —
+and `.github/workflows/deploy-aws.yml` pushes it to ECR, registers a task
+definition naming that image by DIGEST, and repoints the service at the new
+revision. A tag would not do: `--force-new-deployment` against `:latest`
+relaunches whatever the tag resolves to at that moment, so "what is running"
+stops being a question the task definition can answer.
+
+The image is a stripped, statically linked binary on `distroless/static`,
+running as uid 65532 with no shell and no package manager. It carries no
+inventory, no rate card and no credential of any kind.
+
+### The health path is `/livez`
+
+It is the only route that answers without an Oxy edge signature, so it is the
+only one a load balancer can use. `/internal/v1/health` returns **401** to an
+unsigned probe and `/health` does not exist — a target group pointed at either
+marks every task unhealthy and the service never stabilises.
+
+The image declares no `HEALTHCHECK`: ECS does not read one, and the command
+would have to be a binary this image deliberately does not carry.
+
+### What the deployment must supply, and what happens when it does not
+
+**Provider credentials are the only secrets.** They come from SSM, and these
+two parameters must exist before Relay can serve anything:
+
+| SSM parameter | Type | Env var |
+|---|---|---|
+| `/oxy/relay/RELAY_PROVIDER_OPENAI_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENAI_API_KEY` |
+| `/oxy/relay/RELAY_PROVIDER_ANTHROPIC_API_KEY` | `SecureString` | `RELAY_PROVIDER_ANTHROPIC_API_KEY` |
+
+The deploy workflow writes them from the GitHub repository secrets of the same
+names, skipping an empty or `-` value so a missing repository secret cannot
+replace a working credential with a placeholder.
+
+**An absent credential does not stop the process.** The adapter reports itself
+`unconfigured` on `/internal/v1/health`, `/livez` still answers 200, and the
+rollout therefore completes: the gap surfaces as a refused inference request,
+not as a failed deploy. That is deliberate — an operator sees it on the health
+surface before a customer sees it — but it means a green deploy is not evidence
+that a provider is reachable. Conversely, an SSM parameter named in the task
+definition and absent from Parameter Store fails at task launch with
+`ResourceInitializationError: unable to pull secrets`, and the rollout fails.
+
+**The Oxy edge key is a public key and belongs in plain environment**, never in
+`secrets`. Relay holds only public keys and cannot construct an envelope it
+would itself accept; storing a signing key here would destroy that property.
+
+```
+RELAY_EDGE_PUBLIC_KEYS=oxy-edge-2026-08-17:jQBxDX3B/Z0ULOHPbQz3gfFinKpl7Qv5MVBTfRYSd34=
+```
+
+**`RELAY_ASSUME_FAILOVER_AUTHORIZED` is left unset**, which is the strict
+setting: a model reference resolves to its declared primary deployment and
+nowhere else. Setting it asserts that every caller of the process has a routing
+policy permitting same-model failover, and the envelope carries nothing that
+would let Relay check that. It is not for a shared production deployment, and
+`cmd/relay` refuses to start on a bare `true` precisely so it cannot arrive as
+one.
+
+### The configuration snapshot is mounted, not baked
+
+`RELAY_INVENTORY_PATH` defaults to `/etc/relay/inventory.json` in the image, and
+the image ships no file there. Baking one in would freeze its `issuedAt`: past
+`RELAY_INVENTORY_MAX_AGE` every unpinned reference is refused, so the deploy
+would go green and start degrading an hour later. The snapshot has to be
+re-issued on a cadence shorter than the horizon, which is a property of a
+publisher, not of a file — see "Configuration snapshots".
+
+So `/etc/relay` is a volume, and something outside this repository publishes
+into it. Two mechanisms fit ECS Fargate, and neither is built here:
+
+- **A sidecar syncing from S3** into a task-scoped volume shared with the relay
+  container. The publisher writes one object; Relay's own reload loop picks the
+  file up within `RELAY_INVENTORY_RELOAD_INTERVAL`.
+- **An EFS access point** mounted by both the publisher and Relay.
+
+Until one exists, the container exits non-zero at startup with
+`inventory: reading /etc/relay/inventory.json: no such file or directory`, and
+the rollout fails. That is the intended failure: a data plane with no inventory
+routes nothing, and failing loudly beats serving `configs/inventory.example.json`,
+whose routes and upstream model ids are illustrative and were never verified
+against a real provider.
+
+`RELAY_PROVIDER_RATES_PATH` is left unset unless a real rate card is published
+the same way. Unset means provider cost is not measured, and every measurement
+says so rather than reporting zero.
+
 ## Explicitly out of scope
 
 Named here so nobody assumes otherwise. None of these is stubbed; each is simply

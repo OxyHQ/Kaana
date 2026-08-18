@@ -1,0 +1,26 @@
+# Deny everything, then name what the build needs.
+#
+# The allow-list direction is the point: with a deny-list, a directory added
+# later enters the image by default, and the two that would do real damage are
+# already in this repository. `configs/` holds the example inventory and the
+# example rate card — placeholder routes and invented prices — and an image
+# carrying them is one that can be pointed at them in production by a single
+# environment variable. `tools/contract/` pulls a node_modules tree that has no
+# business in a Go runtime image.
+#
+# This file is also the Dockerfile's `COPY . .` manifest, so the set of paths
+# that reach the builder is decided here and in no second place.
+*
+
+!go.mod
+# Absent today: Relay's module requires nothing outside the standard library.
+# Named so that the first dependency does not also become a build failure.
+!go.sum
+!cmd/**
+!internal/**
+
+# Test files and the fixtures they write are not compiled into the binary, and
+# `go build` would not read them, but they are context bytes uploaded to the
+# builder on every build.
+**/*_test.go
+internal/contract/testdata/**
