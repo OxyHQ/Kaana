@@ -433,10 +433,15 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			return nil, fmt.Errorf("%s_HEADERS is set, and the %s protocol sends no extra headers", prefix, config.Protocol)
 		}
 
+		onSeparateAccounts, err := parseDeclaredBool(getenv(prefix + "_KEYS_ON_SEPARATE_ACCOUNTS"))
+		if err != nil {
+			return nil, fmt.Errorf("%s_KEYS_ON_SEPARATE_ACCOUNTS: %w", prefix, err)
+		}
+
 		config.APIKeys = splitList(getenv(prefix + "_API_KEY"))
 		config.Keys = provider.KeyPolicy{
 			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
-			OnSeparateAccounts: getenv(prefix+"_KEYS_ON_SEPARATE_ACCOUNTS") == "true",
+			OnSeparateAccounts: onSeparateAccounts,
 		}
 		configs = append(configs, config)
 	}
@@ -554,6 +559,28 @@ func unusedProviderCredentials(environment []string, configs []providerConfig) [
 	}
 	sort.Strings(unused)
 	return unused
+}
+
+// parseDeclaredBool reads a value an operator sets to state a fact about the
+// deployment, and refuses anything it cannot read.
+//
+// It refuses rather than falling back for the same reason
+// failoverAcknowledgement does: the variables in this family exist so a human
+// states something the process cannot work out for itself, and a spelling that
+// quietly means "not set" gives them the default while they believe they
+// changed it. `TRUE` disabling key rotation, silently, is not a defensible
+// answer to somebody who wrote `TRUE`.
+func parseDeclaredBool(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return false, nil
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%q is neither `true` nor `false`", strings.TrimSpace(value))
+	}
 }
 
 func durationOrZero(value string) time.Duration {

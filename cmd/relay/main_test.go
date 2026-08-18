@@ -356,3 +356,59 @@ func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
 		t.Errorf("named %v as unused when every provider is served", unused)
 	}
 }
+
+// TestADeclaredFactCannotBeUnsetBySpelling.
+//
+// `_KEYS_ON_SEPARATE_ACCOUNTS` is the operator stating something the process
+// cannot work out for itself — whether a pool's keys are different provider
+// accounts — and it is the only thing that lets a throttle rotate. A spelling
+// that quietly means "not set" hands them the default while they believe they
+// changed it, and the failure shows up as requests failing on a throttle the
+// next key would have served. So it is read the way every neighbouring value
+// is, and refused when it cannot be read at all.
+func TestADeclaredFactCannotBeUnsetBySpelling(t *testing.T) {
+	for _, spelling := range []string{"true", " true ", "TRUE", "True"} {
+		configs, err := parseProviders(lookup(map[string]string{
+			"RELAY_PROVIDERS": "openai",
+			"RELAY_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
+		}))
+		if err != nil {
+			t.Fatalf("%q was refused: %v", spelling, err)
+		}
+		if !configs[0].Keys.OnSeparateAccounts {
+			t.Errorf("%q left the declaration unset, so a throttle would never rotate", spelling)
+		}
+	}
+
+	// The control: the default really is off, or every case above would pass on
+	// a parser that returned true for everything.
+	configs, err := parseProviders(lookup(map[string]string{"RELAY_PROVIDERS": "openai"}))
+	if err != nil {
+		t.Fatalf("an absent declaration was refused: %v", err)
+	}
+	if configs[0].Keys.OnSeparateAccounts {
+		t.Fatal("an unset variable declared separate accounts")
+	}
+	for _, spelling := range []string{"false", "FALSE", " false "} {
+		configs, err := parseProviders(lookup(map[string]string{
+			"RELAY_PROVIDERS": "openai",
+			"RELAY_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
+		}))
+		if err != nil {
+			t.Fatalf("%q was refused: %v", spelling, err)
+		}
+		if configs[0].Keys.OnSeparateAccounts {
+			t.Errorf("%q declared separate accounts", spelling)
+		}
+	}
+
+	// Anything else refuses to start rather than choosing a meaning for it.
+	for _, spelling := range []string{"yes", "1", "on", "no"} {
+		if _, err := parseProviders(lookup(map[string]string{
+			"RELAY_PROVIDERS": "openai",
+			"RELAY_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
+		})); err == nil {
+			t.Errorf("%q was accepted, and it means whichever of the two an operator assumed", spelling)
+		}
+	}
+}

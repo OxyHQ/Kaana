@@ -420,6 +420,17 @@ among the credentials of one deployment is governed by nothing published,
 because there is nothing about it for a customer to have an opinion on. They are
 different axes and the default of one is not weakened to make the other work.
 
+**A refused credential is not retried on another deployment of the same
+provider either.** The refusal is attributable, so the breaker takes the route
+out of rotation and a failover to a deployment holding a DIFFERENT credential
+stays possible — but two deployments of one provider slug resolve to one adapter
+and therefore to one pool, so within a slug there is no different credential to
+reach. Failing over there would reproduce, one deployment at a time, exactly the
+walk the pool refuses to make: a key burnt per deployment on a single
+provider-side authentication blip. The executor reads the same
+`CredentialVerdictFor` the pool does, so the two cannot come to disagree, and a
+candidate served by a different provider is still tried.
+
 **A rotation can only happen before anything has been streamed.** The walk lives
 entirely in front of the response body: not one byte has reached the customer,
 so moving to another credential replaces the request instead of splicing two
@@ -712,7 +723,7 @@ silently sharing an address and a pool.
 | `RELAY_PROVIDER_<SLUG>_API_KEY` | no | one credential, or a pool separated by commas; absent ⇒ the provider reports `unconfigured` |
 | `RELAY_PROVIDER_<SLUG>_HEADERS` | no | `Name=Value` pairs the provider expects, comma-separated (OpenRouter's attribution headers) |
 | `RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
-| `RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT provider accounts; only then does a throttle rotate |
+| `RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT provider accounts; only then does a throttle rotate. Anything but `true`/`false` refuses to start rather than quietly meaning "not set" |
 
 `openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
 published API root, both overridable. Any other slug declares both: an address

@@ -657,3 +657,75 @@ func TestAStaleSnapshotServesPinnedTargetsAndRefusesUnpinnedOnes(t *testing.T) {
 		t.Fatalf("a fresh snapshot refused an unpinned reference: %v", result.Failure)
 	}
 }
+
+// twoDeploymentsOfOneProvider is the failover set the other fixture cannot
+// express: one revision, two deployments, ONE provider slug — two regions of
+// the same provider, which is the shape the shipped example inventory uses.
+//
+// It matters because a provider slug resolves to one adapter and therefore to
+// one credential pool, so these two rows do NOT hold different credentials.
+const twoDeploymentsOfOneProvider = `
+  {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
+   "upstreamModelId":"model-a","region":"r1","current":true},
+  {"deploymentId":"dep_b","provider":"stub","modelReference":"stub/model@2026-05-01",
+   "upstreamModelId":"model-b","region":"r2","current":true}`
+
+func credentialRefused(slug contract.ProviderSlug) provider.ErrUpstream {
+	return provider.ErrUpstream{
+		Code:        contract.CodeProviderCredentialInvalid,
+		Category:    contract.UpstreamAuthentication,
+		Detail:      string(slug) + " refused the platform's credential for this route",
+		Passthrough: &contract.ProviderErrorPassthrough{Provider: slug},
+	}
+}
+
+// TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider.
+//
+// A refused credential is attributable to the deployment, and deliberately so:
+// the breaker takes the route out of rotation, and a failover to a deployment
+// holding a DIFFERENT credential is meant to remain possible. But two
+// deployments of one provider slug resolve to one adapter and one credential
+// pool, so within a slug there is no different credential to reach — and the
+// pool refuses to walk itself on a rejection for exactly this reason. Failing
+// over here would reproduce that walk one deployment at a time, burning a key
+// per deployment on a single provider-side authentication blip.
+func TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider(t *testing.T) {
+	// One adapter serves both deployments, because a registry keys on the
+	// provider slug — which is the whole point.
+	sameProvider := failingAdapter("stub", credentialRefused("stub"), nil)
+
+	events, result := harness{
+		deployments:        twoDeploymentsOfOneProvider,
+		adapters:           []provider.Adapter{sameProvider},
+		failoverAuthorized: true,
+	}.run(t, baseRequest())
+
+	if sameProvider.attempts() != 1 {
+		t.Errorf("the refused credential was sent %d times; both deployments draw on the same pool, so every attempt after the first burns another key for one blip", sameProvider.attempts())
+	}
+	if len(eventsOfType(events, contract.EventRouteSwitch)) != 0 {
+		t.Error("a route switch was announced to a deployment that was never tried")
+	}
+	if result.Failure == nil || result.Failure.Code != contract.CodeProviderCredentialInvalid {
+		t.Fatalf("the customer was told %v, expected the provider's own refusal", result.Failure)
+	}
+
+	// The control, and it is what keeps the check above from being "failover is
+	// broken": the identical failure DOES fail over when the second deployment
+	// is served by a different provider, because that one holds a different
+	// credential pool.
+	refused := failingAdapter("stub", credentialRefused("stub"), nil)
+	elsewhere := succeedingAdapter("backup", 7)
+	_, crossProvider := harness{
+		deployments:        twoDeploymentsOfOneRevision,
+		adapters:           []provider.Adapter{refused, elsewhere},
+		failoverAuthorized: true,
+	}.run(t, baseRequest())
+
+	if elsewhere.attempts() != 1 {
+		t.Fatalf("a refused credential was not retried on a deployment holding a different one (%d attempts), so the check above measures nothing", elsewhere.attempts())
+	}
+	if crossProvider.Failure != nil {
+		t.Errorf("the cross-provider failover still failed: %v", crossProvider.Failure)
+	}
+}

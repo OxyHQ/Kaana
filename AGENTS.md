@@ -183,6 +183,11 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
 - **Key rotation is not a route switch** — same deployment, no `route_switch`,
   no routing-policy authorisation. Never weaken
   `RELAY_ASSUME_FAILOVER_AUTHORIZED`'s default to make it work.
+- **A refused credential is not failed over onto the same provider slug.** One
+  slug is one adapter and one pool, so "another deployment holds a different
+  credential" is true across slugs and false within one; failing over there
+  reproduces the pool walk one deployment at a time and burns a key per
+  deployment on one blip.
 - **A rotation happens only before the response body is read**, so a failure
   arriving mid-stream rotates nothing: the request is committed to the key that
   opened the stream.
