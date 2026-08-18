@@ -594,6 +594,15 @@ The deploy workflow writes them from the GitHub repository secrets of the same
 names, skipping an empty or `-` value so a missing repository secret cannot
 replace a working credential with a placeholder.
 
+**Two entries, because two is what `buildAdapters` reads.** A credential for a
+provider this build has no adapter for is inert — the process starts, `/livez`
+answers 200 and the startup line names only the providers it loaded — so
+provisioning ahead of the code buys nothing and looks like it worked. The
+inventory is where it stops being quiet: a snapshot naming a provider with no
+adapter refuses the whole process at startup, not just that provider's routes.
+Extending the set is a change to `cmd/relay`, and the credential lists follow
+the env-var names that change actually reads.
+
 **An absent credential does not stop the process.** The adapter reports itself
 `unconfigured` on `/internal/v1/health`, `/livez` still answers 200, and the
 rollout therefore completes: the gap surfaces as a refused inference request,
