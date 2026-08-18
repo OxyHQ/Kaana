@@ -848,26 +848,45 @@ today and is a change to `cmd/relay`, not to the image.
 
 ### What the deployment must supply, and what happens when it does not
 
-**Provider credentials are the only secrets.** They come from SSM, and these
-two parameters must exist before Relay can serve anything:
+**`RELAY_PROVIDERS` is required and is not a secret.** It lists the slugs this
+process serves, and an empty one is a hard refusal at startup rather than a
+process that serves nothing quietly. It belongs in the task definition's plain
+environment beside `RELAY_EDGE_PUBLIC_KEYS`:
+
+```
+RELAY_PROVIDERS=cerebras,openrouter,openai
+```
+
+`openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
+base URL, so a slug from that set needs nothing but its key. Any other slug must
+also be given `RELAY_PROVIDER_<SLUG>_{PROTOCOL,BASE_URL}`. The rest of the
+per-provider surface — `_HEADERS`, `_KEY_RETIREMENT`,
+`_KEYS_ON_SEPARATE_ACCOUNTS` — is non-secret too and goes in the same block.
+
+**Provider credentials are the only secrets**, one per declared slug:
 
 | SSM parameter | Type | Env var |
 |---|---|---|
+| `/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY` | `SecureString` | `RELAY_PROVIDER_CEREBRAS_API_KEY` |
+| `/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENROUTER_API_KEY` |
 | `/oxy/relay/RELAY_PROVIDER_OPENAI_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENAI_API_KEY` |
-| `/oxy/relay/RELAY_PROVIDER_ANTHROPIC_API_KEY` | `SecureString` | `RELAY_PROVIDER_ANTHROPIC_API_KEY` |
 
 The deploy workflow writes them from the GitHub repository secrets of the same
 names, skipping an empty or `-` value so a missing repository secret cannot
 replace a working credential with a placeholder.
 
-**Two entries, because two is what `buildAdapters` reads.** A credential for a
-provider this build has no adapter for is inert — the process starts, `/livez`
-answers 200 and the startup line names only the providers it loaded — so
-provisioning ahead of the code buys nothing and looks like it worked. The
-inventory is where it stops being quiet: a snapshot naming a provider with no
-adapter refuses the whole process at startup, not just that provider's routes.
-Extending the set is a change to `cmd/relay`, and the credential lists follow
-the env-var names that change actually reads.
+**The list does not grow with a key pool.** A pool is comma-separated inside one
+`_API_KEY` value, so widening or rotating one never touches the workflow's
+allow-list, the task definition's `secrets` block, or this table. What moves
+them is `RELAY_PROVIDERS` gaining or losing a slug, and all three move together:
+a name has to be in the allow-list to reach Parameter Store and in `secrets[]`
+to reach the container.
+
+**A credential for a slug `RELAY_PROVIDERS` does not declare is inert**, and the
+process says so at startup — it names the offending variables and tells you to
+either declare the provider or drop the secret. Without that line it would be
+the one failure with no downstream signal at all: the task starts, the probe
+passes, the rollout completes and the provider is simply absent.
 
 **An absent credential does not stop the process.** The adapter reports itself
 `unconfigured` on `/internal/v1/health`, `/livez` still answers 200, and the
