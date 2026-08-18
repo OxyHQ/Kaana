@@ -237,7 +237,17 @@ jobs:
 
             case "$ROLLOUT" in
               COMPLETED)
-                echo "deployed $APP at $IMAGE"
+                # A service parked at desiredCount=0 reaches COMPLETED with
+                # nothing launched, because there was nothing to launch. That
+                # is a legitimate state — it is how the service is held while a
+                # prerequisite is missing — so it is not a failure. But the word
+                # "deployed" would be a lie about it, and this job is the last
+                # thing anyone reads before believing the change went out.
+                if [ "$DESIRED" = "0" ]; then
+                  echo "::warning::rollout COMPLETED with desiredCount=0: $ARN is the service's revision, but no task is running it. This run proves the image built and the revision registered, and nothing about whether Relay serves."
+                  exit 0
+                fi
+                echo "deployed $APP at $IMAGE ($RUNNING/$DESIRED tasks running)"
                 exit 0
                 ;;
               FAILED)
