@@ -140,6 +140,15 @@ type Health struct {
 	// own redaction, because a probe failure is one of the places an upstream
 	// echoes a credential back.
 	Detail string `json:"detail,omitempty"`
+	// Credentials is the state of this provider's key pool: how many are
+	// declared, how many can be used right now, and which of them are out and
+	// until when.
+	//
+	// It carries positions and states and nothing derived from a secret. It is
+	// here because a pool draining towards empty is otherwise invisible until
+	// the request that finds it empty — the same argument that puts snapshot
+	// staleness on this surface.
+	Credentials *KeyPoolHealth `json:"credentials,omitempty"`
 }
 
 // Emitter is how an adapter reports semantic output.

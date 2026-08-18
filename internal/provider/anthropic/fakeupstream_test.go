@@ -64,6 +64,11 @@ type fakeUpstream struct {
 	cancelledAfterChunks int
 	requests             int
 	seenAPIKey           string
+	// firstCredential is the first credential this upstream was ever sent. It
+	// is what ScenarioFirstCredentialExhausted refuses, so the scenario is
+	// about WHICH key arrived rather than about how many requests have been
+	// made — a counter would refuse the second key on a retry of the first.
+	firstCredential string
 }
 
 func startFakeUpstream(t *testing.T, scenario conformance.Scenario) *conformance.Upstream {
@@ -95,7 +100,7 @@ func startFakeUpstream(t *testing.T, scenario conformance.Scenario) *conformance
 
 func totalChunksFor(scenario conformance.Scenario) int {
 	switch scenario {
-	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage:
+	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage, conformance.ScenarioFirstCredentialExhausted:
 		return 3
 	case conformance.ScenarioSlowStream:
 		return 6
@@ -133,6 +138,25 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if f.scenario == conformance.ScenarioFirstCredentialExhausted {
+		f.mutex.Lock()
+		if f.firstCredential == "" {
+			f.firstCredential = apiKey
+		}
+		exhausted := apiKey == f.firstCredential
+		f.mutex.Unlock()
+		if exhausted {
+			// The account behind THIS key has nothing left. This provider says
+			// so on a status no rate limit uses, where an OpenAI-compatible one
+			// says it on a 429 — which is why the adapter classifies from the
+			// error type and the invariant is the same for both.
+			writeUpstreamError(w, http.StatusPaymentRequired, errorBilling, "your credit balance is too low to access the API")
+			return
+		}
+		f.writeStream(w, r)
+		return
+	}
+
 	switch f.scenario {
 	case conformance.ScenarioRateLimited:
 		w.Header().Set("retry-after", "2")
@@ -146,6 +170,11 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case conformance.ScenarioCredentialRefused:
 		writeUpstreamError(w, http.StatusUnauthorized, errorAuthentication, "invalid x-api-key")
+		return
+	case conformance.ScenarioRequestRefused:
+		// The credential was fine; the request was not. Nothing another key
+		// could change.
+		writeUpstreamError(w, http.StatusBadRequest, errorInvalidRequest, "the request body names an unknown parameter")
 		return
 	case conformance.ScenarioCredentialEchoed:
 		// Providers really do echo the request back in an error. This is the

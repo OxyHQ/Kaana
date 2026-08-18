@@ -75,7 +75,11 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	adapters, err := buildAdapters()
+	providerConfigs, err := parseProviders(os.Getenv)
+	if err != nil {
+		return err
+	}
+	adapters, err := buildAdapters(providerConfigs)
 	if err != nil {
 		return err
 	}
@@ -263,44 +267,197 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 	return ids
 }
 
-// buildAdapters constructs every provider this build can serve.
+// Provider configuration.
 //
-// Two protocols are wired: OpenAI Chat Completions, which seven of the
-// providers Alia speaks to share, and the Anthropic Messages API, which is one
-// provider's own. Registering an adapter is not a claim that a credential
-// exists for it — an unconfigured adapter reports itself `unconfigured` on the
-// health surface rather than failing at the first request, which is what lets
-// an operator see the gap before a customer does. What would be a claim this
-// build cannot support is an INVENTORY entry routing to a provider with no
-// credential, and the server refuses to start when the inventory names a
-// provider it has no adapter for at all.
-func buildAdapters() ([]provider.Adapter, error) {
-	openaiBaseURL := os.Getenv("RELAY_PROVIDER_OPENAI_BASE_URL")
-	if openaiBaseURL == "" {
-		openaiBaseURL = "https://api.openai.com/v1"
-	}
-	openai, err := openaicompat.New(openaicompat.Config{
-		Provider: "openai",
-		BaseURL:  openaiBaseURL,
-		APIKey:   os.Getenv("RELAY_PROVIDER_OPENAI_API_KEY"),
-	})
-	if err != nil {
-		return nil, err
+// Which providers this process serves, where each one is, and what credentials
+// it holds are three separate questions, and none of them is the inventory's.
+// The inventory is a control-plane snapshot of which deployments serve which
+// model; a credential in it would be a copy of an Oxy entity, and a base URL in
+// it would make one process's reachability a global fact. So the inventory
+// names a provider SLUG and this file resolves that slug to an adapter, an
+// address and a pool of keys.
+//
+//	RELAY_PROVIDERS                                   openai,openrouter,cerebras,anthropic
+//	RELAY_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
+//	RELAY_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
+//	RELAY_PROVIDER_<SLUG>_API_KEY                     one credential, or several separated by commas
+//	RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
+//	RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
+const (
+	protocolOpenAICompatible  = "openai_compatible"
+	protocolAnthropicMessages = "anthropic_messages"
+)
+
+// knownProviders is the protocol and published API root for the slugs this
+// build has been written against.
+//
+// A default here is not an invention the way a default sampling parameter would
+// be: an address that is wrong fails loudly on the first request, with a DNS
+// failure or a 404, rather than quietly changing what the model does. Every
+// entry is overridable, and a slug that is not in this table must declare both
+// values — there is no address to guess for a name this build has never seen.
+//
+// The roots are the providers' published ones. No live call has been made from
+// this repository to any of them.
+var knownProviders = map[contract.ProviderSlug]providerConfig{
+	"openai":     {Protocol: protocolOpenAICompatible, BaseURL: "https://api.openai.com/v1"},
+	"anthropic":  {Protocol: protocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1"},
+	"openrouter": {Protocol: protocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1"},
+	"cerebras":   {Protocol: protocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1"},
+}
+
+// providerConfig is one provider this process serves.
+type providerConfig struct {
+	Slug     contract.ProviderSlug
+	Protocol string
+	BaseURL  string
+	// APIKeys is the provider's key pool, in the order it is to be spent. It is
+	// the one field here that holds a secret, it comes from the environment,
+	// and it is never logged, echoed or projected.
+	APIKeys []string
+	Keys    provider.KeyPolicy
+}
+
+// parseProviders reads the provider configuration from the environment.
+//
+// It takes its own getenv so the whole of it is testable without a process
+// environment, which matters because most of what it does is refuse.
+func parseProviders(getenv func(string) string) ([]providerConfig, error) {
+	declared := splitList(getenv("RELAY_PROVIDERS"))
+	if len(declared) == 0 {
+		return nil, errors.New("RELAY_PROVIDERS is required: it lists the provider slugs this process serves, and an empty one would leave every inventory route unservable")
 	}
 
-	anthropicBaseURL := os.Getenv("RELAY_PROVIDER_ANTHROPIC_BASE_URL")
-	if anthropicBaseURL == "" {
-		anthropicBaseURL = "https://api.anthropic.com/v1"
-	}
-	claude, err := anthropic.New(anthropic.Config{
-		BaseURL: anthropicBaseURL,
-		APIKey:  os.Getenv("RELAY_PROVIDER_ANTHROPIC_API_KEY"),
-	})
-	if err != nil {
-		return nil, err
-	}
+	configs := make([]providerConfig, 0, len(declared))
+	seenSlug := make(map[contract.ProviderSlug]struct{}, len(declared))
+	seenPrefix := make(map[string]contract.ProviderSlug, len(declared))
 
-	return []provider.Adapter{openai, claude}, nil
+	for _, name := range declared {
+		slug := contract.ProviderSlug(name)
+		if !slug.Valid() {
+			return nil, fmt.Errorf("RELAY_PROVIDERS names %q, which is not a provider slug", name)
+		}
+		if _, duplicate := seenSlug[slug]; duplicate {
+			return nil, fmt.Errorf("RELAY_PROVIDERS names %q twice", slug)
+		}
+		seenSlug[slug] = struct{}{}
+
+		prefix := environmentPrefix(slug)
+		if other, collides := seenPrefix[prefix]; collides {
+			// `open-router` and `open.router` are two slugs and one variable
+			// name. Left alone, the second would silently be configured with
+			// the first one's address and credentials.
+			return nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
+		}
+		seenPrefix[prefix] = slug
+
+		config := knownProviders[slug]
+		config.Slug = slug
+		if declaredProtocol := strings.TrimSpace(getenv(prefix + "_PROTOCOL")); declaredProtocol != "" {
+			config.Protocol = declaredProtocol
+		}
+		if declaredBaseURL := strings.TrimSpace(getenv(prefix + "_BASE_URL")); declaredBaseURL != "" {
+			config.BaseURL = declaredBaseURL
+		}
+
+		switch config.Protocol {
+		case protocolOpenAICompatible:
+		case protocolAnthropicMessages:
+			if slug != anthropic.Slug {
+				// The Messages API adapter reports its slug as a constant,
+				// because that wire format belongs to one provider. Serving it
+				// under another name would attribute every event and every
+				// usage record to `anthropic` while the inventory routed to
+				// something else.
+				return nil, fmt.Errorf("provider %q declares the %s protocol, which this build serves only as %q", slug, protocolAnthropicMessages, anthropic.Slug)
+			}
+		case "":
+			return nil, fmt.Errorf("%s_PROTOCOL is required: this build has no protocol for the provider slug %q", prefix, slug)
+		default:
+			return nil, fmt.Errorf("%s_PROTOCOL is %q; this build speaks %s and %s", prefix, config.Protocol, protocolOpenAICompatible, protocolAnthropicMessages)
+		}
+
+		if config.BaseURL == "" {
+			return nil, fmt.Errorf("%s_BASE_URL is required: this build knows no address for the provider slug %q", prefix, slug)
+		}
+
+		config.APIKeys = splitList(getenv(prefix + "_API_KEY"))
+		config.Keys = provider.KeyPolicy{
+			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
+			OnSeparateAccounts: getenv(prefix+"_KEYS_ON_SEPARATE_ACCOUNTS") == "true",
+		}
+		configs = append(configs, config)
+	}
+	return configs, nil
+}
+
+// environmentPrefix is the variable name a slug reads its configuration from.
+// A slug's grammar admits `.` and `-`, which an environment variable name does
+// not, so two slugs can collapse onto one prefix — which parseProviders
+// refuses rather than resolving.
+func environmentPrefix(slug contract.ProviderSlug) string {
+	replaced := strings.NewReplacer(".", "_", "-", "_").Replace(string(slug))
+	return "RELAY_PROVIDER_" + strings.ToUpper(replaced)
+}
+
+// splitList reads a comma-separated environment value, discarding the empty
+// entries a trailing separator leaves behind.
+func splitList(value string) []string {
+	items := make([]string, 0, 4)
+	for _, item := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
+}
+
+func durationOrZero(value string) time.Duration {
+	parsed, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+	return parsed
+}
+
+// buildAdapters constructs every provider this process serves.
+//
+// Registering an adapter is not a claim that a credential exists for it — a
+// provider with an empty pool reports itself `unconfigured` on the health
+// surface rather than failing at the first request, which is what lets an
+// operator see the gap before a customer does. What would be a claim this build
+// cannot support is an INVENTORY entry routing to a provider that was never
+// declared here, and the server refuses to start in that state.
+func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
+	adapters := make([]provider.Adapter, 0, len(configs))
+	for _, config := range configs {
+		switch config.Protocol {
+		case protocolOpenAICompatible:
+			adapter, err := openaicompat.New(openaicompat.Config{
+				Provider: config.Slug,
+				BaseURL:  config.BaseURL,
+				APIKeys:  config.APIKeys,
+				Keys:     config.Keys,
+			})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
+		case protocolAnthropicMessages:
+			adapter, err := anthropic.New(anthropic.Config{
+				BaseURL: config.BaseURL,
+				APIKeys: config.APIKeys,
+				Keys:    config.Keys,
+			})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
+		default:
+			return nil, fmt.Errorf("provider %q declares the protocol %q, which parseProviders should have refused", config.Slug, config.Protocol)
+		}
+	}
+	return adapters, nil
 }
 
 func providerSlugs(registry *provider.Registry) []contract.ProviderSlug {

@@ -34,6 +34,11 @@ type fakeUpstream struct {
 	cancelledAfterChunks int
 	requests             int
 	seenAuthorization    string
+	// firstCredential is the first credential this upstream was ever sent. It
+	// is what ScenarioFirstCredentialExhausted refuses, so the scenario is
+	// about WHICH key arrived rather than about how many requests have been
+	// made — a counter would refuse the second key on a retry of the first.
+	firstCredential string
 }
 
 func startFakeUpstream(t *testing.T, scenario conformance.Scenario) *conformance.Upstream {
@@ -65,7 +70,7 @@ func startFakeUpstream(t *testing.T, scenario conformance.Scenario) *conformance
 
 func totalChunksFor(scenario conformance.Scenario) int {
 	switch scenario {
-	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage:
+	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage, conformance.ScenarioFirstCredentialExhausted:
 		return 3
 	case conformance.ScenarioSlowStream:
 		return 6
@@ -89,7 +94,23 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.requests++
 	f.seenAuthorization = r.Header.Get("Authorization")
 	authorization := f.seenAuthorization
+	if f.firstCredential == "" {
+		f.firstCredential = authorization
+	}
+	firstCredential := f.firstCredential
 	f.mutex.Unlock()
+
+	if f.scenario == conformance.ScenarioFirstCredentialExhausted {
+		if authorization == firstCredential {
+			// The account behind THIS key has nothing left. On this protocol
+			// that arrives as a 429 that a burst limit also uses, which is
+			// exactly why the adapter classifies from the error type.
+			writeUpstreamError(w, http.StatusTooManyRequests, "insufficient_quota", "you exceeded your current quota")
+			return
+		}
+		f.writeStream(w, r)
+		return
+	}
 
 	switch f.scenario {
 	case conformance.ScenarioRateLimited:
@@ -98,6 +119,11 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case conformance.ScenarioQuotaExhausted:
 		writeUpstreamError(w, http.StatusTooManyRequests, "insufficient_quota", "you exceeded your current quota")
+		return
+	case conformance.ScenarioRequestRefused:
+		// The credential was fine; the request was not. Nothing another key
+		// could change.
+		writeUpstreamError(w, http.StatusBadRequest, "invalid_request_error", "the request body names an unknown parameter")
 		return
 	case conformance.ScenarioCredentialRefused:
 		writeUpstreamError(w, http.StatusUnauthorized, "invalid_api_key", "incorrect api key provided")
