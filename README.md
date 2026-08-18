@@ -51,6 +51,7 @@ internal/rotation/              per-deployment circuit breakers and health scori
 internal/sse/                   SSE decoding (upstream) and encoding (downstream)
 tools/contract/                 Node tooling that derives and checks the contract
 configs/inventory.example.json  an illustrative inventory snapshot
+configs/inventory.json          the measured Cerebras snapshot, for a publisher to re-issue
 configs/provider-rates.example.json  illustrative upstream rate cards
 ```
 
@@ -982,6 +983,14 @@ the rollout fails. That is the intended failure: a data plane with no inventory
 routes nothing, and failing loudly beats serving `configs/inventory.example.json`,
 whose routes and upstream model ids are illustrative and were never verified
 against a real provider.
+
+**What the publisher publishes is in `configs/inventory.json`.** Its two upstream
+model ids were read from the Cerebras API with the account's own key rather than
+from documentation, so it is content a publisher can issue as-is — but only by
+re-stamping `issuedAt`. Committed, the file carries a frozen one, and an hour
+after that instant every unpinned reference in it is refused while every pinned
+one is still served. That is the whole difference between a snapshot and a
+publisher, and it is why mounting this file verbatim is not a deployment.
 
 `RELAY_PROVIDER_RATES_PATH` is left unset unless a real rate card is published
 the same way. Unset means provider cost is not measured, and every measurement

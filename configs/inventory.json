@@ -1,0 +1,30 @@
+{
+  "$comment": [
+    "Relay's first MEASURED deployment inventory. Every upstream model id below was read from the Cerebras API with the account's own key on 2026-08-18 — `GET https://api.cerebras.ai/v1/models` returned exactly these two and nothing else, and `GET /v1/models/<id>` answered 200 for both while every id outside the list answered 404 `model_not_found`. Nothing here is copied from documentation. Cerebras's own model page was read afterwards and agrees: the same two ids, no others.",
+    "It holds no Oxy-owned concept — no account, application, credential, price or commercial permission. The provider's API key is not here and never will be: a slug resolves to an adapter, an address and a key pool in cmd/relay, from the process environment.",
+    "PUBLISHER IS WHO RELEASED THE WEIGHTS, NEVER WHO SERVES THEM. `openai/gpt-oss-120b` and `google/gemma-4-31b` are served BY Cerebras, which is why `provider` says cerebras and the reference does not. Putting the serving provider in the publisher slot would make the identity of a model change the day a second provider serves the same weights, and the failover set — one reference, several endpoints — could then never be expressed. The catalogue contract states the same rule in its own words: a publisher is 'who released a model, never a provider'.",
+    "THE REVISION LABEL IS OXY'S OBSERVATION, NOT THE PUBLISHER'S RELEASE. Cerebras exposes no immutable revision handle: the ids are bare aliases, `created` is 0, and nothing in the API distinguishes the weights served today from the weights served next month under the same string. A reference must still pin, so the pin says exactly what is known — the date Oxy observed the alias. A bare `@2026-08-18` would have read as a release date nobody measured. If Oxy's catalogue later assigns real revision labels to these weights, the catalogue wins and this file follows it.",
+    "CEREBRAS ONLY, AND ONE DEPLOYMENT PER REFERENCE. Failover is off by default, so a reference resolves to the deployment declared FIRST and nowhere else. With a single provider and a single deployment per reference there is no declaration order to get wrong, and no reference can be stranded behind a provider this process does not serve.",
+    "NO REGION. Cerebras publishes one global endpoint and names no region, so none is declared. An invented one would not stay decorative: `allowedRegions`/`deniedRegions` match on exact strings, so a residency policy would later admit or refuse these routes on a value nobody measured.",
+    "THESE ROUTES ARE DECLARED, NOT YET SERVABLE. On the day this was measured the account answered 402 `payment_required` (`param: quota`) to every chat completion, on both models, while the same key answered 200 on the model endpoints — the key is valid and the account cannot be billed. The 402 arrives after model validation (an unknown id still answers 404), which is what confirms these two ids are real for this account. Inference starts working when the Cerebras account can be billed; nothing in this file changes then.",
+    "STALENESS IS MEASURED FROM `issuedAt`, AND THIS ONE IS FROZEN AT COMMIT. A checked-in file is stale within RELAY_INVENTORY_MAX_AGE (default 1h) of the instant below, after which pinned references are still served and UNPINNED ones are refused. So this is the content of the first snapshot, not a snapshot a deployment can live on: whatever publishes into /etc/relay must re-issue it with a fresh `issuedAt` on a cadence shorter than the horizon, even when not one byte of it has changed."
+  ],
+  "snapshotId": "snap_cerebras_2026_08_18_0001",
+  "issuedAt": "2026-08-18T20:35:46.000Z",
+  "deployments": [
+    {
+      "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_08_18",
+      "provider": "cerebras",
+      "modelReference": "openai/gpt-oss-120b@observed-2026-08-18",
+      "upstreamModelId": "gpt-oss-120b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_cerebras_gemma_4_31b_observed_2026_08_18",
+      "provider": "cerebras",
+      "modelReference": "google/gemma-4-31b@observed-2026-08-18",
+      "upstreamModelId": "gemma-4-31b",
+      "current": true
+    }
+  ]
+}
