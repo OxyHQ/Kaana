@@ -851,10 +851,11 @@ today and is a change to `cmd/relay`, not to the image.
 **`RELAY_PROVIDERS` is required and is not a secret.** It lists the slugs this
 process serves, and an empty one is a hard refusal at startup rather than a
 process that serves nothing quietly. It belongs in the task definition's plain
-environment beside `RELAY_EDGE_PUBLIC_KEYS`:
+environment beside `RELAY_EDGE_PUBLIC_KEYS`, and its value is **the slugs that
+have a key**, not the slugs the platform intends to offer eventually:
 
 ```
-RELAY_PROVIDERS=cerebras,openrouter,openai
+RELAY_PROVIDERS=cerebras
 ```
 
 `openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
@@ -863,7 +864,27 @@ also be given `RELAY_PROVIDER_<SLUG>_{PROTOCOL,BASE_URL}`. The rest of the
 per-provider surface — `_HEADERS`, `_KEY_RETIREMENT`,
 `_KEYS_ON_SEPARATE_ACCOUNTS` — is non-secret too and goes in the same block.
 
-**Provider credentials are the only secrets**, one per declared slug:
+**Do not declare a slug whose key does not exist yet.** An adapter with no
+credential reports `unconfigured` for as long as it is declared, which is
+exactly the condition worth alarming on when a key goes missing later — so
+declaring ahead of the key pins that alarm on permanently and destroys it. A
+signal that is always firing is not a signal.
+
+Three constraints govern the set, and only the last is fatal:
+
+```
+RELAY_PROVIDERS   ⊇ the providers the snapshot routes to   else those references are refused
+RELAY_PROVIDERS   ⊆ the providers that have a key          else a permanent `unconfigured`
+secrets[]         ⊆ the SSM parameters that exist          else the task never starts
+```
+
+The first two together are a constraint on whoever publishes the inventory: a
+snapshot may not name a provider whose key does not exist, because there is no
+value of `RELAY_PROVIDERS` that serves it without either refusing its references
+or pinning an alarm on.
+
+**Provider credentials are the only secrets**, one per declared slug. The
+deployed set is a subset of these, tracking whichever keys exist:
 
 | SSM parameter | Type | Env var |
 |---|---|---|
@@ -871,16 +892,22 @@ per-provider surface — `_HEADERS`, `_KEY_RETIREMENT`,
 | `/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENROUTER_API_KEY` |
 | `/oxy/relay/RELAY_PROVIDER_OPENAI_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENAI_API_KEY` |
 
-The deploy workflow writes them from the GitHub repository secrets of the same
-names, skipping an empty or `-` value so a missing repository secret cannot
-replace a working credential with a placeholder.
+The deploy workflow's allow-list carries all three, because a name there with no
+repository secret is skipped with a warning and is inert. The task definition's
+`secrets` block must carry **only the parameters that exist** — a name there
+without one fails the task at launch with `ResourceInitializationError`, and it
+fails every task, not that provider's routes. The two lists are governed by
+different constraints and are not meant to match.
 
-**The list does not grow with a key pool.** A pool is comma-separated inside one
+**No list grows with a key pool.** A pool is comma-separated inside one
 `_API_KEY` value, so widening or rotating one never touches the workflow's
 allow-list, the task definition's `secrets` block, or this table. What moves
-them is `RELAY_PROVIDERS` gaining or losing a slug, and all three move together:
-a name has to be in the allow-list to reach Parameter Store and in `secrets[]`
-to reach the container.
+them is a slug arriving or leaving, and the order is not symmetric: **adding**
+goes SSM parameter first, then `secrets[]`, then `RELAY_PROVIDERS`, because each
+step is inert until the one before it exists; **retiring** goes the other way —
+out of `RELAY_PROVIDERS`, then out of `secrets[]` and rolled out, and only then
+delete the parameter, because a `secrets` entry outliving its parameter stops
+every task.
 
 **A credential for a slug `RELAY_PROVIDERS` does not declare is inert**, and the
 process says so at startup — it names the offending variables and tells you to
