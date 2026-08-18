@@ -60,8 +60,11 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/relay ./cmd/relay
 
 # The mount point for the configuration snapshot, created here because the
-# runtime stage has no shell to mkdir with. Owned by the uid distroless runs as
-# so a publisher writing into a volume mounted here does not have to be root.
+# runtime stage has no shell to mkdir with. A volume mounted over it brings its
+# own ownership and shadows this directory entirely, so the chown governs only
+# the unmounted case; what the directory is for is to make the mount point part
+# of the image's stated contract rather than something a task definition
+# invents.
 RUN mkdir -p /out/etc/relay && chown -R 65532:65532 /out/etc/relay
 
 # distroless/static carries the CA bundle the provider adapters need for TLS to
