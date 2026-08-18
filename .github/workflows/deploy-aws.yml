@@ -90,19 +90,22 @@ jobs:
         # existed — CEREBRAS — was never synced at all. The loop now separates
         # the two cases instead of collapsing them.
         env:
-          SYNC_RELAY_PROVIDER_OPENAI_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENAI_API_KEY }}
-          SYNC_RELAY_PROVIDER_ANTHROPIC_API_KEY: ${{ secrets.RELAY_PROVIDER_ANTHROPIC_API_KEY }}
           SYNC_RELAY_PROVIDER_CEREBRAS_API_KEY: ${{ secrets.RELAY_PROVIDER_CEREBRAS_API_KEY }}
+          SYNC_RELAY_PROVIDER_OPENROUTER_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENROUTER_API_KEY }}
+          SYNC_RELAY_PROVIDER_OPENAI_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           # Every credential that may reach SSM. A name absent here never
           # reaches Parameter Store no matter what is set on the repository, so
           # SSM and GitHub drift apart on the next rotation without erroring.
           #
-          # OPENAI and ANTHROPIC are the two `cmd/relay` actually reads today;
-          # CEREBRAS is provisioned ahead of the adapter that will read it, and
-          # syncing it keeps the GitHub copy authoritative in the meantime.
-          RELAY_SECRETS="RELAY_PROVIDER_OPENAI_API_KEY RELAY_PROVIDER_ANTHROPIC_API_KEY RELAY_PROVIDER_CEREBRAS_API_KEY"
+          # One entry per provider in RELAY_PROVIDERS, and it does not grow with
+          # a key pool: a pool is comma-separated INSIDE one _API_KEY value, so
+          # rotating or widening a pool never touches this list. ANTHROPIC is
+          # absent because the deployed set does not declare it — the adapter
+          # still exists and the slug is still known, so re-adding it is a
+          # RELAY_PROVIDERS change plus a line here, not a code change.
+          RELAY_SECRETS="RELAY_PROVIDER_CEREBRAS_API_KEY RELAY_PROVIDER_OPENROUTER_API_KEY RELAY_PROVIDER_OPENAI_API_KEY"
 
           for k in $RELAY_SECRETS; do
             # An UNSET repository secret still leaves SYNC_$k defined-and-empty,
