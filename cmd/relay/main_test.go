@@ -526,10 +526,7 @@ func TestTheReloadPathActuallyWarns(t *testing.T) {
 			// Wait for the condition rather than for a duration: a fixed sleep
 			// is either flaky or slow, and this loop ticks every millisecond.
 			deadline := time.After(10 * time.Second)
-			for {
-				if strings.Contains(logs.String(), unroutableMessage) == testCase.warns {
-					break
-				}
+			for strings.Contains(logs.String(), unroutableMessage) != testCase.warns {
 				select {
 				case <-deadline:
 					t.Fatalf("after 10s the reload log %s the warning; it reads:\n%s",
