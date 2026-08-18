@@ -564,12 +564,21 @@ inventory, no rate card and no credential of any kind.
 ### The health path is `/livez`
 
 It is the only route that answers without an Oxy edge signature, so it is the
-only one a load balancer can use. `/internal/v1/health` returns **401** to an
-unsigned probe and `/health` does not exist — a target group pointed at either
-marks every task unhealthy and the service never stabilises.
+only one a health probe can use. `/internal/v1/health` returns **401** to an
+unsigned probe and `/health` does not exist — a check pointed at either marks
+every task unhealthy and the service never stabilises.
 
-The image declares no `HEALTHCHECK`: ECS does not read one, and the command
-would have to be a binary this image deliberately does not carry.
+**The probe has to come from outside the container.** The image carries no
+shell, no `wget` and no `curl`, so neither a Dockerfile `HEALTHCHECK` nor an ECS
+container `healthCheck` can run a command in it, and the ECS one fails by never
+passing rather than by erroring. An HTTP check against `/livez` from a load
+balancer or equivalent needs nothing in the image and works as it stands.
+
+Without any probe, ECS still replaces a task that *exits*, and Relay exits
+non-zero on every startup failure reachable from configuration. What is
+uncovered is "running but not serving". The alternative that would close that
+gap without a shell is a self-probe flag on the binary, which does not exist
+today and is a change to `cmd/relay`, not to the image.
 
 ### What the deployment must supply, and what happens when it does not
 

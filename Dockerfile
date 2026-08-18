@@ -12,9 +12,14 @@
 # The final stage has no shell and no binary other than relay itself, so a
 # HEALTHCHECK's command could only be one this image does not carry. Adding a
 # shell to run it would put a package manager and an interpreter in a container
-# whose environment holds provider API keys, to duplicate a check the platform
-# already makes: ECS does not read a Dockerfile HEALTHCHECK, and the target
-# group polls the process over HTTP instead.
+# whose environment holds provider API keys, to duplicate a check that can be
+# made from outside.
+#
+# The consequence belongs with the deployment and not only here: an ECS
+# container `healthCheck` cannot work against this image either, for the same
+# reason and with the same three missing binaries, and it fails by never
+# passing rather than by erroring. Whatever watches this process has to reach
+# it over HTTP from outside the container.
 #
 #     GET /livez   unsigned, carries no provider detail, 200 with
 #                  {"status":"ok","contractVersion":"..."}
