@@ -39,10 +39,10 @@ func TestWriteWireFixtures(t *testing.T) {
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
 	// reason the not-applicable list is exact.
-	// 12 wire shapes plus the 6 credential-text strings the published schema
+	// 13 wire shapes plus the 6 credential-text strings the published schema
 	// must ACCEPT; 6 controls plus the 6 it must REJECT.
-	if len(valid) != 18 {
-		t.Fatalf("expected 18 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 19 {
+		t.Fatalf("expected 19 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
 	if len(invalid) != 12 {
 		t.Fatalf("expected 12 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
@@ -222,6 +222,36 @@ func validFixtures(t *testing.T) []fixture {
 		t.Fatalf("the usage report fixture does not satisfy Relay's own validation: %v", err)
 	}
 
+	// The other half of the usage report, and the half a happy-path fixture can
+	// never reach: a generation that failed before anything was measured. Its
+	// `Units` is left at the zero value on purpose — that is what the executor
+	// hands the encoder when the provider refuses, and assigning an empty slice
+	// here would make this fixture agree with the encoder instead of testing it.
+	//
+	// Relay's own Validate() accepts it, which is precisely why this fixture is
+	// worth writing: ranging over a nil slice is legal Go, so the gap between
+	// "valid to Relay" and "parseable by Oxy" is only visible on the wire.
+	failedReport := UsageReport{
+		SchemaVersion:          SchemaVersion,
+		RequestID:              attribution.RequestID,
+		GenerationID:           attribution.GenerationID,
+		Attribution:            attribution,
+		Outcome:                OutcomeFailed,
+		UsageSource:            UsageEstimated,
+		ResolvedModelReference: "openai/gpt-5@2026-05-01",
+		ServingProvider:        "openai",
+		DeploymentID:           pointerTo(DeploymentID("dep_openai_gpt5_use1")),
+		RouteSwitches:          0,
+		StartedAt:              started,
+		CompletedAt:            completed,
+	}
+	if failedReport.Units != nil {
+		t.Fatal("this fixture must leave Units at its zero value; the zero value is the shape under test")
+	}
+	if err := failedReport.Validate(); err != nil {
+		t.Fatalf("Relay rejects the report it emits for a failed generation: %v", err)
+	}
+
 	failure := NewError(attribution.RequestID, CodeProviderOverloaded, "upstream is overloaded").
 		WithRetryAfter(2000).
 		WithUpstream(UpstreamOverloaded, &ProviderErrorPassthrough{
@@ -236,6 +266,7 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile", Value: textTarget},
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
 		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
+		{Schema: "normalizedUsageReportSchema", Case: "failed-with-nothing-measured", Value: failedReport},
 		{Schema: "inferenceErrorSchema", Case: "retryable-with-upstream", Value: failure},
 		{Schema: "inferenceStreamEventSchema", Case: "start", Value: &StreamStartEvent{
 			SchemaVersion: SchemaVersion, Type: EventStart, RequestID: attribution.RequestID, Seq: 0,

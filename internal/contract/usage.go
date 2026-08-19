@@ -1,6 +1,9 @@
 package contract
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // UsageReport is the data plane's technical account of one request — the only
 // usage shape Relay produces.
@@ -25,6 +28,30 @@ type UsageReport struct {
 	StartedAt              Timestamp       `json:"startedAt"`
 	CompletedAt            Timestamp       `json:"completedAt"`
 	TimeToFirstTokenMs     *int            `json:"timeToFirstTokenMs,omitempty"`
+}
+
+// MarshalJSON renders an unmeasured request as `"units": []`.
+//
+// The contract declares `units` as an array that is neither nullable nor
+// optional, and its one representation of "nothing was measured" is the empty
+// list. Go's zero slice is nil, `encoding/json` renders nil as `null`, and a
+// failed generation is exactly the case that leaves Units unassigned — so
+// without this the reports Oxy rejects are precisely the ones that report a
+// provider refusing the request.
+//
+// It lives on the type rather than at the one place the executor builds a
+// report, because the wire shape is a property of the shape and not of any
+// construction site. A future second producer, a test fixture and a replay all
+// go through this.
+func (r UsageReport) MarshalJSON() ([]byte, error) {
+	// A distinct type so this method is not in scope inside itself; the field
+	// set and every tag are still UsageReport's.
+	type wire UsageReport
+	encoded := wire(r)
+	if encoded.Units == nil {
+		encoded.Units = []UsageQuantity{}
+	}
+	return json.Marshal(encoded)
 }
 
 // Validate applies the refinements the published schema carries, so a report
