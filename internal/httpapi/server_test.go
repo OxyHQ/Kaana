@@ -54,6 +54,10 @@ type stubAdapter struct {
 	chunks   int
 	interval time.Duration
 	refuse   error
+	// fail is returned by Stream before anything is emitted or measured: the
+	// shape of a provider that rejects the call outright, such as a 402 from an
+	// account with no balance.
+	fail error
 
 	mutex     sync.Mutex
 	written   int
@@ -74,6 +78,11 @@ func (s *stubAdapter) Translate(request *contract.Request, route provider.Route)
 }
 
 func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+	if s.fail != nil {
+		// Nothing started and nothing was measured, so the outcome is its zero
+		// value — including a nil unit slice, which is the point.
+		return provider.Outcome{}, s.fail
+	}
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}
 	if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 		return outcome, err
@@ -319,6 +328,11 @@ func envelope(t *testing.T, mutate func(map[string]any)) []byte {
 type frames struct {
 	events  []map[string]any
 	reports []map[string]any
+	// rawReports is the undecoded report payload. Decoding into map[string]any
+	// is lossy for the distinction that matters here: an absent array, a null
+	// one and an empty one all arrive as something a Go test reads as "empty",
+	// so the bytes are kept as well.
+	rawReports []string
 }
 
 func readFrames(t *testing.T, body io.Reader) frames {
@@ -339,6 +353,7 @@ func readFrames(t *testing.T, body io.Reader) frames {
 			collected.events = append(collected.events, payload)
 		case httpapi.FrameUsageReport:
 			collected.reports = append(collected.reports, payload)
+			collected.rawReports = append(collected.rawReports, frame.Data)
 		default:
 			t.Fatalf("unexpected frame name %q", frame.Name)
 		}
@@ -544,6 +559,59 @@ func TestStreamsNormalizedEventsThenAUsageReport(t *testing.T) {
 	// to be the envelope's, unchanged.
 	if report.Attribution.Principal.Billing.AccountID != "acc_test" {
 		t.Errorf("the report bills %q", report.Attribution.Principal.Billing.AccountID)
+	}
+}
+
+// TestAFailedGenerationReportsUnitsAsAnEmptyArray is the entrypoint half of the
+// encoder gate in internal/contract.
+//
+// A MarshalJSON can be correct and inert: the report only reaches Oxy through
+// the frame this handler writes, so the test that matters asserts THOSE bytes,
+// with a provider failing the way the production one did — refusing before
+// anything was produced or measured.
+//
+// The check reads the raw frame rather than a decoded map, because `null`, `[]`
+// and an absent field all decode to something a Go assertion reads as empty,
+// and the whole defect is which of the three crossed the wire.
+func TestAFailedGenerationReportsUnitsAsAnEmptyArray(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{fail: provider.ErrUpstream{
+		Code:     contract.CodeQuotaExceeded,
+		Category: contract.UpstreamQuota,
+		Detail:   "the provider account has no balance",
+	}})
+	response := harness.post(t, context.Background(), envelope(t, nil), true)
+	defer func() { _ = response.Body.Close() }()
+
+	collected := readFrames(t, response.Body)
+	if len(collected.rawReports) != 1 {
+		t.Fatalf("%d usage reports were delivered, expected exactly 1", len(collected.rawReports))
+	}
+	report := collected.rawReports[0]
+
+	// The premise: without a failed generation whose units are absent, the
+	// assertion below would pass on any report at all.
+	if !strings.Contains(report, `"outcome":"failed"`) {
+		t.Fatalf("this report is not the shape under test:\n%s", report)
+	}
+	if strings.Contains(report, `"units":null`) {
+		t.Errorf("the edge is sent units as null, which the published schema cannot parse:\n%s", report)
+	}
+	if !strings.Contains(report, `"units":[]`) {
+		t.Errorf("the edge is not sent an empty unit array:\n%s", report)
+	}
+
+	// The terminal error frame is what the edge would otherwise lose: it reads
+	// the failure first and then parses the report, so a report it cannot parse
+	// throws away the provider's real refusal and reports an internal error.
+	if len(collected.events) != 1 || collected.events[0]["type"] != string(contract.EventError) {
+		t.Fatalf("the customer was not told why the request failed: %v", collected.events)
+	}
+	failure, ok := collected.events[0]["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("the terminal event carries no error body: %v", collected.events[0])
+	}
+	if failure["code"] != string(contract.CodeQuotaExceeded) {
+		t.Errorf("the terminal error carries code %v", failure["code"])
 	}
 }
 

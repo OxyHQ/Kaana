@@ -1,5 +1,7 @@
 package contract
 
+import "encoding/json"
+
 // BillingPrincipal is the financially responsible principal, and the only
 // identity a charge may be booked against.
 //
@@ -22,6 +24,24 @@ type AuthenticatedPrincipal struct {
 	CredentialID    CredentialID     `json:"credentialId"`
 	Environment     Environment      `json:"environment"`
 	InferenceScopes []Scope          `json:"inferenceScopes"`
+}
+
+// MarshalJSON renders a principal holding no inference scopes as
+// `"inferenceScopes": []`, for the same reason UsageReport.MarshalJSON exists:
+// the contract's array has no null spelling, and Go's zero slice encodes as one.
+//
+// Relay refuses an envelope without inference:invoke before it can produce a
+// report, so no live path emits an empty list today. It is fixed here anyway
+// because the field rides on the same report through the same encoder, and a
+// fix applied only to the sibling that happens to be reachable is how the same
+// failure lands again the next time an envelope's shape changes.
+func (p AuthenticatedPrincipal) MarshalJSON() ([]byte, error) {
+	type wire AuthenticatedPrincipal
+	encoded := wire(p)
+	if encoded.InferenceScopes == nil {
+		encoded.InferenceScopes = []Scope{}
+	}
+	return json.Marshal(encoded)
 }
 
 // Attribution is the block carried by every request, event and usage report.
