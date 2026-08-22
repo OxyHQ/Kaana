@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Identifiers Relay carries but never owns.
+// Identifiers Pensara carries but never owns.
 //
 // ADR 0006: the data plane stores Oxy identifiers as immutable opaque strings.
 // They are distinct Go types so that an account id cannot be passed where an
@@ -16,21 +16,21 @@ import (
 // the wire unless the types are restated.
 type (
 	// AccountID is the Oxy account that owns the workload and is financially
-	// responsible for it. Relay never parses it, joins on it, or writes a row
+	// responsible for it. Pensara never parses it, joins on it, or writes a row
 	// keyed by it.
 	AccountID string
 	// ApplicationID is the Oxy Application consuming inference.
 	ApplicationID string
 	// CredentialID is the Oxy ApplicationCredential that authenticated the
-	// request. Relay never sees the credential's secret.
+	// request. Pensara never sees the credential's secret.
 	CredentialID string
 	// UserID is the optional delegated end user. Attribution only: it is never
 	// a billing principal and never an access-control principal.
 	UserID string
-	// RequestID correlates the Oxy edge, Relay, the ledger and the customer
-	// receipt. It arrives on the envelope; Relay does not allocate it.
+	// RequestID correlates the Oxy edge, Pensara, the ledger and the customer
+	// receipt. It arrives on the envelope; Pensara does not allocate it.
 	RequestID string
-	// GenerationID names a generation that can be looked up later. Relay
+	// GenerationID names a generation that can be looked up later. Pensara
 	// allocates it when a request produces one.
 	GenerationID string
 	// IdempotencyKey is the caller's deduplication key.
@@ -57,8 +57,8 @@ type (
 	Timestamp string
 )
 
-// The patterns below are the load-bearing ones: Relay validates against them,
-// so a change to any of them changes what Relay accepts or emits.
+// The patterns below are the load-bearing ones: Pensara validates against them,
+// so a change to any of them changes what Pensara accepts or emits.
 // contract_test.go asserts each source string equals the published schema's, so
 // a grammar change upstream is a failing test rather than a silent divergence.
 var (

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // A provider credential is a POOL rather than a value, and this file is the
@@ -313,7 +313,7 @@ type KeyPolicy struct {
 	// another key. Keys of one account share that account's rate limit, so
 	// rotating into it would hammer a provider that has just asked for less
 	// traffic; keys of separate accounts have separate limits, and the next one
-	// can serve the request. Relay cannot tell the two apart, so it does not
+	// can serve the request. Pensara cannot tell the two apart, so it does not
 	// guess — false, the default, never rotates on a throttle.
 	OnSeparateAccounts bool
 }

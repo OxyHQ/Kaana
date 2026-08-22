@@ -1,3 +1,3 @@
-module github.com/OxyHQ/Relay
+module github.com/OxyHQ/Pensara
 
 go 1.24.4

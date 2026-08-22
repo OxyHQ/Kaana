@@ -73,12 +73,12 @@ func loadDescriptor(t *testing.T) descriptorFile {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  What Relay implements, and what it deliberately does not                  */
+/*  What Pensara implements, and what it deliberately does not                  */
 /* -------------------------------------------------------------------------- */
 
 // goShapes maps a published shape to the Go type that carries it on the wire.
 //
-// Every shape Relay reads from or writes to the wire is here. A shape that is
+// Every shape Pensara reads from or writes to the wire is here. A shape that is
 // neither here nor in one of the three registries below fails
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
@@ -118,9 +118,9 @@ var goShapes = map[string]reflect.Type{
 }
 
 // goEnums maps a published enum to the Go named type that restates it, together
-// with the members Relay declares. The members are compared as an exact,
+// with the members Pensara declares. The members are compared as an exact,
 // ordered list: a member added upstream and not here is an unhandled value, and
-// a member here and not upstream is a value Relay could emit that Oxy rejects.
+// a member here and not upstream is a value Pensara could emit that Oxy rejects.
 var goEnums = map[string]enumBinding{
 	"inferenceEnvironmentSchema":       bindEnum(environmentValues),
 	"inferenceScopeSchema":             bindEnum(scopeValues),
@@ -185,7 +185,7 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 // A shape leaves this list only by being implemented, and joins it only with a
 // reason that names the owner.
 var notApplicable = map[string]string{
-	// Catalogue identity and pricing are Oxy's (ADR 0006). Relay consumes
+	// Catalogue identity and pricing are Oxy's (ADR 0006). Pensara consumes
 	// canonical model ids as opaque strings and holds its own operational
 	// inventory; it neither serves nor stores a customer-facing catalogue.
 	"availabilityScopeSchema":               "catalogue: Oxy owns customer-facing model identity and commercial permission",
@@ -194,10 +194,10 @@ var notApplicable = map[string]string{
 	"catalogueServingProviderSummarySchema": "catalogue: Oxy owns the customer-safe provider projection",
 	"commercialPermissionSchema":            "catalogue: resale permission is an Oxy commercial decision",
 	"inferenceDataPolicySchema":             "catalogue: retention and training policy are published by Oxy",
-	"inferenceProviderSchema":               "catalogue: Oxy owns provider identity; Relay owns provider health only",
+	"inferenceProviderSchema":               "catalogue: Oxy owns provider identity; Pensara owns provider health only",
 	"modelCapabilitiesSchema":               "catalogue: Oxy owns capability advertisement",
 	"modelCatalogueEntrySchema":             "catalogue: the assembled customer view is served by Oxy",
-	"modelDeploymentSchema":                 "catalogue: carries Oxy commercial fields and no upstream model id; Relay's own inventory is internal/inventory",
+	"modelDeploymentSchema":                 "catalogue: carries Oxy commercial fields and no upstream model id; Pensara's own inventory is internal/inventory",
 	"modelDeprecationSchema":                "catalogue: deprecation is an Oxy product decision",
 	"modelEvaluationResultSchema":           "catalogue: evaluation summaries are published by Oxy",
 	"modelLicenseSchema":                    "catalogue: licensing is an Oxy publishing concern",
@@ -205,24 +205,24 @@ var notApplicable = map[string]string{
 	"modelPublisherSchema":                  "catalogue: Oxy owns publisher identity",
 	"modelRevisionSchema":                   "catalogue: Oxy owns revision identity",
 	"modelSafetyMetadataSchema":             "catalogue: safety metadata is published by Oxy",
-	"publisherSlugSchema":                   "catalogue: a component of a model id Relay never splits",
-	"modelSlugSchema":                       "catalogue: a component of a model id Relay never splits",
-	"modelRevisionLabelSchema":              "catalogue: a component of a model reference Relay never splits",
+	"publisherSlugSchema":                   "catalogue: a component of a model id Pensara never splits",
+	"modelSlugSchema":                       "catalogue: a component of a model id Pensara never splits",
+	"modelRevisionLabelSchema":              "catalogue: a component of a model reference Pensara never splits",
 	"routingProfileCandidateSchema":         "catalogue: profile candidates are resolved by Oxy before forwarding",
 	"routingProfileSchema":                  "catalogue: profile definitions live in the Oxy catalogue",
 	"inferenceDateSchema":                   "catalogue: calendar dates appear only on catalogue descriptors",
 	"inferenceHttpsUrlSchema":               "catalogue: documentation links appear only on catalogue descriptors",
 
-	// Money and the ledger are Oxy's. Relay measures units and never prices
+	// Money and the ledger are Oxy's. Pensara measures units and never prices
 	// them; there is deliberately no Money type in this package.
-	"currencyCodeSchema":            "ledger: Relay never quotes an amount",
-	"exactDecimalSchema":            "ledger: Relay never quotes an amount",
-	"moneySchema":                   "ledger: Relay never quotes an amount",
+	"currencyCodeSchema":            "ledger: Pensara never quotes an amount",
+	"exactDecimalSchema":            "ledger: Pensara never quotes an amount",
+	"moneySchema":                   "ledger: Pensara never quotes an amount",
 	"unitPriceSchema":               "ledger: Oxy owns pricing",
 	"priceSnapshotSchema":           "ledger: Oxy owns pricing",
 	"priceVersionSchema":            "ledger: Oxy owns pricing",
 	"priceVersionStatusSchema":      "ledger: Oxy owns pricing",
-	"usageReceiptSchema":            "ledger: settlement is Oxy's; Relay emits normalizedUsageReport",
+	"usageReceiptSchema":            "ledger: settlement is Oxy's; Pensara emits normalizedUsageReport",
 	"usageRefundSchema":             "ledger: reversal is Oxy's",
 	"usageRefundReasonSchema":       "ledger: reversal is Oxy's",
 	"usageRefundSubjectSchema":      "ledger: reversal is Oxy's",
@@ -231,10 +231,10 @@ var notApplicable = map[string]string{
 	"usageReservationStatusSchema":  "ledger: reservation happens at the edge, before the envelope is forwarded",
 
 	// Routing policy is configured and resolved in Oxy. The envelope carries
-	// only routingPolicyReferenceSchema, which Relay does implement.
+	// only routingPolicyReferenceSchema, which Pensara does implement.
 	"routingPolicySchema":         "policy: the envelope carries a reference, not a snapshot (see README)",
 	"routingPolicyScopeSchema":    "policy: policy scoping is an Oxy control-plane concern",
-	"routingFallbackPolicySchema": "policy: fallback controls arrive only inside a snapshot Relay is not sent",
+	"routingFallbackPolicySchema": "policy: fallback controls arrive only inside a snapshot Pensara is not sent",
 
 	// BYOK. Out of scope for this PR and named as such in the README.
 	"providerConnectionSchema":           "byok: out of scope for the first PR",
@@ -257,12 +257,12 @@ var notApplicable = map[string]string{
 	"billingModeSchema":             "billing: prepaid or invoiced is a customer-account property",
 	"billingProfileSchema":          "billing: a customer's billing profile is an Oxy entity",
 	"billingProfileStatusSchema":    "billing: a customer's billing profile is an Oxy entity",
-	"externalPaymentSchema":         "billing: payment processing is Oxy's, and Relay holds no payment credential",
+	"externalPaymentSchema":         "billing: payment processing is Oxy's, and Pensara holds no payment credential",
 	"externalPaymentKindSchema":     "billing: payment processing is Oxy's",
 	"externalPaymentProviderSchema": "billing: payment processing is Oxy's",
 
 	// Reconciliation compares what Oxy charged against what a provider
-	// invoiced. Relay measures its own upstream cost (internal/providercost)
+	// invoiced. Pensara measures its own upstream cost (internal/providercost)
 	// and deliberately does not reconcile it — see the README's out-of-scope
 	// list. Published in @oxyhq/contracts 0.28.0.
 	"reconciliationReportSchema":          "reconciliation: a finance process with no home in a data plane",
@@ -272,7 +272,7 @@ var notApplicable = map[string]string{
 	"reconciliationDiscrepancyKindSchema": "reconciliation: a finance process with no home in a data plane",
 
 	// Entitlements, plans and cost centres are what a customer bought and how
-	// they attribute it. Relay is told the outcome of that decision — an
+	// they attribute it. Pensara is told the outcome of that decision — an
 	// already-authorized envelope — and never re-derives it (ADR 0006).
 	// Published in @oxyhq/contracts 0.28.0.
 	"costCenterSchema":            "entitlement: cost attribution is an Oxy account structure",
@@ -498,10 +498,10 @@ func TestStreamEventUnionIsExhaustive(t *testing.T) {
 	}
 }
 
-// TestPublishedGrammarsMatchGoPatterns compares the regexes Relay actually
+// TestPublishedGrammarsMatchGoPatterns compares the regexes Pensara actually
 // enforces against the published ones, character for character.
 //
-// Only the patterns Relay validates against are checked. The rest of the
+// Only the patterns Pensara validates against are checked. The rest of the
 // published string constraints ride in descriptor.json, where CI's
 // regenerate-and-diff step turns any upstream change into a reviewable diff.
 func TestPublishedGrammarsMatchGoPatterns(t *testing.T) {
@@ -520,7 +520,7 @@ func TestPublishedGrammarsMatchGoPatterns(t *testing.T) {
 		}
 		published, _ := node.Constraints["regex"].(string)
 		if published == "" {
-			t.Errorf("%s publishes no regex; Relay enforces one", name)
+			t.Errorf("%s publishes no regex; Pensara enforces one", name)
 			continue
 		}
 		if published != pattern {
@@ -621,7 +621,7 @@ func (c *shapeChecker) compareField(shape, jsonName string, node descriptorNode,
 	case optional && !field.omitEmpty:
 		problems = append(problems, fmt.Sprintf("%s: the contract makes it optional; the Go tag lacks omitempty", where))
 	case !optional && field.omitEmpty:
-		problems = append(problems, fmt.Sprintf("%s: the contract requires it; the Go tag has omitempty, so Relay can omit a required field", where))
+		problems = append(problems, fmt.Sprintf("%s: the contract requires it; the Go tag has omitempty, so Pensara can omit a required field", where))
 	case !optional && pointer:
 		problems = append(problems, fmt.Sprintf("%s: the contract requires it; %s is a pointer", where, goType))
 	}
@@ -714,7 +714,7 @@ func (c *shapeChecker) compareRef(where, ref string, goType reflect.Type) []stri
 		return nil
 	}
 	if reason, excused := notApplicable[ref]; excused {
-		return []string{fmt.Sprintf("%s: references %s, which is recorded not-applicable (%s) yet appears in a shape Relay exchanges", where, ref, reason)}
+		return []string{fmt.Sprintf("%s: references %s, which is recorded not-applicable (%s) yet appears in a shape Pensara exchanges", where, ref, reason)}
 	}
 	return []string{fmt.Sprintf("%s: references unregistered shape %s", where, ref)}
 }
@@ -905,8 +905,8 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // diffStringLists compares two vocabularies as SETS and reports both
 // directions, because the two failures mean different things: something in the
-// contract and not in Go is a value Relay would not handle, and something in Go
-// and not in the contract is a value Relay could emit that Oxy rejects.
+// contract and not in Go is a value Pensara would not handle, and something in Go
+// and not in the contract is a value Pensara could emit that Oxy rejects.
 func diffStringLists(want, got []string) string {
 	inWant := make(map[string]bool, len(want))
 	for _, value := range want {

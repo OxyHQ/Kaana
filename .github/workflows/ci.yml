@@ -90,7 +90,7 @@ jobs:
       - name: the Go types match the published contract
         run: go test -count=1 ./internal/contract/...
 
-      - name: the shapes Relay produces parse under the published Zod schemas
+      - name: the shapes Pensara produces parse under the published Zod schemas
         # Reads the fixtures the step above wrote. It fails on an empty fixture
         # directory and on any rejection control it accepts, so a silent no-op
         # cannot pass as a clean run.

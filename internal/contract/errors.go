@@ -64,7 +64,7 @@ var errorCodeValues = []ErrorCode{
 
 // nonRetryableErrorCodes are the codes for which an identical retried request
 // cannot succeed. The contract constrains `retryable` by the code, so a producer
-// that sets both is rejected at Oxy's parse — which means Relay must not be that
+// that sets both is rejected at Oxy's parse — which means Pensara must not be that
 // producer, and NewError enforces it here rather than discovering it at the edge.
 var nonRetryableErrorCodes = []ErrorCode{
 	CodeInvalidRequest, CodeAuthenticationFailed, CodePermissionDenied, CodeInsufficientScope,
@@ -93,7 +93,7 @@ func (c ErrorCode) Retryable() bool {
 const maxSafeErrorTextLength = 2000
 
 // The published refusal is FOUR independent signals rather than one pattern, and
-// they are restated here because Relay is a producer: text that trips any of
+// they are restated here because Pensara is a producer: text that trips any of
 // them is rejected wholesale by Oxy's parse, and the customer then sees nothing
 // at all instead of the real cause.
 //
@@ -169,7 +169,7 @@ const WithheldErrorText = "the provider's message was withheld: it still looked 
 // It does NOT redact the span that matched, and that is the whole point of this
 // function's shape. The span is the MARKER; the secret is what follows it, so
 // replacing the span produces `{x-[redacted] <key>}` — a string that carries the
-// key and no longer looks like it does. Relay measured that (OxyHQ/Relay#3) and
+// key and no longer looks like it does. Pensara measured that (OxyHQ/Pensara#3) and
 // the contract now refuses the residue explicitly, so a span redaction here
 // would turn a message Oxy rejects into one it accepts with the credential
 // intact.
@@ -229,7 +229,7 @@ func (e *Error) Error() string {
 //
 // Retryability is derived from the code rather than taken from the caller. The
 // contract makes `retryable` a producer assertion constrained by the code, and
-// deriving it is the only way to guarantee Relay never emits the combination
+// deriving it is the only way to guarantee Pensara never emits the combination
 // that Oxy's parse rejects.
 func NewError(requestID RequestID, code ErrorCode, message string) *Error {
 	return &Error{

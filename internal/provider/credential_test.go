@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 const (
@@ -103,7 +103,7 @@ func TestAFailureSaysThreeDifferentThingsAndTheyDoNotAgree(t *testing.T) {
 			verdict: CredentialRequestFault,
 		},
 
-		// The customer's own money, which says nothing about Relay's key. This
+		// The customer's own money, which says nothing about Pensara's key. This
 		// is the mirror image of the mistake the whole file is about: retiring
 		// a working credential because a CUSTOMER ran out.
 		"the customer's quota is exhausted": {
@@ -300,7 +300,7 @@ func TestNoKeyIsLeasedTwiceForOneRequest(t *testing.T) {
 //
 // Keys of one account share that account's rate limit, so rotating into it
 // hammers a provider that has just asked for less traffic. Keys of separate
-// accounts have separate limits. Relay cannot tell which it holds, so it does
+// accounts have separate limits. Pensara cannot tell which it holds, so it does
 // not guess.
 func TestAThrottleRotatesOnlyWhereTheOperatorSaidTheKeysAreSeparateAccounts(t *testing.T) {
 	shared := newTestPool(t, KeyPolicy{}, firstCredential, secondCredential).Begin()

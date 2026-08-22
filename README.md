@@ -1,28 +1,65 @@
-# Relay
+# Pensara
 
-Relay is the inference **data plane** for the Oxy platform. It normalizes a
+Pensara is the inference **data plane** for the Oxy platform. It normalizes a
 request, translates it for one upstream provider, streams the result back,
 propagates cancellation, and reports what was technically consumed.
 
 It is not a product. It has no customers, no accounts, no console and no
 billing. Oxy is the single control plane for all of that
-([ADR 0005][adr0005], [ADR 0006][adr0006]); Relay executes what Oxy has already
+([ADR 0005][adr0005], [ADR 0006][adr0006]); Pensara executes what Oxy has already
 authorized and reports what it measured.
 
-Tracked as workstream 13 of [OxyHQ/oxy#972][epic]. `Relay` is a working name
-until naming review completes ([ADR 0011][adr0011]).
+Tracked as workstream 13 of [OxyHQ/oxy#972][epic].
+
+## It was called Relay
+
+`Relay` was the working name. Everything a person reads now says Pensara: the
+module path, the packages, the binaries' source directories, the environment
+variables and the docs.
+
+Two things are still answered under both spellings, because they are exchanged
+with a service that deploys separately and there is no ordering of two deploys
+that avoids a gap:
+
+- **Environment variables.** Every variable is `PENSARA_*`; a deployment still
+  setting `RELAY_*` is answered from that instead, current name winning. One
+  function, `providerconfig.EnvName`.
+- **The Oxy edge's signing headers.** `X-Oxy-Pensara-Key-Id`, `-Timestamp` and
+  `-Signature` are preferred and the `X-Oxy-Relay-*` spellings still verify. A
+  clean cut would refuse every request with `unknown key id` — before a
+  signature is even computed — for as long as the edge kept sending the old
+  names.
+
+Both are migrations with an end, not compatibility layers. Deleting either turns
+a named test red, which is how the deletion proves it did something:
+`TestTheLegacySpellingIsAnswered` and `TestTheLegacyHeaderSpellingStillVerifies`.
+
+Three things deliberately still say `relay` and are **not** oversights:
+
+- The signed domain separator `oxy-relay-envelope:v1`, which lives inside the
+  signature. Changing it changes every signature and is invisible to everyone.
+- The shipped binary paths (`/usr/local/bin/relay`) and the inventory mount
+  point (`/etc/relay`), which the task definition in oxy-infra names. They move
+  with the infrastructure rename, in the same change as terraform.
+- The AWS resource names and the deploy workflow's `APP`/`FAMILY`, for the same
+  reason.
+- The image's own `ENV` defaults. A container definition's `environment` beats
+  an image `ENV`, but the binary prefers `PENSARA_*` — so an image setting the
+  new spelling while the task definition still sets the old one would make the
+  IMAGE default win, inverting the override. Both hold the same value today, so
+  the swap would break nothing and teach nothing. They move with terraform.
 
 ---
 
 ## The boundary, in one paragraph
 
-Relay owns request normalization, provider adapters, routing **execution**,
+Pensara owns request normalization, provider adapters, routing **execution**,
 streaming, cancellation, model deployments, provider health and technical
-metering. Relay never owns accounts, organizations, projects, members,
+metering. Pensara never owns accounts, organizations, projects, members,
 applications, credentials, balances, a billing ledger or a customer console. It
 stores Oxy identifiers as **immutable, opaque strings** and never as records it
 may create, edit or delete. Authorization, attribution, scope checks and spend
-reservation all happen **in Oxy, before a request reaches Relay** — Relay does
+reservation all happen **in Oxy, before a request reaches Pensara** — Pensara does
 not re-derive them, and an envelope that does not carry them is refused.
 
 If a change would put an Oxy-owned concept in this repository, the change is
@@ -31,8 +68,8 @@ wrong, not the boundary. `AGENTS.md` states the rules a reviewer applies.
 ## Layout
 
 ```
-cmd/relay/                      the serving binary: env config, wiring, graceful drain
-cmd/relay-publisher/            the publishing binary: builds the inventory and re-issues it
+cmd/pensara/                      the serving binary: env config, wiring, graceful drain
+cmd/pensara-publisher/            the publishing binary: builds the inventory and re-issues it
 internal/awssig/                AWS SigV4, so the publisher can write one S3 object
 internal/contract/              Go types for @oxyhq/contracts' inference module
   descriptor.json               GENERATED from the published package
@@ -48,9 +85,9 @@ internal/provider/              the Adapter interface, registry and error vocabu
   openaicompat/                 the ported OpenAI Chat Completions adapter
   anthropic/                    the ported Anthropic Messages API adapter
 internal/providerconfig/        where a provider lives: the defaults table both commands read
-internal/providercost/          what a request cost Relay upstream; never a customer amount
+internal/providercost/          what a request cost Pensara upstream; never a customer amount
 internal/publisher/             builds the inventory from the providers' own model lists
-internal/relay/                 the executor: routing, failover, framing, usage reports
+internal/pensara/                 the executor: routing, failover, framing, usage reports
 internal/rotation/              per-deployment circuit breakers and health scoring
 internal/sse/                   SSE decoding (upstream) and encoding (downstream)
 tools/contract/                 Node tooling that derives and checks the contract
@@ -62,7 +99,7 @@ configs/provider-rates.example.json  illustrative upstream rate cards
 
 Layers depend downward only: `httpapi → relay → {inventory, rotation,
 providercost, provider} → contract`, with `sse` as a leaf. `contract` imports
-nothing of Relay's, which is what lets the drift gate compare it against the
+nothing of Pensara's, which is what lets the drift gate compare it against the
 published package with nothing in between — and specifically it cannot reach
 `providercost`, which is asserted rather than reviewed
 (`TestTheContractCannotReachAnAmount`).
@@ -94,7 +131,7 @@ upstream appears on the next regeneration.
   extra field, no missing field;
 - optionality matches (optional ⇔ absentable and `omitempty`, required ⇔ neither);
 - enum members match exactly, in both directions;
-- the regexes Relay enforces are character-identical to the published ones;
+- the regexes Pensara enforces are character-identical to the published ones;
 - `ContractVersion` equals the published `INFERENCE_CONTRACT_VERSION`.
 
 CI regenerates the descriptor and fails on any diff, which catches a hand-edit
@@ -112,7 +149,7 @@ or removed. `drift_test.go` proves this rather than asserting it — it perturbs
 the descriptor in each of those eleven ways and requires the comparator to
 report every one, after first confirming the unperturbed comparison is clean.
 
-**2. Relay's own output, parsed by the real Zod schemas.**
+**2. Pensara's own output, parsed by the real Zod schemas.**
 Structure is not values. `go test ./internal/contract/...` marshals one fixture
 per wire shape using the same Go types the server uses — with **every optional
 field populated**, because an optional field that drifted is invisible in a
@@ -143,7 +180,7 @@ request that fails after two hundred tokens has already sent `200`.
 
 Frames are named. `event: stream_event` carries a contract stream event;
 `event: usage_report` carries the technical usage record. The framing is
-Relay's own — the contract specifies shapes and says nothing about transport.
+Pensara's own — the contract specifies shapes and says nothing about transport.
 
 **Envelope versioning is a hard gate.** `schemaVersion` is read before anything
 else is interpreted; an unrecognised version is refused whole. A version is
@@ -151,7 +188,7 @@ never inferred from the presence of a field. Conversely, **unknown fields are
 tolerated**: the contract states that adding an optional field is additive, so a
 strict decoder would turn every additive Oxy change into an outage here.
 
-**Edge authentication is Ed25519 over the exact body** — Relay holds only public
+**Edge authentication is Ed25519 over the exact body** — Pensara holds only public
 keys, so it cannot construct an envelope it would itself accept. This is a
 decision Oxy has not made; the reasoning, and why it is not an HMAC, is in
 `internal/edgeauth`. It is deliberately one small file to replace.
@@ -223,14 +260,14 @@ a cancellation, and any failure no adapter classified. One function decides,
 `provider.AttributableCategory`, and the circuit breakers read the same one, so
 the two can never drift apart.
 
-### The policy Relay is not sent, and what it does about it
+### The policy Pensara is not sent, and what it does about it
 
 **Failover is off by default, and that default is a contract finding rather than
 caution.** The published `routingFallbackPolicySchema` gives the customer two
 booleans that govern exactly this feature — `disabled` and
 `sameModelDeployment` — and `routingPolicySchema` adds `allowedRegions` and
 `deniedRegions`, which govern where a request may be served at all. The envelope
-carries a routing policy **reference** and none of those values. Relay therefore
+carries a routing policy **reference** and none of those values. Pensara therefore
 cannot tell a customer who asked for failover from one who switched it off, and
 failing over anyway would silently override a control the platform advertises.
 
@@ -239,7 +276,7 @@ deployment and nowhere else** — exactly how this build behaved before failover
 existed. Choosing among deployments at all is the policy decision, so health
 ordering is withheld too, not just the retry.
 
-`RELAY_ASSUME_FAILOVER_AUTHORIZED=<reason>:<YYYY-MM-DD>` turns it on. It is
+`PENSARA_ASSUME_FAILOVER_AUTHORIZED=<reason>:<YYYY-MM-DD>` turns it on. It is
 deliberately awkward: it states that every caller of this process has a routing
 policy permitting same-model failover across every deployment in its inventory,
 which is true of a first-party canary and of nothing else. An empty value, a
@@ -267,7 +304,7 @@ the capacity failover exists to use.
 | `half_open` | the cooldown expired; one real request at a time decides its fate |
 
 **What trips one:** only a failure attributable to the deployment — the upstream
-refusing, timing out, rate limiting, exhausting a quota, or rejecting *Relay's
+refusing, timing out, rate limiting, exhausting a quota, or rejecting *Pensara's
 own* credential. Three consecutive ones open it, and the count is consecutive
 rather than a rate because a rate needs a window and a window needs a traffic
 assumption.
@@ -283,7 +320,7 @@ into it, and it is mutation-tested from both directions.
 a burst — half-open admits exactly one trial at a time, because everything that
 arrives the moment a cooldown expires is a thundering herd onto the provider
 that just stopped failing. And not a synthetic probe: a synthetic probe proves
-the provider answers some *other* request than the one it is failing, and Relay
+the provider answers some *other* request than the one it is failing, and Pensara
 would be paying for it. A successful trial closes the breaker; a failed one
 reopens it with a doubled cooldown, capped, so a long outage is still retried
 within a bounded time.
@@ -304,7 +341,7 @@ reasonable.
 A provider slug in the inventory resolves to an adapter, an address and a pool
 of credentials. None of those three is in the inventory: a credential there
 would be a copy of an Oxy entity, and an address there would make one process's
-reachability a global fact. The inventory names the slug; `cmd/relay` resolves
+reachability a global fact. The inventory names the slug; `cmd/pensara` resolves
 it.
 
 **One protocol serves several providers.** OpenAI, OpenRouter and Cerebras all
@@ -359,7 +396,7 @@ emits to correct the guess.
 
 **Nothing is retired forever.** A quota resets on the provider's own cycle and a
 revoked key comes back when an operator rotates it, so a retirement is a flat
-window (`RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT`, default 15 minutes) rather than a
+window (`PENSARA_PROVIDER_<SLUG>_KEY_RETIREMENT`, default 15 minutes) rather than a
 doubling backoff — a backoff models an outage of unknown length, which is what
 the deployment breaker is for. A provider that said when its capacity returns is
 believed over the window. The alternative, a key that never returns, is a
@@ -371,8 +408,8 @@ hour is the price of never being in that state.
 accounts.** Keys of one account share that account's rate limit, so rotating
 into it hammers a provider that has just asked for less traffic; keys of
 separate accounts have separate limits and the next one can serve the request.
-Relay cannot tell which it holds, so it does not guess:
-`RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS=true` states it. Even then a
+Pensara cannot tell which it holds, so it does not guess:
+`PENSARA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS=true` states it. Even then a
 throttle rotates at most once per request, because nothing is retired on one and
 an unbounded walk would repeat in full on every request for as long as the
 throttle lasted.
@@ -419,7 +456,7 @@ is emitted and `routeSwitches` stays zero — asserted in the conformance suite,
 which fails on a route switch appearing at all.
 
 It therefore needs no routing-policy authorisation and does not touch
-`RELAY_ASSUME_FAILOVER_AUTHORIZED`. Choosing among the DEPLOYMENTS of a model is
+`PENSARA_ASSUME_FAILOVER_AUTHORIZED`. Choosing among the DEPLOYMENTS of a model is
 governed by `routingFallbackPolicy.sameModelDeployment` and by
 `allowedRegions`/`deniedRegions`, none of which the envelope carries; choosing
 among the credentials of one deployment is governed by nothing published,
@@ -461,7 +498,7 @@ until the request that finds it empty.
 
 ## Configuration snapshots
 
-Relay's configuration arrives as a file the control plane publishes. If that
+Pensara's configuration arrives as a file the control plane publishes. If that
 pipeline stops, the data plane must not stop serving — and must not start
 pretending it knows things it no longer knows. Those are two requirements, and
 `inventory.Store` keeps them apart.
@@ -477,18 +514,18 @@ exactly which weights answered, as always.
 
 **What it may not serve: the choice of a current revision.** Which revision an
 unpinned reference resolves to is Oxy's decision and it is the one thing in the
-file that decays. Past the horizon (`RELAY_INVENTORY_MAX_AGE`, default one hour)
+file that decays. Past the horizon (`PENSARA_INVENTORY_MAX_AGE`, default one hour)
 an unpinned reference is refused with `service_unavailable`, retryable, naming
 the age and saying that a revision-pinned reference is still served. Guessing
 instead would serve weights Oxy may have replaced hours ago on a decision nobody
 made.
 
-**Prices do not enter this** — Relay holds none — which removes the hardest half
+**Prices do not enter this** — Pensara holds none — which removes the hardest half
 of the usual stale-configuration problem. The only thing that decays here is a
 routing choice, and it degrades rather than breaking.
 
 **One requirement this places on the publisher:** staleness is measured from the
-snapshot's own `issuedAt`, not from when Relay last read the file. That is the
+snapshot's own `issuedAt`, not from when Pensara last read the file. That is the
 only measure that survives the failure that matters — a publisher that has
 stopped running leaves a perfectly readable file on disk, and re-reading it
 every thirty seconds would report it fresh forever. So the snapshot must be
@@ -503,7 +540,7 @@ no filesystem path in it.
 
 ## Publishing the inventory
 
-`cmd/relay-publisher` is the publisher the section above describes a requirement
+`cmd/pensara-publisher` is the publisher the section above describes a requirement
 for. It is a **separate process** from the one that serves, it asks the
 providers themselves what they serve, and it re-issues the snapshot on a cadence
 inside the horizon whether or not anything changed.
@@ -522,7 +559,7 @@ role could assume it too.
 
 | Field | Source |
 |---|---|
-| `provider` | `RELAY_PROVIDERS`, filtered to the slugs that hold a credential |
+| `provider` | `PENSARA_PROVIDERS`, filtered to the slugs that hold a credential |
 | `upstreamModelId` | that provider's own `GET /models`, verbatim |
 | `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
 | `current` | true; each model line has exactly one revision, its observation |
@@ -556,14 +593,14 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 | one provider cannot be asked | its routes are absent for that cycle; the others still publish |
 | no provider could be asked | the cycle refuses and the published snapshot is left alone |
 | the previous snapshot cannot be read | the cycle refuses rather than re-date every reference |
-| `RELAY_INVENTORY_BUCKET` is empty | refuses to start, naming the variable; there is no default, because publishing to a guessed bucket succeeds silently |
+| `PENSARA_INVENTORY_BUCKET` is empty | refuses to start, naming the variable; there is no default, because publishing to a guessed bucket succeeds silently |
 | a cadence at or past the horizon | refuses to start rather than clamping |
 | a provider speaking no `GET /models` | refuses; a hand-written list is the checked-in file this command replaces |
 
 ### Ordering is load-bearing
 
 Failover is off by default, so a reference resolves to the deployment declared
-FIRST and no other. Deployments are emitted in the order `RELAY_PROVIDERS`
+FIRST and no other. Deployments are emitted in the order `PENSARA_PROVIDERS`
 declares their providers, and only providers holding a credential are emitted at
 all — so every declared route is servable, and the operator's provider list is
 the one place a primary is chosen.
@@ -578,11 +615,11 @@ which the reader refuses outright as two `current` revisions.
 `configs/model-attribution.json` maps a provider's own model id onto a canonical
 `<publisher>/<model>` line. That is model IDENTITY, which ADR 0006 assigns to
 **Oxy** — while `upstreamModelId` and `current`, in the same file, are execution
-and are Relay's. The inventory is the one artefact that has to carry both, so
+and are Pensara's. The inventory is the one artefact that has to carry both, so
 neither side owns it outright.
 
 It lives here because ADR 0006's "What crosses the boundary" declares exactly
-one Oxy→Relay channel, the per-request envelope, and no channel by which a
+one Oxy→Pensara channel, the per-request envelope, and no channel by which a
 catalogue could publish an inventory. The response is to hold the smallest
 possible amount of it, declaratively, and never to derive it: an unattributed
 model is dropped rather than guessed at. If Oxy grows such a channel, that file
@@ -590,7 +627,7 @@ is what it replaces and nothing around it moves.
 
 ### Running it
 
-Everything `cmd/relay` reads about providers, this reads too, from the same
+Everything `cmd/pensara` reads about providers, this reads too, from the same
 variables through `internal/providerconfig` — so the two commands cannot
 disagree about where a provider lives. It uses ONE key from a pool: listing
 models is a single unmetered call whose failure means "ask again later", and the
@@ -598,13 +635,13 @@ serving process owns the rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RELAY_PROVIDERS` | yes | the slugs to ask; the same list the serving process reads |
-| `RELAY_PROVIDER_<SLUG>_API_KEY` | yes, per slug | a slug with no key is dropped with a warning |
-| `RELAY_INVENTORY_BUCKET` | yes | the S3 bucket to publish into; never defaulted |
-| `RELAY_INVENTORY_KEY` | yes | the object key, e.g. `inventory/current.json` |
+| `PENSARA_PROVIDERS` | yes | the slugs to ask; the same list the serving process reads |
+| `PENSARA_PROVIDER_<SLUG>_API_KEY` | yes, per slug | a slug with no key is dropped with a warning |
+| `PENSARA_INVENTORY_BUCKET` | yes | the S3 bucket to publish into; never defaulted |
+| `PENSARA_INVENTORY_KEY` | yes | the object key, e.g. `inventory/current.json` |
 | `AWS_REGION` | yes | the bucket's region |
-| `RELAY_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `RELAY_INVENTORY_MAX_AGE` |
-| `RELAY_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/relay-publisher/model-attribution.json`, baked into the image |
+| `PENSARA_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `PENSARA_INVENTORY_MAX_AGE` |
+| `PENSARA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/relay-publisher/model-attribution.json`, baked into the image |
 
 Credentials come from the ECS task role — `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
 or `_FULL_URI`, refreshed before expiry — falling back to
@@ -623,12 +660,12 @@ reading of the specification by the same author.
 
 ## Provider cost
 
-What the upstream will invoice Relay for a request. It is an **operator**
+What the upstream will invoice Pensara for a request. It is an **operator**
 number, and this is the only package in the repository that holds an amount of
 money at all.
 
 It is deliberately not the contract's money type. ADR 0006 gives Oxy every
-customer-facing amount and Relay its own upstream cost; `internal/contract` has
+customer-facing amount and Pensara its own upstream cost; `internal/contract` has
 no money type and must not acquire one, so the two cannot be confused by
 reaching for the same struct. Nothing here appears in any produced shape: the
 stream events, the usage report and the error body have no field it could
@@ -638,9 +675,9 @@ present in the operator log, absent from every byte the customer receives — wi
 a control proving a non-zero cost was measured, so "no cost in the response"
 cannot be what an unpriced request also reports.
 
-**A failed failover attempt is off the customer's receipt and on Relay's cost.**
+**A failed failover attempt is off the customer's receipt and on Pensara's cost.**
 The customer never received that output, so charging for it would be wrong; the
-provider invoices for it regardless, so dropping it would leave Relay
+provider invoices for it regardless, so dropping it would leave Pensara
 reconciling against a number short by exactly its own failover traffic. That
 asymmetry is why this is a separate measurement rather than a field on the usage
 report.
@@ -650,7 +687,7 @@ unit a card does not price, produces a measurement that says so and names the
 unpriced units. Summing unknowns as zero yields a reconciliation that looks
 complete and is quietly short by exactly the traffic nobody priced.
 
-Rate cards are optional (`RELAY_PROVIDER_RATES_PATH`), live in their own file
+Rate cards are optional (`PENSARA_PROVIDER_RATES_PATH`), live in their own file
 read by their own package, and are keyed by deployment id. Amounts are integers
 in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
@@ -833,10 +870,10 @@ bypass that ships.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RELAY_INVENTORY_PATH` | yes | deployment inventory snapshot (see `configs/inventory.example.json`) |
-| `RELAY_EDGE_PUBLIC_KEYS` | yes | `kid:base64,…` Ed25519 **public** keys; not secret |
-| `RELAY_PROVIDERS` | yes | the provider slugs this process serves, e.g. `openai,openrouter,cerebras,anthropic` |
-| `RELAY_PROVIDER_RATES_PATH` | no | upstream rate cards; absent ⇒ provider cost is not measured |
+| `PENSARA_INVENTORY_PATH` | yes | deployment inventory snapshot (see `configs/inventory.example.json`) |
+| `PENSARA_EDGE_PUBLIC_KEYS` | yes | `kid:base64,…` Ed25519 **public** keys; not secret |
+| `PENSARA_PROVIDERS` | yes | the provider slugs this process serves, e.g. `openai,openrouter,cerebras,anthropic` |
+| `PENSARA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent ⇒ provider cost is not measured |
 
 Then, per provider, with `<SLUG>` upper-cased and `.`/`-` replaced by `_`. Two
 slugs that collapse onto one variable name are refused at startup rather than
@@ -844,12 +881,12 @@ silently sharing an address and a pool.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RELAY_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
-| `RELAY_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | the provider's API root |
-| `RELAY_PROVIDER_<SLUG>_API_KEY` | no | one credential, or a pool separated by commas; absent ⇒ the provider reports `unconfigured` |
-| `RELAY_PROVIDER_<SLUG>_HEADERS` | no | `Name=Value` pairs the provider expects, comma-separated (OpenRouter's attribution headers) |
-| `RELAY_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
-| `RELAY_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT provider accounts; only then does a throttle rotate. Anything but `true`/`false` refuses to start rather than quietly meaning "not set" |
+| `PENSARA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
+| `PENSARA_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | the provider's API root |
+| `PENSARA_PROVIDER_<SLUG>_API_KEY` | no | one credential, or a pool separated by commas; absent ⇒ the provider reports `unconfigured` |
+| `PENSARA_PROVIDER_<SLUG>_HEADERS` | no | `Name=Value` pairs the provider expects, comma-separated (OpenRouter's attribution headers) |
+| `PENSARA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
+| `PENSARA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT provider accounts; only then does a throttle rotate. Anything but `true`/`false` refuses to start rather than quietly meaning "not set" |
 
 `openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
 published API root, both overridable. Any other slug declares both: an address
@@ -868,12 +905,12 @@ which declares only the slugs whose key exists.
 # Declaring a slug with no key starts cleanly and serves nothing: the adapter
 # reports `unconfigured` and refuses every request routed to it. Deploy only
 # the slugs whose key exists.
-RELAY_PROVIDERS=cerebras,openrouter,openai
-RELAY_PROVIDER_CEREBRAS_API_KEY=…
-RELAY_PROVIDER_OPENROUTER_API_KEY=…,…,…          # a pool of three
-RELAY_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS=true
-RELAY_PROVIDER_OPENROUTER_HEADERS=HTTP-Referer=https://oxy.so,X-Title=Oxy
-RELAY_PROVIDER_OPENAI_API_KEY=…
+PENSARA_PROVIDERS=cerebras,openrouter,openai
+PENSARA_PROVIDER_CEREBRAS_API_KEY=…
+PENSARA_PROVIDER_OPENROUTER_API_KEY=…,…,…          # a pool of three
+PENSARA_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS=true
+PENSARA_PROVIDER_OPENROUTER_HEADERS=HTTP-Referer=https://oxy.so,X-Title=Oxy
+PENSARA_PROVIDER_OPENAI_API_KEY=…
 ```
 
 **The one closed list here is the PROTOCOL.** It names which adapter
@@ -932,16 +969,16 @@ provider list are only both visible here, so this is where it is named. It
 warns rather than refuses — retiring a provider means removing it from the list
 before deleting its parameter, and a refusal would turn the safe order into the
 one that stops every task.
-| `RELAY_INVENTORY_MAX_AGE` | no | staleness horizon for unpinned resolution, default `1h` |
-| `RELAY_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
-| `RELAY_ASSUME_FAILOVER_AUTHORIZED` | no | `<reason>:<YYYY-MM-DD>`; absent ⇒ no failover, see above |
-| `RELAY_BREAKER_FAILURES_TO_OPEN` | no | default `3` |
-| `RELAY_BREAKER_COOLDOWN` | no | default `5s` |
-| `RELAY_BREAKER_MAX_COOLDOWN` | no | default `2m` |
-| `RELAY_BREAKER_SUCCESSES_TO_CLOSE` | no | default `1` |
-| `RELAY_ADDR` | no | default `:8080` |
-| `RELAY_EDGE_MAX_SKEW` | no | default `5m` |
-| `RELAY_MAX_ENVELOPE_BYTES` | no | default `16777216` |
+| `PENSARA_INVENTORY_MAX_AGE` | no | staleness horizon for unpinned resolution, default `1h` |
+| `PENSARA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
+| `PENSARA_ASSUME_FAILOVER_AUTHORIZED` | no | `<reason>:<YYYY-MM-DD>`; absent ⇒ no failover, see above |
+| `PENSARA_BREAKER_FAILURES_TO_OPEN` | no | default `3` |
+| `PENSARA_BREAKER_COOLDOWN` | no | default `5s` |
+| `PENSARA_BREAKER_MAX_COOLDOWN` | no | default `2m` |
+| `PENSARA_BREAKER_SUCCESSES_TO_CLOSE` | no | default `1` |
+| `PENSARA_ADDR` | no | default `:8080` |
+| `PENSARA_EDGE_MAX_SKEW` | no | default `5m` |
+| `PENSARA_MAX_ENVELOPE_BYTES` | no | default `16777216` |
 
 ```bash
 go build ./... && go vet ./... && go test -race ./...
@@ -975,27 +1012,27 @@ container `healthCheck` can run a command in it, and the ECS one fails by never
 passing rather than by erroring. An HTTP check against `/livez` from a load
 balancer or equivalent needs nothing in the image and works as it stands.
 
-Without any probe, ECS still replaces a task that *exits*, and Relay exits
+Without any probe, ECS still replaces a task that *exits*, and Pensara exits
 non-zero on every startup failure reachable from configuration. What is
 uncovered is "running but not serving". The alternative that would close that
 gap without a shell is a self-probe flag on the binary, which does not exist
-today and is a change to `cmd/relay`, not to the image.
+today and is a change to `cmd/pensara`, not to the image.
 
 ### What the deployment must supply, and what happens when it does not
 
-**`RELAY_PROVIDERS` is required and is not a secret.** It lists the slugs this
+**`PENSARA_PROVIDERS` is required and is not a secret.** It lists the slugs this
 process serves, and an empty one is a hard refusal at startup rather than a
 process that serves nothing quietly. It belongs in the task definition's plain
-environment beside `RELAY_EDGE_PUBLIC_KEYS`, and its value is **the slugs that
+environment beside `PENSARA_EDGE_PUBLIC_KEYS`, and its value is **the slugs that
 have a key**, not the slugs the platform intends to offer eventually:
 
 ```
-RELAY_PROVIDERS=cerebras
+PENSARA_PROVIDERS=cerebras
 ```
 
 `openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
 base URL, so a slug from that set needs nothing but its key. Any other slug must
-also be given `RELAY_PROVIDER_<SLUG>_{PROTOCOL,BASE_URL}`. The rest of the
+also be given `PENSARA_PROVIDER_<SLUG>_{PROTOCOL,BASE_URL}`. The rest of the
 per-provider surface — `_HEADERS`, `_KEY_RETIREMENT`,
 `_KEYS_ON_SEPARATE_ACCOUNTS` — is non-secret too and goes in the same block.
 
@@ -1008,14 +1045,14 @@ signal that is always firing is not a signal.
 Three constraints govern the set, and only the last is fatal:
 
 ```
-RELAY_PROVIDERS   ⊇ the providers the snapshot routes to   else those references are refused
-RELAY_PROVIDERS   ⊆ the providers that have a key          else a permanent `unconfigured`
+PENSARA_PROVIDERS   ⊇ the providers the snapshot routes to   else those references are refused
+PENSARA_PROVIDERS   ⊆ the providers that have a key          else a permanent `unconfigured`
 secrets[]         ⊆ the SSM parameters that exist          else the task never starts
 ```
 
 The first two together are a constraint on whoever publishes the inventory: a
 snapshot may not name a provider whose key does not exist, because there is no
-value of `RELAY_PROVIDERS` that serves it without either refusing its references
+value of `PENSARA_PROVIDERS` that serves it without either refusing its references
 or pinning an alarm on.
 
 **And naming a servable provider is not enough — it has to be declared FIRST.**
@@ -1027,14 +1064,14 @@ deployment of the same reference is one it does, and no health ordering rescues
 it, because health ordering is withheld by the same default. So the requirement
 on the snapshot is per REFERENCE and not per file: for every reference meant to
 be served, a servable deployment has to be the first one declared. See "The
-policy Relay is not sent".
+policy Pensara is not sent".
 
 **Adding a provider runs in one order and retiring one runs in the reverse**,
 both for the same reason — the third constraint above is the only fatal one.
 Add: the repository secret and its name in the workflow's allow-list, then run
-the workflow so the parameter exists, then the slug in `RELAY_PROVIDERS` and the
+the workflow so the parameter exists, then the slug in `PENSARA_PROVIDERS` and the
 parameter's name in `secrets[]`. Retire: out of `secrets[]` and
-`RELAY_PROVIDERS`, deploy, and only then delete the parameter. Deleting it while
+`PENSARA_PROVIDERS`, deploy, and only then delete the parameter. Deleting it while
 it is still named stops every task rather than that provider's routes.
 
 **Provider credentials are the only secrets**, one per declared slug. The
@@ -1042,9 +1079,9 @@ deployed set is a subset of these, tracking whichever keys exist:
 
 | SSM parameter | Type | Env var |
 |---|---|---|
-| `/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY` | `SecureString` | `RELAY_PROVIDER_CEREBRAS_API_KEY` |
-| `/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENROUTER_API_KEY` |
-| `/oxy/relay/RELAY_PROVIDER_OPENAI_API_KEY` | `SecureString` | `RELAY_PROVIDER_OPENAI_API_KEY` |
+| `/oxy/relay/PENSARA_PROVIDER_CEREBRAS_API_KEY` | `SecureString` | `PENSARA_PROVIDER_CEREBRAS_API_KEY` |
+| `/oxy/relay/PENSARA_PROVIDER_OPENROUTER_API_KEY` | `SecureString` | `PENSARA_PROVIDER_OPENROUTER_API_KEY` |
+| `/oxy/relay/PENSARA_PROVIDER_OPENAI_API_KEY` | `SecureString` | `PENSARA_PROVIDER_OPENAI_API_KEY` |
 
 The deploy workflow's allow-list carries all three, because a name there with no
 repository secret is skipped with a warning and is inert. The task definition's
@@ -1057,13 +1094,13 @@ different constraints and are not meant to match.
 `_API_KEY` value, so widening or rotating one never touches the workflow's
 allow-list, the task definition's `secrets` block, or this table. What moves
 them is a slug arriving or leaving, and the order is not symmetric: **adding**
-goes SSM parameter first, then `secrets[]`, then `RELAY_PROVIDERS`, because each
+goes SSM parameter first, then `secrets[]`, then `PENSARA_PROVIDERS`, because each
 step is inert until the one before it exists; **retiring** goes the other way —
-out of `RELAY_PROVIDERS`, then out of `secrets[]` and rolled out, and only then
+out of `PENSARA_PROVIDERS`, then out of `secrets[]` and rolled out, and only then
 delete the parameter, because a `secrets` entry outliving its parameter stops
 every task.
 
-**A credential for a slug `RELAY_PROVIDERS` does not declare is inert**, and the
+**A credential for a slug `PENSARA_PROVIDERS` does not declare is inert**, and the
 process says so at startup — it names the offending variables and tells you to
 either declare the provider or drop the secret. Without that line it would be
 the one failure with no downstream signal at all: the task starts, the probe
@@ -1079,42 +1116,42 @@ definition and absent from Parameter Store fails at task launch with
 `ResourceInitializationError: unable to pull secrets`, and the rollout fails.
 
 **The Oxy edge key is a public key and belongs in plain environment**, never in
-`secrets`. Relay holds only public keys and cannot construct an envelope it
+`secrets`. Pensara holds only public keys and cannot construct an envelope it
 would itself accept; storing a signing key here would destroy that property.
 
 ```
-RELAY_EDGE_PUBLIC_KEYS=oxy-edge-2026-08-17:jQBxDX3B/Z0ULOHPbQz3gfFinKpl7Qv5MVBTfRYSd34=
+PENSARA_EDGE_PUBLIC_KEYS=oxy-edge-2026-08-17:jQBxDX3B/Z0ULOHPbQz3gfFinKpl7Qv5MVBTfRYSd34=
 ```
 
-**`RELAY_ASSUME_FAILOVER_AUTHORIZED` is left unset**, which is the strict
+**`PENSARA_ASSUME_FAILOVER_AUTHORIZED` is left unset**, which is the strict
 setting: a model reference resolves to its declared primary deployment and
 nowhere else. Setting it asserts that every caller of the process has a routing
 policy permitting same-model failover, and the envelope carries nothing that
-would let Relay check that. It is not for a shared production deployment, and
-`cmd/relay` refuses to start on a bare `true` precisely so it cannot arrive as
+would let Pensara check that. It is not for a shared production deployment, and
+`cmd/pensara` refuses to start on a bare `true` precisely so it cannot arrive as
 one.
 
 ### The configuration snapshot is mounted, not baked
 
-`RELAY_INVENTORY_PATH` defaults to `/etc/relay/inventory.json` in the image, and
+`PENSARA_INVENTORY_PATH` defaults to `/etc/relay/inventory.json` in the image, and
 the image ships no file there. Baking one in would freeze its `issuedAt`: past
-`RELAY_INVENTORY_MAX_AGE` every unpinned reference is refused, so the deploy
+`PENSARA_INVENTORY_MAX_AGE` every unpinned reference is refused, so the deploy
 would go green and start degrading an hour later. The snapshot has to be
 re-issued on a cadence shorter than the horizon, which is a property of a
 publisher, not of a file — see "Configuration snapshots".
 
 So `/etc/relay` is a volume, and something publishes into it. **The publisher is
-`cmd/relay-publisher`, in this repository** — see "Publishing the inventory". It
+`cmd/pensara-publisher`, in this repository** — see "Publishing the inventory". It
 writes one S3 object; what carries that object into the volume is a deployment
 choice, and two mechanisms fit ECS Fargate:
 
 - **A sidecar syncing from S3** into a task-scoped volume shared with the relay
-  container. Relay's own reload loop picks the file up within
-  `RELAY_INVENTORY_RELOAD_INTERVAL`. The sidecar should download to a temporary
+  container. Pensara's own reload loop picks the file up within
+  `PENSARA_INVENTORY_RELOAD_INTERVAL`. The sidecar should download to a temporary
   file and `rename(2)` over the destination: a reader that catches a partial
   write survives it from the second snapshot onward, but on the FIRST there is
   no last-good snapshot to fall back to and the process exits non-zero.
-- **An EFS access point** mounted by both the publisher and Relay.
+- **An EFS access point** mounted by both the publisher and Pensara.
 
 Until one exists, the container exits non-zero at startup with
 `inventory: reading /etc/relay/inventory.json: no such file or directory`, and
@@ -1132,7 +1169,7 @@ reference in it is refused while every pinned one is still served. That is the
 whole difference between a snapshot and a publisher, and it is why mounting this
 file verbatim is not a deployment.
 
-`RELAY_PROVIDER_RATES_PATH` is left unset unless a real rate card is published
+`PENSARA_PROVIDER_RATES_PATH` is left unset unless a real rate card is published
 the same way. Unset means provider cost is not measured, and every measurement
 says so rather than reporting zero.
 
@@ -1143,12 +1180,12 @@ absent, and the code refuses rather than pretending.
 
 - **Cross-model fallback.** Would require `routingFallbackPolicy`'s
   `authorizedCrossModel` list, which arrives only inside the policy snapshot
-  Relay is not sent. Nothing here can express it: the route-switch event Relay
+  Pensara is not sent. Nothing here can express it: the route-switch event Pensara
   builds is deployment-scoped by construction.
 - **Failover without an operator acknowledgement.** Same-model failover is
   built, tested and off by default, for the contract reason above and in item 11
   below.
-- **Reconciliation of provider cost against provider invoices.** Relay measures
+- **Reconciliation of provider cost against provider invoices.** Pensara measures
   what each request cost it upstream; matching that against what a provider
   actually billed is a finance process with no home in a data plane.
 - **Oxy-hosted open-weight serving (vLLM/SGLang) and any GPU scheduler.** The
@@ -1169,7 +1206,7 @@ absent, and the code refuses rather than pretending.
 - **Modalities other than text.** Embeddings, images, audio and rerank are
   refused with `unsupported_modality` rather than mistranslated.
 - **Routing-profile targets**, for the contract reason below.
-- **Replay protection beyond the signature time window.** Relay keeps no nonce
+- **Replay protection beyond the signature time window.** Pensara keeps no nonce
   cache; the edge owns request idempotency.
 
 ## What Oxy still has to decide
@@ -1179,12 +1216,12 @@ implemented against before. Each is a real gap, not a preference.
 
 1. **The envelope carries a routing policy *reference*, not a snapshot.**
    `inferenceRequestSchema.routingPolicy` is `{routingPolicyId, policyVersion}`.
-   But ADR 0006 assigns *routing execution* to Relay and ADR 0010 says the
+   But ADR 0006 assigns *routing execution* to Pensara and ADR 0010 says the
    envelope carries "the resolved routing policy snapshot and its version". As
-   published, Relay **cannot** enforce provider allowlists, region residency,
+   published, Pensara **cannot** enforce provider allowlists, region residency,
    zero-data-retention, licence constraints or price ceilings — it has no
    values to enforce. Either the envelope must carry the snapshot, or the ADRs
-   should say plainly that Oxy enforces all of it and Relay only executes.
+   should say plainly that Oxy enforces all of it and Pensara only executes.
    Item 11 is the sharpest instance of this and the one that blocks working
    code.
 2. **A `routing_profile` target is unresolvable.** `routingTargetSchema` lets a
@@ -1198,19 +1235,19 @@ implemented against before. Each is a real gap, not a preference.
 3. **`requestId`'s owner is stated two different ways.** `identifiers.ts` says
    "a request id generated by the data plane", but it is *required* inside
    `attribution` on the inbound envelope, so it cannot be. ADR 0010 has the edge
-   allocating it at step 1. Relay implements the ADR's reading — Oxy allocates
-   `requestId`, Relay allocates `generationId` — and the comment should be
+   allocating it at step 1. Pensara implements the ADR's reading — Oxy allocates
+   `requestId`, Pensara allocates `generationId` — and the comment should be
    corrected.
 4. **No reservation or deadline in the envelope.** ADR 0010's `InferenceEnvelope
    v1` lists `reservation {reservationId, ceiling, priceVersion}` and `deadline`;
-   `inferenceRequestSchema` has neither. So Relay cannot enforce a spend ceiling
+   `inferenceRequestSchema` has neither. So Pensara cannot enforce a spend ceiling
    or an execution deadline, and `normalizedUsageReportSchema` carries no
    `reservationId` (nor an `idempotencyKey`, though `usageReceiptSchema` has
    one) — Oxy must correlate settlement by `requestId` alone. Workable, but it
    should be a stated decision.
 5. **`cached_input_tokens` and `reasoning_tokens` are not defined as subsets or
    siblings.** *Answered by OxyHQ/oxy#1019: the units **partition** a request,
-   which is what Relay already reported and what the ledger's arithmetic already
+   which is what Pensara already reported and what the ledger's arithmetic already
    assumed.* Two things follow that the answer does not cover, and the second
    adapter is where both surfaced.
 
@@ -1224,11 +1261,11 @@ implemented against before. Each is a real gap, not a preference.
 
    Second, **there is no unit for a cache WRITE**. Anthropic reports
    `cache_creation_input_tokens` separately and prices it at 1.25× to 2× the base
-   input rate, against 0.1× for a read. Relay folds writes into `input_tokens`,
+   input rate, against 0.1× for a read. Pensara folds writes into `input_tokens`,
    because the alternative — reporting them as `cached_input_tokens` — would
    price the most expensive input tokens in the request at the cheapest rate on
    the card. The units still partition the request; what is lost is the premium,
-   on Relay's own cost side. A `cache_write_input_tokens` unit would close it.
+   on Pensara's own cost side. A `cache_write_input_tokens` unit would close it.
 6. **The closed error set has no non-retryable platform-side failure.**
    *Answered by OxyHQ/oxy#1019, which added `provider_credential_invalid`
    (non-retryable), published in `@oxyhq/contracts@0.28.0` and adopted here.*
@@ -1249,21 +1286,21 @@ implemented against before. Each is a real gap, not a preference.
    `@oxyhq/contracts@0.29.0`; Anthropic's 402 `billing_error` and an
    OpenAI-compatible `insufficient_quota` both map to it, and the conformance
    suite refuses any code that names the CUSTOMER's money for that scenario.
-7. **Nothing specifies how Relay authenticates the edge.** See
-   `internal/edgeauth` for what Relay implements and why it follows ADR 0012's
+7. **Nothing specifies how Pensara authenticates the edge.** See
+   `internal/edgeauth` for what Pensara implements and why it follows ADR 0012's
    asymmetric reasoning rather than a shared secret.
 8. **The deployment descriptor has no upstream model identifier.**
    `modelDeploymentSchema` cannot express what a provider calls a model, so that
-   mapping lives in Relay's inventory. The same descriptor also carries
+   mapping lives in Pensara's inventory. The same descriptor also carries
    `availabilityScope`, `commercialPermission` and `priceVersionId` — Oxy
    commercial decisions under ADR 0006 — so the shape currently has two owners
    and no stated direction of exchange.
 9. **Nothing says who picks the current revision of an unpinned reference.** The
    contract says Oxy chooses it, but the envelope carries no resolution and the
-   `start` event must report a revision-pinned reference — so in practice Relay
+   `start` event must report a revision-pinned reference — so in practice Pensara
    chooses. It does so from an explicit `current` flag in the inventory.
 10. **Several produced shapes are not `.strict()`.** The stream events, the
-    usage report and the error body all allow unknown keys, so a field Relay
+    usage report and the error body all allow unknown keys, so a field Pensara
     emitted by mistake is silently stripped at Oxy's parse rather than caught.
     The request's `client` block *is* strict, and that strictness is what makes
     its privacy rule enforceable — the same argument applies to the rest.
@@ -1272,7 +1309,7 @@ implemented against before. Each is a real gap, not a preference.
     `disabled`, `sameModelDeployment` and `authorizedCrossModel`;
     `routingPolicySchema` carries `allowedRegions` and `deniedRegions`. Every
     one of them governs what this repository's failover does, and the envelope
-    carries none of them — only `{routingPolicyId, policyVersion}`. So a Relay
+    carries none of them — only `{routingPolicyId, policyVersion}`. So a Pensara
     that failed over by default would override, for every customer who set it,
     a control the platform advertises to them. This build therefore ships
     failover **off**, and choosing among the deployments of one model at all is
@@ -1281,9 +1318,9 @@ implemented against before. Each is a real gap, not a preference.
     Go request type fails the descriptor gate, because the published shape does
     not have one. **This is the concrete case for the snapshot travelling.**
     Failing that, Oxy should state that it resolves the deployment as well as
-    the model, and send one — at which point Relay's inventory and Oxy's
+    the model, and send one — at which point Pensara's inventory and Oxy's
     catalogue need the direction of exchange that item 8 already asks for.
-12. **The contract specifies event shapes and not their order.** Relay emits
+12. **The contract specifies event shapes and not their order.** Pensara emits
     `route_switch` *before* `start`, because the only switch it can safely
     perform is one where nothing has been streamed yet, and saying so in order
     is the truthful framing. The alternative reading — that `route_switch`
@@ -1322,7 +1359,7 @@ contract fits one provider's shape and not another's.
 16. **`refusal` had no finish reason of its own.** *Closed in
     `@oxyhq/contracts@0.29.0`.* The Messages API stops with
     `stop_reason: "refusal"` when the model declines; the contract's finish
-    reasons ended at `content_filter`, so Relay had to report a filter acting
+    reasons ended at `content_filter`, so Pensara had to report a filter acting
     where the model had declined — different things to a customer deciding
     whether to rephrase, and a distinction the delta channels already carried.
     `refusal` is now a finish reason and this adapter emits it.
@@ -1334,7 +1371,7 @@ contract fits one provider's shape and not another's.
     nothing that could hold it, and the request side has no content-part type
     for a thinking block either — so the round trip is not expressible in either
     direction, and multi-turn tool use with reasoning cannot be served through
-    this contract at all. Relay reads the signature so it cannot be mistaken for
+    this contract at all. Pensara reads the signature so it cannot be mistaken for
     output, and drops it. This is a design decision rather than an oversight to
     patch: an opaque per-block blob crossing the boundary needs a home nobody has
     chosen yet.
@@ -1390,4 +1427,3 @@ contract fits one provider's shape and not another's.
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0006-oxy-relay-boundary.md
-[adr0011]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0011-inference-data-plane-name.md

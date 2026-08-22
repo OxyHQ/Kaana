@@ -1,15 +1,15 @@
-package relay_test
+package pensara_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/provider"
-	"github.com/OxyHQ/Relay/internal/providercost"
-	"github.com/OxyHQ/Relay/internal/relay"
-	"github.com/OxyHQ/Relay/internal/rotation"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/pensara"
+	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Pensara/internal/providercost"
+	"github.com/OxyHQ/Pensara/internal/rotation"
 )
 
 // twoDeploymentsOfOneRevision is the failover set: one revision of one model,
@@ -64,7 +64,7 @@ func customerFault(slug contract.ProviderSlug) provider.ErrUpstream {
 	}
 }
 
-func runOn(executor *relay.Executor, request *contract.Request) ([]contract.StreamEvent, relay.Result) {
+func runOn(executor *pensara.Executor, request *contract.Request) ([]contract.StreamEvent, pensara.Result) {
 	var events []contract.StreamEvent
 	result := executor.Execute(context.Background(), request, func(event contract.StreamEvent) error {
 		events = append(events, event)
@@ -87,13 +87,13 @@ func eventsOfType(events []contract.StreamEvent, kind contract.StreamEventType) 
 /*  The policy this build is not sent                                         */
 /* -------------------------------------------------------------------------- */
 
-// TestWithoutARoutingPolicyRelayNeverChoosesAmongDeployments pins the default,
+// TestWithoutARoutingPolicyPensaraNeverChoosesAmongDeployments pins the default,
 // and it is the most important test in this file.
 //
 // The published routingFallbackPolicySchema gives the customer `disabled` and
 // `sameModelDeployment` — two booleans that govern exactly this feature — and
 // routingPolicySchema adds allowedRegions and deniedRegions. The envelope
-// carries a routing policy REFERENCE and none of those values. So a Relay that
+// carries a routing policy REFERENCE and none of those values. So a Pensara that
 // failed over by default would silently override a control the platform
 // advertises to customers, for every customer who switched it off.
 //
@@ -101,7 +101,7 @@ func eventsOfType(events []contract.StreamEvent, kind contract.StreamEventType) 
 // nowhere else, which is exactly how this build behaved before failover
 // existed. Every other test in this file sets the authorisation explicitly; if
 // this one ever passes for the wrong reason, they all become vacuous.
-func TestWithoutARoutingPolicyRelayNeverChoosesAmongDeployments(t *testing.T) {
+func TestWithoutARoutingPolicyPensaraNeverChoosesAmongDeployments(t *testing.T) {
 	primary := failingAdapter("stub", overloaded("stub"), nil)
 	secondary := succeedingAdapter("backup", 7)
 
@@ -215,7 +215,7 @@ func TestAFailedDeploymentFailsOverToAnotherServingTheSameRevision(t *testing.T)
 // The structural half of the guarantee is elsewhere: an inventory.Endpoint
 // carries no model reference of its own, so every candidate is the route set's
 // one reference paired with a different address. What this checks is that the
-// event Relay emits says so too, and cannot be read as a substitution.
+// event Pensara emits says so too, and cannot be read as a substitution.
 func TestFailoverNeverCrossesToADifferentModel(t *testing.T) {
 	events, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
@@ -540,15 +540,15 @@ func TestEveryRouteOutOfRotationRefusesWithARealRetryHint(t *testing.T) {
 /*  What a failed attempt costs, and who pays for it                          */
 /* -------------------------------------------------------------------------- */
 
-// TestAFailedAttemptIsOffTheCustomersReceiptAndOnRelaysCost is the asymmetry
+// TestAFailedAttemptIsOffTheCustomersReceiptAndOnPensarasCost is the asymmetry
 // that makes provider cost a separate measurement rather than a field on the
 // usage report.
 //
 // The customer never received the failed attempt's output, so charging for it
 // would be wrong. The provider will invoice for it regardless, so dropping it
-// entirely would leave Relay reconciling against a number that is short by
+// entirely would leave Pensara reconciling against a number that is short by
 // exactly its own failover traffic.
-func TestAFailedAttemptIsOffTheCustomersReceiptAndOnRelaysCost(t *testing.T) {
+func TestAFailedAttemptIsOffTheCustomersReceiptAndOnPensarasCost(t *testing.T) {
 	burned := []contract.UsageQuantity{
 		{Unit: contract.UnitRequests, Quantity: 1},
 		{Unit: contract.UnitOutputTokens, Quantity: 40},

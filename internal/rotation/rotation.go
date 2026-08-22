@@ -9,7 +9,7 @@
 // # What trips a breaker, and what must never trip one
 //
 // Only a failure attributable to the deployment counts — the upstream refusing,
-// timing out, rate limiting, running out of quota, or rejecting Relay's own
+// timing out, rate limiting, running out of quota, or rejecting Pensara's own
 // credential. A request the provider could not express, a content filter, and a
 // client that hung up say nothing about the deployment's health: they would
 // produce exactly the same failure everywhere. Letting those count would let
@@ -25,14 +25,14 @@
 // deployment's fate turns on it: a success moves it towards closed, a failure
 // re-opens it with a doubled cooldown up to a ceiling. There is no synthetic
 // probe, because a synthetic probe proves the provider is answering some other
-// request than the one it is failing, and Relay would be paying for it.
+// request than the one it is failing, and Pensara would be paying for it.
 package rotation
 
 import (
 	"sync"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // State is a breaker's coarse state.

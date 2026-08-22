@@ -37,8 +37,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/provider"
 )
 
 // Config describes one provider that speaks this protocol.
@@ -47,7 +47,7 @@ type Config struct {
 	Provider contract.ProviderSlug
 	// BaseURL is the provider's API root, e.g. https://api.openai.com/v1.
 	BaseURL string
-	// APIKeys are Relay's own credentials for this provider, in the order they
+	// APIKeys are Pensara's own credentials for this provider, in the order they
 	// are to be spent. They are read from the process environment, never from a
 	// request, never from a file in this repository, and never written to a
 	// log, an error or a usage record.
@@ -384,11 +384,11 @@ func translateContentPart(part contract.ContentPart) (any, error) {
 	case contract.ContentPartAudio:
 		if part.Source.Kind != contract.ContentSourceInline {
 			// The protocol takes audio as inline base64 only. Fetching the URL
-			// here would make Relay the one that downloads customer content,
+			// here would make Pensara the one that downloads customer content,
 			// which is a data-handling decision nobody has made.
 			return nil, provider.ErrUnsupported{
 				Code:   contract.CodeUnsupportedModality,
-				Detail: "chat completions takes audio inline; a url source would require Relay to fetch customer content",
+				Detail: "chat completions takes audio inline; a url source would require Pensara to fetch customer content",
 			}
 		}
 		format, err := audioFormat(derefString(part.Source.MediaType))
@@ -404,7 +404,7 @@ func translateContentPart(part contract.ContentPart) (any, error) {
 		if part.Source.Kind != contract.ContentSourceInline {
 			return nil, provider.ErrUnsupported{
 				Code:   contract.CodeUnsupportedModality,
-				Detail: "chat completions takes files inline; a url source would require Relay to fetch customer content",
+				Detail: "chat completions takes files inline; a url source would require Pensara to fetch customer content",
 			}
 		}
 		return filePart{Type: "file", File: fileRefSpec{

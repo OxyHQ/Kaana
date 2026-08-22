@@ -1,6 +1,6 @@
 // Package provider defines the contract every upstream adapter satisfies.
 //
-// This interface is the point of the data plane. Everything else in Relay is
+// This interface is the point of the data plane. Everything else in Pensara is
 // plumbing around it: the HTTP surface exists to hand an adapter a normalized
 // request, and the executor exists to turn what an adapter reports into a
 // stream and a usage record. Adding a provider must therefore mean writing one
@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // Adapter translates the normalized inference contract into one upstream
@@ -59,7 +59,7 @@ type Adapter interface {
 //
 // UpstreamModelID has no representation anywhere in the published contract —
 // the catalogue's deployment descriptor carries no field for a provider's own
-// model identifier. The mapping is therefore Relay's, and it lives in the
+// model identifier. The mapping is therefore Pensara's, and it lives in the
 // inventory rather than inside each adapter so two adapters for one provider
 // cannot disagree about it.
 type Route struct {
@@ -87,7 +87,7 @@ type Call struct {
 	// at send time.
 	Header http.Header
 	// Stream records whether the customer asked for a streamed response, since
-	// providers express it in the body and Relay has to know without re-reading
+	// providers express it in the body and Pensara has to know without re-reading
 	// it.
 	Stream bool
 }
@@ -102,7 +102,7 @@ type Call struct {
 type Outcome struct {
 	// Units measured so far. Each unit appears at most once, as a total.
 	Units []contract.UsageQuantity
-	// UsageSource distinguishes what the provider reported from what Relay
+	// UsageSource distinguishes what the provider reported from what Pensara
 	// counted from what it had to reconstruct. An estimate indistinguishable
 	// from a reported number is one nobody can reconcile later.
 	UsageSource contract.UsageSource

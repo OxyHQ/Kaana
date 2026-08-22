@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/provider"
 )
 
 func testRoute() provider.Route {

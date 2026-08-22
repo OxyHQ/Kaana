@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/inventory"
-	"github.com/OxyHQ/Relay/internal/provider"
-	"github.com/OxyHQ/Relay/internal/provider/openaicompat"
-	"github.com/OxyHQ/Relay/internal/providerconfig"
-	"github.com/OxyHQ/Relay/internal/rotation"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/inventory"
+	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Pensara/internal/provider/openaicompat"
+	"github.com/OxyHQ/Pensara/internal/providerconfig"
+	"github.com/OxyHQ/Pensara/internal/rotation"
 )
 
 // TestFailoverAcknowledgementCannotBeSetByAccident.
@@ -77,13 +77,13 @@ func TestFailoverAcknowledgementCannotBeSetByAccident(t *testing.T) {
 // adapters.
 func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T) {
 	environment := map[string]string{
-		"RELAY_PROVIDERS":                                     "openai,openrouter,cerebras,anthropic",
-		"RELAY_PROVIDER_OPENAI_API_KEY":                       "fake-openai-key",
-		"RELAY_PROVIDER_OPENROUTER_API_KEY":                   " fake-openrouter-a , fake-openrouter-b ,",
-		"RELAY_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS": "true",
-		"RELAY_PROVIDER_OPENROUTER_KEY_RETIREMENT":            "45m",
-		"RELAY_PROVIDER_CEREBRAS_BASE_URL":                    "https://cerebras.example.invalid/v1",
-		"RELAY_PROVIDER_ANTHROPIC_API_KEY":                    "fake-anthropic-key",
+		"PENSARA_PROVIDERS":                                     "openai,openrouter,cerebras,anthropic",
+		"PENSARA_PROVIDER_OPENAI_API_KEY":                       "fake-openai-key",
+		"PENSARA_PROVIDER_OPENROUTER_API_KEY":                   " fake-openrouter-a , fake-openrouter-b ,",
+		"PENSARA_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS": "true",
+		"PENSARA_PROVIDER_OPENROUTER_KEY_RETIREMENT":            "45m",
+		"PENSARA_PROVIDER_CEREBRAS_BASE_URL":                    "https://cerebras.example.invalid/v1",
+		"PENSARA_PROVIDER_ANTHROPIC_API_KEY":                    "fake-anthropic-key",
 	}
 	configs, err := parseProviders(lookup(environment))
 	if err != nil {
@@ -172,42 +172,42 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 	for name, environment := range map[string]map[string]string{
 		"no providers at all": {
-			"RELAY_PROVIDER_OPENAI_API_KEY": "fake-openai-key",
+			"PENSARA_PROVIDER_OPENAI_API_KEY": "fake-openai-key",
 		},
 		"a slug that is not a slug": {
-			"RELAY_PROVIDERS": "Open AI",
+			"PENSARA_PROVIDERS": "Open AI",
 		},
 		"the same provider twice": {
-			"RELAY_PROVIDERS": "openai,openai",
+			"PENSARA_PROVIDERS": "openai,openai",
 		},
 		// `open-router` and `open.router` are two slugs and one variable name.
 		// Left alone, the second would silently be configured with the first
 		// one's address and credentials.
 		"two slugs reading one variable": {
-			"RELAY_PROVIDERS":                     "open-router,open.router",
-			"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-			"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+			"PENSARA_PROVIDERS":                     "open-router,open.router",
+			"PENSARA_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
+			"PENSARA_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		},
 		"a provider this build knows no protocol for": {
-			"RELAY_PROVIDERS":              "groq",
-			"RELAY_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
+			"PENSARA_PROVIDERS":              "groq",
+			"PENSARA_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
 		},
 		"a protocol this build does not speak": {
-			"RELAY_PROVIDERS":              "groq",
-			"RELAY_PROVIDER_GROQ_PROTOCOL": "cohere_v1",
-			"RELAY_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
+			"PENSARA_PROVIDERS":              "groq",
+			"PENSARA_PROVIDER_GROQ_PROTOCOL": "cohere_v1",
+			"PENSARA_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
 		},
 		"a provider this build knows no address for": {
-			"RELAY_PROVIDERS":              "groq",
-			"RELAY_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+			"PENSARA_PROVIDERS":              "groq",
+			"PENSARA_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		},
 		// The Messages API adapter reports its slug as a constant, so serving
 		// it under another name would attribute every event and every usage
 		// record to `anthropic` while the inventory routed elsewhere.
 		"the messages api under another provider's name": {
-			"RELAY_PROVIDERS":                 "bedrock",
-			"RELAY_PROVIDER_BEDROCK_PROTOCOL": providerconfig.ProtocolAnthropicMessages,
-			"RELAY_PROVIDER_BEDROCK_BASE_URL": "https://bedrock.example.invalid/v1",
+			"PENSARA_PROVIDERS":                 "bedrock",
+			"PENSARA_PROVIDER_BEDROCK_PROTOCOL": providerconfig.ProtocolAnthropicMessages,
+			"PENSARA_PROVIDER_BEDROCK_BASE_URL": "https://bedrock.example.invalid/v1",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -220,9 +220,9 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 	// The control: the shape all of the above are deviations from is accepted,
 	// or a parser that refused everything would pass every case here.
 	accepted := map[string]string{
-		"RELAY_PROVIDERS":              "groq",
-		"RELAY_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
-		"RELAY_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
+		"PENSARA_PROVIDERS":              "groq",
+		"PENSARA_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+		"PENSARA_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
 	}
 	if _, err := parseProviders(lookup(accepted)); err != nil {
 		t.Errorf("a well-formed provider declaration was refused: %v", err)
@@ -237,8 +237,8 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 // complaining about — a startup error is a log line.
 func TestADuplicatedCredentialRefusesToStart(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{
-		"RELAY_PROVIDERS":               "openai",
-		"RELAY_PROVIDER_OPENAI_API_KEY": "fake-openai-key,fake-openai-key",
+		"PENSARA_PROVIDERS":               "openai",
+		"PENSARA_PROVIDER_OPENAI_API_KEY": "fake-openai-key,fake-openai-key",
 	}))
 	if err != nil {
 		t.Fatalf("the configuration was refused before the adapter was built: %v", err)
@@ -266,8 +266,8 @@ func lookup(environment map[string]string) func(string) string {
 // the provider decides it should.
 func TestPerProviderHeadersAreConfigurableAndNeverCarryACredential(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{
-		"RELAY_PROVIDERS":                   "openrouter",
-		"RELAY_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer=https://oxy.so, X-Title=Oxy ",
+		"PENSARA_PROVIDERS":                   "openrouter",
+		"PENSARA_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer=https://oxy.so, X-Title=Oxy ",
 	}))
 	if err != nil {
 		t.Fatalf("the headers were refused: %v", err)
@@ -281,28 +281,28 @@ func TestPerProviderHeadersAreConfigurableAndNeverCarryACredential(t *testing.T)
 
 	for name, environment := range map[string]map[string]string{
 		"a pair with no value": {
-			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer",
+			"PENSARA_PROVIDERS": "openrouter", "PENSARA_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer",
 		},
 		"a value with no name": {
-			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "=Oxy",
+			"PENSARA_PROVIDERS": "openrouter", "PENSARA_PROVIDER_OPENROUTER_HEADERS": "=Oxy",
 		},
 		"the same header twice": {
-			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "X-Title=Oxy,X-Title=Other",
+			"PENSARA_PROVIDERS": "openrouter", "PENSARA_PROVIDER_OPENROUTER_HEADERS": "X-Title=Oxy,X-Title=Other",
 		},
 		// A credential here would look configured, be overwritten by the
 		// adapter at send time, and sit in a plain variable outside the pool
 		// that exists to manage it.
 		"an authorization header": {
-			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "Authorization=Bearer fake-key",
+			"PENSARA_PROVIDERS": "openrouter", "PENSARA_PROVIDER_OPENROUTER_HEADERS": "Authorization=Bearer fake-key",
 		},
 		"a provider key header": {
-			"RELAY_PROVIDERS": "openrouter", "RELAY_PROVIDER_OPENROUTER_HEADERS": "x-api-key=fake-key",
+			"PENSARA_PROVIDERS": "openrouter", "PENSARA_PROVIDER_OPENROUTER_HEADERS": "x-api-key=fake-key",
 		},
 		// The Messages API adapter carries no extra headers, so accepting them
 		// would drop them silently — the same outcome as never setting them and
 		// harder to see.
 		"headers for a protocol that sends none": {
-			"RELAY_PROVIDERS": "anthropic", "RELAY_PROVIDER_ANTHROPIC_HEADERS": "X-Title=Oxy",
+			"PENSARA_PROVIDERS": "anthropic", "PENSARA_PROVIDER_ANTHROPIC_HEADERS": "X-Title=Oxy",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -321,43 +321,43 @@ func TestPerProviderHeadersAreConfigurableAndNeverCarryACredential(t *testing.T)
 // because from outside the process there is nothing wrong with it.
 func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{
-		"RELAY_PROVIDERS":                     "cerebras,open-router",
-		"RELAY_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
-		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
-		"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+		"PENSARA_PROVIDERS":                     "cerebras,open-router",
+		"PENSARA_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
+		"PENSARA_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
+		"PENSARA_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
+		"PENSARA_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 	}))
 	if err != nil {
 		t.Fatalf("the configuration was refused: %v", err)
 	}
 
 	environment := []string{
-		"RELAY_PROVIDER_CEREBRAS_API_KEY=fake-cerebras-key",
+		"PENSARA_PROVIDER_CEREBRAS_API_KEY=fake-cerebras-key",
 		// The slug is `open-router`, and its variables fold the hyphen to an
 		// underscore. A check that compared slugs rather than prefixes would
 		// report this one as unused.
-		"RELAY_PROVIDER_OPEN_ROUTER_API_KEY=fake-openrouter-key",
-		"RELAY_PROVIDER_OPENAI_API_KEY=fake-openai-key",
+		"PENSARA_PROVIDER_OPEN_ROUTER_API_KEY=fake-openrouter-key",
+		"PENSARA_PROVIDER_OPENAI_API_KEY=fake-openai-key",
 		// Neither of these is a provider credential, and a pattern that matched
 		// on the prefix alone would name both.
-		"RELAY_PROVIDER_RATES_PATH=/etc/relay/rates.json",
-		"RELAY_PROVIDER_CEREBRAS_BASE_URL=https://cerebras.example.invalid/v1",
+		"PENSARA_PROVIDER_RATES_PATH=/etc/relay/rates.json",
+		"PENSARA_PROVIDER_CEREBRAS_BASE_URL=https://cerebras.example.invalid/v1",
 		"PATH=/usr/bin",
 	}
 
 	unused := unusedProviderCredentials(environment, configs)
-	if len(unused) != 1 || unused[0] != "RELAY_PROVIDER_OPENAI_API_KEY" {
+	if len(unused) != 1 || unused[0] != "PENSARA_PROVIDER_OPENAI_API_KEY" {
 		t.Fatalf("named %v as unused; exactly the openai key is", unused)
 	}
 
 	// The control: with openai declared too, nothing is unused — or a check
 	// that named everything would pass the assertion above by accident.
 	served, err := parseProviders(lookup(map[string]string{
-		"RELAY_PROVIDERS":                     "cerebras,open-router,openai",
-		"RELAY_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
-		"RELAY_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
-		"RELAY_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-		"RELAY_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+		"PENSARA_PROVIDERS":                     "cerebras,open-router,openai",
+		"PENSARA_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
+		"PENSARA_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
+		"PENSARA_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
+		"PENSARA_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 	}))
 	if err != nil {
 		t.Fatalf("the control configuration was refused: %v", err)
@@ -379,8 +379,8 @@ func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
 func TestADeclaredFactCannotBeUnsetBySpelling(t *testing.T) {
 	for _, spelling := range []string{"true", " true ", "TRUE", "True"} {
 		configs, err := parseProviders(lookup(map[string]string{
-			"RELAY_PROVIDERS": "openai",
-			"RELAY_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
+			"PENSARA_PROVIDERS": "openai",
+			"PENSARA_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
 		}))
 		if err != nil {
 			t.Fatalf("%q was refused: %v", spelling, err)
@@ -392,7 +392,7 @@ func TestADeclaredFactCannotBeUnsetBySpelling(t *testing.T) {
 
 	// The control: the default really is off, or every case above would pass on
 	// a parser that returned true for everything.
-	configs, err := parseProviders(lookup(map[string]string{"RELAY_PROVIDERS": "openai"}))
+	configs, err := parseProviders(lookup(map[string]string{"PENSARA_PROVIDERS": "openai"}))
 	if err != nil {
 		t.Fatalf("an absent declaration was refused: %v", err)
 	}
@@ -401,8 +401,8 @@ func TestADeclaredFactCannotBeUnsetBySpelling(t *testing.T) {
 	}
 	for _, spelling := range []string{"false", "FALSE", " false "} {
 		configs, err := parseProviders(lookup(map[string]string{
-			"RELAY_PROVIDERS": "openai",
-			"RELAY_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
+			"PENSARA_PROVIDERS": "openai",
+			"PENSARA_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
 		}))
 		if err != nil {
 			t.Fatalf("%q was refused: %v", spelling, err)
@@ -415,8 +415,8 @@ func TestADeclaredFactCannotBeUnsetBySpelling(t *testing.T) {
 	// Anything else refuses to start rather than choosing a meaning for it.
 	for _, spelling := range []string{"yes", "1", "on", "no"} {
 		if _, err := parseProviders(lookup(map[string]string{
-			"RELAY_PROVIDERS": "openai",
-			"RELAY_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
+			"PENSARA_PROVIDERS": "openai",
+			"PENSARA_PROVIDER_OPENAI_KEYS_ON_SEPARATE_ACCOUNTS": spelling,
 		})); err == nil {
 			t.Errorf("%q was accepted, and it means whichever of the two an operator assumed", spelling)
 		}
@@ -483,7 +483,7 @@ func TestOneConditionHasOneMessage(t *testing.T) {
 // TestOneConditionHasOneMessage above counts the message and the condition in
 // the source, and both counts stay right when the RELOAD path stops calling
 // the function at all: delete the call in reloadSnapshots and the message
-// still appears once, `.Lookup(` still appears once, and the whole cmd/relay
+// still appears once, `.Lookup(` still appears once, and the whole cmd/pensara
 // package still passes. Measured, not reasoned about — that mutation was
 // applied and survived, which is what this test exists to answer.
 //

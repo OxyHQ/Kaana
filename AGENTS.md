@@ -1,4 +1,4 @@
-# Relay — rules
+# Pensara — rules
 
 > Read `README.md` first for what this is and how it fits together. This file
 > holds only the rules a reviewer applies. Architecture belongs in `README.md`
@@ -6,28 +6,28 @@
 
 ## The boundary is the design
 
-Relay is the inference **data plane**. Oxy is the single control plane
+Pensara is the inference **data plane**. Oxy is the single control plane
 ([ADR 0005], [ADR 0006]).
 
-**Relay owns:** request normalization · provider adapters · routing *execution*
+**Pensara owns:** request normalization · provider adapters · routing *execution*
 · streaming · cancellation · model deployments · provider health and circuit
 breakers · technical metering · upstream provider cost.
 
-**Relay must never own:** accounts · organizations · projects · members ·
+**Pensara must never own:** accounts · organizations · projects · members ·
 applications · credentials · customer balances · a billing ledger · a customer
 console.
 
-- **An Oxy id is an immutable opaque string.** Relay never parses it, joins it
+- **An Oxy id is an immutable opaque string.** Pensara never parses it, joins it
   against a local entity, or updates it. A table whose *primary* key is an Oxy id
   is a copy of an Oxy entity and is forbidden. A column holding one, written once
   at request time and never updated, is the intended shape.
-- **Relay authorizes nothing about a customer.** Scope checks, account access,
+- **Pensara authorizes nothing about a customer.** Scope checks, account access,
   credential status and spend reservation are resolved at the Oxy edge; the
   envelope is an already-authorized instruction. Re-deriving any of it
   reintroduces the replication lag that makes revocation unsafe. The one
   exception is refusing an envelope that carries no `inference:invoke` — that is
   a malformed instruction from the edge, not a customer decision.
-- **Relay measures units and never prices them.** There is no money type in
+- **Pensara measures units and never prices them.** There is no money type in
   `internal/contract`, and adding one is the moment a second ledger starts.
 - **If a change would put an Oxy-owned concept here, the change is wrong, not
   the boundary.** A schema review is a boundary review.
@@ -43,7 +43,7 @@ and is answerable to it.
 - **Never add a field to a produced shape that the contract does not have.**
   The descriptor test fails on it, and that failure is correct: Oxy's parse would
   strip it silently, so the field would appear to work here and do nothing there.
-- **A published shape Relay does not exchange goes in `notApplicable` with a
+- **A published shape Pensara does not exchange goes in `notApplicable` with a
   reason naming the owner**, and `expectedNotApplicableCount` moves in the same
   change. The count is exact so a shape cannot be excused by appending a line.
 - **Bumping the pinned contracts version is its own change.** Regenerate the
@@ -63,7 +63,7 @@ and is answerable to it.
   anywhere but `RouteSet.Candidates()` — those two facts are the guarantee, and
   the code that emits a `route_switch` has no argument that could make it a
   substitution.
-- **Relay chooses among the deployments of one model only when a routing policy
+- **Pensara chooses among the deployments of one model only when a routing policy
   authorises it.** `routingFallbackPolicy` gives the customer `disabled` and
   `sameModelDeployment`, and the envelope carries none of it, so the default is
   to use the declared primary and nothing else. The override is a dated,
@@ -80,7 +80,7 @@ and is answerable to it.
   takes a healthy route out of rotation for everybody.
 - **A deployment returns to rotation on one REAL request through a half-open
   breaker**, one at a time. Never a synthetic probe: it proves the provider
-  answers a different request from the one it is failing, and Relay pays for it.
+  answers a different request from the one it is failing, and Pensara pays for it.
 - **A pinned reference is served from a snapshot of any age; an unpinned one is
   refused past the horizon.** The mapping from immutable weights to a provider's
   model id cannot go stale; which revision is *current* is Oxy's decision and
@@ -91,7 +91,7 @@ and is answerable to it.
 
 ## The inventory publisher
 
-`cmd/relay-publisher` builds the snapshot and re-issues it. `internal/publisher`
+`cmd/pensara-publisher` builds the snapshot and re-issues it. `internal/publisher`
 holds the logic; `internal/awssig` is the signer.
 
 - **It re-issues on a cadence INSIDE the horizon even when nothing changed.**
@@ -121,9 +121,9 @@ holds the logic; `internal/awssig` is the signer.
   checked-in snapshot.
 - **Declaring a provider is a BOOT requirement.** The server refuses to start if
   a routed provider has no adapter configured, so a slug reaches the snapshot
-  only once `RELAY_PROVIDERS` names it with a protocol and a base URL.
+  only once `PENSARA_PROVIDERS` names it with a protocol and a base URL.
 - **The snapshot is validated by `inventory.Parse` — the real reader — before it
-  is written.** A snapshot Relay would refuse is one that publishes green while
+  is written.** A snapshot Pensara would refuse is one that publishes green while
   the data plane serves its last good one.
 - **A model nobody attributed is DROPPED and named, never guessed.** Inferring a
   publisher namespace from a model id is a claim about somebody else's work made
@@ -133,10 +133,10 @@ holds the logic; `internal/awssig` is the signer.
   failing never withdraws the others. A cycle in which nobody answered refuses
   and leaves the published snapshot alone.
 - **Order is per REFERENCE:** failover is off by default, so the first declared
-  deployment of a reference is the only one tried. Emit in `RELAY_PROVIDERS`
+  deployment of a reference is the only one tried. Emit in `PENSARA_PROVIDERS`
   order and only for providers holding a key, so every declared route is
   servable.
-- **Never default `RELAY_INVENTORY_BUCKET`.** A plausible default turns a
+- **Never default `PENSARA_INVENTORY_BUCKET`.** A plausible default turns a
   variable that never arrived into "published somewhere else, everything green".
 - **It runs in its own process under its own task role.** The write decides all
   routing, so the permission never joins the serving role — and `sts:AssumeRole`
@@ -159,7 +159,7 @@ holds the logic; `internal/awssig` is the signer.
   Oxy's and always was.
 - **An unknown cost is never a zero cost.** A deployment with no rate card, or a
   measured unit nobody priced, says so and names what it could not price.
-- **A failed failover attempt is off the customer's receipt and on Relay's
+- **A failed failover attempt is off the customer's receipt and on Pensara's
   cost.** Do not merge the two: the customer never received that output and the
   provider will invoice for it regardless.
 
@@ -242,7 +242,7 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
   the deployment; the two answer different questions and disagree on purpose.
 - **Key rotation is not a route switch** — same deployment, no `route_switch`,
   no routing-policy authorisation. Never weaken
-  `RELAY_ASSUME_FAILOVER_AUTHORIZED`'s default to make it work.
+  `PENSARA_ASSUME_FAILOVER_AUTHORIZED`'s default to make it work.
 - **A refused credential is not failed over onto the same provider slug.** One
   slug is one adapter and one pool, so "another deployment holds a different
   credential" is true across slugs and false within one; failing over there
@@ -263,7 +263,7 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
 - **A key's identity outside `internal/provider` is its 1-based POSITION** —
   not the secret and not a hash of it, since a fingerprint confirms a guess.
 - **A provider slug resolves to an adapter, an address and a pool in
-  `cmd/relay`, never in the inventory** — a credential there is a copy of an Oxy
+  `cmd/pensara`, never in the inventory** — a credential there is a copy of an Oxy
   entity, an address there makes one process's reachability global.
 - **Provider slugs are not a closed list; PROTOCOLS are.** A build can only
   construct an adapter it contains, so an unknown protocol is refused; a slug
