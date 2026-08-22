@@ -1,8 +1,9 @@
 # Kaana — rules
 
-> Read `README.md` first for what this is and how it fits together. This file
-> holds only the rules a reviewer applies. Architecture belongs in `README.md`
-> and package comments; history belongs in git.
+> Read `README.md` first for what this is and how it fits together, then `docs/`
+> for the part you are touching. This file holds only the rules a reviewer
+> applies. Architecture belongs in `docs/` and package comments; history belongs
+> in git.
 
 ## The boundary is the design
 
