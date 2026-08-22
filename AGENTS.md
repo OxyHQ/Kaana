@@ -109,6 +109,19 @@ holds the logic; `internal/awssig` is the signer.
 - **The observation is keyed by model LINE, never by provider.** Two providers of
   one line must be one reference with two endpoints; keying per provider mints
   two `current` revisions of one line, which the reader refuses outright.
+- **AN UPSTREAM MODEL ID MUST STILL NAME THE SAME MODEL TOMORROW.** A reference
+  promises immutable weights, so never declare an id that resolves elsewhere: a
+  provider's ROUTER (`openrouter/auto` — "routed to one of dozens of models"), a
+  moving alias (`~z-ai/glm-latest` — "always redirects to the latest"), or a
+  DELIVERY-MODE variant (`:batch`, `:thinking`), which is not other weights and
+  has no slot in `<publisher>/<model>@<revision>`. Each is well-formed, loads
+  without complaint, and misbehaves only in front of a customer. Declaring one
+  hands the choice of model to the provider behind a reference that claims to
+  name it. `internal/inventory/checked_in_test.go` asserts all three over the
+  checked-in snapshot.
+- **Declaring a provider is a BOOT requirement.** The server refuses to start if
+  a routed provider has no adapter configured, so a slug reaches the snapshot
+  only once `RELAY_PROVIDERS` names it with a protocol and a base URL.
 - **The snapshot is validated by `inventory.Parse` — the real reader — before it
   is written.** A snapshot Relay would refuse is one that publishes green while
   the data plane serves its last good one.
