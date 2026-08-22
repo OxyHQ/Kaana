@@ -91,6 +91,8 @@ jobs:
         # the two cases instead of collapsing them.
         env:
           SYNC_RELAY_PROVIDER_CEREBRAS_API_KEY: ${{ secrets.RELAY_PROVIDER_CEREBRAS_API_KEY }}
+          SYNC_RELAY_PROVIDER_GROQ_API_KEY: ${{ secrets.RELAY_PROVIDER_GROQ_API_KEY }}
+          SYNC_RELAY_PROVIDER_XAI_API_KEY: ${{ secrets.RELAY_PROVIDER_XAI_API_KEY }}
           SYNC_RELAY_PROVIDER_OPENROUTER_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENROUTER_API_KEY }}
           SYNC_RELAY_PROVIDER_OPENAI_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENAI_API_KEY }}
         run: |
@@ -99,13 +101,14 @@ jobs:
           # reaches Parameter Store no matter what is set on the repository, so
           # SSM and GitHub drift apart on the next rotation without erroring.
           #
-          # One entry per provider in RELAY_PROVIDERS, and it does not grow with
-          # a key pool: a pool is comma-separated INSIDE one _API_KEY value, so
-          # rotating or widening a pool never touches this list. ANTHROPIC is
+          # One entry per provider in RELAY_PROVIDERS, listed in the order the
+          # inventory declares them so the two files read alike. It does not
+          # grow with a key pool: a pool is comma-separated INSIDE one _API_KEY
+          # value, so rotating or widening a pool never touches this list. ANTHROPIC is
           # absent because the deployed set does not declare it — the adapter
           # still exists and the slug is still known, so re-adding it is a
           # RELAY_PROVIDERS change plus a line here, not a code change.
-          RELAY_SECRETS="RELAY_PROVIDER_CEREBRAS_API_KEY RELAY_PROVIDER_OPENROUTER_API_KEY RELAY_PROVIDER_OPENAI_API_KEY"
+          RELAY_SECRETS="RELAY_PROVIDER_CEREBRAS_API_KEY RELAY_PROVIDER_GROQ_API_KEY RELAY_PROVIDER_XAI_API_KEY RELAY_PROVIDER_OPENROUTER_API_KEY RELAY_PROVIDER_OPENAI_API_KEY"
 
           for k in $RELAY_SECRETS; do
             # An UNSET repository secret still leaves SYNC_$k defined-and-empty,
