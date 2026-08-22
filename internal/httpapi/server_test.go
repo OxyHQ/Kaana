@@ -18,15 +18,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/edgeauth"
-	"github.com/OxyHQ/Pensara/internal/httpapi"
-	"github.com/OxyHQ/Pensara/internal/inventory"
-	"github.com/OxyHQ/Pensara/internal/pensara"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/providercost"
-	"github.com/OxyHQ/Pensara/internal/rotation"
-	"github.com/OxyHQ/Pensara/internal/sse"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/httpapi"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
 // The cancellation proof is split across two suites on purpose, and each half
@@ -215,7 +215,7 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 		t.Fatalf("registering the adapter: %v", err)
 	}
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{}, nil)
-	executor, err := pensara.NewExecutor(pensara.Config{
+	executor, err := kaana.NewExecutor(kaana.Config{
 		Inventory: store,
 		Providers: registry,
 		Rotation:  rotationRegistry,
@@ -412,7 +412,7 @@ func TestASignedEnvelopeIsServedAndAnUnsignedOneIsNot(t *testing.T) {
 			t.Errorf("an unsigned envelope was refused with %q", failure.Code)
 		}
 		if failure.RequestID == "req_test" {
-			t.Error("the rejection echoed a request id from an unverified body, letting an unauthenticated caller choose what appears in Pensara's logs")
+			t.Error("the rejection echoed a request id from an unverified body, letting an unauthenticated caller choose what appears in Kaana's logs")
 		}
 	})
 }
@@ -483,7 +483,7 @@ func TestAnEnvelopeWithNoVersionIsRefused(t *testing.T) {
 // TestAdditiveFieldsAreTolerated pins a decision that is easy to reverse by
 // accident. The contract says adding an optional field does not bump a shape's
 // version, so a strict decoder here would turn every additive Oxy change into a
-// production outage on Pensara's side.
+// production outage on Kaana's side.
 func TestAdditiveFieldsAreTolerated(t *testing.T) {
 	harness := newHarness(t, &stubAdapter{chunks: 1})
 	body := envelope(t, func(body map[string]any) {
@@ -618,7 +618,7 @@ func TestAFailedGenerationReportsUnitsAsAnEmptyArray(t *testing.T) {
 // TestUpstreamCostNeverReachesTheCustomer is the containment gate on provider
 // cost.
 //
-// Pensara measures what a request cost it upstream and never quotes an amount to
+// Kaana measures what a request cost it upstream and never quotes an amount to
 // anyone: the money is an operator number, and the contract has no field on any
 // produced shape that could carry it. The check is the same amount in two
 // places — present in the operator log, absent from every byte the customer
@@ -646,7 +646,7 @@ func TestUpstreamCostNeverReachesTheCustomer(t *testing.T) {
 	served := string(body)
 	for _, forbidden := range []string{amount, testCurrency, "upstreamCost", "currency", "cost"} {
 		if strings.Contains(served, forbidden) {
-			t.Errorf("the customer's stream carries %q, which is an amount Pensara does not quote:\n%s", forbidden, served)
+			t.Errorf("the customer's stream carries %q, which is an amount Kaana does not quote:\n%s", forbidden, served)
 		}
 	}
 }

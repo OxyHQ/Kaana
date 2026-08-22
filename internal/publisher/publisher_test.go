@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
 )
 
 // fakeUpstream serves a provider's REAL wire shape for `GET /v1/models`: the
@@ -193,7 +193,7 @@ func TestTheSnapshotIsReIssuedWithAFreshIssuedAtWhenNothingChanged(t *testing.T)
 	first, second := parseSnapshot(t, written[0]), parseSnapshot(t, written[1])
 
 	if first.IssuedAt == second.IssuedAt {
-		t.Errorf("issuedAt was not re-stamped: both snapshots say %q, which Pensara cannot tell from a publisher that has stopped", first.IssuedAt)
+		t.Errorf("issuedAt was not re-stamped: both snapshots say %q, which Kaana cannot tell from a publisher that has stopped", first.IssuedAt)
 	}
 	if want := contract.NewTimestamp(clock); second.IssuedAt != want {
 		t.Errorf("the re-issued snapshot is stamped %q, want %q", second.IssuedAt, want)
@@ -497,7 +497,7 @@ func TestOneProviderFailingDoesNotWithdrawTheOthers(t *testing.T) {
 }
 
 // TestEveryProviderFailingLeavesThePublishedSnapshotAlone: a cycle with nothing
-// to say must not overwrite a good snapshot with an empty one, which Pensara
+// to say must not overwrite a good snapshot with an empty one, which Kaana
 // would refuse and then keep serving its last good one anyway — with a
 // permanently lit reload error.
 func TestEveryProviderFailingLeavesThePublishedSnapshotAlone(t *testing.T) {

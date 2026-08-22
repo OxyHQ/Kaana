@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
 const twoCards = `{"rateCards":[
@@ -114,7 +114,7 @@ func TestNoRateCardsAtAllIsASupportedState(t *testing.T) {
 
 // TestTwoCurrenciesAreNotAddedTogether: two providers serving one model line
 // can invoice in different currencies, and adding them would be a conversion
-// Pensara has no rate for.
+// Kaana has no rate for.
 func TestTwoCurrenciesAreNotAddedTogether(t *testing.T) {
 	cards := parse(t, `{"rateCards":[
 	  {"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]},
@@ -240,8 +240,8 @@ func TestTheContractCannotReachAnAmount(t *testing.T) {
 		if strings.Contains(path, "providercost") {
 			t.Errorf("internal/contract imports %q; the wire contract must not be able to name an amount", path)
 		}
-		if strings.HasPrefix(path, "github.com/OxyHQ/Pensara/") {
-			t.Errorf("internal/contract imports %q; it imports nothing of Pensara's, which is what lets the drift gate compare it against the published package with nothing in between", path)
+		if strings.HasPrefix(path, "github.com/OxyHQ/Kaana/") {
+			t.Errorf("internal/contract imports %q; it imports nothing of Kaana's, which is what lets the drift gate compare it against the published package with nothing in between", path)
 		}
 	}
 }

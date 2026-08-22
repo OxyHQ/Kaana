@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // TestEveryFailureThisProviderNamesMapsOntoTheClosedVocabulary is the error

@@ -4,7 +4,7 @@
 // output, so it follows the SSE specification rather than any one provider's
 // habits: multiple `data:` lines in one event concatenate, comment lines are
 // ignored, and a trailing event without a blank line still counts. Writing is
-// Pensara's own transport to the Oxy edge, so it is deliberately minimal — one
+// Kaana's own transport to the Oxy edge, so it is deliberately minimal — one
 // named frame per message and nothing else.
 //
 // There is no `[DONE]` sentinel on the way out. The contract's `done` and
@@ -73,7 +73,7 @@ func (d *Decoder) Next() (Event, bool) {
 		case strings.HasPrefix(line, "event:"):
 			name = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		default:
-			// `id:`, `retry:` and unknown fields carry nothing Pensara reads.
+			// `id:`, `retry:` and unknown fields carry nothing Kaana reads.
 		}
 	}
 	if err := d.scanner.Err(); err != nil {
@@ -131,7 +131,7 @@ func NewWriter(w http.ResponseWriter) (*Writer, error) {
 
 // WriteEvent emits one named frame carrying payload.
 //
-// The name is Pensara's own transport framing, not part of the published
+// The name is Kaana's own transport framing, not part of the published
 // contract: the contract specifies the shapes exchanged and says nothing about
 // how they are carried. Naming the frames is what lets one connection carry both
 // the customer-visible event stream and the technical usage record without a

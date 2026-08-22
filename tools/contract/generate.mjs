@@ -6,7 +6,7 @@
  * inference contract actually says: every wire shape, every field, its
  * optionality, its kind, its enum members, its literal values and the string
  * constraints that carry meaning. `internal/contract/contract_test.go` compares
- * Pensara's Go types against it field by field, so a change on either side is a
+ * Kaana's Go types against it field by field, so a change on either side is a
  * red test rather than a runtime surprise.
  *
  * Two properties make it a gate rather than a snapshot:

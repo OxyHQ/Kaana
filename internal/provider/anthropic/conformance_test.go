@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/provider/conformance"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/conformance"
 )
 
 // fakeAPIKey is a test credential and nothing else. The conformance suite

@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/sse"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
 // Stream implements provider.Adapter.
@@ -140,7 +140,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 		default:
 			// The provider's versioning policy says new event types may be
 			// added and that a client must tolerate them. Ignoring one is safe
-			// precisely because everything Pensara meters or emits arrives in the
+			// precisely because everything Kaana meters or emits arrives in the
 			// events above.
 		}
 	}
@@ -215,7 +215,7 @@ func (a *Adapter) emitDelta(out provider.Emitter, blocks *blockTracker, event st
 
 // readComplete consumes a non-streamed response.
 //
-// The same normalized events are produced either way. Pensara's own surface is
+// The same normalized events are produced either way. Kaana's own surface is
 // always an event stream; `stream` on the envelope controls the UPSTREAM call,
 // and the Oxy edge renders whichever dialect the customer asked for.
 func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider.Emitter, key provider.Key) (provider.Outcome, error) {
@@ -583,7 +583,7 @@ func (a *Adapter) classify(detail errorDetail, status int, key provider.Key) pro
 		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", Slug)
 
 	case errorAuthentication, errorPermission:
-		// Pensara's own credential was refused, NOT the customer's.
+		// Kaana's own credential was refused, NOT the customer's.
 		// `authentication_failed` would tell a customer their key is bad when
 		// the key at fault is ours and send them to rotate the wrong secret;
 		// `provider_error` would tell them to retry a request that cannot

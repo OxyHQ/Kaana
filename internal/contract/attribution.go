@@ -15,7 +15,7 @@ type BillingPrincipal struct {
 // AuthenticatedPrincipal is who authenticated, as resolved by the Oxy edge
 // before a request is forwarded.
 //
-// Pensara authorizes nothing about a customer against it. It has no account graph
+// Kaana authorizes nothing about a customer against it. It has no account graph
 // to re-derive access from, and re-deriving would reintroduce exactly the
 // replication lag that makes revocation unsafe (ADR 0006).
 type AuthenticatedPrincipal struct {
@@ -30,7 +30,7 @@ type AuthenticatedPrincipal struct {
 // `"inferenceScopes": []`, for the same reason UsageReport.MarshalJSON exists:
 // the contract's array has no null spelling, and Go's zero slice encodes as one.
 //
-// Pensara refuses an envelope without inference:invoke before it can produce a
+// Kaana refuses an envelope without inference:invoke before it can produce a
 // report, so no live path emits an empty list today. It is fixed here anyway
 // because the field rides on the same report through the same encoder, and a
 // fix applied only to the sibling that happens to be reachable is how the same
@@ -58,7 +58,7 @@ type Attribution struct {
 
 // HasScope reports whether the authenticated principal carries a scope.
 //
-// Pensara uses this for one thing only — refusing an envelope that was never
+// Kaana uses this for one thing only — refusing an envelope that was never
 // authorized to invoke inference at all, which is a malformed instruction from
 // the edge rather than a customer authorization decision. Everything a customer
 // can be told "no" about is decided at the edge, before forwarding.

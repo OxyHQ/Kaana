@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/publisher"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/publisher"
 )
 
 func environmentFrom(values map[string]string) func(string) string {
@@ -16,12 +16,12 @@ func environmentFrom(values map[string]string) func(string) string {
 // TestAProviderWithoutACredentialIsSkippedRatherThanDeclared is the first of
 // the three constraints the README states on whoever publishes the inventory: a
 // snapshot may not name a provider whose key does not exist, because no value
-// of PENSARA_PROVIDERS serves it without either refusing its references or
+// of KAANA_PROVIDERS serves it without either refusing its references or
 // pinning a permanent `unconfigured` alarm.
 func TestAProviderWithoutACredentialIsSkippedRatherThanDeclared(t *testing.T) {
 	providers, skipped, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":                 "cerebras,openrouter",
-		"PENSARA_PROVIDER_CEREBRAS_API_KEY": "a-key",
+		"KAANA_PROVIDERS":                 "cerebras,openrouter",
+		"KAANA_PROVIDER_CEREBRAS_API_KEY": "a-key",
 		// openrouter is declared with no key.
 	}))
 	if err != nil {
@@ -36,11 +36,11 @@ func TestAProviderWithoutACredentialIsSkippedRatherThanDeclared(t *testing.T) {
 }
 
 // TestNoCredentialAtAllRefuses: publishing a snapshot that names nothing would
-// be refused by Pensara's own parse, so it is refused here where the operator can
+// be refused by Kaana's own parse, so it is refused here where the operator can
 // still read why.
 func TestNoCredentialAtAllRefuses(t *testing.T) {
 	if _, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS": "cerebras,openrouter",
+		"KAANA_PROVIDERS": "cerebras,openrouter",
 	})); err == nil {
 		t.Fatal("a run in which no provider holds a credential was accepted")
 	}
@@ -49,7 +49,7 @@ func TestNoCredentialAtAllRefuses(t *testing.T) {
 // TestTheProviderListIsRequired keeps the empty case from meaning "all of them".
 func TestTheProviderListIsRequired(t *testing.T) {
 	if _, _, err := parsePublishableProviders(environmentFrom(nil)); err == nil {
-		t.Fatal("an absent PENSARA_PROVIDERS was accepted")
+		t.Fatal("an absent KAANA_PROVIDERS was accepted")
 	}
 }
 
@@ -58,13 +58,13 @@ func TestTheProviderListIsRequired(t *testing.T) {
 // loser would silently be asked with the winner's address and credential.
 func TestTwoSlugsFoldingOntoOneVariableAreRefused(t *testing.T) {
 	_, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":                    "open-router,open.router",
-		"PENSARA_PROVIDER_OPEN_ROUTER_API_KEY": "a-key",
+		"KAANA_PROVIDERS":                    "open-router,open.router",
+		"KAANA_PROVIDER_OPEN_ROUTER_API_KEY": "a-key",
 	}))
 	if err == nil {
 		t.Fatal("two slugs folding onto one environment prefix were accepted")
 	}
-	if !strings.Contains(err.Error(), "PENSARA_PROVIDER_OPEN_ROUTER") {
+	if !strings.Contains(err.Error(), "KAANA_PROVIDER_OPEN_ROUTER") {
 		t.Errorf("the refusal does not name the colliding variable: %v", err)
 	}
 }
@@ -74,8 +74,8 @@ func TestTwoSlugsFoldingOntoOneVariableAreRefused(t *testing.T) {
 // is the checked-in file this command exists to replace.
 func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 	_, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":                  "anthropic",
-		"PENSARA_PROVIDER_ANTHROPIC_API_KEY": "a-key",
+		"KAANA_PROVIDERS":                  "anthropic",
+		"KAANA_PROVIDER_ANTHROPIC_API_KEY": "a-key",
 	}))
 	if err == nil {
 		t.Fatal("a provider with no readable model list was accepted for discovery")
@@ -86,19 +86,19 @@ func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 // asking somebody nobody chose.
 func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {
 	if _, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":              "groq",
-		"PENSARA_PROVIDER_GROQ_API_KEY":  "a-key",
-		"PENSARA_PROVIDER_GROQ_PROTOCOL": "openai_compatible",
+		"KAANA_PROVIDERS":              "groq",
+		"KAANA_PROVIDER_GROQ_API_KEY":  "a-key",
+		"KAANA_PROVIDER_GROQ_PROTOCOL": "openai_compatible",
 	})); err == nil {
 		t.Fatal("an unknown slug with no base URL was accepted")
 	}
 
 	// The control: given the address, the same slug is publishable.
 	providers, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":              "groq",
-		"PENSARA_PROVIDER_GROQ_API_KEY":  "a-key",
-		"PENSARA_PROVIDER_GROQ_PROTOCOL": "openai_compatible",
-		"PENSARA_PROVIDER_GROQ_BASE_URL": "https://api.groq.com/openai/v1",
+		"KAANA_PROVIDERS":              "groq",
+		"KAANA_PROVIDER_GROQ_API_KEY":  "a-key",
+		"KAANA_PROVIDER_GROQ_PROTOCOL": "openai_compatible",
+		"KAANA_PROVIDER_GROQ_BASE_URL": "https://api.groq.com/openai/v1",
 	}))
 	if err != nil {
 		t.Fatalf("an unknown slug WITH an address was refused: %v", err)
@@ -109,11 +109,11 @@ func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {
 }
 
 // TestKnownProvidersResolveWithoutAnAddress proves the shared defaults table is
-// actually consulted, so `cmd/pensara` and this command reach one address.
+// actually consulted, so `cmd/kaana` and this command reach one address.
 func TestKnownProvidersResolveWithoutAnAddress(t *testing.T) {
 	providers, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":                 "cerebras",
-		"PENSARA_PROVIDER_CEREBRAS_API_KEY": "a-key",
+		"KAANA_PROVIDERS":                 "cerebras",
+		"KAANA_PROVIDER_CEREBRAS_API_KEY": "a-key",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -128,8 +128,8 @@ func TestKnownProvidersResolveWithoutAnAddress(t *testing.T) {
 // credentials against a call that is not a customer request.
 func TestOnlyTheFirstKeyOfAPoolIsUsed(t *testing.T) {
 	providers, _, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"PENSARA_PROVIDERS":                 "cerebras",
-		"PENSARA_PROVIDER_CEREBRAS_API_KEY": "first,second,third",
+		"KAANA_PROVIDERS":                 "cerebras",
+		"KAANA_PROVIDER_CEREBRAS_API_KEY": "first,second,third",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -166,18 +166,18 @@ func TestTheBucketIsNeverDefaulted(t *testing.T) {
 // TestAnUnparseableCadenceRefusesRatherThanFallingBack: a typo that silently
 // became the default is indistinguishable from the operator's intent.
 func TestAnUnparseableCadenceRefusesRatherThanFallingBack(t *testing.T) {
-	t.Setenv("PENSARA_PUBLISH_INTERVAL", "15minutes")
-	if _, err := intervalFromEnv("PENSARA_PUBLISH_INTERVAL", publisher.DefaultInterval); err == nil {
+	t.Setenv("KAANA_PUBLISH_INTERVAL", "15minutes")
+	if _, err := intervalFromEnv("KAANA_PUBLISH_INTERVAL", publisher.DefaultInterval); err == nil {
 		t.Fatal("an unparseable cadence fell back to the default")
 	}
 
-	t.Setenv("PENSARA_PUBLISH_INTERVAL", "0s")
-	if _, err := intervalFromEnv("PENSARA_PUBLISH_INTERVAL", publisher.DefaultInterval); err == nil {
+	t.Setenv("KAANA_PUBLISH_INTERVAL", "0s")
+	if _, err := intervalFromEnv("KAANA_PUBLISH_INTERVAL", publisher.DefaultInterval); err == nil {
 		t.Fatal("a zero cadence was accepted")
 	}
 
-	t.Setenv("PENSARA_PUBLISH_INTERVAL", "5m")
-	got, err := intervalFromEnv("PENSARA_PUBLISH_INTERVAL", publisher.DefaultInterval)
+	t.Setenv("KAANA_PUBLISH_INTERVAL", "5m")
+	got, err := intervalFromEnv("KAANA_PUBLISH_INTERVAL", publisher.DefaultInterval)
 	if err != nil {
 		t.Fatalf("a valid cadence was refused: %v", err)
 	}

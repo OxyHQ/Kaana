@@ -5,7 +5,7 @@
 // settlement runs against.
 //
 // Everything a customer could be told "no" about was already decided at the Oxy
-// edge — scopes, account access, credential status, spend. Pensara does not
+// edge — scopes, account access, credential status, spend. Kaana does not
 // re-derive any of it; the envelope it receives is an already-authorized
 // instruction (ADR 0006).
 //
@@ -19,7 +19,7 @@
 // cannot be built. Cross-model fallback would need a routing policy authorising
 // the substitution, and the envelope carries a policy REFERENCE rather than a
 // snapshot, so this build has nothing to authorise it with. See README.
-package pensara
+package kaana
 
 import (
 	"context"
@@ -31,11 +31,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/inventory"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/providercost"
-	"github.com/OxyHQ/Pensara/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
 // Executor turns an envelope into a stream and a usage report.
@@ -63,7 +63,7 @@ type Config struct {
 	// Costs prices upstream attempts. Optional — absent means cost is not
 	// measured, and every measurement says so rather than reporting zero.
 	Costs *providercost.Cards
-	// AssumeFailoverAuthorized permits Pensara to choose among the deployments of
+	// AssumeFailoverAuthorized permits Kaana to choose among the deployments of
 	// one model reference: to order them by health, and to retry a failed one
 	// on another.
 	//
@@ -72,7 +72,7 @@ type Config struct {
 	// CUSTOMER two booleans that govern exactly this behaviour — `disabled` and
 	// `sameModelDeployment` — alongside `allowedRegions` and `deniedRegions`
 	// that govern where a request may be served. The envelope carries a routing
-	// policy REFERENCE and none of those values, so Pensara cannot tell a
+	// policy REFERENCE and none of those values, so Kaana cannot tell a
 	// customer who asked for failover from one who switched it off. Failing
 	// over anyway would silently override a control the platform advertises,
 	// which is the failure this whole boundary exists to prevent; so with this
@@ -82,7 +82,7 @@ type Config struct {
 	// Setting it true is a statement by the operator that every caller of this
 	// process has a routing policy permitting same-model failover across every
 	// deployment in its inventory — true of a first-party canary, and of
-	// nothing else. `cmd/pensara` requires a dated, reasoned acknowledgement to
+	// nothing else. `cmd/kaana` requires a dated, reasoned acknowledgement to
 	// set it, so it cannot be switched on by an empty environment variable and
 	// then forgotten. See README, "What Oxy still has to decide".
 	AssumeFailoverAuthorized bool
@@ -127,7 +127,7 @@ type Result struct {
 	// client that withdrew is pointless, and a cancelled request whose events
 	// kept flowing would be indistinguishable from one that completed.
 	Failure *contract.Error
-	// UpstreamCost is what this request cost Pensara at its providers, including
+	// UpstreamCost is what this request cost Kaana at its providers, including
 	// attempts that failed and produced nothing for the customer. It is an
 	// operator number: nothing in it crosses back to Oxy, and no contract shape
 	// has a field it could occupy.
@@ -413,7 +413,7 @@ func outcomeFor(last *attempt) contract.RequestOutcome {
 // settlement runs against, so emitting an invalid one produces a request that
 // executed, cost money upstream, and can never be settled or refunded. When the
 // report is unusable the executor says so rather than handing back something
-// that looks fine. The upstream cost survives either way — Pensara was still
+// that looks fine. The upstream cost survives either way — Kaana was still
 // invoiced for the work.
 func (e *Executor) finalize(report *contract.UsageReport, failure *contract.Error, sinkErr error, cost providercost.Record) Result {
 	if err := report.Validate(); err != nil {
@@ -445,7 +445,7 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]provider.
 	if !request.Attribution.HasScope(contract.ScopeInvoke) {
 		// Not a customer authorization decision — the edge already made that.
 		// An envelope arriving without the invoke scope is a malformed
-		// instruction from the edge, and serving it would mean Pensara deciding
+		// instruction from the edge, and serving it would mean Kaana deciding
 		// something it has no basis to decide.
 		return nil, contract.NewError(requestID, contract.CodeInsufficientScope,
 			"the envelope does not carry inference:invoke")
@@ -472,7 +472,7 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]provider.
 		var stale inventory.ErrSnapshotTooStale
 		if errors.As(err, &stale) {
 			// The configuration snapshot has stopped being re-issued, so which
-			// revision is current is no longer a question Pensara can answer.
+			// revision is current is no longer a question Kaana can answer.
 			// Pinned references are unaffected, and saying so is the difference
 			// between an outage and a degradation the caller can work around.
 			return nil, contract.NewError(requestID, contract.CodeServiceUnavailable,
@@ -486,7 +486,7 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]provider.
 	if !e.assumeFailoverAuthorized && len(candidates) > 1 {
 		// Choosing among the deployments of one reference — which to try first,
 		// and whether to try a second — is governed by routing-policy values
-		// the envelope does not carry. Without them Pensara makes the weakest
+		// the envelope does not carry. Without them Kaana makes the weakest
 		// choice available to it: the deployment the inventory declared first,
 		// and no other. See Config.AssumeFailoverAuthorized.
 		candidates = candidates[:1]
@@ -574,7 +574,7 @@ func switchReason(err error) contract.RouteSwitchReason {
 
 // generationID allocates the id for this generation.
 //
-// Pensara allocates it; Oxy allocates requestId. The contract's identifiers
+// Kaana allocates it; Oxy allocates requestId. The contract's identifiers
 // module says the data plane generates both, but requestId is REQUIRED on the
 // inbound envelope, so it cannot be. See README, "What Oxy still has to decide".
 func (e *Executor) generationID(request *contract.Request) *contract.GenerationID {

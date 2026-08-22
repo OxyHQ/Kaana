@@ -3,7 +3,7 @@
 // Everything it needs comes from the environment and one inventory file. No
 // secret is read from this repository, and the only secret it holds at all is
 // the upstream provider credential — the Oxy edge's key is a PUBLIC key, so
-// Pensara cannot construct an envelope it would itself accept.
+// Kaana cannot construct an envelope it would itself accept.
 package main
 
 import (
@@ -20,17 +20,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/edgeauth"
-	"github.com/OxyHQ/Pensara/internal/httpapi"
-	"github.com/OxyHQ/Pensara/internal/inventory"
-	"github.com/OxyHQ/Pensara/internal/pensara"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/provider/anthropic"
-	"github.com/OxyHQ/Pensara/internal/provider/openaicompat"
-	"github.com/OxyHQ/Pensara/internal/providerconfig"
-	"github.com/OxyHQ/Pensara/internal/providercost"
-	"github.com/OxyHQ/Pensara/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/httpapi"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
+	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
+	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
 func main() {
@@ -44,13 +44,13 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
-	inventoryPath := providerconfig.EnvName(os.Getenv, "PENSARA_INVENTORY_PATH")
+	inventoryPath := providerconfig.EnvName(os.Getenv, "KAANA_INVENTORY_PATH")
 	if inventoryPath == "" {
-		return errors.New("PENSARA_INVENTORY_PATH is required: without a deployment inventory nothing can be routed")
+		return errors.New("KAANA_INVENTORY_PATH is required: without a deployment inventory nothing can be routed")
 	}
 	inventoryStore, err := inventory.NewStore(inventory.Config{
 		Path:           inventoryPath,
-		MaxSnapshotAge: durationFromEnv("PENSARA_INVENTORY_MAX_AGE", inventory.DefaultMaxSnapshotAge),
+		MaxSnapshotAge: durationFromEnv("KAANA_INVENTORY_MAX_AGE", inventory.DefaultMaxSnapshotAge),
 		Logger:         logger,
 	})
 	if err != nil {
@@ -61,18 +61,18 @@ func run(logger *slog.Logger) error {
 	// absent file means provider cost is not measured, which every measurement
 	// then says rather than reporting zero.
 	var costs *providercost.Cards
-	if ratesPath := providerconfig.EnvName(os.Getenv, "PENSARA_PROVIDER_RATES_PATH"); ratesPath != "" {
+	if ratesPath := providerconfig.EnvName(os.Getenv, "KAANA_PROVIDER_RATES_PATH"); ratesPath != "" {
 		costs, err = providercost.Load(ratesPath)
 		if err != nil {
 			return err
 		}
 	}
 
-	keys, err := edgeauth.ParsePublicKeys(providerconfig.EnvName(os.Getenv, "PENSARA_EDGE_PUBLIC_KEYS"))
+	keys, err := edgeauth.ParsePublicKeys(providerconfig.EnvName(os.Getenv, "KAANA_EDGE_PUBLIC_KEYS"))
 	if err != nil {
-		return fmt.Errorf("PENSARA_EDGE_PUBLIC_KEYS: %w", err)
+		return fmt.Errorf("KAANA_EDGE_PUBLIC_KEYS: %w", err)
 	}
-	verifier, err := edgeauth.NewVerifier(keys, durationFromEnv("PENSARA_EDGE_MAX_SKEW", edgeauth.DefaultMaxSkew))
+	verifier, err := edgeauth.NewVerifier(keys, durationFromEnv("KAANA_EDGE_MAX_SKEW", edgeauth.DefaultMaxSkew))
 	if err != nil {
 		return err
 	}
@@ -115,17 +115,17 @@ func run(logger *slog.Logger) error {
 		logger.Warn("a provider credential was delivered for a provider this process does not serve",
 			"variables", unused,
 			"declared", providerSlugsFrom(providerConfigs),
-			"meaning", "the credential is never read; either add the provider to PENSARA_PROVIDERS or remove the secret from the deployment")
+			"meaning", "the credential is never read; either add the provider to KAANA_PROVIDERS or remove the secret from the deployment")
 	}
 
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{
-		FailuresToOpen:   intFromEnv("PENSARA_BREAKER_FAILURES_TO_OPEN", 0),
-		Cooldown:         durationFromEnv("PENSARA_BREAKER_COOLDOWN", 0),
-		MaxCooldown:      durationFromEnv("PENSARA_BREAKER_MAX_COOLDOWN", 0),
-		SuccessesToClose: intFromEnv("PENSARA_BREAKER_SUCCESSES_TO_CLOSE", 0),
+		FailuresToOpen:   intFromEnv("KAANA_BREAKER_FAILURES_TO_OPEN", 0),
+		Cooldown:         durationFromEnv("KAANA_BREAKER_COOLDOWN", 0),
+		MaxCooldown:      durationFromEnv("KAANA_BREAKER_MAX_COOLDOWN", 0),
+		SuccessesToClose: intFromEnv("KAANA_BREAKER_SUCCESSES_TO_CLOSE", 0),
 	}, nil)
 
-	failoverAck, err := failoverAcknowledgement(providerconfig.EnvName(os.Getenv, "PENSARA_ASSUME_FAILOVER_AUTHORIZED"))
+	failoverAck, err := failoverAcknowledgement(providerconfig.EnvName(os.Getenv, "KAANA_ASSUME_FAILOVER_AUTHORIZED"))
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func run(logger *slog.Logger) error {
 			"meaning", "every caller of this process is asserted to have a routing policy permitting same-model deployment failover across every deployment in this inventory")
 	}
 
-	executor, err := pensara.NewExecutor(pensara.Config{
+	executor, err := kaana.NewExecutor(kaana.Config{
 		Inventory:                inventoryStore,
 		Providers:                registry,
 		Rotation:                 rotationRegistry,
@@ -153,13 +153,13 @@ func run(logger *slog.Logger) error {
 		Inventory:        inventoryStore,
 		Rotation:         rotationRegistry,
 		Logger:           logger,
-		MaxEnvelopeBytes: int64FromEnv("PENSARA_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
+		MaxEnvelopeBytes: int64FromEnv("KAANA_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
 	})
 	if err != nil {
 		return err
 	}
 
-	address := providerconfig.EnvName(os.Getenv, "PENSARA_ADDR")
+	address := providerconfig.EnvName(os.Getenv, "KAANA_ADDR")
 	if address == "" {
 		address = ":8080"
 	}
@@ -187,7 +187,7 @@ func run(logger *slog.Logger) error {
 	defer stop()
 
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
-		durationFromEnv("PENSARA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
+		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
 
 	failed := make(chan error, 1)
 	go func() {
@@ -213,7 +213,7 @@ func run(logger *slog.Logger) error {
 // failover is safe here despite the envelope carrying no routing policy.
 //
 // It is deliberately awkward to set. The published routing policy has a
-// customer-facing switch for this behaviour that Pensara is not sent, so enabling
+// customer-facing switch for this behaviour that Kaana is not sent, so enabling
 // failover without it overrides a control on the customer's behalf — defensible
 // for a first-party canary where the operator IS the caller, and for nothing
 // else. Requiring a reason and a date means the setting cannot arrive as an
@@ -228,10 +228,10 @@ func failoverAcknowledgement(value string) (string, error) {
 	}
 	reason, date, found := strings.Cut(trimmed, ":")
 	if !found || strings.TrimSpace(reason) == "" {
-		return "", fmt.Errorf("PENSARA_ASSUME_FAILOVER_AUTHORIZED must be `<reason>:<YYYY-MM-DD>`; it states who accepted serving failover without a routing policy, and when")
+		return "", fmt.Errorf("KAANA_ASSUME_FAILOVER_AUTHORIZED must be `<reason>:<YYYY-MM-DD>`; it states who accepted serving failover without a routing policy, and when")
 	}
 	if _, err := time.Parse("2006-01-02", strings.TrimSpace(date)); err != nil {
-		return "", fmt.Errorf("PENSARA_ASSUME_FAILOVER_AUTHORIZED carries %q where a YYYY-MM-DD date belongs: %w", date, err)
+		return "", fmt.Errorf("KAANA_ASSUME_FAILOVER_AUTHORIZED carries %q where a YYYY-MM-DD date belongs: %w", date, err)
 	}
 	return trimmed, nil
 }
@@ -294,13 +294,13 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 // names a provider SLUG and this file resolves that slug to an adapter, an
 // address and a pool of keys.
 //
-//	PENSARA_PROVIDERS                                   openai,openrouter,cerebras,anthropic
-//	PENSARA_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
-//	PENSARA_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
-//	PENSARA_PROVIDER_<SLUG>_API_KEY                     one credential, or several separated by commas
-//	PENSARA_PROVIDER_<SLUG>_HEADERS                      Name=Value pairs the provider expects, separated by commas
-//	PENSARA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
-//	PENSARA_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
+//	KAANA_PROVIDERS                                   openai,openrouter,cerebras,anthropic
+//	KAANA_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
+//	KAANA_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
+//	KAANA_PROVIDER_<SLUG>_API_KEY                     one credential, or several separated by commas
+//	KAANA_PROVIDER_<SLUG>_HEADERS                      Name=Value pairs the provider expects, separated by commas
+//	KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
+//	KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
 //
 // A whole POOL lives in the one _API_KEY variable rather than in numbered
 // siblings, and that is a deployment property rather than a stylistic one: the
@@ -342,9 +342,9 @@ type providerConfig struct {
 // It takes its own getenv so the whole of it is testable without a process
 // environment, which matters because most of what it does is refuse.
 func parseProviders(getenv func(string) string) ([]providerConfig, error) {
-	declared := providerconfig.SplitList(getenv("PENSARA_PROVIDERS"))
+	declared := providerconfig.SplitList(getenv("KAANA_PROVIDERS"))
 	if len(declared) == 0 {
-		return nil, errors.New("PENSARA_PROVIDERS is required: it lists the provider slugs this process serves, and an empty one would leave every inventory route unservable")
+		return nil, errors.New("KAANA_PROVIDERS is required: it lists the provider slugs this process serves, and an empty one would leave every inventory route unservable")
 	}
 
 	configs := make([]providerConfig, 0, len(declared))
@@ -355,10 +355,10 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 	for _, name := range declared {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
-			return nil, fmt.Errorf("PENSARA_PROVIDERS names %q, which is not a provider slug", name)
+			return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
 		}
 		if _, duplicate := seenSlug[slug]; duplicate {
-			return nil, fmt.Errorf("PENSARA_PROVIDERS names %q twice", slug)
+			return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
 		}
 		seenSlug[slug] = struct{}{}
 
@@ -496,7 +496,7 @@ func unusedProviderCredentials(environment []string, configs []providerConfig) [
 	unused := make([]string, 0)
 	for _, entry := range environment {
 		name, _, found := strings.Cut(entry, "=")
-		if !found || !strings.HasPrefix(name, "PENSARA_PROVIDER_") || !strings.HasSuffix(name, "_API_KEY") {
+		if !found || !strings.HasPrefix(name, "KAANA_PROVIDER_") || !strings.HasSuffix(name, "_API_KEY") {
 			continue
 		}
 		if _, serves := declared[strings.TrimSuffix(name, "_API_KEY")]; !serves {

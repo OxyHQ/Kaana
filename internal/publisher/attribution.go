@@ -6,7 +6,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // Attribution maps what a PROVIDER calls a model onto the canonical model line
@@ -15,12 +15,12 @@ import (
 // # This file is the boundary, and it is not clean
 //
 // ADR 0006 gives model catalogue IDENTITY to Oxy and deployment availability to
-// Pensara. A deployment row needs both: `upstreamModelId` and `current` are
+// Kaana. A deployment row needs both: `upstreamModelId` and `current` are
 // execution and belong here, while `modelReference` is identity and belongs
 // there. The inventory file is the one artefact that has to carry both, so
 // neither side owns it outright — and this table is precisely the half that is
 // Oxy's, held here because ADR 0006's "What crosses the boundary" section
-// declares exactly one Oxy→Pensara channel, the per-request envelope, and no
+// declares exactly one Oxy→Kaana channel, the per-request envelope, and no
 // channel by which a catalogue could publish an inventory.
 //
 // So the rule this file follows is: hold the SMALLEST possible amount of it,

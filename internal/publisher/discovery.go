@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // Provider is one upstream the publisher asks what it serves.

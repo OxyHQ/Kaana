@@ -219,7 +219,7 @@ type RoutingTarget struct {
 // revisions, a request was admitted under.
 //
 // It is a reference and not a snapshot. That is the contract as published, and
-// it is the reason Pensara cannot enforce provider allowlists, residency, retention
+// it is the reason Kaana cannot enforce provider allowlists, residency, retention
 // or price ceilings from the envelope alone — see README, "What Oxy still has to
 // decide".
 type RoutingPolicyReference struct {
@@ -232,7 +232,7 @@ type RoutingPolicyReference struct {
 //
 // The contract makes this object strict as a privacy control: Oxy never
 // persists a user IP, raw, hashed or geo-derived, and this is the natural place
-// somebody would add one. Pensara therefore never adds a field to it either, and
+// somebody would add one. Kaana therefore never adds a field to it either, and
 // never logs its Labels beside request content.
 type ClientRequestMetadata struct {
 	APIFormat       APIFormat         `json:"apiFormat"`
@@ -261,7 +261,7 @@ type Request struct {
 }
 
 // Validate carries the per-variant and cross-field rules the Go types cannot
-// express, and it is the whole of what Pensara checks about an envelope's
+// express, and it is the whole of what Kaana checks about an envelope's
 // structure. It deliberately does NOT re-check anything the Oxy edge decided:
 // scopes, balances, account access and model permissions are the control
 // plane's, already resolved, and re-deriving them here is the replica-lag

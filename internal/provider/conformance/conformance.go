@@ -26,11 +26,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/inventory"
-	"github.com/OxyHQ/Pensara/internal/pensara"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
 // Scenario names a behaviour the fake upstream must be able to perform. Each
@@ -518,7 +518,7 @@ func Run(t *testing.T, subject Subject) {
 			if got := run.upstream.RequestCount(); got != 0 {
 				t.Errorf("the upstream received %d requests for a request that should have been refused before translation completed", got)
 			}
-			// A refusal to translate is Pensara's, not the provider's. Dressing it
+			// A refusal to translate is Kaana's, not the provider's. Dressing it
 			// as an upstream failure would count it against the deployment's
 			// health and eventually take a perfectly healthy route out of
 			// rotation because one customer kept sending a request it cannot
@@ -806,7 +806,7 @@ func execute(t *testing.T, subject Subject, scenario Scenario, request *contract
 	if err != nil {
 		t.Fatalf("registering the adapter: %v", err)
 	}
-	executor, err := pensara.NewExecutor(pensara.Config{
+	executor, err := kaana.NewExecutor(kaana.Config{
 		Inventory: store,
 		Providers: registry,
 		Rotation:  rotation.NewRegistry(rotation.Policy{}, nil),

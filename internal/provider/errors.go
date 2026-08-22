@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // An adapter classifies its own failures. The executor believes that
@@ -99,7 +99,7 @@ const secretRedactionMarker = "[redacted]"
 //
 // An adapter is holding the exact bytes it sent, so it does not need a
 // heuristic. This is the exact match, applied first, and the shape-based
-// redaction still runs after it for the credentials Pensara is not holding —
+// redaction still runs after it for the credentials Kaana is not holding —
 // another tenant's key quoted back by a shared gateway, for instance.
 //
 // A short secret would eat ordinary text, and that is the right trade: text a

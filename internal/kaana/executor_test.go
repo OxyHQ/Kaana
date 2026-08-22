@@ -1,4 +1,4 @@
-package pensara_test
+package kaana_test
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/inventory"
-	"github.com/OxyHQ/Pensara/internal/pensara"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/providercost"
-	"github.com/OxyHQ/Pensara/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
 // oneDeployment is the single-route inventory most of these tests run against.
@@ -91,13 +91,13 @@ type harness struct {
 	now         func() time.Time
 	// failoverAuthorized stands in for the routing-policy value the envelope
 	// does not carry. Every test that exercises failover sets it, because with
-	// it false Pensara deliberately never chooses among deployments at all — see
-	// pensara.Config.AssumeFailoverAuthorized, and the test that pins that
+	// it false Kaana deliberately never chooses among deployments at all — see
+	// kaana.Config.AssumeFailoverAuthorized, and the test that pins that
 	// default.
 	failoverAuthorized bool
 }
 
-func (h harness) build(t *testing.T) *pensara.Executor {
+func (h harness) build(t *testing.T) *kaana.Executor {
 	t.Helper()
 
 	issuedAt := h.issuedAt
@@ -128,7 +128,7 @@ func (h harness) build(t *testing.T) *pensara.Executor {
 	if rotationRegistry == nil {
 		rotationRegistry = rotation.NewRegistry(rotation.Policy{}, h.now)
 	}
-	executor, err := pensara.NewExecutor(pensara.Config{
+	executor, err := kaana.NewExecutor(kaana.Config{
 		Inventory:                store,
 		Providers:                registry,
 		Rotation:                 rotationRegistry,
@@ -142,7 +142,7 @@ func (h harness) build(t *testing.T) *pensara.Executor {
 	return executor
 }
 
-func (h harness) run(t *testing.T, request *contract.Request) ([]contract.StreamEvent, pensara.Result) {
+func (h harness) run(t *testing.T, request *contract.Request) ([]contract.StreamEvent, kaana.Result) {
 	t.Helper()
 	var events []contract.StreamEvent
 	result := h.build(t).Execute(context.Background(), request, func(event contract.StreamEvent) error {
@@ -152,7 +152,7 @@ func (h harness) run(t *testing.T, request *contract.Request) ([]contract.Stream
 	return events, result
 }
 
-func execute(t *testing.T, adapter provider.Adapter, request *contract.Request) ([]contract.StreamEvent, pensara.Result) {
+func execute(t *testing.T, adapter provider.Adapter, request *contract.Request) ([]contract.StreamEvent, kaana.Result) {
 	t.Helper()
 	return harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}}.run(t, request)
 }
@@ -389,7 +389,7 @@ func TestASuccessfulRequestProducesASettleableReport(t *testing.T) {
 		t.Errorf("the stream ends with %q", last.EventType())
 	}
 	// The data plane measures; the control plane prices. A receipt id on a
-	// done event would be Pensara quoting a settlement it did not compute.
+	// done event would be Kaana quoting a settlement it did not compute.
 	done := events[len(events)-1].(*contract.StreamDoneEvent)
 	if done.ReceiptID != nil {
 		t.Error("the done event carries a receipt id, which only settlement can produce")

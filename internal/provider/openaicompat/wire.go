@@ -2,7 +2,7 @@ package openaicompat
 
 // The upstream wire shapes, exactly as the OpenAI Chat Completions API defines
 // them. They are separate from the contract types on purpose: this file is the
-// only place in Pensara that knows what a provider's JSON looks like, and the
+// only place in Kaana that knows what a provider's JSON looks like, and the
 // moment a provider's field name leaks past the adapter the boundary is gone.
 //
 // Every field is a pointer or a slice where the upstream may omit it, because

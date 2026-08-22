@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// The descriptor comparison proves Pensara's STRUCTURE matches the contract. It
+// The descriptor comparison proves Kaana's STRUCTURE matches the contract. It
 // cannot prove the VALUES do: a timestamp in the wrong spelling, a model
 // reference that fails the published grammar, an error marked retryable under a
 // code that forbids it, a unit reported twice — all of those are structurally
@@ -190,7 +190,7 @@ func validFixtures(t *testing.T) []fixture {
 		RoutingPolicy:  RoutingPolicyReference{RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3},
 	}
 	if err := request.Validate(); err != nil {
-		t.Fatalf("the request fixture does not satisfy Pensara's own validation: %v", err)
+		t.Fatalf("the request fixture does not satisfy Kaana's own validation: %v", err)
 	}
 
 	textTarget := request
@@ -219,7 +219,7 @@ func validFixtures(t *testing.T) []fixture {
 		TimeToFirstTokenMs:     pointerTo(180),
 	}
 	if err := usageReport.Validate(); err != nil {
-		t.Fatalf("the usage report fixture does not satisfy Pensara's own validation: %v", err)
+		t.Fatalf("the usage report fixture does not satisfy Kaana's own validation: %v", err)
 	}
 
 	// The other half of the usage report, and the half a happy-path fixture can
@@ -228,9 +228,9 @@ func validFixtures(t *testing.T) []fixture {
 	// hands the encoder when the provider refuses, and assigning an empty slice
 	// here would make this fixture agree with the encoder instead of testing it.
 	//
-	// Pensara's own Validate() accepts it, which is precisely why this fixture is
+	// Kaana's own Validate() accepts it, which is precisely why this fixture is
 	// worth writing: ranging over a nil slice is legal Go, so the gap between
-	// "valid to Pensara" and "parseable by Oxy" is only visible on the wire.
+	// "valid to Kaana" and "parseable by Oxy" is only visible on the wire.
 	failedReport := UsageReport{
 		SchemaVersion:          SchemaVersion,
 		RequestID:              attribution.RequestID,
@@ -249,7 +249,7 @@ func validFixtures(t *testing.T) []fixture {
 		t.Fatal("this fixture must leave Units at its zero value; the zero value is the shape under test")
 	}
 	if err := failedReport.Validate(); err != nil {
-		t.Fatalf("Pensara rejects the report it emits for a failed generation: %v", err)
+		t.Fatalf("Kaana rejects the report it emits for a failed generation: %v", err)
 	}
 
 	failure := NewError(attribution.RequestID, CodeProviderOverloaded, "upstream is overloaded").
@@ -306,7 +306,7 @@ func validFixtures(t *testing.T) []fixture {
 	}
 }
 
-// credentialTextCases is the table that verifies Pensara's Go reading of the
+// credentialTextCases is the table that verifies Kaana's Go reading of the
 // published credential refusal against the published predicate ITSELF.
 //
 // The contract expresses that refusal as four regexes inside a `.refine()`, so
@@ -316,14 +316,14 @@ func validFixtures(t *testing.T) []fixture {
 // a test that re-implements the code under test measures the re-implementation.
 //
 // So every string below travels BOTH ways: `TestCredentialShapedAgreesWithGo`
-// asserts Pensara's own CredentialShaped() classifies it as stated, and each one
+// asserts Kaana's own CredentialShaped() classifies it as stated, and each one
 // is also emitted as a fixture — refused ones as invalid controls the published
 // schema must REJECT, accepted ones as valid fixtures it must PARSE. The two
 // halves disagreeing is what a drifted restatement looks like.
 //
 // The accepted half is not decoration. A refusal that fires on everything
 // closes the hole and destroys every diagnostic with it, and the second entry
-// below is exactly the string Pensara emits after provider.RedactSecret has done
+// below is exactly the string Kaana emits after provider.RedactSecret has done
 // its work: if the contract refused that, correct redaction would be
 // indistinguishable from no redaction at all.
 var credentialTextCases = []struct {
@@ -344,7 +344,7 @@ var credentialTextCases = []struct {
 	{"cloud-provider-key", "the value AIzaSyD0abcdefghijklmnopqrstuvwxyz01 was rejected", true},
 
 	{"ordinary-diagnostic", "model claude-opus is overloaded; retry in 2s (request 01JABCDEF)", false},
-	// What Pensara emits once the adapter has removed the value it sent.
+	// What Kaana emits once the adapter has removed the value it sent.
 	{"correctly-redacted-value", "request rejected: headers were {x-api-key: [redacted]}", false},
 	{"marker-with-a-short-value", "authorization: none", false},
 	{"marker-with-a-masked-value", "api_key=***", false},
