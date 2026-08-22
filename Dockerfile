@@ -113,6 +113,14 @@ COPY --from=build --chown=65532:65532 /out/etc/relay-publisher /etc/relay-publis
 # /etc/relay. RELAY_PROVIDER_RATES_PATH is deliberately unset — absent means
 # provider cost is not measured, and every measurement says so rather than
 # reporting zero.
+# THESE ENV DEFAULTS KEEP THE PRE-RENAME SPELLING, AND SWAPPING THEM EARLY WOULD
+# INVERT AN OVERRIDE. A container definition's `environment` beats an image ENV,
+# which is how oxy-infra sets these. But the binary prefers `PENSARA_*` and only
+# falls back to `RELAY_*`, so an image setting `PENSARA_INVENTORY_PATH` while the
+# task definition still sets `RELAY_INVENTORY_PATH` makes the IMAGE default win.
+# Today both hold the same value, so it would break nothing and teach nothing —
+# which is exactly why it is worth naming. They move to `PENSARA_*` in the same
+# change as the task definition.
 ENV RELAY_INVENTORY_PATH=/etc/relay/inventory.json
 
 # The publisher's attribution table. It carries no secret — it is a public

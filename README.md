@@ -43,6 +43,11 @@ Three things deliberately still say `relay` and are **not** oversights:
   with the infrastructure rename, in the same change as terraform.
 - The AWS resource names and the deploy workflow's `APP`/`FAMILY`, for the same
   reason.
+- The image's own `ENV` defaults. A container definition's `environment` beats
+  an image `ENV`, but the binary prefers `PENSARA_*` — so an image setting the
+  new spelling while the task definition still sets the old one would make the
+  IMAGE default win, inverting the override. Both hold the same value today, so
+  the swap would break nothing and teach nothing. They move with terraform.
 
 ---
 
