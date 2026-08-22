@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OxyHQ/Relay/internal/sse"
+	"github.com/OxyHQ/Pensara/internal/sse"
 )
 
 func TestDecoderFollowsTheSpecificationRatherThanOneProvidersHabits(t *testing.T) {

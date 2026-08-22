@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/rotation"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/rotation"
 )
 
 // clock is a hand-advanced clock. A breaker's whole behaviour is "after a
@@ -137,7 +137,7 @@ func TestASuccessEndsTheFailureRun(t *testing.T) {
 
 // TestAnOpenBreakerProbesBackInAfterItsCooldown is how a deployment returns:
 // one real request, not a synthetic one — a synthetic probe proves the provider
-// answers some other request than the one it is failing, and Relay would be
+// answers some other request than the one it is failing, and Pensara would be
 // paying for it.
 func TestAnOpenBreakerProbesBackInAfterItsCooldown(t *testing.T) {
 	clock := newClock()

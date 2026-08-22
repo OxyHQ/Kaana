@@ -2,8 +2,8 @@
 //
 // # Why this is asymmetric
 //
-// The published contract specifies the SHAPES Oxy and Relay exchange and says
-// nothing about how Relay authenticates the sender. Something has to be chosen,
+// The published contract specifies the SHAPES Oxy and Pensara exchange and says
+// nothing about how Pensara authenticates the sender. Something has to be chosen,
 // and the choice follows Oxy's own ADR 0012 rather than inventing a position:
 // that ADR retires the shared HMAC secret for service tokens on the ground that
 // in any symmetric scheme, verifying and minting are the same capability — so
@@ -11,21 +11,21 @@
 // FORGE one.
 //
 // Applied to this hop, the reasoning is the same and the stakes are higher.
-// Relay executes requests and reports the usage a customer is charged for. A
-// shared HMAC secret would let Relay — or anything that ever read Relay's
+// Pensara executes requests and reports the usage a customer is charged for. A
+// shared HMAC secret would let Pensara — or anything that ever read Pensara's
 // configuration — mint an envelope naming any Oxy account as the payer, and a
 // forged accountId is indistinguishable from a real one at every point after
-// the mint. So Relay holds only PUBLIC keys and cannot construct an envelope it
+// the mint. So Pensara holds only PUBLIC keys and cannot construct an envelope it
 // would itself accept.
 //
-// This is Relay's proposal for a decision Oxy has not made. It is stated here,
+// This is Pensara's proposal for a decision Oxy has not made. It is stated here,
 // in one file, so it is cheap to replace if Oxy decides otherwise.
 //
 // # The scheme
 //
-//	X-Oxy-Relay-Key-Id       the signing key's id
-//	X-Oxy-Relay-Timestamp    unix milliseconds, when the edge signed
-//	X-Oxy-Relay-Signature    v1=<base64 Ed25519 signature>
+//	X-Oxy-Pensara-Key-Id       the signing key's id
+//	X-Oxy-Pensara-Timestamp    unix milliseconds, when the edge signed
+//	X-Oxy-Pensara-Signature    v1=<base64 Ed25519 signature>
 //
 // signed over, with `\n` separators and no trailing newline:
 //
@@ -52,24 +52,60 @@ import (
 	"time"
 )
 
-// Header names. They are Relay's own, so they are namespaced rather than
+// Header names. They are Pensara's own, so they are namespaced rather than
 // generic: a proxy that strips or rewrites `Authorization` must not be able to
 // affect this.
 const (
-	HeaderKeyID     = "X-Oxy-Relay-Key-Id"
-	HeaderTimestamp = "X-Oxy-Relay-Timestamp"
-	HeaderSignature = "X-Oxy-Relay-Signature"
+	HeaderKeyID     = "X-Oxy-Pensara-Key-Id"
+	HeaderTimestamp = "X-Oxy-Pensara-Timestamp"
+	HeaderSignature = "X-Oxy-Pensara-Signature"
 )
+
+// The spelling this service answered to before it was named Pensara. Both are
+// accepted for exactly as long as it takes Oxy's edge to send the new ones.
+//
+// This is a MIGRATION, not a compatibility layer, and the difference is that it
+// has an end: the edge is the only signer, so once it sends the new names these
+// three constants and the fallback below are deleted. Renaming a header the
+// edge still sends would refuse every request with `unknown key id` — the
+// signature never even gets computed — so a clean cut here is an outage in the
+// window between the two deploys, and there is no ordering of two deploys that
+// removes it.
+const (
+	legacyHeaderKeyID     = "X-Oxy-Relay-Key-Id"
+	legacyHeaderTimestamp = "X-Oxy-Relay-Timestamp"
+	legacyHeaderSignature = "X-Oxy-Relay-Signature"
+)
+
+// headerValue prefers the current name and falls back to the legacy one.
+//
+// Per header rather than all-or-nothing, which is safe because the signature
+// covers the VALUES — key id, timestamp and body hash — and never the names a
+// request happened to carry them in. A mixed pair therefore verifies or fails
+// on its own merits, exactly as a matched pair does.
+func headerValue(header http.Header, current, legacy string) string {
+	if v := header.Get(current); v != "" {
+		return v
+	}
+	return header.Get(legacy)
+}
 
 const signaturePrefix = "v1="
 
 // domainSeparator keeps a signature minted for another Oxy purpose from being
+// replayed here. IT STILL SAYS `relay` AFTER THE RENAME, AND DELIBERATELY SO:
+// this string is inside the signed payload, so changing it changes every
+// signature and would need Oxy's edge to change in the same instant. It is
+// opaque to everyone — no customer, log or dashboard ever sees it — so renaming
+// it would buy nothing and cost a coordinated cutover.
+//
+// The original comment follows.
 // replayable as an inference envelope.
 const domainSeparator = "oxy-relay-envelope:v1"
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
 //
-// It is the only replay bound: Relay keeps no nonce cache, so a captured
+// It is the only replay bound: Pensara keeps no nonce cache, so a captured
 // envelope can be replayed within this window. That is acceptable only because
 // the edge owns request idempotency and spend reservation — a replayed envelope
 // spends against a reservation that has already been made. It is recorded here
@@ -116,13 +152,13 @@ func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Ver
 // it will parse: verifying a re-encoded body would authenticate something other
 // than what gets executed.
 func (v *Verifier) Verify(header http.Header, body []byte) error {
-	keyID := header.Get(HeaderKeyID)
+	keyID := headerValue(header, HeaderKeyID, legacyHeaderKeyID)
 	key, known := v.keys[keyID]
 	if !known {
 		return fmt.Errorf("%w: unknown key id", ErrUnauthorized)
 	}
 
-	milliseconds, err := strconv.ParseInt(header.Get(HeaderTimestamp), 10, 64)
+	milliseconds, err := strconv.ParseInt(headerValue(header, HeaderTimestamp, legacyHeaderTimestamp), 10, 64)
 	if err != nil {
 		return fmt.Errorf("%w: unreadable timestamp", ErrUnauthorized)
 	}
@@ -133,7 +169,7 @@ func (v *Verifier) Verify(header http.Header, body []byte) error {
 		return fmt.Errorf("%w: the signature is outside the accepted time window", ErrUnauthorized)
 	}
 
-	raw := header.Get(HeaderSignature)
+	raw := headerValue(header, HeaderSignature, legacyHeaderSignature)
 	if !strings.HasPrefix(raw, signaturePrefix) {
 		return fmt.Errorf("%w: unversioned signature", ErrUnauthorized)
 	}
@@ -151,7 +187,7 @@ func (v *Verifier) Verify(header http.Header, body []byte) error {
 // SigningInput builds the exact bytes both sides sign.
 //
 // Exported because it IS the specification: an Oxy-side implementation that
-// reads this function cannot get the framing subtly wrong, and Relay's own
+// reads this function cannot get the framing subtly wrong, and Pensara's own
 // tests sign with it rather than with a second copy that could drift.
 func SigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	digest := sha256.Sum256(body)

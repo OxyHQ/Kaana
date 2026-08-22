@@ -1,6 +1,6 @@
 // Command relay-publisher builds the deployment inventory and re-issues it.
 //
-// It is a SEPARATE process from `cmd/relay` on purpose. Writing the inventory
+// It is a SEPARATE process from `cmd/pensara` on purpose. Writing the inventory
 // decides which deployment every model reference resolves to, which is a much
 // larger authority than serving one request — so the permission to write the
 // object belongs to a task role that does nothing else, rather than to the role
@@ -23,10 +23,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/inventory"
-	"github.com/OxyHQ/Relay/internal/providerconfig"
-	"github.com/OxyHQ/Relay/internal/publisher"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/inventory"
+	"github.com/OxyHQ/Pensara/internal/providerconfig"
+	"github.com/OxyHQ/Pensara/internal/publisher"
 )
 
 func main() {
@@ -41,19 +41,19 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	attribution, err := publisher.LoadAttribution(environmentOr("RELAY_PUBLISHER_ATTRIBUTION_PATH", "/etc/relay/model-attribution.json"))
+	attribution, err := publisher.LoadAttribution(environmentOr("PENSARA_PUBLISHER_ATTRIBUTION_PATH", "/etc/relay/model-attribution.json"))
 	if err != nil {
 		return err
 	}
 
-	providers, skipped, err := parsePublishableProviders(os.Getenv)
+	providers, skipped, err := parsePublishableProviders(legacyAwareEnv)
 	if err != nil {
 		return err
 	}
 	for _, slug := range skipped {
 		// Not fatal, and the whole reason it is a warning: a snapshot may not
 		// name a provider whose key does not exist, because there is no value
-		// of RELAY_PROVIDERS that serves it without either refusing its
+		// of PENSARA_PROVIDERS that serves it without either refusing its
 		// references or pinning a permanent `unconfigured` alarm. So the
 		// provider is left out and said out loud.
 		logger.Warn("a declared provider holds no credential, so it is absent from the snapshot and no reference will route to it",
@@ -63,8 +63,8 @@ func run(logger *slog.Logger) error {
 	client := &http.Client{Timeout: 30 * time.Second}
 	store, err := publisher.NewS3Store(
 		client,
-		os.Getenv("RELAY_INVENTORY_BUCKET"),
-		os.Getenv("RELAY_INVENTORY_KEY"),
+		providerconfig.EnvName(os.Getenv, "PENSARA_INVENTORY_BUCKET"),
+		providerconfig.EnvName(os.Getenv, "PENSARA_INVENTORY_KEY"),
 		os.Getenv("AWS_REGION"),
 		credentialSource(client),
 	)
@@ -72,7 +72,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	interval, err := intervalFromEnv("RELAY_PUBLISH_INTERVAL", publisher.DefaultInterval)
+	interval, err := intervalFromEnv("PENSARA_PUBLISH_INTERVAL", publisher.DefaultInterval)
 	if err != nil {
 		return err
 	}
@@ -103,13 +103,13 @@ func run(logger *slog.Logger) error {
 // parsePublishableProviders resolves the providers to ask, and the declared
 // ones that hold no credential.
 //
-// It reads the same `RELAY_PROVIDERS` list and the same `RELAY_PROVIDER_<SLUG>_*`
+// It reads the same `PENSARA_PROVIDERS` list and the same `PENSARA_PROVIDER_<SLUG>_*`
 // variables as the serving process, through the same `providerconfig` helpers,
 // so the two commands cannot disagree about where a provider lives.
 func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider, []contract.ProviderSlug, error) {
-	declared := providerconfig.SplitList(getenv("RELAY_PROVIDERS"))
+	declared := providerconfig.SplitList(getenv("PENSARA_PROVIDERS"))
 	if len(declared) == 0 {
-		return nil, nil, errors.New("RELAY_PROVIDERS is required: it lists the provider slugs to ask, and an empty one would publish a snapshot naming nothing")
+		return nil, nil, errors.New("PENSARA_PROVIDERS is required: it lists the provider slugs to ask, and an empty one would publish a snapshot naming nothing")
 	}
 
 	var (
@@ -122,10 +122,10 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 	for _, name := range declared {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
-			return nil, nil, fmt.Errorf("RELAY_PROVIDERS names %q, which is not a provider slug", name)
+			return nil, nil, fmt.Errorf("PENSARA_PROVIDERS names %q, which is not a provider slug", name)
 		}
 		if _, duplicate := seenSlug[slug]; duplicate {
-			return nil, nil, fmt.Errorf("RELAY_PROVIDERS names %q twice", slug)
+			return nil, nil, fmt.Errorf("PENSARA_PROVIDERS names %q twice", slug)
 		}
 		seenSlug[slug] = struct{}{}
 
@@ -153,7 +153,7 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			// such list; a hand-written list for it would be the checked-in
 			// file this command exists to replace, so it is refused rather
 			// than invented.
-			return nil, nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from RELAY_PROVIDERS for the publisher, or its models have to be declared by something that measured them", slug, protocol)
+			return nil, nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from PENSARA_PROVIDERS for the publisher, or its models have to be declared by something that measured them", slug, protocol)
 		}
 
 		keys := providerconfig.SplitList(getenv(prefix + "_API_KEY"))
@@ -194,7 +194,7 @@ func credentialSource(client *http.Client) publisher.CredentialSource {
 // warnAboutUnaskedAttributions names a table entry for a provider nobody asks.
 //
 // It is otherwise invisible: an attribution for a provider that is not in
-// RELAY_PROVIDERS looks exactly like an attribution for a provider that serves
+// PENSARA_PROVIDERS looks exactly like an attribution for a provider that serves
 // nothing, and both produce a snapshot missing routes somebody expected.
 func warnAboutUnaskedAttributions(logger *slog.Logger, attribution *publisher.Attribution, providers []publisher.Provider) {
 	asked := make(map[contract.ProviderSlug]struct{}, len(providers))
@@ -218,7 +218,7 @@ func slugsOf(providers []publisher.Provider) []string {
 }
 
 func environmentOr(name, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+	if value := strings.TrimSpace(providerconfig.EnvName(os.Getenv, name)); value != "" {
 		return value
 	}
 	return fallback
@@ -228,7 +228,7 @@ func environmentOr(name, fallback string) string {
 // than falling back to the default — a typo that silently became fifteen
 // minutes would be indistinguishable from the operator's intent.
 func intervalFromEnv(name string, fallback time.Duration) (time.Duration, error) {
-	value := strings.TrimSpace(os.Getenv(name))
+	value := strings.TrimSpace(providerconfig.EnvName(os.Getenv, name))
 	if value == "" {
 		return fallback, nil
 	}
@@ -241,3 +241,7 @@ func intervalFromEnv(name string, fallback time.Duration) (time.Duration, error)
 	}
 	return parsed, nil
 }
+
+// legacyAwareEnv is os.Getenv with the pre-rename spelling as a fallback. See
+// providerconfig.EnvName for why it exists and when it is deleted.
+func legacyAwareEnv(name string) string { return providerconfig.EnvName(os.Getenv, name) }

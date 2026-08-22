@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/inventory"
+	"github.com/OxyHQ/Pensara/internal/inventory"
 )
 
 func write(t *testing.T, path string, document []byte) {

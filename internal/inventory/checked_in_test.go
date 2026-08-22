@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // The checked-in snapshot is the one artefact in this repository that no other

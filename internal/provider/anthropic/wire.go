@@ -4,7 +4,7 @@ import "encoding/json"
 
 // The upstream wire shapes, exactly as the Anthropic Messages API defines them.
 // They are separate from the contract types on purpose: this file is the only
-// place in Relay that knows what this provider's JSON looks like, and the moment
+// place in Pensara that knows what this provider's JSON looks like, and the moment
 // one of its field names leaks past the adapter the boundary is gone.
 //
 // Every field is a pointer or a slice where the upstream may omit it, because
@@ -189,7 +189,7 @@ type streamDelta struct {
 	// input_json_delta: a FRAGMENT of a tool call's arguments, not valid JSON
 	// on its own.
 	PartialJSON *string `json:"partial_json"`
-	// signature_delta carries the encrypted thinking signature. Relay reads it
+	// signature_delta carries the encrypted thinking signature. Pensara reads it
 	// so it is not mistaken for output, and emits nothing: no contract event
 	// has a field for provider-opaque block metadata. See README.
 	Signature *string `json:"signature"`

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // A model nobody attributed is DROPPED and named — never guessed. That is the

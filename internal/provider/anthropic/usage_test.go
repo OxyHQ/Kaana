@@ -3,7 +3,7 @@ package anthropic
 import (
 	"testing"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // The usage tests are the ones worth reading twice. Every failure they cover is

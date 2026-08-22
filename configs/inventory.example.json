@@ -1,10 +1,10 @@
 {
   "$comment": [
-    "Relay's deployment inventory: which providers serve which model reference, and what each of them calls the model.",
+    "Pensara's deployment inventory: which providers serve which model reference, and what each of them calls the model.",
     "It holds no Oxy-owned concept — no account, application, credential, price or commercial permission. See AGENTS.md.",
-    "snapshotId and issuedAt are REQUIRED. Staleness is measured from issuedAt, not from when Relay last read this file, so the publisher must re-issue the snapshot on a cadence shorter than RELAY_INVENTORY_MAX_AGE even when nothing has changed. An unchanged file with an old issuedAt is indistinguishable, from Relay, from a control plane that has stopped publishing.",
-    "Two deployments of one modelReference are a same-model failover set: the same weights, two places to get them. Relay never substitutes a different model.",
-    "By default Relay does NOT use the second one. Choosing among the deployments of a model is governed by routing-policy values the envelope does not carry (routingFallbackPolicy.sameModelDeployment, allowedRegions, deniedRegions), so without RELAY_ASSUME_FAILOVER_AUTHORIZED a reference resolves to the deployment declared FIRST here and nowhere else. See README, 'The policy Relay is not sent'.",
+    "snapshotId and issuedAt are REQUIRED. Staleness is measured from issuedAt, not from when Pensara last read this file, so the publisher must re-issue the snapshot on a cadence shorter than RELAY_INVENTORY_MAX_AGE even when nothing has changed. An unchanged file with an old issuedAt is indistinguishable, from Pensara, from a control plane that has stopped publishing.",
+    "Two deployments of one modelReference are a same-model failover set: the same weights, two places to get them. Pensara never substitutes a different model.",
+    "By default Pensara does NOT use the second one. Choosing among the deployments of a model is governed by routing-policy values the envelope does not carry (routingFallbackPolicy.sameModelDeployment, allowedRegions, deniedRegions), so without RELAY_ASSUME_FAILOVER_AUTHORIZED a reference resolves to the deployment declared FIRST here and nowhere else. See README, 'The policy Pensara is not sent'.",
     "The entries below are illustrative. No live provider call has been made from this repository, so the upstream model ids here are unverified against a real provider."
   ],
   "snapshotId": "snap_example_0001",

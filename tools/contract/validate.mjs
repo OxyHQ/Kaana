@@ -1,7 +1,7 @@
 /**
- * Parses Relay-produced wire fixtures with the PUBLISHED Zod schemas.
+ * Parses Pensara-produced wire fixtures with the PUBLISHED Zod schemas.
  *
- * The Go descriptor test proves Relay's structure matches the contract. This
+ * The Go descriptor test proves Pensara's structure matches the contract. This
  * proves its values do — a timestamp spelling, a model-reference grammar, a
  * retryability rule, a duplicate unit — by handing each fixture to the
  * contract's own parser rather than to a re-implementation of it. A test that
@@ -62,7 +62,7 @@ for (const fixture of valid) {
   const result = schemaFor(fixture.schema).safeParse(fixture.value);
   if (!result.success) {
     failures.push(
-      `REJECTED a shape Relay produces — ${fixture.file} (${fixture.schema}/${fixture.case})\n` +
+      `REJECTED a shape Pensara produces — ${fixture.file} (${fixture.schema}/${fixture.case})\n` +
         result.error.issues
           .map((issue) => `      ${issue.path.join('.') || '<root>'}: ${issue.message}`)
           .join('\n'),

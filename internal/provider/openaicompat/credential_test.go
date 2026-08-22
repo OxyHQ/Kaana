@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Relay/internal/contract"
-	"github.com/OxyHQ/Relay/internal/provider"
+	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/provider"
 )
 
 // TestNoProviderDeclaresAQuotaHeaderThisBuildHasNotVerified is an exact count,
@@ -125,7 +125,7 @@ func (silentEmitter) Usage([]contract.UsageQuantity, contract.UsageSource) error
 // adapter and a real upstream.
 //
 // A provider rate limit belongs to an ACCOUNT, and a pool's keys may or may not
-// share one. Relay cannot tell, and the two guesses fail in opposite
+// share one. Pensara cannot tell, and the two guesses fail in opposite
 // directions: rotating into a shared limit hammers a provider that has just
 // asked for less traffic, and refusing to rotate off separate accounts fails a
 // request the next key would have served. So the operator states which it is.

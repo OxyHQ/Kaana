@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OxyHQ/Relay/internal/contract"
+	"github.com/OxyHQ/Pensara/internal/contract"
 )
 
 // TestRedactSecretIsStillTheOnlyControl answers the question the contract's own
