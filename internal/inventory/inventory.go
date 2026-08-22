@@ -1,15 +1,15 @@
-// Package inventory holds Pensara's deployment inventory: which providers serve
+// Package inventory holds Kaana's deployment inventory: which providers serve
 // which model reference, and what each of them calls the model.
 //
 // This is the one piece of catalogue knowledge the data plane genuinely owns.
-// ADR 0006 assigns deployment availability to Pensara and model identity and
+// ADR 0006 assigns deployment availability to Kaana and model identity and
 // pricing to Oxy, and the published catalogue's deployment descriptor carries
 // no field for a provider's own model identifier — so the mapping from
 // `openai/gpt-5@2026-05-01` to whatever string OpenAI expects exists nowhere in
 // the contract and has to live here.
 //
 // It deliberately holds nothing else. No account, no application, no
-// credential, no price, no commercial permission: a Pensara table keyed by an Oxy
+// credential, no price, no commercial permission: a Kaana table keyed by an Oxy
 // id is a copy of an Oxy entity, and this file is where that temptation would
 // first appear. The upstream rate cards that price a PROVIDER's invoice are a
 // separate file read by a separate package, so that nothing on the path from a
@@ -34,12 +34,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // DefaultMaxSnapshotAge is how long an inventory snapshot may go without being
-// re-issued before Pensara stops resolving UNPINNED references from it.
+// re-issued before Kaana stops resolving UNPINNED references from it.
 //
 // It is generous on purpose. A pinned reference is served from a snapshot of
 // any age — the mapping from immutable weights to a provider's model id does
@@ -138,7 +138,7 @@ func (e ErrNoRoute) Error() string {
 // against a snapshot the control plane has not re-issued within the horizon.
 //
 // It is deliberately not ErrNoRoute: the model exists and its deployments are
-// almost certainly still serving. What Pensara has lost is any basis for
+// almost certainly still serving. What Kaana has lost is any basis for
 // believing that the revision this snapshot calls current is the revision Oxy
 // would choose now, and answering with the stale one would substitute weights
 // the customer did not ask for on a decision nobody made.
@@ -160,7 +160,7 @@ func (i *Inventory) SnapshotID() string { return i.snapshotID }
 // Age is how long ago the snapshot was issued.
 //
 // It is measured from the moment the control plane stamped the snapshot — NOT
-// from when Pensara read the file. A file re-read every thirty seconds is not
+// from when Kaana read the file. A file re-read every thirty seconds is not
 // thirty seconds fresh; it is as fresh as whoever last wrote it says it is.
 func (i *Inventory) Age(at time.Time) time.Duration { return at.Sub(i.issuedAt) }
 

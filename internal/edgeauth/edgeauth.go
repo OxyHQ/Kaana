@@ -2,8 +2,8 @@
 //
 // # Why this is asymmetric
 //
-// The published contract specifies the SHAPES Oxy and Pensara exchange and says
-// nothing about how Pensara authenticates the sender. Something has to be chosen,
+// The published contract specifies the SHAPES Oxy and Kaana exchange and says
+// nothing about how Kaana authenticates the sender. Something has to be chosen,
 // and the choice follows Oxy's own ADR 0012 rather than inventing a position:
 // that ADR retires the shared HMAC secret for service tokens on the ground that
 // in any symmetric scheme, verifying and minting are the same capability — so
@@ -11,21 +11,21 @@
 // FORGE one.
 //
 // Applied to this hop, the reasoning is the same and the stakes are higher.
-// Pensara executes requests and reports the usage a customer is charged for. A
-// shared HMAC secret would let Pensara — or anything that ever read Pensara's
+// Kaana executes requests and reports the usage a customer is charged for. A
+// shared HMAC secret would let Kaana — or anything that ever read Kaana's
 // configuration — mint an envelope naming any Oxy account as the payer, and a
 // forged accountId is indistinguishable from a real one at every point after
-// the mint. So Pensara holds only PUBLIC keys and cannot construct an envelope it
+// the mint. So Kaana holds only PUBLIC keys and cannot construct an envelope it
 // would itself accept.
 //
-// This is Pensara's proposal for a decision Oxy has not made. It is stated here,
+// This is Kaana's proposal for a decision Oxy has not made. It is stated here,
 // in one file, so it is cheap to replace if Oxy decides otherwise.
 //
 // # The scheme
 //
-//	X-Oxy-Pensara-Key-Id       the signing key's id
-//	X-Oxy-Pensara-Timestamp    unix milliseconds, when the edge signed
-//	X-Oxy-Pensara-Signature    v1=<base64 Ed25519 signature>
+//	X-Oxy-Kaana-Key-Id       the signing key's id
+//	X-Oxy-Kaana-Timestamp    unix milliseconds, when the edge signed
+//	X-Oxy-Kaana-Signature    v1=<base64 Ed25519 signature>
 //
 // signed over, with `\n` separators and no trailing newline:
 //
@@ -52,16 +52,16 @@ import (
 	"time"
 )
 
-// Header names. They are Pensara's own, so they are namespaced rather than
+// Header names. They are Kaana's own, so they are namespaced rather than
 // generic: a proxy that strips or rewrites `Authorization` must not be able to
 // affect this.
 const (
-	HeaderKeyID     = "X-Oxy-Pensara-Key-Id"
-	HeaderTimestamp = "X-Oxy-Pensara-Timestamp"
-	HeaderSignature = "X-Oxy-Pensara-Signature"
+	HeaderKeyID     = "X-Oxy-Kaana-Key-Id"
+	HeaderTimestamp = "X-Oxy-Kaana-Timestamp"
+	HeaderSignature = "X-Oxy-Kaana-Signature"
 )
 
-// The spelling this service answered to before it was named Pensara. Both are
+// The spelling this service answered to before it was named Kaana. Both are
 // accepted for exactly as long as it takes Oxy's edge to send the new ones.
 //
 // This is a MIGRATION, not a compatibility layer, and the difference is that it
@@ -105,7 +105,7 @@ const domainSeparator = "oxy-relay-envelope:v1"
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
 //
-// It is the only replay bound: Pensara keeps no nonce cache, so a captured
+// It is the only replay bound: Kaana keeps no nonce cache, so a captured
 // envelope can be replayed within this window. That is acceptable only because
 // the edge owns request idempotency and spend reservation — a replayed envelope
 // spends against a reservation that has already been made. It is recorded here
@@ -187,7 +187,7 @@ func (v *Verifier) Verify(header http.Header, body []byte) error {
 // SigningInput builds the exact bytes both sides sign.
 //
 // Exported because it IS the specification: an Oxy-side implementation that
-// reads this function cannot get the framing subtly wrong, and Pensara's own
+// reads this function cannot get the framing subtly wrong, and Kaana's own
 // tests sign with it rather than with a second copy that could drift.
 func SigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	digest := sha256.Sum256(body)

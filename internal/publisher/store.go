@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/awssig"
-	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/awssig"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // ObjectStore is where the snapshot is published.
@@ -50,9 +50,9 @@ func NewS3Store(client *http.Client, bucket, key, region string, credentials Cre
 		// Never defaulted. A plausible default bucket turns a missing variable
 		// into "published somewhere else, everything green", which is the exact
 		// class of silent failure this whole artefact is designed against.
-		return nil, fmt.Errorf("publisher: no bucket: set PENSARA_INVENTORY_BUCKET; there is no default, because publishing to a guessed bucket succeeds silently")
+		return nil, fmt.Errorf("publisher: no bucket: set KAANA_INVENTORY_BUCKET; there is no default, because publishing to a guessed bucket succeeds silently")
 	case key == "":
-		return nil, fmt.Errorf("publisher: no object key: set PENSARA_INVENTORY_KEY")
+		return nil, fmt.Errorf("publisher: no object key: set KAANA_INVENTORY_KEY")
 	case region == "":
 		return nil, fmt.Errorf("publisher: no region: set AWS_REGION")
 	case credentials == nil:

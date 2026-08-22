@@ -58,8 +58,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // apiVersion is the Messages API version this adapter is written against. The
@@ -73,7 +73,7 @@ const apiVersion = "2023-06-01"
 type Config struct {
 	// BaseURL is the API root, e.g. https://api.anthropic.com/v1.
 	BaseURL string
-	// APIKeys are Pensara's own credentials, in the order they are to be spent.
+	// APIKeys are Kaana's own credentials, in the order they are to be spent.
 	// They are read from the process environment, never from a request, never
 	// from a file in this repository, and never written to a log, an error or a
 	// usage record.
@@ -491,7 +491,7 @@ func translateContentPart(part contract.ContentPart) (any, error) {
 
 	case contract.ContentPartAudio:
 		// The messages api has no audio content block. Transcribing it here
-		// would make Pensara decide what the customer's audio says.
+		// would make Kaana decide what the customer's audio says.
 		return nil, provider.ErrUnsupported{
 			Code:   contract.CodeUnsupportedModality,
 			Detail: "the messages api has no audio content block",

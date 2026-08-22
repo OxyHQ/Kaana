@@ -11,7 +11,7 @@ linters:
     # streaming data plane is the failure that arrives a day later as
     # exhaustion rather than as an error.
     - bodyclose
-    # Pensara's control flow turns on errors.Is/As — cancellation versus provider
+    # Kaana's control flow turns on errors.Is/As — cancellation versus provider
     # failure, ErrNoRoute, ErrUnsupported, ErrUpstream. A comparison written
     # with == against a wrapped error silently stops matching.
     - errorlint

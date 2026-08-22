@@ -10,9 +10,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/sse"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
 // doneSentinel is how this protocol marks the end of a stream. It is not JSON,
@@ -128,7 +128,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 
 // readComplete consumes a non-streamed response.
 //
-// The same normalized events are produced either way. Pensara's own surface is
+// The same normalized events are produced either way. Kaana's own surface is
 // always an event stream; `stream` on the envelope controls the UPSTREAM call,
 // and the Oxy edge renders whichever dialect the customer asked for.
 func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider.Emitter, key provider.Key) (provider.Outcome, error) {
@@ -453,7 +453,7 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		failure.Detail = fmt.Sprintf("%s rate-limited this request", a.config.Provider)
 		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
-		// Pensara's own credential was refused, NOT the customer's.
+		// Kaana's own credential was refused, NOT the customer's.
 		// `authentication_failed` would tell a customer their key is bad when
 		// the key at fault is ours; `provider_error` would tell them to retry a
 		// request that cannot succeed until an operator rotates a key.

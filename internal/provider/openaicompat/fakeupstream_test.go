@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/provider/conformance"
+	"github.com/OxyHQ/Kaana/internal/provider/conformance"
 )
 
 // fakeUpstream speaks the REAL OpenAI Chat Completions wire format.

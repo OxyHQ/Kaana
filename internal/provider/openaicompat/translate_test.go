@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // Translation is the half of an adapter with no schema to check it: the
@@ -322,7 +322,7 @@ func TestTranslatedCallsCarryNoCredential(t *testing.T) {
 // reasoning tokens, while the contract's units are a flat list. Reported as
 // nested totals, a price applied to every unit would charge the cached and
 // reasoning tokens twice. The contract does not say which reading it intends;
-// this is the one Pensara implements, and the difference is real money on a
+// this is the one Kaana implements, and the difference is real money on a
 // reasoning model.
 func TestUsageUnitsAreDisjoint(t *testing.T) {
 	units := normalizeUsage(&chatUsage{

@@ -13,7 +13,7 @@
 *
 
 !go.mod
-# Absent today: Pensara's module requires nothing outside the standard library.
+# Absent today: Kaana's module requires nothing outside the standard library.
 # Named so that the first dependency does not also become a build failure.
 !go.sum
 !cmd/**

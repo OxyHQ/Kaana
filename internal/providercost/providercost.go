@@ -1,12 +1,12 @@
-// Package providercost measures what a request cost Pensara upstream.
+// Package providercost measures what a request cost Kaana upstream.
 //
 // This is the one place in the repository that holds an amount of money, and it
-// is deliberately not the contract's. ADR 0006 gives Pensara upstream provider
+// is deliberately not the contract's. ADR 0006 gives Kaana upstream provider
 // cost and gives Oxy every customer-facing amount; `internal/contract` has no
 // money type at all and must not acquire one. The number here answers "what
 // will the provider invoice us for this request", never "what is this customer
 // charged" — those are different questions with different owners, and the
-// moment one type answers both, Pensara has started a second ledger.
+// moment one type answers both, Kaana has started a second ledger.
 //
 // # Why it cannot reach a customer
 //
@@ -36,13 +36,13 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // Scale is the number of decimal places an Amount carries: an amount is
 // expressed in 1e-12 of the currency's major unit.
 //
-// It matches the published contract's money scale on purpose. Pensara never
+// It matches the published contract's money scale on purpose. Kaana never
 // exchanges money with Oxy, but an operator reconciling a provider invoice
 // against the ledger's revenue is comparing these two numbers by hand, and two
 // different scales is how that comparison goes wrong by a factor of a thousand.
@@ -71,7 +71,7 @@ func (m Money) String() string {
 	return fmt.Sprintf("%s %d.%012d", m.Currency, whole, fraction)
 }
 
-// currencyPattern is the shape of an ISO 4217 code. Pensara does not hold a
+// currencyPattern is the shape of an ISO 4217 code. Kaana does not hold a
 // currency table: it never converts between currencies, so the only thing it
 // can usefully check is that an operator has not written a provider's name
 // where a currency belongs.
@@ -252,7 +252,7 @@ type Record struct {
 	// Totals is one amount per currency, sorted. Several currencies in one
 	// request is unusual and legitimate — two providers serving one model line
 	// can invoice differently — and adding them together would be a conversion
-	// Pensara has no rate for.
+	// Kaana has no rate for.
 	Totals []Money
 	// Complete is false if any attempt was unpriced or carried an unpriced
 	// unit. A reconciliation that treats an incomplete record as complete is

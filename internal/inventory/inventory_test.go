@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
 )
 
 // issued renders a snapshot header stamped at a given moment. Fixtures are
@@ -194,7 +194,7 @@ func TestAnEndpointCannotCarryItsOwnModelReference(t *testing.T) {
 //
 // Pinned weights are an immutable mapping: nothing about
 // `openai/gpt-5@2026-05-01 → gpt-5-2026-05-01 on openai` can have gone stale, so
-// refusing it would be an outage Pensara inflicted on itself for no gain.
+// refusing it would be an outage Kaana inflicted on itself for no gain.
 func TestAStaleSnapshotStillServesPinnedReferences(t *testing.T) {
 	issuedAt := time.Now().Add(-24 * time.Hour)
 	parsed, err := inventory.Parse(issued(issuedAt, twoRevisions), time.Hour)

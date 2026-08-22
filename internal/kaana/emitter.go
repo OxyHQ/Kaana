@@ -1,12 +1,12 @@
-package pensara
+package kaana
 
 import (
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // Sink receives normalized events in order. Returning an error stops the
@@ -33,7 +33,7 @@ type emitter struct {
 	started       bool
 	terminated    bool
 	firstOutputAt time.Time
-	// admittedAt is when Pensara began executing, NOT when the upstream started
+	// admittedAt is when Kaana began executing, NOT when the upstream started
 	// answering. Time to first token measured from the upstream's response
 	// headers would exclude connection and queueing time, which is most of what
 	// the number exists to expose.
@@ -264,7 +264,7 @@ func (e *emitter) requireStarted(kind contract.StreamEventType) error {
 }
 
 // timeToFirstToken reports how long the first non-empty output took, measured
-// from the moment Pensara admitted the request. Zero when no output was produced.
+// from the moment Kaana admitted the request. Zero when no output was produced.
 func (e *emitter) timeToFirstToken() time.Duration {
 	if e.firstOutputAt.IsZero() || e.admittedAt.IsZero() {
 		return 0

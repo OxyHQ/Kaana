@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OxyHQ/Pensara/internal/sse"
+	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
 func TestDecoderFollowsTheSpecificationRatherThanOneProvidersHabits(t *testing.T) {

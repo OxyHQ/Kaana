@@ -7,15 +7,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // Store holds the inventory snapshot the data plane is currently serving from,
-// and is what lets Pensara keep serving while the control plane is unreachable.
+// and is what lets Kaana keep serving while the control plane is unreachable.
 //
 // # What a snapshot is for
 //
-// Pensara's configuration arrives as a file the control plane publishes. If that
+// Kaana's configuration arrives as a file the control plane publishes. If that
 // pipeline stops — Oxy is down, a deploy is stuck, the file is truncated
 // mid-write — the process must not stop serving, and it must not start
 // pretending it knows things it no longer knows. Those are two different
@@ -30,7 +30,7 @@ import (
 //
 // # The requirement this places on the publisher
 //
-// Staleness is measured from the snapshot's own `issuedAt`, not from when Pensara
+// Staleness is measured from the snapshot's own `issuedAt`, not from when Kaana
 // last read the file. That is the only measure that survives the failure that
 // matters: a publisher that has stopped running leaves a perfectly readable
 // file on disk, and re-reading it every thirty seconds would report it fresh

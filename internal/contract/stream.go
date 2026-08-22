@@ -166,7 +166,7 @@ func (e *StreamErrorEvent) Sequence() int              { return e.Seq }
 
 // StreamDoneEvent is the successful terminal event.
 //
-// ReceiptID is present once settlement has produced one. Pensara never sets it:
+// ReceiptID is present once settlement has produced one. Kaana never sets it:
 // settlement is the control plane's, and a data plane that filled the field in
 // would be quoting a charge it did not compute.
 type StreamDoneEvent struct {

@@ -3,8 +3,8 @@
 // environment variable a slug reads, the address it is reached at, and the
 // wire protocol it speaks.
 //
-// It exists because there are now two commands. `cmd/pensara` resolves a slug to
-// an adapter, an address and a credential POOL; `cmd/pensara-publisher` resolves
+// It exists because there are now two commands. `cmd/kaana` resolves a slug to
+// an adapter, an address and a credential POOL; `cmd/kaana-publisher` resolves
 // the same slug to an address and ONE credential so it can ask the provider
 // which models it serves. The address and the variable name are the same fact
 // in both, and a second copy of them would drift the day a base URL moves —
@@ -20,7 +20,7 @@ package providerconfig
 import (
 	"strings"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // The wire protocols this repository speaks. Provider slugs are not a closed
@@ -69,7 +69,7 @@ type Endpoint struct {
 // secret name, so a design where they differ breaks the sync silently.
 func EnvironmentPrefix(slug contract.ProviderSlug) string {
 	replaced := strings.NewReplacer(".", "_", "-", "_").Replace(string(slug))
-	return "PENSARA_PROVIDER_" + strings.ToUpper(replaced)
+	return "KAANA_PROVIDER_" + strings.ToUpper(replaced)
 }
 
 // SplitList reads a comma-separated environment value, discarding the empty
@@ -86,7 +86,7 @@ func SplitList(value string) []string {
 
 // EnvName is the one place that knows this service used to be called Relay.
 //
-// Every variable it reads is spelled `PENSARA_*`; a deployment still setting the
+// Every variable it reads is spelled `KAANA_*`; a deployment still setting the
 // `RELAY_*` spelling is answered from that instead. The two cannot disagree in
 // a way that surprises anyone, because the current name always wins and the
 // legacy one is only consulted when the current is unset.
@@ -105,7 +105,7 @@ func EnvName(getenv func(string) string, name string) string {
 	if value := getenv(name); value != "" {
 		return value
 	}
-	legacy, renamed := strings.CutPrefix(name, "PENSARA_")
+	legacy, renamed := strings.CutPrefix(name, "KAANA_")
 	if !renamed {
 		return ""
 	}

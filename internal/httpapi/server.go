@@ -1,6 +1,6 @@
-// Package httpapi is Pensara's Oxy-facing surface.
+// Package httpapi is Kaana's Oxy-facing surface.
 //
-// It has exactly three routes and no customer-facing one. Pensara is not on the
+// It has exactly three routes and no customer-facing one. Kaana is not on the
 // public internet's path to a customer: the Oxy edge authenticates, attributes,
 // authorizes and reserves, then forwards a signed envelope here.
 //
@@ -34,16 +34,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/edgeauth"
-	"github.com/OxyHQ/Pensara/internal/inventory"
-	"github.com/OxyHQ/Pensara/internal/pensara"
-	"github.com/OxyHQ/Pensara/internal/provider"
-	"github.com/OxyHQ/Pensara/internal/rotation"
-	"github.com/OxyHQ/Pensara/internal/sse"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
-// SSE frame names. Pensara's own transport framing; see internal/sse.
+// SSE frame names. Kaana's own transport framing; see internal/sse.
 const (
 	FrameStreamEvent = "stream_event"
 	FrameUsageReport = "usage_report"
@@ -60,7 +60,7 @@ const DefaultMaxEnvelopeBytes int64 = 16 << 20
 
 // Server serves the Oxy-facing surface.
 type Server struct {
-	executor         *pensara.Executor
+	executor         *kaana.Executor
 	verifier         *edgeauth.Verifier
 	registry         *provider.Registry
 	inventory        *inventory.Store
@@ -73,7 +73,7 @@ type Server struct {
 // mode, not even for local development, because a bypass that exists is a
 // bypass that ships.
 type Config struct {
-	Executor  *pensara.Executor
+	Executor  *kaana.Executor
 	Verifier  *edgeauth.Verifier
 	Registry  *provider.Registry
 	Inventory *inventory.Store
@@ -184,7 +184,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := writer.WriteEvent(FrameStreamEvent, payload); err != nil {
 			if errors.Is(err, sse.ErrClientGone) {
-				return fmt.Errorf("%w: %w", pensara.ErrClientGone, err)
+				return fmt.Errorf("%w: %w", kaana.ErrClientGone, err)
 			}
 			return err
 		}
@@ -214,7 +214,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 // logResult records what happened. It names ids, a route and an outcome, and
 // never a prompt, a completion, a header or a body: request content does not
 // enter ordinary logs.
-func (s *Server) logResult(requestID contract.RequestID, result pensara.Result, elapsed time.Duration) {
+func (s *Server) logResult(requestID contract.RequestID, result kaana.Result, elapsed time.Duration) {
 	attributes := []any{"requestId", requestID, "durationMs", elapsed.Milliseconds()}
 	if result.Report != nil {
 		attributes = append(attributes,
@@ -228,7 +228,7 @@ func (s *Server) logResult(requestID contract.RequestID, result pensara.Result, 
 	if len(result.UpstreamCost.Attempts) > 0 {
 		// What the providers will invoice for this request, including attempts
 		// that failed and produced nothing for the customer. It is here, in an
-		// operator log, and in no response body: Pensara measures its own cost
+		// operator log, and in no response body: Kaana measures its own cost
 		// and never quotes an amount to anyone.
 		attributes = append(attributes, "upstreamCost", result.UpstreamCost)
 	}
@@ -371,8 +371,8 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 //
 // The contract requires a requestId on every error, including one that never
 // reached the data plane. Echoing the id from an unverified body would let an
-// unauthenticated caller choose what appears in Pensara's logs, so a rejection
-// gets an id Pensara minted.
+// unauthenticated caller choose what appears in Kaana's logs, so a rejection
+// gets an id Kaana minted.
 func newLocalRequestID() contract.RequestID {
 	var entropy [12]byte
 	if _, err := rand.Read(entropy[:]); err != nil {

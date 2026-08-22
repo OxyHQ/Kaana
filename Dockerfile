@@ -1,8 +1,8 @@
-# Pensara's release image.
+# Kaana's release image.
 #
 # # Why the build stage is not emulated
 #
-# Pensara's module requires nothing outside the Go standard library, so there is
+# Kaana's module requires nothing outside the Go standard library, so there is
 # no cgo and nothing to link against a target libc. The build stage therefore
 # runs on the BUILDER's architecture and cross-compiles, which is why an arm64
 # image can be produced on an amd64 host with no qemu registered at all.
@@ -34,9 +34,9 @@
 # baking the inventory would freeze its `issuedAt`: past RELAY_INVENTORY_MAX_AGE
 # (default 1h) every unpinned model reference would be refused, so the image
 # would deploy green and degrade an hour later on a clock nobody was watching.
-# Pensara re-reads the file every RELAY_INVENTORY_RELOAD_INTERVAL, so the snapshot
+# Kaana re-reads the file every RELAY_INVENTORY_RELOAD_INTERVAL, so the snapshot
 # is mounted at /etc/relay by whatever publishes it. THE RUNTIME PATHS AND THE
-# SHIPPED BINARY NAMES STILL SAY `relay` WHILE THE SOURCE SAYS `pensara`, and
+# SHIPPED BINARY NAMES STILL SAY `relay` WHILE THE SOURCE SAYS `kaana`, and
 # that gap is deliberate: the task definition in oxy-infra names
 # `/usr/local/bin/relay-publisher` as its entryPoint and mounts the inventory
 # volume at /etc/relay, so moving either here without moving terraform in the
@@ -68,7 +68,7 @@ ARG TARGETARCH
 # binary does not need: the runtime's own traceback is built from the pclntab
 # and survives both.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/relay ./cmd/pensara
+    go build -trimpath -ldflags="-s -w" -o /out/relay ./cmd/kaana
 
 # The inventory publisher ships in the SAME image and runs as a different task.
 # One image because they are one module built from one commit, and a publisher
@@ -80,7 +80,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # Forgetting the override fails loudly rather than silently — the publisher task
 # would start `relay`, which refuses to boot without an inventory snapshot.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/relay-publisher ./cmd/pensara-publisher
+    go build -trimpath -ldflags="-s -w" -o /out/relay-publisher ./cmd/kaana-publisher
 
 # The mount point for the configuration snapshot, created here because the
 # runtime stage has no shell to mkdir with. A volume mounted over it brings its
@@ -115,11 +115,11 @@ COPY --from=build --chown=65532:65532 /out/etc/relay-publisher /etc/relay-publis
 # reporting zero.
 # THESE ENV DEFAULTS KEEP THE PRE-RENAME SPELLING, AND SWAPPING THEM EARLY WOULD
 # INVERT AN OVERRIDE. A container definition's `environment` beats an image ENV,
-# which is how oxy-infra sets these. But the binary prefers `PENSARA_*` and only
-# falls back to `RELAY_*`, so an image setting `PENSARA_INVENTORY_PATH` while the
+# which is how oxy-infra sets these. But the binary prefers `KAANA_*` and only
+# falls back to `RELAY_*`, so an image setting `KAANA_INVENTORY_PATH` while the
 # task definition still sets `RELAY_INVENTORY_PATH` makes the IMAGE default win.
 # Today both hold the same value, so it would break nothing and teach nothing —
-# which is exactly why it is worth naming. They move to `PENSARA_*` in the same
+# which is exactly why it is worth naming. They move to `KAANA_*` in the same
 # change as the task definition.
 ENV RELAY_INVENTORY_PATH=/etc/relay/inventory.json
 
@@ -128,7 +128,7 @@ ENV RELAY_INVENTORY_PATH=/etc/relay/inventory.json
 # in: it changes when a human adds a model, which is a commit, not a cadence.
 ENV RELAY_PUBLISHER_ATTRIBUTION_PATH=/etc/relay-publisher/model-attribution.json
 
-# Documentation only, and it matches cmd/pensara's default RELAY_ADDR.
+# Documentation only, and it matches cmd/kaana's default RELAY_ADDR.
 EXPOSE 8080
 
 USER 65532:65532

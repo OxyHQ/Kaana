@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/edgeauth"
 )
 
 const keyID = "edge-2026-08"
@@ -66,7 +66,7 @@ func TestForgeryIsRejected(t *testing.T) {
 			},
 		},
 		{
-			name: "a signature from a key Pensara does not trust",
+			name: "a signature from a key Kaana does not trust",
 			mutate: func(t *testing.T, _ *edgeauth.Verifier, _ ed25519.PrivateKey) (http.Header, []byte) {
 				_, other, err := ed25519.GenerateKey(nil)
 				if err != nil {

@@ -1,4 +1,4 @@
-// Package publisher builds Pensara's deployment inventory from what the
+// Package publisher builds Kaana's deployment inventory from what the
 // providers themselves report, and re-issues it on a cadence.
 //
 // # Why this is a re-issuing loop and not a file writer
@@ -8,7 +8,7 @@
 // survives the failure that matters: a publisher that has stopped leaves a
 // perfectly readable file behind, and re-reading it every thirty seconds would
 // report it fresh forever. The consequence lands here — an unchanged snapshot
-// with an old `issuedAt` is indistinguishable, from Pensara, from a control plane
+// with an old `issuedAt` is indistinguishable, from Kaana, from a control plane
 // that has stopped publishing, and is treated as one. So this loop re-stamps
 // and rewrites even when not one byte of the routing content has changed, and
 // `DefaultInterval` is well inside `inventory.DefaultMaxSnapshotAge`.
@@ -38,8 +38,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/OxyHQ/Pensara/internal/contract"
-	"github.com/OxyHQ/Pensara/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
 )
 
 // DefaultInterval is how often the snapshot is re-issued.
@@ -47,7 +47,7 @@ import (
 // It has to be meaningfully SHORTER than `inventory.DefaultMaxSnapshotAge`, not
 // merely different from it: at exactly the horizon every cycle would land on
 // the boundary and a single missed publish would degrade unpinned resolution.
-// At fifteen minutes, four consecutive publishes can fail before Pensara stops
+// At fifteen minutes, four consecutive publishes can fail before Kaana stops
 // resolving unpinned references — a real margin, and still cheap for a job
 // whose whole output is a few kilobytes.
 //
@@ -59,7 +59,7 @@ type Config struct {
 	// Providers are the upstreams to ask, in the order they were declared.
 	// Only providers holding a credential belong here: a snapshot may not name
 	// a provider whose key does not exist, because there is no value of
-	// PENSARA_PROVIDERS that serves it without either refusing its references or
+	// KAANA_PROVIDERS that serves it without either refusing its references or
 	// pinning a permanent `unconfigured` alarm.
 	Providers   []Provider
 	Attribution *Attribution

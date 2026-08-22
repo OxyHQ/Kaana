@@ -6,9 +6,9 @@ import (
 )
 
 // UsageReport is the data plane's technical account of one request — the only
-// usage shape Pensara produces.
+// usage shape Kaana produces.
 //
-// No money and no price appear on it. Pensara measures units and names the route
+// No money and no price appear on it. Kaana measures units and names the route
 // it used; the control plane decides what that costs. Keeping the two apart is
 // what allows a price to be corrected after the fact without re-running or
 // re-measuring anything, and it is the reason there is no Money type in this
@@ -55,7 +55,7 @@ func (r UsageReport) MarshalJSON() ([]byte, error) {
 }
 
 // Validate applies the refinements the published schema carries, so a report
-// Pensara would emit and Oxy would reject is caught on this side of the wire.
+// Kaana would emit and Oxy would reject is caught on this side of the wire.
 //
 // A rejected usage report is not a lost log line: it is the record settlement
 // runs against, so the failure mode of emitting an invalid one is a request

@@ -1,4 +1,4 @@
-// Package contract holds Pensara's Go representation of the Oxy↔data-plane
+// Package contract holds Kaana's Go representation of the Oxy↔data-plane
 // inference contract published as `@oxyhq/contracts`.
 //
 // The types here are not a convenience mirror. They are the wire, and the
@@ -9,10 +9,10 @@
 // failing test, which is the only reason it is safe to write these structs by
 // hand.
 //
-// Decoding rule, and it is deliberate: Pensara does NOT reject unknown fields on
+// Decoding rule, and it is deliberate: Kaana does NOT reject unknown fields on
 // an inbound envelope. The contract states that adding an optional field is an
 // additive change that does not bump a shape's version, so a strict decoder
-// would turn every additive Oxy change into a production outage. What Pensara
+// would turn every additive Oxy change into a production outage. What Kaana
 // does reject is a `schemaVersion` it does not implement.
 package contract
 
@@ -31,7 +31,7 @@ const ContractVersion = "1.1.0"
 // reinterpreted.
 const SchemaVersion = 1
 
-// RequestEnvelopeVersion is the schemaVersion of the Oxy→Pensara request envelope
+// RequestEnvelopeVersion is the schemaVersion of the Oxy→Kaana request envelope
 // this build implements. An envelope carrying any other value is refused whole,
 // before any field of it is read: a partially understood envelope is how a
 // routing or spend constraint gets silently dropped.

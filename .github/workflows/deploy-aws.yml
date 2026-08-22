@@ -1,6 +1,6 @@
 name: Deploy to AWS
 
-# Pensara's release path: build the arm64 image, push it to ECR, register a task
+# Kaana's release path: build the arm64 image, push it to ECR, register a task
 # definition that names the image by DIGEST, and repoint the service at that
 # revision.
 #
@@ -73,9 +73,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Sync provider credentials -> SSM (GitHub is the source of truth)
-        # The ONLY secrets Pensara holds are the upstream provider credentials.
+        # The ONLY secrets Kaana holds are the upstream provider credentials.
         # The Oxy edge's key is a PUBLIC key and is ordinary environment, set in
-        # the task definition in plain sight — Pensara verifies envelopes and
+        # the task definition in plain sight — Kaana verifies envelopes and
         # cannot construct one, which is the whole point of the asymmetric
         # scheme and is lost the moment a signing key is stored here.
         #
@@ -250,7 +250,7 @@ jobs:
                 # "deployed" would be a lie about it, and this job is the last
                 # thing anyone reads before believing the change went out.
                 if [ "$DESIRED" = "0" ]; then
-                  echo "::warning::rollout COMPLETED with desiredCount=0: $ARN is the service's revision, but no task is running it. This run proves the image built and the revision registered, and nothing about whether Pensara serves."
+                  echo "::warning::rollout COMPLETED with desiredCount=0: $ARN is the service's revision, but no task is running it. This run proves the image built and the revision registered, and nothing about whether Kaana serves."
                   exit 0
                 fi
                 echo "deployed $APP at $IMAGE ($RUNNING/$DESIRED tasks running)"
