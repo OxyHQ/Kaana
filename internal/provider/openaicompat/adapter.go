@@ -115,6 +115,34 @@ func New(config Config) (*Adapter, error) {
 //
 // Adding an entry is the way a verified header signal arrives. It is a
 // deliberate act with a count to move, not a line to append.
+//
+// # This was measured on 2026-08-23, and there was nothing to declare
+//
+// A real chat completion was sent to each provider this build serves, with that
+// account's own key, and every response header matching credit/quota/balance/
+// limit/remaining/reset was read:
+//
+//	openrouter  NO such header at all
+//	groq        x-ratelimit-{limit,remaining}-{requests,tokens},
+//	            x-ratelimit-reset-requests: 1m26.4s, -reset-tokens: 570ms
+//	xai         x-ratelimit-{limit,remaining}-{requests,tokens}
+//	cerebras    not measured: the account answers 402 before a completion
+//
+// Groq's and xAI's are BURST limits — the resets are in seconds and minutes, and
+// the remaining counts refill. Mapping either onto SignalRemainingCredits is the
+// exact mistake the QuotaSignal doc refuses: it would retire a healthy key every
+// time a provider throttled one, and the pool would empty for no reason. A
+// burst limit is already handled, as a 429, by Throttled and the retry path.
+//
+// So the emptiness below is a RESULT, not an omission. Anyone tempted to fill it
+// from a header name that looks right should re-run that measurement first.
+//
+// One real credit signal does exist and is NOT a header: OpenRouter returns
+// `usage.cost` in the response BODY (measured: 0.000080255 on a 91-token
+// completion). Its account-level `GET /api/v1/credits` is not a substitute —
+// on the same day it answered `total_credits: 0, total_usage: 0` both before and
+// after a completion that really was billed. Anything that rations against spend
+// has to accumulate the body figure; no header will tell it.
 func quotaHeadersFor(slug contract.ProviderSlug) provider.QuotaHeaders {
 	return declaredQuotaHeaders[slug]
 }
