@@ -1,16 +1,27 @@
 {
   "$comment": [
-    "Relay's first MEASURED deployment inventory. Every upstream model id below was read from the Cerebras API with the account's own key on 2026-08-18 — `GET https://api.cerebras.ai/v1/models` returned exactly these two and nothing else, and `GET /v1/models/<id>` answered 200 for both while every id outside the list answered 404 `model_not_found`. Nothing here is copied from documentation. Cerebras's own model page was read afterwards and agrees: the same two ids, no others.",
-    "It holds no Oxy-owned concept — no account, application, credential, price or commercial permission. The provider's API key is not here and never will be: a slug resolves to an adapter, an address and a key pool in cmd/relay, from the process environment.",
-    "PUBLISHER IS WHO RELEASED THE WEIGHTS, NEVER WHO SERVES THEM. `openai/gpt-oss-120b` and `google/gemma-4-31b` are served BY Cerebras, which is why `provider` says cerebras and the reference does not. Putting the serving provider in the publisher slot would make the identity of a model change the day a second provider serves the same weights, and the failover set — one reference, several endpoints — could then never be expressed. The catalogue contract states the same rule in its own words: a publisher is 'who released a model, never a provider'.",
-    "THE REVISION LABEL IS OXY'S OBSERVATION, NOT THE PUBLISHER'S RELEASE. Cerebras exposes no immutable revision handle: the ids are bare aliases, `created` is 0, and nothing in the API distinguishes the weights served today from the weights served next month under the same string. A reference must still pin, so the pin says exactly what is known — the date Oxy observed the alias. A bare `@2026-08-18` would have read as a release date nobody measured. If Oxy's catalogue later assigns real revision labels to these weights, the catalogue wins and this file follows it.",
-    "CEREBRAS ONLY, AND ONE DEPLOYMENT PER REFERENCE. Failover is off by default, so a reference resolves to the deployment declared FIRST and nowhere else. With a single provider and a single deployment per reference there is no declaration order to get wrong, and no reference can be stranded behind a provider this process does not serve.",
-    "NO REGION. Cerebras publishes one global endpoint and names no region, so none is declared. An invented one would not stay decorative: `allowedRegions`/`deniedRegions` match on exact strings, so a residency policy would later admit or refuse these routes on a value nobody measured.",
-    "THESE ROUTES ARE DECLARED, NOT YET SERVABLE. On the day this was measured the account answered 402 `payment_required` (`param: quota`) to every chat completion, on both models, while the same key answered 200 on the model endpoints — the key is valid and the account cannot be billed. The 402 arrives after model validation (an unknown id still answers 404), which is what confirms these two ids are real for this account. Inference starts working when the Cerebras account can be billed; nothing in this file changes then.",
-    "STALENESS IS MEASURED FROM `issuedAt`, AND THIS ONE IS FROZEN AT COMMIT. A checked-in file is stale within RELAY_INVENTORY_MAX_AGE (default 1h) of the instant below, after which pinned references are still served and UNPINNED ones are refused. So this is the content of the first snapshot, not a snapshot a deployment can live on: whatever publishes into /etc/relay must re-issue it with a fresh `issuedAt` on a cadence shorter than the horizon, even when not one byte of it has changed."
+    "Relay's MEASURED deployment inventory. Every upstream model id below was read from a live provider API with that account's own key. Nothing here is copied from documentation.",
+    "It holds no Oxy-owned concept \u2014 no account, application, credential, price or commercial permission. The provider API keys are not here and never will be: a slug resolves to an adapter, an address and a key pool in cmd/relay, from the process environment.",
+    "PUBLISHER IS WHO RELEASED THE WEIGHTS, NEVER WHO SERVES THEM. `openai/gpt-oss-120b` is served BY Cerebras, which is why `provider` says cerebras and the reference does not. OpenRouter's ids already carry the releasing publisher in that same slot, which is why they transcribe directly. The one placeholder is `stealth/`, which OpenRouter uses for a release whose publisher is undisclosed; when it is disclosed the id changes upstream too, so the reference changes with it and nothing here is a guess about who made it.",
+    "THE REVISION LABEL IS OXY'S OBSERVATION, NOT THE PUBLISHER'S RELEASE. Neither provider exposes a publisher revision handle. Cerebras's ids are bare aliases with `created: 0`. OpenRouter publishes `created`, but that is the date OpenRouter listed the model; it also publishes a `canonical_slug`, and 201 of the 421 entries carry a dated one \u2014 which is OpenRouter's listing identity, not a revision the publisher issued, and is absent from the rest. Adopting it would put two pin schemes in one file, and a file with two pin schemes cannot express one set of weights served by two providers. So the pin says exactly what is known: the date Oxy observed the alias.",
+    "ONE SET OF WEIGHTS IS ONE REFERENCE, EVEN ACROSS PROVIDERS AND OBSERVATION DATES. `openai/gpt-oss-120b` is served by both providers here and was observed on two different days. It is declared ONCE, under the label of the FIRST observation, with two deployments \u2014 because two observations of one model are not two revisions, and the loader refuses a model line with two current revisions rather than picking one. Each deployment id still records the day that deployment was observed. Cerebras is declared first because it was already the declared route and nothing measured on 2026-08-23 displaces it; this is not a price decision, because Cerebras publishes no price through its API.",
+    "--- CEREBRAS, read 2026-08-18 -------------------------------------------------------------",
+    "`GET https://api.cerebras.ai/v1/models` returned exactly these two and nothing else; `GET /v1/models/<id>` answered 200 for both while every id outside the list answered 404 `model_not_found`. On that day the account answered 402 `payment_required` (`param: quota`) to every chat completion, on both models, while the same key answered 200 on the model endpoints \u2014 the key is valid and the account cannot be billed. The 402 arrives after model validation, which is what confirms the two ids are real for this account. Inference starts working when the Cerebras account can be billed; nothing in this file changes then.",
+    "--- OPENROUTER, read 2026-08-23 -----------------------------------------------------------",
+    "`GET https://openrouter.ai/api/v1/models` returned 421 entries. 340 are declared below, as 340 deployments over 329 references. The 81 that are not declared were excluded for three measured reasons, not skipped:",
+    "EXCLUDED, 6 ROUTERS (openrouter/auto-beta, openrouter/fusion, openrouter/pareto-code, openrouter/free, openrouter/bodybuilder, openrouter/auto). Five say in their own description that they choose a different model per request \u2014 routed to one of dozens, selected at random from the free models, ranked off a tiered shortlist. That is precisely the substitution Relay refuses to make, and declaring one would hand the choice of model to the provider behind a reference that claims to name it. All six also put the SERVING provider in the publisher slot, which the rule above forbids.",
+    "EXCLUDED, 13 MOVING ALIASES (the twelve `~<publisher>/\u2026-latest` ids, plus `openai/gpt-chat-latest`). Their descriptions state the behaviour outright \u2014 \"always redirects to the latest GLM model from Z.ai\", \"always resolves to the latest Instant chat model used in ChatGPT\". The weights behind the id change without the id changing, so pinning one would produce a reference that promises immutability and does not have it. The dated releases they point at are declared individually and can be pinned honestly.",
+    "EXCLUDED, 62 ENDPOINT VARIANTS (61 `:batch`, 1 `:thinking`). These are not other weights, they are another way of being served \u2014 asynchronous batch at roughly half price, and an extended-reasoning mode. `<publisher>/<model>@<revision>` has no slot for a delivery mode, so declaring them would take one of two bad shapes: inventing a model name no publisher released (`openai/gpt-5-batch`), or folding them into the base reference, where a failover would answer a streaming request from a batch endpoint. Both are worse than the gap. If Relay ever gains a first-class notion of delivery mode, they belong to it and not to a reference.",
+    "FREE IS DECLARED FIRST, AND THAT ORDERING IS THE WHOLE MECHANISM. 11 references carry both a `:free` endpoint and a paid one. Within every reference the endpoints are ordered by prompt price ascending, so the free endpoint is declared FIRST in all 11. Failover is off by default, so a reference resolves to the deployment declared first and nowhere else: today those 11 resolve to the free endpoint and the paid sibling is inert. This is an ORDERING, NOT A BUDGET \u2014 it cannot cap spend, count tokens or ration a key, and it does not fall back to the paid endpoint when the free one is rate-limited. Rationing is key-pool policy in cmd/relay; nothing in an inventory can do it.",
+    "THE FREE AND PAID SIBLINGS DO NOT ACCEPT THE SAME CONTEXT. Across those pairs the free endpoint admits a LARGER context than its paid sibling in 2 cases, a SMALLER one in 6, and the same in 3. The weights are the same; the serving limits are not. While failover stays off this is inert, because only the first deployment is ever used. The day RELAY_ASSUME_FAILOVER_AUTHORIZED is set it stops being inert in one direction: a request sized for a 1M-token free endpoint would meet a 262k paid one and be refused for length, which reads as a model failure and is not one. Authorising failover for this provider means accepting that, or splitting those pairs first.",
+    "MOST OF THESE ROUTES ARE DECLARED, NOT YET SERVABLE. The OpenRouter account holds no credit: `GET /api/v1/credits` answered `total_credits: 0` and `total_usage: 0`, and `GET /api/v1/auth/key` reports `is_free_tier: true` with no spend limit set. So the 21 zero-priced deployments \u2014 10 references whose every endpoint is free, plus the free half of the 11 pairs \u2014 are the part that can serve today; the paid remainder will answer a payment error until the account is funded. Nothing in this file changes when it is.",
+    "THIS FILE IS NOT WHAT PRODUCTION SERVES. The Dockerfile ships no inventory \u2014 baking one would freeze its `issuedAt` \u2014 so a deployment reads what `relay-publisher` writes to the mounted volume, not this. And the publisher would today discover NOTHING for OpenRouter: `configs/model-attribution.json` has no `openrouter` entry, and a model nobody attributed is dropped and named, never guessed. So this is the measured content a publisher can re-issue, and getting it served is three separate things \u2014 attribution, a credential, and `RELAY_PROVIDERS` naming the slug.",
+    "DECLARING A PROVIDER HERE IS A BOOT REQUIREMENT. The server refuses to start if a provider this file routes to has no adapter configured, rather than discovering it on a customer request. So `openrouter` must be named in RELAY_PROVIDERS with a protocol and a base URL before this snapshot is published, or the process will not come up.",
+    "NO REGION, EITHER PROVIDER. Neither publishes a region for these endpoints, so none is declared. An invented one would not stay decorative: `allowedRegions`/`deniedRegions` match on exact strings, so a residency policy would later admit or refuse these routes on a value nobody measured.",
+    "STALENESS IS MEASURED FROM `issuedAt`, AND THIS ONE IS FROZEN AT COMMIT. A checked-in file is stale within RELAY_INVENTORY_MAX_AGE (default 1h) of the instant below, after which PINNED references are still served and UNPINNED ones are refused. So this is the content of a snapshot, not a snapshot a deployment can live on: whatever publishes into /etc/relay must re-issue it with a fresh `issuedAt` on a cadence shorter than the horizon, even when not one byte of it has changed."
   ],
-  "snapshotId": "snap_cerebras_2026_08_18_0001",
-  "issuedAt": "2026-08-18T20:35:46.000Z",
+  "snapshotId": "snap_oxy_2026_08_23_0001",
+  "issuedAt": "2026-08-23T00:00:00.000Z",
   "deployments": [
     {
       "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_08_18",
@@ -24,6 +35,2386 @@
       "provider": "cerebras",
       "modelReference": "google/gemma-4-31b@observed-2026-08-18",
       "upstreamModelId": "gemma-4-31b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_aion_labs_aion_2_0_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "aion-labs/aion-2.0@observed-2026-08-23",
+      "upstreamModelId": "aion-labs/aion-2.0",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_aion_labs_aion_3_0_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "aion-labs/aion-3.0@observed-2026-08-23",
+      "upstreamModelId": "aion-labs/aion-3.0",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_aion_labs_aion_3_0_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "aion-labs/aion-3.0-mini@observed-2026-08-23",
+      "upstreamModelId": "aion-labs/aion-3.0-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_aion_labs_aion_rp_llama_3_1_8b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "aion-labs/aion-rp-llama-3.1-8b@observed-2026-08-23",
+      "upstreamModelId": "aion-labs/aion-rp-llama-3.1-8b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_allenai_olmo_3_32b_think_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "allenai/olmo-3-32b-think@observed-2026-08-23",
+      "upstreamModelId": "allenai/olmo-3-32b-think",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_2_lite_v1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "amazon/nova-2-lite-v1@observed-2026-08-23",
+      "upstreamModelId": "amazon/nova-2-lite-v1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_lite_v1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "amazon/nova-lite-v1@observed-2026-08-23",
+      "upstreamModelId": "amazon/nova-lite-v1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_micro_v1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "amazon/nova-micro-v1@observed-2026-08-23",
+      "upstreamModelId": "amazon/nova-micro-v1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_premier_v1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "amazon/nova-premier-v1@observed-2026-08-23",
+      "upstreamModelId": "amazon/nova-premier-v1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_pro_v1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "amazon/nova-pro-v1@observed-2026-08-23",
+      "upstreamModelId": "amazon/nova-pro-v1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthracite_org_magnum_v4_72b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthracite-org/magnum-v4-72b@observed-2026-08-23",
+      "upstreamModelId": "anthracite-org/magnum-v4-72b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_3_haiku_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-3-haiku@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-3-haiku",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_fable_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-fable-5@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-fable-5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_haiku_4_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-haiku-4.5@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-haiku-4.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.1@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.5@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_6_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.6@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.6",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_7_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.7@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.7",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_7_fast_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.7-fast@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.7-fast",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_8_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.8@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.8",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_8_fast_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-4.8-fast@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-4.8-fast",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-5@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_5_fast_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-opus-5-fast@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-opus-5-fast",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-sonnet-4@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-sonnet-4",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-sonnet-4.5@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-sonnet-4.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_6_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-sonnet-4.6@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-sonnet-4.6",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "anthropic/claude-sonnet-5@observed-2026-08-23",
+      "upstreamModelId": "anthropic/claude-sonnet-5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_arcee_ai_trinity_large_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "arcee-ai/trinity-large-thinking@observed-2026-08-23",
+      "upstreamModelId": "arcee-ai/trinity-large-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_arcee_ai_virtuoso_large_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "arcee-ai/virtuoso-large@observed-2026-08-23",
+      "upstreamModelId": "arcee-ai/virtuoso-large",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_baidu_ernie_4_5_vl_424b_a47b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "baidu/ernie-4.5-vl-424b-a47b@observed-2026-08-23",
+      "upstreamModelId": "baidu/ernie-4.5-vl-424b-a47b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_1_6_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance-seed/seed-1.6@observed-2026-08-23",
+      "upstreamModelId": "bytedance-seed/seed-1.6",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_1_6_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance-seed/seed-1.6-flash@observed-2026-08-23",
+      "upstreamModelId": "bytedance-seed/seed-1.6-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_1_turbo_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance-seed/seed-2-1-turbo@observed-2026-08-23",
+      "upstreamModelId": "bytedance-seed/seed-2-1-turbo",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_code_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance-seed/seed-2.0-code@observed-2026-08-23",
+      "upstreamModelId": "bytedance-seed/seed-2.0-code",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_lite_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance-seed/seed-2.0-lite@observed-2026-08-23",
+      "upstreamModelId": "bytedance-seed/seed-2.0-lite",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance-seed/seed-2.0-mini@observed-2026-08-23",
+      "upstreamModelId": "bytedance-seed/seed-2.0-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_ui_tars_1_5_7b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "bytedance/ui-tars-1.5-7b@observed-2026-08-23",
+      "upstreamModelId": "bytedance/ui-tars-1.5-7b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_cognitivecomputations_dolphin_mistral_24b_venice_edition_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "cognitivecomputations/dolphin-mistral-24b-venice-edition@observed-2026-08-23",
+      "upstreamModelId": "cognitivecomputations/dolphin-mistral-24b-venice-edition",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_cohere_command_a_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "cohere/command-a@observed-2026-08-23",
+      "upstreamModelId": "cohere/command-a",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_cohere_command_r_08_2024_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "cohere/command-r-08-2024@observed-2026-08-23",
+      "upstreamModelId": "cohere/command-r-08-2024",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_cohere_command_r_plus_08_2024_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "cohere/command-r-plus-08-2024@observed-2026-08-23",
+      "upstreamModelId": "cohere/command-r-plus-08-2024",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_cohere_command_r7b_12_2024_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "cohere/command-r7b-12-2024@observed-2026-08-23",
+      "upstreamModelId": "cohere/command-r7b-12-2024",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_cohere_north_mini_code_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "cohere/north-mini-code@observed-2026-08-23",
+      "upstreamModelId": "cohere/north-mini-code:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-chat@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-chat",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_v3_0324_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-chat-v3-0324@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-chat-v3-0324",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_v3_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-chat-v3.1@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-chat-v3.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-r1@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-r1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_0528_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-r1-0528@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-r1-0528",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_distill_llama_70b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-r1-distill-llama-70b@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-r1-distill-llama-70b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_1_terminus_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v3.1-terminus@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v3.1-terminus",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v3.2@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v3.2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_2_exp_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v3.2-exp@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v3.2-exp",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v4-flash@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v4-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v4-flash-0731@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v4-flash-0731",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_vision_exp_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v4-flash-vision-exp@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v4-flash-vision-exp",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v4-pro@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v4-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_pro_0813_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "deepseek/deepseek-v4-pro-0813@observed-2026-08-23",
+      "upstreamModelId": "deepseek/deepseek-v4-pro-0813",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_dots_studio_dots_3_note_preview_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "dots-studio/dots-3-note-preview@observed-2026-08-23",
+      "upstreamModelId": "dots-studio/dots-3-note-preview:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-2.5-flash@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-2.5-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_image_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-2.5-flash-image@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-2.5-flash-image",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_lite_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-2.5-flash-lite@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-2.5-flash-lite",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-2.5-pro@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-2.5-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-2.5-pro-preview@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-2.5-pro-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_preview_05_06_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-2.5-pro-preview-05-06@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-2.5-pro-preview-05-06",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_flash_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3-flash-preview@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3-flash-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_pro_image_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3-pro-image@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3-pro-image",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_pro_image_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3-pro-image-preview@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3-pro-image-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_image_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-flash-image@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-flash-image",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_image_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-flash-image-preview@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-flash-image-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-flash-lite@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-flash-lite",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_image_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-flash-lite-image@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-flash-lite-image",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-flash-lite-preview@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-flash-lite-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_pro_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-pro-preview@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-pro-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_pro_preview_customtools_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.1-pro-preview-customtools@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.1-pro-preview-customtools",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_5_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.5-flash@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.5-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_5_flash_lite_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.5-flash-lite@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.5-flash-lite",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_6_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.6-flash@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.6-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_7_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemini-3.7-flash@observed-2026-08-23",
+      "upstreamModelId": "google/gemini-3.7-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_2_27b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-2-27b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-2-27b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3_12b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-3-12b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-3-12b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3_27b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-3-27b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-3-27b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3_4b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-3-4b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-3-4b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3n_e4b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-3n-e4b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-3n-e4b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_4_26b_a4b_it_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-4-26b-a4b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-4-26b-a4b-it:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_4_26b_a4b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-4-26b-a4b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-4-26b-a4b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_4_31b_it_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-4-31b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-4-31b-it:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_4_31b_it_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/gemma-4-31b-it@observed-2026-08-23",
+      "upstreamModelId": "google/gemma-4-31b-it",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_lyria_3_clip_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/lyria-3-clip-preview@observed-2026-08-23",
+      "upstreamModelId": "google/lyria-3-clip-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_google_lyria_3_pro_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "google/lyria-3-pro-preview@observed-2026-08-23",
+      "upstreamModelId": "google/lyria-3-pro-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_gryphe_mythomax_l2_13b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "gryphe/mythomax-l2-13b@observed-2026-08-23",
+      "upstreamModelId": "gryphe/mythomax-l2-13b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_ibm_granite_granite_4_0_h_micro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "ibm-granite/granite-4.0-h-micro@observed-2026-08-23",
+      "upstreamModelId": "ibm-granite/granite-4.0-h-micro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_ibm_granite_granite_4_1_8b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "ibm-granite/granite-4.1-8b@observed-2026-08-23",
+      "upstreamModelId": "ibm-granite/granite-4.1-8b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_inception_mercury_2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "inception/mercury-2@observed-2026-08-23",
+      "upstreamModelId": "inception/mercury-2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_inclusionai_ling_2_6_1t_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "inclusionai/ling-2.6-1t@observed-2026-08-23",
+      "upstreamModelId": "inclusionai/ling-2.6-1t",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_inclusionai_ling_2_6_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "inclusionai/ling-2.6-flash@observed-2026-08-23",
+      "upstreamModelId": "inclusionai/ling-2.6-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_inclusionai_ling_3_0_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "inclusionai/ling-3.0-flash@observed-2026-08-23",
+      "upstreamModelId": "inclusionai/ling-3.0-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_inclusionai_ring_2_6_1t_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "inclusionai/ring-2.6-1t@observed-2026-08-23",
+      "upstreamModelId": "inclusionai/ring-2.6-1t",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_kwaipilot_kat_coder_air_v2_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "kwaipilot/kat-coder-air-v2.5@observed-2026-08-23",
+      "upstreamModelId": "kwaipilot/kat-coder-air-v2.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_kwaipilot_kat_coder_pro_v2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "kwaipilot/kat-coder-pro-v2@observed-2026-08-23",
+      "upstreamModelId": "kwaipilot/kat-coder-pro-v2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_kwaipilot_kat_coder_pro_v2_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "kwaipilot/kat-coder-pro-v2.5@observed-2026-08-23",
+      "upstreamModelId": "kwaipilot/kat-coder-pro-v2.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_liquid_lfm_2_5_2_6b_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "liquid/lfm-2.5-2.6b@observed-2026-08-23",
+      "upstreamModelId": "liquid/lfm-2.5-2.6b:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mancer_weaver_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mancer/weaver@observed-2026-08-23",
+      "upstreamModelId": "mancer/weaver",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meituan_longcat_2_0_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meituan/longcat-2.0@observed-2026-08-23",
+      "upstreamModelId": "meituan/longcat-2.0",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_1_70b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-3.1-70b-instruct@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-3.1-70b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_1_8b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-3.1-8b-instruct@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-3.1-8b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_2_1b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-3.2-1b-instruct@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-3.2-1b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_2_3b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-3.2-3b-instruct@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-3.2-3b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_3_70b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-3.3-70b-instruct@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-3.3-70b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_4_maverick_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-4-maverick@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-4-maverick",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_4_scout_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-4-scout@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-4-scout",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_guard_4_12b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta-llama/llama-guard-4-12b@observed-2026-08-23",
+      "upstreamModelId": "meta-llama/llama-guard-4-12b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_muse_glimmer_30b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta/muse-glimmer-30b@observed-2026-08-23",
+      "upstreamModelId": "meta/muse-glimmer-30b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_muse_spark_1_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta/muse-spark-1.1@observed-2026-08-23",
+      "upstreamModelId": "meta/muse-spark-1.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_muse_spark_1_2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta/muse-spark-1.2@observed-2026-08-23",
+      "upstreamModelId": "meta/muse-spark-1.2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_muse_spark_1_2_contributor_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "meta/muse-spark-1.2-contributor@observed-2026-08-23",
+      "upstreamModelId": "meta/muse-spark-1.2-contributor",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_microsoft_phi_4_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "microsoft/phi-4@observed-2026-08-23",
+      "upstreamModelId": "microsoft/phi-4",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_microsoft_wizardlm_2_8x22b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "microsoft/wizardlm-2-8x22b@observed-2026-08-23",
+      "upstreamModelId": "microsoft/wizardlm-2-8x22b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_01_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-01@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-01",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m1@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m2@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_her_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m2-her@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m2-her",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m2.1@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m2.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m2.5@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m2.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_7_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m2.7@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m2.7",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "minimax/minimax-m3@observed-2026-08-23",
+      "upstreamModelId": "minimax/minimax-m3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_codestral_2508_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/codestral-2508@observed-2026-08-23",
+      "upstreamModelId": "mistralai/codestral-2508",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_14b_2512_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/ministral-14b-2512@observed-2026-08-23",
+      "upstreamModelId": "mistralai/ministral-14b-2512",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_3b_2512_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/ministral-3b-2512@observed-2026-08-23",
+      "upstreamModelId": "mistralai/ministral-3b-2512",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_8b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/ministral-8b@observed-2026-08-23",
+      "upstreamModelId": "mistralai/ministral-8b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_8b_2512_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/ministral-8b-2512@observed-2026-08-23",
+      "upstreamModelId": "mistralai/ministral-8b-2512",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-large@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-large",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_2407_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-large-2407@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-large-2407",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_2512_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-large-2512@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-large-2512",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-medium-3@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-medium-3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-medium-3-5@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-medium-3-5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-medium-3.1@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-medium-3.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_nemo_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-nemo@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-nemo",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_saba_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-saba@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-saba",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_24b_instruct_2501_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-small-24b-instruct-2501@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-small-24b-instruct-2501",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_2603_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-small-2603@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-small-2603",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_3_1_24b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-small-3.1-24b-instruct@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-small-3.1-24b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_3_2_24b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mistral-small-3.2-24b-instruct@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mistral-small-3.2-24b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mixtral_8x22b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/mixtral-8x22b-instruct@observed-2026-08-23",
+      "upstreamModelId": "mistralai/mixtral-8x22b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_voxtral_small_24b_2507_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "mistralai/voxtral-small-24b-2507@observed-2026-08-23",
+      "upstreamModelId": "mistralai/voxtral-small-24b-2507",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k2@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_0905_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k2-0905@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k2-0905",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k2-thinking@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k2-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k2.5@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k2.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_6_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k2.6@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k2.6",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_7_code_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k2.7-code@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k2.7-code",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "moonshotai/kimi-k3@observed-2026-08-23",
+      "upstreamModelId": "moonshotai/kimi-k3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_morph_morph_v3_fast_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "morph/morph-v3-fast@observed-2026-08-23",
+      "upstreamModelId": "morph/morph-v3-fast",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_morph_morph_v3_large_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "morph/morph-v3-large@observed-2026-08-23",
+      "upstreamModelId": "morph/morph-v3-large",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nex_agi_nex_n2_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nex-agi/nex-n2-mini@observed-2026-08-23",
+      "upstreamModelId": "nex-agi/nex-n2-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nex_agi_nex_n2_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nex-agi/nex-n2-pro@observed-2026-08-23",
+      "upstreamModelId": "nex-agi/nex-n2-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_3_llama_3_1_405b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nousresearch/hermes-3-llama-3.1-405b@observed-2026-08-23",
+      "upstreamModelId": "nousresearch/hermes-3-llama-3.1-405b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_3_llama_3_1_70b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nousresearch/hermes-3-llama-3.1-70b@observed-2026-08-23",
+      "upstreamModelId": "nousresearch/hermes-3-llama-3.1-70b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_4_405b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nousresearch/hermes-4-405b@observed-2026-08-23",
+      "upstreamModelId": "nousresearch/hermes-4-405b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_4_70b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nousresearch/hermes-4-70b@observed-2026-08-23",
+      "upstreamModelId": "nousresearch/hermes-4-70b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_nano_30b_a3b_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-nano-30b-a3b@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-nano-30b-a3b:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_nano_30b_a3b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-nano-30b-a3b@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-nano-30b-a3b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_nano_omni_30b_a3b_reasoning_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_super_120b_a12b_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-super-120b-a12b@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_super_120b_a12b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-super-120b-a12b@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-super-120b-a12b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_ultra_550b_a55b_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-ultra-550b-a55b@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_ultra_550b_a55b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3-ultra-550b-a55b@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3-ultra-550b-a55b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_content_safety_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3.5-content-safety@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3.5-content-safety:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_lightning_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3.5-lightning@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3.5-lightning:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_lightning_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-3.5-lightning@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-3.5-lightning",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_nano_12b_v2_vl_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-nano-12b-v2-vl@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-nano-12b-v2-vl:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_nano_9b_v2_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "nvidia/nemotron-nano-9b-v2@observed-2026-08-23",
+      "upstreamModelId": "nvidia/nemotron-nano-9b-v2:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-3.5-turbo@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-3.5-turbo",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_0613_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-3.5-turbo-0613@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-3.5-turbo-0613",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_16k_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-3.5-turbo-16k@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-3.5-turbo-16k",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-3.5-turbo-instruct@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-3.5-turbo-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_turbo_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4-turbo@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4-turbo",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_turbo_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4-turbo-preview@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4-turbo-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4.1@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4.1-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4.1-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_nano_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4.1-nano@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4.1-nano",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4o@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4o",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_05_13_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4o-2024-05-13@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4o-2024-05-13",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_08_06_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4o-2024-08-06@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4o-2024-08-06",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_11_20_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4o-2024-11-20@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4o-2024-11-20",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4o-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4o-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_mini_2024_07_18_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-4o-mini-2024-07-18@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-4o-mini-2024-07-18",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_image_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5-image@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5-image",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_image_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5-image-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5-image-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_nano_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5-nano@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5-nano",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.1@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.1-codex@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.1-codex",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_max_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.1-codex-max@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.1-codex-max",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.1-codex-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.1-codex-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.2@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_chat_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.2-chat@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.2-chat",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_codex_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.2-codex@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.2-codex",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.2-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.2-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_3_codex_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.3-codex@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.3-codex",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.4@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.4",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_image_2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.4-image-2@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.4-image-2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.4-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.4-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_nano_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.4-nano@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.4-nano",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.4-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.4-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.5@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_5_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.5-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.5-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_luna_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.6-luna@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.6-luna",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_luna_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.6-luna-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.6-luna-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_sol_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.6-sol@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.6-sol",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_sol_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.6-sol-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.6-sol-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_terra_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.6-terra@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.6-terra",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_terra_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-5.6-terra-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-5.6-terra-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_audio_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-audio@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-audio",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_audio_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-audio-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-audio-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-oss-120b@observed-2026-08-18",
+      "upstreamModelId": "openai/gpt-oss-120b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_oss_20b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-oss-20b@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-oss-20b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_oss_safeguard_20b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/gpt-oss-safeguard-20b@observed-2026-08-23",
+      "upstreamModelId": "openai/gpt-oss-safeguard-20b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o1@observed-2026-08-23",
+      "upstreamModelId": "openai/o1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o1_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o1-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/o1-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o3@observed-2026-08-23",
+      "upstreamModelId": "openai/o3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o3_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o3-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/o3-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o3_mini_high_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o3-mini-high@observed-2026-08-23",
+      "upstreamModelId": "openai/o3-mini-high",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o3_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o3-pro@observed-2026-08-23",
+      "upstreamModelId": "openai/o3-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o4_mini_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o4-mini@observed-2026-08-23",
+      "upstreamModelId": "openai/o4-mini",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_o4_mini_high_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "openai/o4-mini-high@observed-2026-08-23",
+      "upstreamModelId": "openai/o4-mini-high",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_perceptron_perceptron_mk1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "perceptron/perceptron-mk1@observed-2026-08-23",
+      "upstreamModelId": "perceptron/perceptron-mk1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "perplexity/sonar@observed-2026-08-23",
+      "upstreamModelId": "perplexity/sonar",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_deep_research_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "perplexity/sonar-deep-research@observed-2026-08-23",
+      "upstreamModelId": "perplexity/sonar-deep-research",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "perplexity/sonar-pro@observed-2026-08-23",
+      "upstreamModelId": "perplexity/sonar-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_pro_search_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "perplexity/sonar-pro-search@observed-2026-08-23",
+      "upstreamModelId": "perplexity/sonar-pro-search",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_reasoning_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "perplexity/sonar-reasoning-pro@observed-2026-08-23",
+      "upstreamModelId": "perplexity/sonar-reasoning-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_poolside_laguna_s_2_1_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "poolside/laguna-s-2.1@observed-2026-08-23",
+      "upstreamModelId": "poolside/laguna-s-2.1:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_poolside_laguna_s_2_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "poolside/laguna-s-2.1@observed-2026-08-23",
+      "upstreamModelId": "poolside/laguna-s-2.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_poolside_laguna_xs_2_1_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "poolside/laguna-xs-2.1@observed-2026-08-23",
+      "upstreamModelId": "poolside/laguna-xs-2.1:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_poolside_laguna_xs_2_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "poolside/laguna-xs-2.1@observed-2026-08-23",
+      "upstreamModelId": "poolside/laguna-xs-2.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_72b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen-2.5-72b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen-2.5-72b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_7b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen-2.5-7b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen-2.5-7b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_coder_32b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen-2.5-coder-32b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen-2.5-coder-32b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_plus_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen-plus@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen-plus",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_plus_2025_07_28_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen-plus-2025-07-28@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen-plus-2025-07-28",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen2_5_vl_72b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen2.5-vl-72b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen2.5-vl-72b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_14b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-14b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-14b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-235b-a22b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-235b-a22b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_2507_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-235b-a22b-2507@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-235b-a22b-2507",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_thinking_2507_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-235b-a22b-thinking-2507@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-235b-a22b-thinking-2507",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-30b-a3b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-30b-a3b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_instruct_2507_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-30b-a3b-instruct-2507@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-30b-a3b-instruct-2507",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_thinking_2507_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-30b-a3b-thinking-2507@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-30b-a3b-thinking-2507",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_32b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-32b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-32b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_8b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-8b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-8b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-coder@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-coder",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_30b_a3b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-coder-30b-a3b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-coder-30b-a3b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-coder-flash@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-coder-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_next_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-coder-next@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-coder-next",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_plus_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-coder-plus@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-coder-plus",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_max_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-max@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-max",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_max_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-max-thinking@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-max-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_next_80b_a3b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-next-80b-a3b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-next-80b-a3b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_next_80b_a3b_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-next-80b-a3b-thinking@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-next-80b-a3b-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_235b_a22b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-235b-a22b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-235b-a22b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_235b_a22b_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-235b-a22b-thinking@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-235b-a22b-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_30b_a3b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-30b-a3b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-30b-a3b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_30b_a3b_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-30b-a3b-thinking@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-30b-a3b-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_32b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-32b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-32b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_8b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-8b-instruct@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-8b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_8b_thinking_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3-vl-8b-thinking@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3-vl-8b-thinking",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_122b_a10b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-122b-a10b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-122b-a10b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_27b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-27b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-27b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_35b_a3b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-35b-a3b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-35b-a3b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_397b_a17b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-397b-a17b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-397b-a17b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_9b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-9b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-9b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_flash_02_23_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-flash-02-23@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-flash-02-23",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_plus_02_15_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-plus-02-15@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-plus-02-15",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_plus_20260420_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.5-plus-20260420@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.5-plus-20260420",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_27b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.6-27b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.6-27b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_35b_a3b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.6-35b-a3b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.6-35b-a3b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.6-flash@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.6-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_max_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.6-max-preview@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.6-max-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_plus_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.6-plus@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.6-plus",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_7_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.7-flash@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.7-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_7_max_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.7-max@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.7-max",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_7_plus_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.7-plus@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.7-plus",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_2_4t_a95b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.8-2.4t-a95b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.8-2.4t-a95b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_27b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.8-27b@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.8-27b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_max_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "qwen/qwen3.8-max@observed-2026-08-23",
+      "upstreamModelId": "qwen/qwen3.8-max",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_rekaai_reka_edge_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "rekaai/reka-edge@observed-2026-08-23",
+      "upstreamModelId": "rekaai/reka-edge",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_rekaai_reka_flash_3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "rekaai/reka-flash-3@observed-2026-08-23",
+      "upstreamModelId": "rekaai/reka-flash-3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_relace_relace_apply_3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "relace/relace-apply-3@observed-2026-08-23",
+      "upstreamModelId": "relace/relace-apply-3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_relace_relace_search_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "relace/relace-search@observed-2026-08-23",
+      "upstreamModelId": "relace/relace-search",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_sakana_fugu_ultra_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "sakana/fugu-ultra@observed-2026-08-23",
+      "upstreamModelId": "sakana/fugu-ultra",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_sakana_sakana_namazu_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "sakana/sakana-namazu@observed-2026-08-23",
+      "upstreamModelId": "sakana/sakana-namazu",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_sao10k_l3_lunaris_8b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "sao10k/l3-lunaris-8b@observed-2026-08-23",
+      "upstreamModelId": "sao10k/l3-lunaris-8b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_sao10k_l3_1_euryale_70b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "sao10k/l3.1-euryale-70b@observed-2026-08-23",
+      "upstreamModelId": "sao10k/l3.1-euryale-70b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_sao10k_l3_3_euryale_70b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "sao10k/l3.3-euryale-70b@observed-2026-08-23",
+      "upstreamModelId": "sao10k/l3.3-euryale-70b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_stealth_ox_alpha_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "stealth/ox-alpha@observed-2026-08-23",
+      "upstreamModelId": "stealth/ox-alpha",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_stepfun_step_3_5_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "stepfun/step-3.5-flash@observed-2026-08-23",
+      "upstreamModelId": "stepfun/step-3.5-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_stepfun_step_3_7_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "stepfun/step-3.7-flash@observed-2026-08-23",
+      "upstreamModelId": "stepfun/step-3.7-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hunyuan_a13b_instruct_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "tencent/hunyuan-a13b-instruct@observed-2026-08-23",
+      "upstreamModelId": "tencent/hunyuan-a13b-instruct",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_1_8b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "tencent/hy-mt2-1.8b@observed-2026-08-23",
+      "upstreamModelId": "tencent/hy-mt2-1.8b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_30b_a3b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "tencent/hy-mt2-30b-a3b@observed-2026-08-23",
+      "upstreamModelId": "tencent/hy-mt2-30b-a3b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "tencent/hy3@observed-2026-08-23",
+      "upstreamModelId": "tencent/hy3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy3_preview_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "tencent/hy3-preview@observed-2026-08-23",
+      "upstreamModelId": "tencent/hy3-preview",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_cydonia_24b_v4_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thedrummer/cydonia-24b-v4.1@observed-2026-08-23",
+      "upstreamModelId": "thedrummer/cydonia-24b-v4.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_rocinante_12b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thedrummer/rocinante-12b@observed-2026-08-23",
+      "upstreamModelId": "thedrummer/rocinante-12b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_skyfall_36b_v2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thedrummer/skyfall-36b-v2@observed-2026-08-23",
+      "upstreamModelId": "thedrummer/skyfall-36b-v2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_unslopnemo_12b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thedrummer/unslopnemo-12b@observed-2026-08-23",
+      "upstreamModelId": "thedrummer/unslopnemo-12b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thinkingmachines/inkling@observed-2026-08-23",
+      "upstreamModelId": "thinkingmachines/inkling:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thinkingmachines/inkling@observed-2026-08-23",
+      "upstreamModelId": "thinkingmachines/inkling",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_small_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thinkingmachines/inkling-small@observed-2026-08-23",
+      "upstreamModelId": "thinkingmachines/inkling-small:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_small_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "thinkingmachines/inkling-small@observed-2026-08-23",
+      "upstreamModelId": "thinkingmachines/inkling-small",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_undi95_remm_slerp_l2_13b_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "undi95/remm-slerp-l2-13b@observed-2026-08-23",
+      "upstreamModelId": "undi95/remm-slerp-l2-13b",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_upstage_solar_pro_3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "upstage/solar-pro-3@observed-2026-08-23",
+      "upstreamModelId": "upstage/solar-pro-3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_upstage_solar_pro4_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "upstage/solar-pro4@observed-2026-08-23",
+      "upstreamModelId": "upstage/solar-pro4",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_writer_palmyra_x5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "writer/palmyra-x5@observed-2026-08-23",
+      "upstreamModelId": "writer/palmyra-x5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_20_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "x-ai/grok-4.20@observed-2026-08-23",
+      "upstreamModelId": "x-ai/grok-4.20",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_20_multi_agent_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "x-ai/grok-4.20-multi-agent@observed-2026-08-23",
+      "upstreamModelId": "x-ai/grok-4.20-multi-agent",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "x-ai/grok-4.3@observed-2026-08-23",
+      "upstreamModelId": "x-ai/grok-4.3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "x-ai/grok-4.5@observed-2026-08-23",
+      "upstreamModelId": "x-ai/grok-4.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_6_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "x-ai/grok-4.6@observed-2026-08-23",
+      "upstreamModelId": "x-ai/grok-4.6",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_build_0_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "x-ai/grok-build-0.1@observed-2026-08-23",
+      "upstreamModelId": "x-ai/grok-build-0.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "xiaomi/mimo-v2.5@observed-2026-08-23",
+      "upstreamModelId": "xiaomi/mimo-v2.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_5_pro_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "xiaomi/mimo-v2.5-pro@observed-2026-08-23",
+      "upstreamModelId": "xiaomi/mimo-v2.5-pro",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.5@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5_air_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.5-air@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.5-air",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5v_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.5v@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.5v",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_6_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.6@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.6",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_6v_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.6v@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.6v",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_7_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.7@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.7",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_7_flash_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-4.7-flash@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-4.7-flash",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_turbo_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5-turbo@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5-turbo",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_1_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5.1@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5.1",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_2_free_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5.2@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5.2:free",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_2_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5.2@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5.2",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_3_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5.3@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5.3",
+      "current": true
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5v_turbo_observed_2026_08_23",
+      "provider": "openrouter",
+      "modelReference": "z-ai/glm-5v-turbo@observed-2026-08-23",
+      "upstreamModelId": "z-ai/glm-5v-turbo",
       "current": true
     }
   ]

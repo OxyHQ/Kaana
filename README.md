@@ -55,7 +55,7 @@ internal/rotation/              per-deployment circuit breakers and health scori
 internal/sse/                   SSE decoding (upstream) and encoding (downstream)
 tools/contract/                 Node tooling that derives and checks the contract
 configs/inventory.example.json  an illustrative inventory snapshot
-configs/inventory.json          the first measured Cerebras snapshot, now produced by the publisher
+configs/inventory.json          the measured Cerebras + OpenRouter snapshot, for a publisher to re-issue
 configs/model-attribution.json  who RELEASED the weights a provider serves; the publisher's only editorial input
 configs/provider-rates.example.json  illustrative upstream rate cards
 ```
