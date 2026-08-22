@@ -22,7 +22,9 @@
     "EIGHT REFERENCES ARE NOW SERVED BY MORE THAN ONE PROVIDER, which is the failover set the schema exists to express \u2014 `openai/gpt-oss-120b` by three. Failover is still off by default, so each resolves to its first declared deployment and the rest are inert until a routing policy authorises them.",
     "FREE IS DECLARED FIRST, AND THAT ORDERING IS THE WHOLE MECHANISM. 11 references carry both a `:free` endpoint and a paid one. Within every reference the endpoints are ordered by prompt price ascending, so the free endpoint is declared FIRST in all 11. Failover is off by default, so a reference resolves to the deployment declared first and nowhere else: today those 11 resolve to the free endpoint and the paid sibling is inert. This is an ORDERING, NOT A BUDGET \u2014 it cannot cap spend, count tokens or ration a key, and it does not fall back to the paid endpoint when the free one is rate-limited. Rationing is key-pool policy in cmd/relay; nothing in an inventory can do it.",
     "THE FREE AND PAID SIBLINGS DO NOT ACCEPT THE SAME CONTEXT. Across those pairs the free endpoint admits a LARGER context than its paid sibling in 2 cases, a SMALLER one in 6, and the same in 3. The weights are the same; the serving limits are not. While failover stays off this is inert, because only the first deployment is ever used. The day RELAY_ASSUME_FAILOVER_AUTHORIZED is set it stops being inert in one direction: a request sized for a 1M-token free endpoint would meet a 262k paid one and be refused for length, which reads as a model failure and is not one. Authorising failover for this provider means accepting that, or splitting those pairs first.",
-    "MOST OF THESE ROUTES ARE DECLARED, NOT YET SERVABLE. The OpenRouter account holds no credit: `GET /api/v1/credits` answered `total_credits: 0` and `total_usage: 0`, and `GET /api/v1/auth/key` reports `is_free_tier: true` with no spend limit set. So the 21 zero-priced deployments \u2014 10 references whose every endpoint is free, plus the free half of the 11 pairs \u2014 are the part that can serve today; the paid remainder will answer a payment error until the account is funded. Nothing in this file changes when it is.",
+    "THE OPENROUTER ROUTES WERE PROBED, AND THE ACCOUNT'S OWN CREDIT ENDPOINT IS NOT A GUIDE TO THEM. `GET /api/v1/credits` answers `total_credits: 0, total_usage: 0` and `GET /api/v1/auth/key` says `is_free_tier: true` \u2014 and a PAID model nevertheless completed, returned content, and reported `cost: 0.000080255`, after which both figures were still zero. So the paid routes ARE servable today and that endpoint does not track them. An earlier revision of this file said the paid remainder would answer a payment error until the account was funded; a real completion falsified it.",
+    "THIRTEEN OF THE EIGHTEEN `:free` ENDPOINTS ANSWERED 200 ON A REAL COMPLETION. Three answered 429 whose upstream body says `temporarily rate-limited upstream. Please retry shortly` \u2014 transient, per-model, and upstream rather than OpenRouter's own throttle. Because failover is off by default, a reference whose free endpoint is declared first does NOT fall through to its paid sibling while that lasts; it fails. That is the cost of the free-first ordering, stated rather than discovered.",
+    "TWO `:free` ENDPOINTS ARE REFUSED PERMANENTLY AND ARE NOT DECLARED: `thinkingmachines/inkling:free` and `inkling-small:free` answer 403 `only available on agentic harnesses`, which is a product gate and not a rate limit \u2014 no retry reaches them. They appear in `GET /models` exactly like every servable id, so nothing short of a real completion distinguishes them, which is why they were probed. Their PAID siblings are declared and are now each reference's only endpoint.",
     "THIS FILE IS NOT WHAT PRODUCTION SERVES. The Dockerfile ships no inventory \u2014 baking one would freeze its `issuedAt` \u2014 so a deployment reads what `relay-publisher` writes to the mounted volume, not this. And the publisher would today discover NOTHING for OpenRouter: `configs/model-attribution.json` has no `openrouter` entry, and a model nobody attributed is dropped and named, never guessed. So this is the measured content a publisher can re-issue, and getting it served is three separate things \u2014 attribution, a credential, and `RELAY_PROVIDERS` naming the slug.",
     "DECLARING A PROVIDER HERE IS A BOOT REQUIREMENT. The server refuses to start if a provider this file routes to has no adapter configured, rather than discovering it on a customer request. So `openrouter` must be named in RELAY_PROVIDERS with a protocol and a base URL before this snapshot is published, or the process will not come up.",
     "NO REGION, EITHER PROVIDER. Neither publishes a region for these endpoints, so none is declared. An invented one would not stay decorative: `allowedRegions`/`deniedRegions` match on exact strings, so a residency policy would later admit or refuse these routes on a value nobody measured.",
@@ -2314,24 +2316,10 @@
       "current": true
     },
     {
-      "deploymentId": "dep_openrouter_thinkingmachines_inkling_free_observed_2026_08_23",
-      "provider": "openrouter",
-      "modelReference": "thinkingmachines/inkling@observed-2026-08-23",
-      "upstreamModelId": "thinkingmachines/inkling:free",
-      "current": true
-    },
-    {
       "deploymentId": "dep_openrouter_thinkingmachines_inkling_observed_2026_08_23",
       "provider": "openrouter",
       "modelReference": "thinkingmachines/inkling@observed-2026-08-23",
       "upstreamModelId": "thinkingmachines/inkling",
-      "current": true
-    },
-    {
-      "deploymentId": "dep_openrouter_thinkingmachines_inkling_small_free_observed_2026_08_23",
-      "provider": "openrouter",
-      "modelReference": "thinkingmachines/inkling-small@observed-2026-08-23",
-      "upstreamModelId": "thinkingmachines/inkling-small:free",
       "current": true
     },
     {
