@@ -36,6 +36,19 @@
  * through for the same reason: Kaana reads it for exactly one thing, refusing an
  * envelope that was never authorized to invoke inference at all.
  *
+ * ## A routing-profile target is well-formed and currently unservable
+ *
+ * `RoutingTarget` carries both of the contract's arms, and this builder accepts
+ * either, because the envelope is the contract's. But `internal/kaana`'s
+ * executor refuses every `routing_profile` target with `invalid_request` and
+ * `param: target.routingProfile`, and that is a property of the build rather
+ * than a configuration gap: resolving a profile needs its candidate list, which
+ * lives in the Oxy catalogue, and the envelope carries a routing policy
+ * REFERENCE rather than a snapshot. Choosing a model there would be the silent
+ * substitution the platform forbids. So a caller wanting a model today names one
+ * — in canonical `<publisher>/<model>` form, since a bare id fails the reference
+ * grammar and this builder refuses it before it reaches the wire.
+ *
  * ## Modality
  *
  * The contract carries five modalities and this builder accepts all of them,
