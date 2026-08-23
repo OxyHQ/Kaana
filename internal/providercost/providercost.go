@@ -233,6 +233,12 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 type AttemptUsage struct {
 	DeploymentID contract.DeploymentID
 	Provider     contract.ProviderSlug
+	// KeyID names the pool key this attempt spent, and KeyClass what the
+	// operator said it costs. A deployment is served by a POOL, so the
+	// deployment id cannot answer which credential ran out — and the credential
+	// is the thing a budget is kept against.
+	KeyID    string
+	KeyClass string
 	// Served marks the attempt whose output reached the customer. At most one
 	// attempt per request is served.
 	Served bool
