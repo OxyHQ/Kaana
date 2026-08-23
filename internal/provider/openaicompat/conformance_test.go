@@ -67,7 +67,7 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 
 		NewAdapter: func(t *testing.T, upstreamURL string) provider.Adapter {
 			t.Helper()
-			adapter, err := New(Config{Provider: slug, BaseURL: upstreamURL, APIKeys: []string{fakeAPIKey, fakeSecondAPIKey}})
+			adapter, err := New(Config{Provider: slug, BaseURL: upstreamURL, Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey})})
 			if err != nil {
 				t.Fatalf("building the %s adapter: %v", slug, err)
 			}

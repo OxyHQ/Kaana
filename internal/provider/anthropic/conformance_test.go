@@ -50,7 +50,7 @@ func subject() conformance.Subject {
 
 		NewAdapter: func(t *testing.T, upstreamURL string) provider.Adapter {
 			t.Helper()
-			adapter, err := New(Config{BaseURL: upstreamURL, APIKeys: []string{fakeAPIKey, fakeSecondAPIKey}})
+			adapter, err := New(Config{BaseURL: upstreamURL, Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey})})
 			if err != nil {
 				t.Fatalf("building the anthropic adapter: %v", err)
 			}

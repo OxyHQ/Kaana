@@ -123,11 +123,11 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 	// A pool of two, from one variable, with the empty entry a trailing
 	// separator leaves behind discarded rather than sent as a credential.
 	openrouter := byName["openrouter"]
-	if len(openrouter.APIKeys) != 2 {
-		t.Fatalf("openrouter declares %d credentials, expected 2 (%v)", len(openrouter.APIKeys), openrouter.APIKeys)
+	if len(openrouter.Declarations) != 2 {
+		t.Fatalf("openrouter declares %d credentials, expected 2 (%v)", len(openrouter.Declarations), openrouter.Declarations)
 	}
-	if openrouter.APIKeys[0] != "fake-openrouter-a" || openrouter.APIKeys[1] != "fake-openrouter-b" {
-		t.Errorf("the credentials were not trimmed to their declared order: %v", openrouter.APIKeys)
+	if openrouter.Declarations[0].Secret != "fake-openrouter-a" || openrouter.Declarations[1].Secret != "fake-openrouter-b" {
+		t.Errorf("the credentials were not trimmed to their declared order: %v", openrouter.Declarations)
 	}
 	if !openrouter.Keys.OnSeparateAccounts {
 		t.Error("the operator declared openrouter's keys are separate accounts and the policy does not carry it")
@@ -138,7 +138,7 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 	// A provider with no credential is a supported state, and is not the same
 	// as one that was never declared: it reports itself unconfigured on the
 	// health surface rather than failing at the first request.
-	if len(byName["cerebras"].APIKeys) != 0 {
+	if len(byName["cerebras"].Declarations) != 0 {
 		t.Error("cerebras declares no credential and one appeared")
 	}
 
@@ -603,4 +603,98 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
+}
+
+// The manifest boot path.
+//
+// It REPLACES the per-provider environment block rather than blending with it:
+// a half-manifest whose gaps were filled from the environment would be a
+// configuration nobody wrote and nobody could read back.
+func writeManifest(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "keys.json")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("writing the manifest: %v", err)
+	}
+	return path
+}
+
+func TestAManifestConfiguresProviders(t *testing.T) {
+	path := writeManifest(t, `{
+	  "providers": {
+	    "openrouter": {
+	      "keysOnSeparateAccounts": true,
+	      "headers": { "HTTP-Referer": "https://oxy.so" },
+	      "keys": [
+	        { "keyId": "or-paid", "secretEnv": "K_PAID", "class": "paid", "budgetUsd": 500 },
+	        { "keyId": "or-free", "secretEnv": "K_FREE", "class": "free" }
+	      ]
+	    }
+	  }
+	}`)
+	env := func(name string) string {
+		return map[string]string{"K_PAID": "fake-paid", "K_FREE": "fake-free"}[name]
+	}
+
+	configs, unenforced, err := providersFromKeyring(path, env)
+	if err != nil {
+		t.Fatalf("providersFromKeyring: %v", err)
+	}
+	if len(configs) != 1 {
+		t.Fatalf("configs = %d", len(configs))
+	}
+	config := configs[0]
+	if config.Slug != "openrouter" {
+		t.Errorf("slug = %q", config.Slug)
+	}
+	// The address and protocol came from the build's own table for a known
+	// slug, exactly as the environment path takes them.
+	if config.BaseURL != "https://openrouter.ai/api/v1" {
+		t.Errorf("baseURL = %q", config.BaseURL)
+	}
+	if !config.Keys.OnSeparateAccounts {
+		t.Error("keysOnSeparateAccounts did not survive")
+	}
+	if config.Headers["HTTP-Referer"] != "https://oxy.so" {
+		t.Errorf("headers = %v", config.Headers)
+	}
+	if len(config.Declarations) != 2 || config.Declarations[0].Secret != "fake-paid" {
+		t.Fatalf("declarations did not resolve: %+v", config.Declarations)
+	}
+	// Reported by name, so the process can say a declared cap is inert.
+	if len(unenforced) != 1 || unenforced[0] != "openrouter/or-paid" {
+		t.Fatalf("unenforced budgets = %v, want [openrouter/or-paid]", unenforced)
+	}
+}
+
+// The shared validation is reached from this path too. Without it, the manifest
+// would accept what the environment refuses and the drift would be invisible
+// until something routed there.
+func TestAManifestObeysTheSameProviderRules(t *testing.T) {
+	cases := map[string]string{
+		"a protocol this build does not speak": `{"providers":{"groq":{"protocol":"grpc","keys":[{"keyId":"a","secretEnv":"K"}]}}}`,
+		"a slug with no address":               `{"providers":{"made-up":{"protocol":"openai_compatible","keys":[{"keyId":"a","secretEnv":"K"}]}}}`,
+		"a header the adapter applies itself":  `{"providers":{"groq":{"headers":{"Authorization":"Bearer x"},"keys":[{"keyId":"a","secretEnv":"K"}]}}}`,
+	}
+	env := func(string) string { return "fake-secret" }
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := providersFromKeyring(writeManifest(t, body), env); err == nil {
+				t.Fatal("the manifest accepted what the environment path refuses")
+			}
+		})
+	}
+}
+
+// The positive control. Without it every case above would pass against a
+// function that refused every manifest.
+//
+// `groq` is deliberately not in this build's known-slug table, so it declares
+// its own protocol and address — which is the case a manifest exists to make
+// tractable, and the same requirement the environment path imposes.
+func TestAValidManifestIsNotRefused(t *testing.T) {
+	body := `{"providers":{"groq":{"protocol":"openai_compatible","baseURL":"https://api.groq.com/openai/v1","keys":[{"keyId":"a","secretEnv":"K"}]}}}`
+	if _, _, err := providersFromKeyring(writeManifest(t, body), func(string) string { return "fake-secret" }); err != nil {
+		t.Fatalf("a valid manifest was refused: %v", err)
+	}
 }

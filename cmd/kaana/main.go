@@ -25,6 +25,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/httpapi"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/keyring"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
@@ -77,9 +78,29 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	providerConfigs, err := parseProviders(legacyAwareEnv)
-	if err != nil {
-		return err
+	// The manifest replaces the whole per-provider environment block when it is
+	// present, and changes nothing when it is not.
+	var providerConfigs []providerConfig
+	if manifestPath := strings.TrimSpace(providerconfig.EnvName(os.Getenv, keyringPathVariable)); manifestPath != "" {
+		var unenforced []string
+		providerConfigs, unenforced, err = providersFromKeyring(manifestPath, legacyAwareEnv)
+		if err != nil {
+			return err
+		}
+		logger.Info("provider credentials declared by manifest", "path", manifestPath, "providers", len(providerConfigs))
+		if len(unenforced) > 0 {
+			// Said by NAME and out loud. An operator who declared a cap and is
+			// not told it is inert believes they are protected, which is worse
+			// than having declared nothing at all.
+			logger.Warn("a declared per-key budget is not enforced by this build",
+				"keys", unenforced,
+				"meaning", "these keys will keep serving past the amount declared for them; nothing here holds them to it")
+		}
+	} else {
+		providerConfigs, err = parseProviders(legacyAwareEnv)
+		if err != nil {
+			return err
+		}
 	}
 	adapters, err := buildAdapters(providerConfigs)
 	if err != nil {
@@ -325,11 +346,12 @@ type providerConfig struct {
 	Slug     contract.ProviderSlug
 	Protocol string
 	BaseURL  string
-	// APIKeys is the provider's key pool, in the order it is to be spent. It is
-	// the one field here that holds a secret, it comes from the environment,
-	// and it is never logged, echoed or projected.
-	APIKeys []string
-	Keys    provider.KeyPolicy
+	// Declarations is the provider's key pool, in the order it was declared,
+	// each key carrying what the operator says it costs. It is the one field
+	// here that holds a secret, the secret comes from the environment either
+	// way, and it is never logged, echoed or projected.
+	Declarations []provider.KeyDeclaration
+	Keys         provider.KeyPolicy
 	// Headers are the non-secret headers this provider expects on every
 	// request. OpenRouter's attribution headers are the reason the field
 	// exists, and a provider wired without them is compliant until it is not,
@@ -380,36 +402,16 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			config.BaseURL = declaredBaseURL
 		}
 
-		switch config.Protocol {
-		case providerconfig.ProtocolOpenAICompatible:
-		case providerconfig.ProtocolAnthropicMessages:
-			if slug != anthropic.Slug {
-				// The Messages API adapter reports its slug as a constant,
-				// because that wire format belongs to one provider. Serving it
-				// under another name would attribute every event and every
-				// usage record to `anthropic` while the inventory routed to
-				// something else.
-				return nil, fmt.Errorf("provider %q declares the %s protocol, which this build serves only as %q", slug, providerconfig.ProtocolAnthropicMessages, anthropic.Slug)
-			}
-		case "":
-			return nil, fmt.Errorf("%s_PROTOCOL is required: this build has no protocol for the provider slug %q", prefix, slug)
-		default:
-			return nil, fmt.Errorf("%s_PROTOCOL is %q; this build speaks %s and %s", prefix, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages)
-		}
-
-		if config.BaseURL == "" {
-			return nil, fmt.Errorf("%s_BASE_URL is required: this build knows no address for the provider slug %q", prefix, slug)
-		}
-
 		config.Headers, err = parseHeaders(getenv(prefix + "_HEADERS"))
 		if err != nil {
 			return nil, fmt.Errorf("%s_HEADERS: %w", prefix, err)
 		}
-		if len(config.Headers) > 0 && config.Protocol != providerconfig.ProtocolOpenAICompatible {
-			// Only the chat-completions adapter carries extra headers. Accepting
-			// them for another protocol would drop them silently, which is the
-			// same failure as never having set them and harder to see.
-			return nil, fmt.Errorf("%s_HEADERS is set, and the %s protocol sends no extra headers", prefix, config.Protocol)
+		// One authority for what a provider configuration must satisfy. Two
+		// copies of "which protocols this build speaks" drift, and the drift is
+		// invisible: the path nobody exercised is the one that accepts what the
+		// other refuses.
+		if err := validateProvider(&config, prefix+"_*"); err != nil {
+			return nil, err
 		}
 
 		onSeparateAccounts, err := parseDeclaredBool(getenv(prefix + "_KEYS_ON_SEPARATE_ACCOUNTS"))
@@ -417,7 +419,7 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			return nil, fmt.Errorf("%s_KEYS_ON_SEPARATE_ACCOUNTS: %w", prefix, err)
 		}
 
-		config.APIKeys = providerconfig.SplitList(getenv(prefix + "_API_KEY"))
+		config.Declarations = provider.DeclareKeys(providerconfig.SplitList(getenv(prefix + "_API_KEY")))
 		config.Keys = provider.KeyPolicy{
 			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
 			OnSeparateAccounts: onSeparateAccounts,
@@ -551,11 +553,11 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 		switch config.Protocol {
 		case providerconfig.ProtocolOpenAICompatible:
 			adapter, err := openaicompat.New(openaicompat.Config{
-				Provider: config.Slug,
-				BaseURL:  config.BaseURL,
-				APIKeys:  config.APIKeys,
-				Keys:     config.Keys,
-				Headers:  config.Headers,
+				Provider:     config.Slug,
+				BaseURL:      config.BaseURL,
+				Declarations: config.Declarations,
+				Keys:         config.Keys,
+				Headers:      config.Headers,
 			})
 			if err != nil {
 				return nil, err
@@ -563,9 +565,9 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolAnthropicMessages:
 			adapter, err := anthropic.New(anthropic.Config{
-				BaseURL: config.BaseURL,
-				APIKeys: config.APIKeys,
-				Keys:    config.Keys,
+				BaseURL:      config.BaseURL,
+				Declarations: config.Declarations,
+				Keys:         config.Keys,
 			})
 			if err != nil {
 				return nil, err
@@ -648,3 +650,111 @@ func intFromEnv(name string, fallback int) int {
 // legacyAwareEnv is os.Getenv with the pre-rename spelling as a fallback. See
 // providerconfig.EnvName for why it exists and when it is deleted.
 func legacyAwareEnv(name string) string { return providerconfig.EnvName(os.Getenv, name) }
+
+/* -------------------------------------------------------------------------- */
+/*  The key manifest                                                          */
+/* -------------------------------------------------------------------------- */
+
+// keyringPathVariable points at a declaration of which credentials this
+// deployment holds. Set, it REPLACES the whole per-provider environment block —
+// KAANA_PROVIDERS and six variables each. Unset, nothing changes.
+//
+// Both are accepted for exactly as long as it takes a deployment to move, which
+// is the same migration shape the rename used. They are not blended: a manifest
+// is the whole declaration or it is absent, because a half-manifest whose gaps
+// were filled from the environment would be a configuration nobody wrote and
+// nobody could read back.
+const keyringPathVariable = "KAANA_KEYRING_PATH"
+
+// providersFromKeyring reads the manifest and validates it exactly as the
+// environment path is validated.
+//
+// The validation is shared rather than restated. Two copies of "which protocols
+// this build speaks" drift, and the drift is invisible: the path nobody
+// exercised is the one that accepts what the other refuses.
+func providersFromKeyring(path string, getenv func(string) string) ([]providerConfig, []string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the key manifest %s: %w", path, err)
+	}
+	pools, err := keyring.Parse(raw, getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	configs := make([]providerConfig, 0, len(pools))
+	unenforced := make([]string, 0)
+	seenPrefix := make(map[string]contract.ProviderSlug, len(pools))
+
+	for _, pool := range pools {
+		if !pool.Provider.Valid() {
+			return nil, nil, fmt.Errorf("the key manifest names %q, which is not a provider slug", pool.Provider)
+		}
+		prefix := providerconfig.EnvironmentPrefix(pool.Provider)
+		if other, collides := seenPrefix[prefix]; collides {
+			return nil, nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, pool.Provider, prefix)
+		}
+		seenPrefix[prefix] = pool.Provider
+
+		known := providerconfig.Known[pool.Provider]
+		config := providerConfig{
+			Slug:         pool.Provider,
+			Protocol:     known.Protocol,
+			BaseURL:      known.BaseURL,
+			Declarations: pool.Declarations,
+			Keys:         pool.Policy,
+			Headers:      pool.Headers,
+		}
+		if pool.Protocol != "" {
+			config.Protocol = pool.Protocol
+		}
+		if pool.BaseURL != "" {
+			config.BaseURL = pool.BaseURL
+		}
+		if err := validateProvider(&config, "the key manifest"); err != nil {
+			return nil, nil, err
+		}
+		for _, keyID := range pool.UnenforcedBudgets {
+			unenforced = append(unenforced, string(pool.Provider)+"/"+keyID)
+		}
+		configs = append(configs, config)
+	}
+	return configs, unenforced, nil
+}
+
+// validateProvider holds the rules both paths obey. `source` names where the
+// configuration came from, so an error sends the reader to the right file.
+func validateProvider(config *providerConfig, source string) error {
+	switch config.Protocol {
+	case providerconfig.ProtocolOpenAICompatible:
+	case providerconfig.ProtocolAnthropicMessages:
+		if config.Slug != anthropic.Slug {
+			// The Messages API adapter reports its slug as a constant, because
+			// that wire format belongs to one provider. Serving it under another
+			// name would attribute every event and every usage record to
+			// `anthropic` while the inventory routed to something else.
+			return fmt.Errorf("%s: provider %q declares the %s protocol, which this build serves only as %q", source, config.Slug, providerconfig.ProtocolAnthropicMessages, anthropic.Slug)
+		}
+	case "":
+		return fmt.Errorf("%s: provider %q declares no protocol and this build has no default for that slug", source, config.Slug)
+	default:
+		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages)
+	}
+
+	if config.BaseURL == "" {
+		return fmt.Errorf("%s: provider %q declares no base URL and this build knows no address for that slug", source, config.Slug)
+	}
+
+	for name := range config.Headers {
+		if _, refused := credentialHeaders[strings.ToLower(strings.TrimSpace(name))]; refused {
+			return fmt.Errorf("%s: provider %q sets header %q, which the adapter applies itself", source, config.Slug, name)
+		}
+	}
+	if len(config.Headers) > 0 && config.Protocol != providerconfig.ProtocolOpenAICompatible {
+		// Only the chat-completions adapter carries extra headers. Accepting
+		// them for another protocol would drop them silently, which is the same
+		// failure as never having set them and harder to see.
+		return fmt.Errorf("%s: provider %q sets headers, and the %s protocol sends no extra headers", source, config.Slug, config.Protocol)
+	}
+	return nil
+}

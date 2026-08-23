@@ -318,3 +318,46 @@ says so rather than reporting zero.
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
+
+## Declaring credentials in a manifest instead of the environment
+
+`KAANA_KEYRING_PATH` points at a declaration of which credentials this
+deployment holds. Set, it REPLACES the whole per-provider environment block —
+`KAANA_PROVIDERS` and six variables each. Unset, nothing changes.
+
+```json
+{
+  "providers": {
+    "openrouter": {
+      "keysOnSeparateAccounts": true,
+      "headers": { "HTTP-Referer": "https://oxy.so", "X-Title": "Oxy" },
+      "keys": [
+        { "keyId": "openrouter-free-01", "secretEnv": "KAANA_KEY_OR_FREE_01", "class": "free" },
+        { "keyId": "openrouter-oxy-main", "secretEnv": "KAANA_KEY_OR_MAIN", "class": "paid", "budgetUsd": 500 }
+      ]
+    }
+  }
+}
+```
+
+`configs/keys.example.json` carries the shape and the reasoning.
+
+**No credential is in the file.** A key names the VARIABLE holding its value,
+and the value arrives the way every other secret does. A manifest of secret-store
+paths would instead make a serving process that cannot start when that store is
+unreachable, which is a poor trade for a data plane whose job is availability.
+
+**It is the whole declaration or it is absent.** The two are never blended: a
+half-manifest whose gaps were filled from the environment would be a
+configuration nobody wrote and nobody could read back.
+
+**Both paths obey one validation.** Protocol, address and header rules live in
+`validateProvider` and are called from each. Two copies drift, and the drift is
+invisible — the path nobody exercised is the one that accepts what the other
+refuses.
+
+**`budgetUsd` is declared and NOT enforced by this build.** The process names
+every key that declared one, at startup, as a warning: an operator who declares
+a cap and is not told it is inert believes they are protected, which is worse
+than having declared nothing. Enforcing it needs accumulated spend in durable
+storage, which is what the key id in the operator log exists to make possible.

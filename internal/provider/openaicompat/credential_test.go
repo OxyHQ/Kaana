@@ -62,9 +62,9 @@ func TestAQuotaHeaderIsReadOnEveryResponse(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	adapter, err := New(Config{
-		Provider: "openai",
-		BaseURL:  upstream.URL,
-		APIKeys:  []string{fakeAPIKey, fakeSecondAPIKey},
+		Provider:     "openai",
+		BaseURL:      upstream.URL,
+		Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
 	})
 	if err != nil {
 		t.Fatalf("building the adapter: %v", err)
@@ -95,7 +95,7 @@ func TestAQuotaHeaderIsReadOnEveryResponse(t *testing.T) {
 	// The mapping is read once, when the adapter is built, so the control has
 	// to be built after it is withdrawn.
 	delete(declaredQuotaHeaders, "openai")
-	control, err := New(Config{Provider: "openai", BaseURL: upstream.URL, APIKeys: []string{fakeAPIKey, fakeSecondAPIKey}})
+	control, err := New(Config{Provider: "openai", BaseURL: upstream.URL, Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey})})
 	if err != nil {
 		t.Fatalf("building the control adapter: %v", err)
 	}
@@ -162,10 +162,10 @@ func TestAThrottleRotatesOnlyWhenTheKeysAreDeclaredSeparateAccounts(t *testing.T
 			t.Cleanup(upstream.Close)
 
 			adapter, err := New(Config{
-				Provider: "openai",
-				BaseURL:  upstream.URL,
-				APIKeys:  []string{fakeAPIKey, fakeSecondAPIKey},
-				Keys:     provider.KeyPolicy{OnSeparateAccounts: testCase.separateAccounts},
+				Provider:     "openai",
+				BaseURL:      upstream.URL,
+				Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
+				Keys:         provider.KeyPolicy{OnSeparateAccounts: testCase.separateAccounts},
 			})
 			if err != nil {
 				t.Fatalf("building the adapter: %v", err)
