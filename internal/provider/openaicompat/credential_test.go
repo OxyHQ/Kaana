@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,5 +195,96 @@ func TestAThrottleRotatesOnlyWhenTheKeysAreDeclaredSeparateAccounts(t *testing.T
 				t.Errorf("%d of 2 credentials are usable after a throttle; a throttle is not a statement about a key", usable)
 			}
 		})
+	}
+}
+
+// A 402 is the platform's own account refusing to be billed, so it must retire
+// the key and let the next one serve.
+//
+// This case was missing entirely and a 402 fell to the classifier's default,
+// where it became `invalid_request`. The verdict for an invalid request is
+// "the request was at fault", so the key stayed in rotation and every
+// subsequent call spent the same unfundable account again. It is not a
+// hypothetical shape: measured 2026-08-18, Cerebras answers 402 with
+// `param: quota` to every completion on the account this deployment holds, and
+// OpenRouter answers it once an account is out of credit.
+func TestAPaymentRefusalRetiresTheKeyAndTheNextOneServes(t *testing.T) {
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization := r.Header.Get("Authorization")
+		seen = append(seen, authorization)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(authorization, fakeAPIKey) {
+			// The shape Cerebras really sends: a bare 402, no OpenAI error type.
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"error":{"message":"payment required","param":"quota"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	adapter, err := New(Config{
+		Provider:     "openai",
+		BaseURL:      upstream.URL,
+		Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
+	})
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+
+	call := &provider.Call{
+		Route:  provider.Route{Provider: "openai", ModelReference: "openai/test-model@2026-05-01", UpstreamModelID: "test-model"},
+		Method: http.MethodPost,
+		URL:    upstream.URL + "/chat/completions",
+		Body:   []byte(`{"model":"test-model"}`),
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+	}
+	outcome, err := adapter.Stream(context.Background(), call, silentEmitter{})
+	if err != nil {
+		t.Fatalf("the second key did not serve the request: %v", err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("the upstream saw %d attempts; the walk did not move to the next key", len(seen))
+	}
+	if outcome.KeyID != "key-2" {
+		t.Errorf("the served attempt reports key %q, want key-2", outcome.KeyID)
+	}
+}
+
+// The negative control for the case above. Without it, a classifier that
+// retired a key on ANY failure would pass it — and retiring a healthy key
+// because one request was malformed empties a pool for no reason.
+func TestAnInvalidRequestDoesNotRetireTheKey(t *testing.T) {
+	var attempts int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad request","type":"invalid_request_error"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	adapter, err := New(Config{
+		Provider:     "openai",
+		BaseURL:      upstream.URL,
+		Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
+	})
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	call := &provider.Call{
+		Route:  provider.Route{Provider: "openai", ModelReference: "openai/test-model@2026-05-01", UpstreamModelID: "test-model"},
+		Method: http.MethodPost,
+		URL:    upstream.URL + "/chat/completions",
+		Body:   []byte(`{"model":"test-model"}`),
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+	}
+	if _, err := adapter.Stream(context.Background(), call, silentEmitter{}); err == nil {
+		t.Fatal("a malformed request was reported as a success")
+	}
+	if attempts != 1 {
+		t.Fatalf("the walk tried %d keys for a request fault; the pool must not be spent on one", attempts)
 	}
 }

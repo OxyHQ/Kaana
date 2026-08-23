@@ -443,6 +443,26 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 
 	failure := provider.ErrUpstream{Passthrough: passthrough}
 	switch {
+	case status == http.StatusPaymentRequired:
+		// 402 IS THE PLATFORM'S ACCOUNT REFUSING TO BE BILLED, and this case was
+		// missing: a 402 fell to the default below and was reported as
+		// `invalid_request`, which is wrong three times over. The credential
+		// verdict for an invalid request is "the request was at fault", so the
+		// key was NOT retired and the walk kept spending an account that cannot
+		// pay — forever, on every request. The customer was told their own
+		// request was rejected. And the category was the customer's fault, so
+		// the breaker left the deployment in rotation.
+		//
+		// Not hypothetical: measured 2026-08-18, Cerebras answers exactly this
+		// — 402 with `param: quota` — to every chat completion on the account
+		// this deployment holds, and OpenRouter answers it once an account is
+		// out of credit. Those are two of the four providers served here.
+		//
+		// The one shape that is NOT this is a 402 naming the customer: no
+		// provider in this build speaks that way, and if one starts, it reaches
+		// `quota_exceeded` through its own error type above rather than here.
+		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
+		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", a.config.Provider)
 	case status == http.StatusTooManyRequests && parsed.Error.Type == "insufficient_quota":
 		// A quota is an account-level ceiling that only a human raises; a rate
 		// limit clears on its own. Same status, opposite retryability.
