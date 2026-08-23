@@ -85,8 +85,24 @@ type Key struct {
 	// never derived from the secret.
 	KeyID string `json:"keyId"`
 	// SecretEnv is the NAME of the environment variable holding the credential.
-	// The credential itself is never in this file.
+	// It is the form a manifest kept in this repository uses, because a name is
+	// not a secret and a repository is not a place for one.
 	SecretEnv string `json:"secretEnv"`
+	// Secret is the credential itself, and it exists for ONE producer: the
+	// snapshot the publisher renders from the key database and delivers through
+	// the same sidecar the inventory arrives by. That path is what makes adding
+	// a key a row rather than a deployment — a manifest of variable names
+	// cannot, because every new name needs a task-definition entry to inject it.
+	//
+	// A DOCUMENT CARRYING THIS IS A CREDENTIAL STORE and must be treated as one:
+	// encrypted at rest, readable by the task role and nothing else, and never
+	// committed. `TestNoTrackedFileCarriesAnInlineSecret` enforces the last of
+	// those, because it is the one a person does by accident.
+	//
+	// Exactly one of Secret and SecretEnv, per key. Both would be two answers to
+	// which credential this is, and silently preferring one is how a rotated key
+	// keeps serving the old value.
+	Secret string `json:"secret,omitempty"`
 	// Class is what spending on this key costs: "free", "paid", or absent.
 	// Absent is not a synonym for paid — see provider.KeyClass.
 	Class string `json:"class"`
@@ -184,14 +200,22 @@ func resolve(slug contract.ProviderSlug, config ProviderKeyConfig, getenv func(s
 			return Pool{}, fmt.Errorf("keyring: provider %q declares a key at position %d with no keyId; it is what names this credential in every log", slug, position)
 		}
 		variable := strings.TrimSpace(key.SecretEnv)
-		if variable == "" {
-			return Pool{}, fmt.Errorf("keyring: provider %q key %q names no secretEnv", slug, keyID)
+		inline := strings.TrimSpace(key.Secret)
+		switch {
+		case variable != "" && inline != "":
+			return Pool{}, fmt.Errorf("keyring: provider %q key %q declares both secret and secretEnv; that is two answers to which credential this is, and preferring one silently is how a rotated key keeps serving the old value", slug, keyID)
+		case variable == "" && inline == "":
+			return Pool{}, fmt.Errorf("keyring: provider %q key %q names neither secret nor secretEnv", slug, keyID)
 		}
-		secret := strings.TrimSpace(getenv(variable))
-		if secret == "" {
-			// Named, because "a credential is missing" sends an operator
-			// looking through thirty of them.
-			return Pool{}, fmt.Errorf("keyring: provider %q key %q reads %s, which is unset or empty", slug, keyID, variable)
+
+		secret := inline
+		if variable != "" {
+			secret = strings.TrimSpace(getenv(variable))
+			if secret == "" {
+				// Named, because "a credential is missing" sends an operator
+				// looking through thirty of them.
+				return Pool{}, fmt.Errorf("keyring: provider %q key %q reads %s, which is unset or empty", slug, keyID, variable)
+			}
 		}
 
 		class := provider.KeyClass(strings.TrimSpace(key.Class))

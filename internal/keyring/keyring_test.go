@@ -113,7 +113,8 @@ func TestParseRefusesWhatWouldServeNothing(t *testing.T) {
 		{"no providers", `{"providers":{}}`, goodEnv(), "no provider"},
 		{"provider with no keys", `{"providers":{"groq":{"keys":[]}}}`, goodEnv(), "no keys"},
 		{"key with no id", `{"providers":{"groq":{"keys":[{"secretEnv":"K_GQ"}]}}}`, goodEnv(), "no keyId"},
-		{"key with no variable", `{"providers":{"groq":{"keys":[{"keyId":"a"}]}}}`, goodEnv(), "no secretEnv"},
+		{"key naming no credential at all", `{"providers":{"groq":{"keys":[{"keyId":"a"}]}}}`, goodEnv(), "neither secret nor secretEnv"},
+		{"key naming a credential twice", `{"providers":{"groq":{"keys":[{"keyId":"a","secretEnv":"K_GQ","secret":"inline-value"}]}}}`, goodEnv(), "two answers"},
 		{"variable nobody set", `{"providers":{"groq":{"keys":[{"keyId":"a","secretEnv":"K_MISSING"}]}}}`, goodEnv(), "K_MISSING"},
 		{"class nobody defined", `{"providers":{"groq":{"keys":[{"keyId":"a","secretEnv":"K_GQ","class":"cheap"}]}}}`, goodEnv(), "cheap"},
 		{"retirement that is not a duration", `{"providers":{"groq":{"keyRetirement":"soon","keys":[{"keyId":"a","secretEnv":"K_GQ"}]}}}`, goodEnv(), "not a duration"},
@@ -174,4 +175,29 @@ func TestProviderOrderIsStableAcrossParses(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The inline form, which is what the published snapshot uses. It is the same
+// document type read a different way, so a key resolved from it must be
+// indistinguishable downstream from one resolved through a variable.
+func TestAnInlineSecretResolves(t *testing.T) {
+	manifest := `{"providers":{"groq":{"protocol":"openai_compatible","baseURL":"https://api.groq.com/openai/v1","keys":[
+	  {"keyId":"gq-free","secret":"` + secretValue + `","class":"free"}
+	]}}}`
+	pools, err := keyring.Parse([]byte(manifest), env(nil))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pools) != 1 || len(pools[0].Declarations) != 1 {
+		t.Fatalf("pools = %+v", pools)
+	}
+	declaration := pools[0].Declarations[0]
+	if declaration.Secret != secretValue {
+		t.Errorf("the inline secret did not resolve")
+	}
+	if declaration.Class != provider.KeyClassFree {
+		t.Errorf("class = %q", declaration.Class)
+	}
+	// It resolved with an environment that answers nothing, which is the point:
+	// the snapshot path must not need a variable per key.
 }
