@@ -53,8 +53,21 @@ type Manifest struct {
 	Providers map[string]ProviderKeyConfig `json:"providers"`
 }
 
-// ProviderKeyConfig is everything one provider's pool needs.
+// ProviderKeyConfig is everything one provider needs: where it is, what it
+// speaks, and which credentials this deployment holds for it.
 type ProviderKeyConfig struct {
+	// Protocol is "openai_compatible" or "anthropic_messages". Empty takes the
+	// build's default for a known slug, and is required for any other.
+	Protocol string `json:"protocol"`
+	// BaseURL is the provider's API root. Empty takes the build's default for a
+	// known slug, and is required for any other — an address this build guessed
+	// would be an address nobody chose.
+	BaseURL string `json:"baseURL"`
+	// Headers are the non-secret headers this provider expects on every
+	// request. OpenRouter's attribution headers are why the field exists: a
+	// provider wired without them is compliant with its terms until it is not,
+	// and nothing fails in between.
+	Headers map[string]string `json:"headers"`
 	// KeysOnSeparateAccounts states that these keys belong to DIFFERENT
 	// provider accounts, which is a fact only whoever provisioned them knows.
 	// It governs exactly one behaviour — whether a throttle may rotate — and
@@ -86,6 +99,9 @@ type Key struct {
 // Pool is one provider's resolved declaration.
 type Pool struct {
 	Provider     contract.ProviderSlug
+	Protocol     string
+	BaseURL      string
+	Headers      map[string]string
 	Declarations []provider.KeyDeclaration
 	Policy       provider.KeyPolicy
 	// UnenforcedBudgets names the keys that declared a budget this build cannot
@@ -142,8 +158,22 @@ func resolve(slug contract.ProviderSlug, config ProviderKeyConfig, getenv func(s
 		retirement = parsed
 	}
 
+	for name, value := range config.Headers {
+		if strings.TrimSpace(name) == "" {
+			return Pool{}, fmt.Errorf("keyring: provider %q declares a header with no name", slug)
+		}
+		if strings.TrimSpace(value) == "" {
+			// An empty header is sent and means nothing, so a provider that
+			// required it is not satisfied and nothing says so.
+			return Pool{}, fmt.Errorf("keyring: provider %q declares header %q with no value", slug, name)
+		}
+	}
+
 	pool := Pool{
 		Provider: slug,
+		Protocol: strings.TrimSpace(config.Protocol),
+		BaseURL:  strings.TrimSpace(config.BaseURL),
+		Headers:  config.Headers,
 		Policy:   provider.KeyPolicy{Retirement: retirement, OnSeparateAccounts: config.KeysOnSeparateAccounts},
 	}
 

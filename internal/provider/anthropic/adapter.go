@@ -73,7 +73,7 @@ const apiVersion = "2023-06-01"
 type Config struct {
 	// BaseURL is the API root, e.g. https://api.anthropic.com/v1.
 	BaseURL string
-	// APIKeys are Kaana's own credentials, in the order they are to be spent.
+	// Declarations are Kaana's own credentials, in the order they were declared.
 	// They are read from the process environment, never from a request, never
 	// from a file in this repository, and never written to a log, an error or a
 	// usage record.
@@ -83,7 +83,7 @@ type Config struct {
 	// nothing left, the next key is a different account that does. An empty
 	// list is a supported state — the adapter reports itself unconfigured
 	// rather than failing at the first request.
-	APIKeys []string
+	Declarations []provider.KeyDeclaration
 	// Keys is how this pool behaves when the provider says something about one
 	// of its credentials. Its zero value is the conservative one.
 	Keys provider.KeyPolicy
@@ -117,7 +117,7 @@ func New(config Config) (*Adapter, error) {
 	// this provider's quota state from its own `billing_error` refusal, and
 	// reports it `unknown` until then. credential_test.go asserts the emptiness
 	// with an exact count.
-	credentials, err := provider.NewKeyPool(Slug, provider.DeclareKeys(config.APIKeys), config.Keys, quotaHeaders)
+	credentials, err := provider.NewKeyPool(Slug, config.Declarations, config.Keys, quotaHeaders)
 	if err != nil {
 		return nil, err
 	}

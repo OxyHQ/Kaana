@@ -37,7 +37,7 @@ func leasedKey(t *testing.T, adapter *Adapter) provider.Key {
 
 func newTestAdapter(t *testing.T) *Adapter {
 	t.Helper()
-	adapter, err := New(Config{BaseURL: "https://upstream.invalid/v1", APIKeys: []string{fakeAPIKey}})
+	adapter, err := New(Config{BaseURL: "https://upstream.invalid/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
 	if err != nil {
 		t.Fatalf("building the adapter: %v", err)
 	}

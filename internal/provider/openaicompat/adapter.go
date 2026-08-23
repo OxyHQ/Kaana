@@ -47,17 +47,18 @@ type Config struct {
 	Provider contract.ProviderSlug
 	// BaseURL is the provider's API root, e.g. https://api.openai.com/v1.
 	BaseURL string
-	// APIKeys are Kaana's own credentials for this provider, in the order they
-	// are to be spent. They are read from the process environment, never from a
-	// request, never from a file in this repository, and never written to a
-	// log, an error or a usage record.
+	// Declarations are Kaana's own credentials for this provider, in the order
+	// they were declared, each with what the operator says it costs. The
+	// secrets are read from the process environment, never from a request,
+	// never from a file in this repository, and never written to a log, an
+	// error or a usage record.
 	//
 	// It is a list because one provider account's capacity is not the same
 	// thing as one provider's capacity: when the account behind a key has
 	// nothing left, the next key is a different account that does. An empty
 	// list is a supported state — the adapter reports itself unconfigured
 	// rather than failing at the first request.
-	APIKeys []string
+	Declarations []provider.KeyDeclaration
 	// Keys is how this pool behaves when a provider says something about one of
 	// its credentials. Its zero value is the conservative one.
 	Keys provider.KeyPolicy
@@ -90,7 +91,7 @@ func New(config Config) (*Adapter, error) {
 	// about a provider's wire protocol, and an operator who mapped a rate-limit
 	// header onto it would retire every key the first time the provider
 	// throttled one.
-	credentials, err := provider.NewKeyPool(config.Provider, provider.DeclareKeys(config.APIKeys), config.Keys, quotaHeadersFor(config.Provider))
+	credentials, err := provider.NewKeyPool(config.Provider, config.Declarations, config.Keys, quotaHeadersFor(config.Provider))
 	if err != nil {
 		return nil, err
 	}
