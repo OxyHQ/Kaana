@@ -30,6 +30,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
@@ -249,6 +250,8 @@ func Run(t *testing.T, subject Subject) {
 			t.Error("output was produced; the report carries no time to first token")
 		}
 		assertUsagePartitionsTheRequest(t, run.report.Units, subject.StreamedUsage)
+
+		assertTheKeyThatPaidIsNamed(t, subject, run)
 	})
 
 	t.Run("produces the same normalized shape from a non-streamed upstream", func(t *testing.T) {
@@ -751,6 +754,7 @@ type run struct {
 	failure                  *contract.Error
 	upstream                 *Upstream
 	upstreamEchoedCredential bool
+	cost                     providercost.Record
 }
 
 func (r *run) sawEvent(kind contract.StreamEventType) bool {
@@ -834,6 +838,7 @@ func execute(t *testing.T, subject Subject, scenario Scenario, request *contract
 	result.report = executed.Report
 	result.failure = executed.Failure
 	result.upstreamEchoedCredential = scenario == ScenarioCredentialEchoed && upstream.RequestCount() > 0
+	result.cost = executed.UpstreamCost
 	return result
 }
 
@@ -1018,3 +1023,40 @@ func streamingRequest(subject Subject) *contract.Request {
 }
 
 func textOf(value string) *string { return &value }
+
+// assertTheKeyThatPaidIsNamed is the entrypoint check for key attribution.
+//
+// An adapter chooses a credential from its pool and is the only thing that
+// knows which one it spent. If it does not stamp that onto the outcome, the
+// operator log records what a request cost and stays silent about which key
+// paid — and every budget kept against a key is then kept against a number
+// nobody can attribute. The mechanism would be green and inert.
+//
+// It lives in the conformance suite rather than beside each adapter because
+// forgetting it is exactly the kind of omission a per-adapter test is written
+// at the same time as the code it forgets.
+func assertTheKeyThatPaidIsNamed(t *testing.T, subject Subject, r *run) {
+	t.Helper()
+
+	var served []providercost.AttemptCost
+	for _, attempt := range r.cost.Attempts {
+		if attempt.Served {
+			served = append(served, attempt)
+		}
+	}
+	if len(served) == 0 {
+		t.Fatal("no attempt was marked served, so this check measured nothing")
+	}
+	for _, attempt := range served {
+		if attempt.KeyID == "" {
+			t.Errorf("%s served an attempt without naming the key that paid for it", subject.Name)
+		}
+		// The id is the operator's name, never anything derived from the
+		// credential. A pool built from Subject.APIKeys must not leak one here.
+		for _, secret := range subject.APIKeys {
+			if secret != "" && strings.Contains(attempt.KeyID, secret) {
+				t.Errorf("%s reported a key id containing the credential", subject.Name)
+			}
+		}
+	}
+}

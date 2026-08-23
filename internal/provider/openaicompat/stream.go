@@ -42,10 +42,15 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	}
 	defer func() { _ = response.Body.Close() }()
 
+	// Stamped here, once, on whichever path ran: the key is chosen by the walk
+	// above and every return below is an attempt that spent it.
 	if call.Stream {
-		return a.readStream(ctx, response.Body, call, out, key)
+		outcome, err = a.readStream(ctx, response.Body, call, out, key)
+	} else {
+		outcome, err = a.readComplete(response.Body, call, out, key)
 	}
-	return a.readComplete(response.Body, call, out, key)
+	outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+	return outcome, err
 }
 
 // readStream consumes the provider's SSE stream.

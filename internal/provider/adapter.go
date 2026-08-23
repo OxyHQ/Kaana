@@ -110,6 +110,17 @@ type Outcome struct {
 	FinishReason contract.FinishReason
 	// TimeToFirstToken is zero when no output was produced.
 	TimeToFirstToken time.Duration
+	// KeyID names the pool key this attempt spent, and KeyClass what the
+	// operator said that key costs. They exist so the operator log can answer
+	// "which credential paid for this", which is the question a budget is built
+	// on and which `DeploymentID` cannot answer: one deployment is served by a
+	// pool, and the pool is the thing that runs out.
+	//
+	// They are operator numbers in the same sense the cost is, and they travel
+	// inside the same Record, so the containment gate that keeps cost away from
+	// the customer covers them without a second mechanism.
+	KeyID    string
+	KeyClass KeyClass
 }
 
 // HealthStatus is the coarse state of an adapter's upstream.

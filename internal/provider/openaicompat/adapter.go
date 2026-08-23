@@ -90,7 +90,7 @@ func New(config Config) (*Adapter, error) {
 	// about a provider's wire protocol, and an operator who mapped a rate-limit
 	// header onto it would retire every key the first time the provider
 	// throttled one.
-	credentials, err := provider.NewKeyPool(config.Provider, config.APIKeys, config.Keys, quotaHeadersFor(config.Provider))
+	credentials, err := provider.NewKeyPool(config.Provider, provider.DeclareKeys(config.APIKeys), config.Keys, quotaHeadersFor(config.Provider))
 	if err != nil {
 		return nil, err
 	}

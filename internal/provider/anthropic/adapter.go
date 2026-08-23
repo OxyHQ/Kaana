@@ -117,7 +117,7 @@ func New(config Config) (*Adapter, error) {
 	// this provider's quota state from its own `billing_error` refusal, and
 	// reports it `unknown` until then. credential_test.go asserts the emptiness
 	// with an exact count.
-	credentials, err := provider.NewKeyPool(Slug, config.APIKeys, config.Keys, quotaHeaders)
+	credentials, err := provider.NewKeyPool(Slug, provider.DeclareKeys(config.APIKeys), config.Keys, quotaHeaders)
 	if err != nil {
 		return nil, err
 	}

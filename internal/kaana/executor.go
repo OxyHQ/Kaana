@@ -261,6 +261,8 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 		usage = append(usage, providercost.AttemptUsage{
 			DeploymentID: route.DeploymentID,
 			Provider:     route.Provider,
+			KeyID:        outcome.KeyID,
+			KeyClass:     string(outcome.KeyClass),
 			Served:       streamErr == nil,
 			Units:        outcome.Units,
 		})
