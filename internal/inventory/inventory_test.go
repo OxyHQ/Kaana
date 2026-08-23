@@ -357,3 +357,53 @@ func TestProvidersListsEveryRoutableProvider(t *testing.T) {
 		t.Errorf("Deployments returned %d endpoints, expected 2", len(parsed.Deployments()))
 	}
 }
+
+// The catalogue is the answer to "what can I ask for", which is a different
+// question from "what is routable": a superseded revision stays routable by its
+// exact name and must not appear under the model's name, because the name means
+// the current one.
+func TestCatalogueNamesTheLineAndTheRevisionItMeansToday(t *testing.T) {
+	entries := parse(t, issued(time.Now(), twoRevisions)).Catalogue()
+
+	if len(entries) != 1 {
+		t.Fatalf("the catalogue has %d entries, want the one model line", len(entries))
+	}
+	if got := string(entries[0].Model); got != "openai/gpt-5" {
+		t.Errorf("the entry is named %q", got)
+	}
+	if got := string(entries[0].Reference); got != "openai/gpt-5@2026-05-01" {
+		t.Errorf("the line resolves to %q, want the current revision", got)
+	}
+}
+
+func TestCatalogueListsEveryProviderThatServesTheLine(t *testing.T) {
+	// What a consumer reads as failover: one name, two places to get it. Which
+	// one serves a given request is a routing decision this list does not make.
+	entries := parse(t, issued(time.Now(), twoDeploymentsOfOneRevision)).Catalogue()
+
+	if len(entries) != 1 {
+		t.Fatalf("the catalogue has %d entries", len(entries))
+	}
+	providers := make([]string, 0, len(entries[0].Providers))
+	for _, slug := range entries[0].Providers {
+		providers = append(providers, string(slug))
+	}
+	if len(providers) != 2 || providers[0] != "openai" || providers[1] != "together" {
+		t.Errorf("the entry lists providers %v, want both, sorted", providers)
+	}
+}
+
+// A catalogue that silently omitted a routable model would read as complete,
+// which is the difference between "I found fewer" and "there are fewer".
+func TestPinnedOnlyReferencesNamesWhatTheCatalogueLeavesOut(t *testing.T) {
+	superseded := parse(t, issued(time.Now(), twoRevisions)).PinnedOnlyReferences()
+	if len(superseded) != 1 || string(superseded[0]) != "openai/gpt-5@2026-01-01" {
+		t.Errorf("the superseded revision is reported as %v", superseded)
+	}
+
+	// The ordinary snapshot, where every deployment is current, reports none —
+	// so a non-empty list means something, rather than always being furniture.
+	if none := parse(t, issued(time.Now(), twoDeploymentsOfOneRevision)).PinnedOnlyReferences(); len(none) != 0 {
+		t.Errorf("a snapshot with no superseded revision reports %v", none)
+	}
+}

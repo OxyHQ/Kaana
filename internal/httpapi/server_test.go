@@ -834,3 +834,71 @@ func jsonHasKey(t *testing.T, payload []byte, key string) bool {
 	_, present := decoded[key]
 	return present
 }
+
+// The catalogue route exists so a consumer stops keeping its own copy of this
+// list. It is signed like health and unlike livez: which models Oxy has
+// contracted for is commercial information, and the body names the providers.
+func TestModelsIsSignedAndNamesTheLineRatherThanTheRevision(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{})
+
+	unsigned, err := harness.server.Client().Get(harness.server.URL + "/internal/v1/models")
+	if err != nil {
+		t.Fatalf("requesting models: %v", err)
+	}
+	defer func() { _ = unsigned.Body.Close() }()
+	if unsigned.StatusCode != http.StatusUnauthorized {
+		t.Errorf("the unsigned catalogue was answered %d", unsigned.StatusCode)
+	}
+
+	request, err := http.NewRequest(http.MethodGet, harness.server.URL+"/internal/v1/models", nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	harness.sign(request, nil)
+	signed, err := harness.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("requesting models: %v", err)
+	}
+	defer func() { _ = signed.Body.Close() }()
+	if signed.StatusCode != http.StatusOK {
+		t.Fatalf("the signed catalogue was answered %d", signed.StatusCode)
+	}
+
+	var catalogue struct {
+		ContractVersion      string   `json:"contractVersion"`
+		ServesUnpinned       bool     `json:"servesUnpinned"`
+		PinnedOnlyReferences []string `json:"pinnedOnlyReferences"`
+		Models               []struct {
+			Model     string   `json:"model"`
+			Reference string   `json:"modelReference"`
+			Providers []string `json:"providers"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(signed.Body).Decode(&catalogue); err != nil {
+		t.Fatalf("the catalogue body does not decode: %v", err)
+	}
+
+	if catalogue.ContractVersion != contract.ContractVersion {
+		t.Errorf("the catalogue reports contract version %q", catalogue.ContractVersion)
+	}
+	// Without this a consumer builds a product catalogue out of names that are
+	// all refused, and the refusal arrives one request at a time.
+	if !catalogue.ServesUnpinned {
+		t.Error("a snapshot issued just now reports that unpinned names do not resolve")
+	}
+	if len(catalogue.Models) != 1 {
+		t.Fatalf("the catalogue lists %d models", len(catalogue.Models))
+	}
+	if catalogue.Models[0].Model != "stub/model" {
+		t.Errorf("the entry is named %q, want the line rather than the revision", catalogue.Models[0].Model)
+	}
+	if catalogue.Models[0].Reference != "stub/model@2026-05-01" {
+		t.Errorf("the entry resolves to %q", catalogue.Models[0].Reference)
+	}
+	if len(catalogue.Models[0].Providers) != 1 || catalogue.Models[0].Providers[0] != "stub" {
+		t.Errorf("the entry lists providers %v", catalogue.Models[0].Providers)
+	}
+	if len(catalogue.PinnedOnlyReferences) != 0 {
+		t.Errorf("a snapshot with no superseded revision reports %v", catalogue.PinnedOnlyReferences)
+	}
+}
