@@ -195,3 +195,36 @@ projection should prefer once a pool holds more than a handful: with twenty
 keys, "position 14 retired" names nothing anyone can act on. `Position` keeps
 meaning the line the operator wrote, not the slot the key sorted into, so every
 error still points at their file.
+
+## Where the credentials come from
+
+Three shapes, and only the last of them makes adding a key cheap.
+
+**Environment, one variable per provider.** `KAANA_PROVIDER_<SLUG>_API_KEY`
+holds the pool as a comma-separated string. It holds two or three keys: the
+string is rotated as a whole, one bad character breaks every key in it, and
+there is nowhere to record what a key costs. It is still supported and still
+what a deployment that sets nothing else gets.
+
+**A manifest naming variables.** `KAANA_KEYRING_PATH` points at a document that
+declares each key's id, class and budget, and the NAME of the variable holding
+its value. Six variables per provider collapse into it. What it cannot fix is
+the thirtieth key: every new variable name needs a task-definition entry to
+inject it, so adding a key is still a deployment.
+
+**A manifest carrying values, rendered from the key database.** The publisher
+reads the keys, renders the document, and it arrives through the same sidecar
+the inventory does — one S3 object into a task-scoped volume. Adding a key is a
+row; the next cycle delivers it; the serving process reloads a file it already
+knows how to reload, and grows no dependency on the database being reachable.
+
+That last one is a **credential store**, and the difference from the inventory
+beside it is not cosmetic: anyone who can read that object holds every provider
+key. It is encrypted at rest, readable by the task role and nothing else, and
+never committed — a test scans every tracked JSON file for an inline secret,
+because the accident is a working manifest pasted in while debugging, whose diff
+looks exactly like the example file.
+
+A key declares either form, never both. Two answers to which credential a key
+is, with one silently preferred, is how a rotated key keeps serving the old
+value.

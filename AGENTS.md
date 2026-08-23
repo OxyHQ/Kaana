@@ -150,6 +150,30 @@ holds the logic; `internal/awssig` is the signer.
   not a second reading of the spec by the same author. Adding the AWS SDK would
   be this module's first dependency.
 
+## Provider credentials
+
+- **A manifest in this repository names VARIABLES, never values.** The inline
+  `secret` form exists for one producer — the snapshot the publisher renders
+  from the key database — and `TestNoTrackedFileCarriesAnInlineSecret` scans
+  every tracked JSON file for one. Committing a working manifest while
+  debugging is the accident no review catches: the diff looks like the example.
+- **A document carrying `secret` is a credential store.** Encrypted at rest,
+  readable by the task role and nothing else. Anyone who can read it holds every
+  provider key, which the published inventory beside it does not.
+- **A key declares EITHER `secret` or `secretEnv`, never both.** Two answers to
+  which credential a key is, with one silently preferred, is how a rotated key
+  keeps serving the old value.
+- **Class is stated, never inferred.** Measured 2026-08-23: no provider this
+  build serves publishes remaining credit — Groq and xAI publish burst limits
+  whose counts refill, OpenRouter publishes none and its account endpoint
+  answered zero while a completion on the same key was billed.
+- **Unstated is not paid.** An unclassified pool keeps the order it was declared
+  in, so classifying one key moves that key and disturbs no other.
+- **A 402 is the platform's account refusing to be billed**, and it must retire
+  the key. It reached the default branch once and became `invalid_request`,
+  which told the customer their request was at fault and kept spending an
+  account that cannot pay.
+
 ## Provider cost
 
 - **`internal/providercost` is the only package that may hold an amount**, it is
