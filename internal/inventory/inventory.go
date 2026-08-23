@@ -333,6 +333,74 @@ func (i *Inventory) Deployments() []Endpoint {
 	return endpoints
 }
 
+// CatalogueEntry is one model line this snapshot serves, under the name a
+// caller can hold onto.
+//
+// `Model` is the unpinned name (`anthropic/claude-sonnet-4`) and `Reference` is
+// the revision it resolves to right now. A consumer that builds a product
+// catalogue wants the first — a name that survives a revision bump — while the
+// second is what the stream's start event will report, so both are here rather
+// than making the caller guess which one it is holding.
+type CatalogueEntry struct {
+	Model     contract.ModelID        `json:"model"`
+	Reference contract.ModelReference `json:"modelReference"`
+	// Providers that can serve it, sorted. Which one DOES serve a given request
+	// is a routing decision this list does not predict.
+	Providers []contract.ProviderSlug `json:"providers"`
+}
+
+// Catalogue lists every model line an unpinned reference can name, sorted.
+//
+// Built from the current-revision index rather than from every reference,
+// because those are different questions: `byReference` includes revisions that
+// are still routable but are no longer what the model's name means. A catalogue
+// of those would offer names whose meaning changes under the caller.
+//
+// It reports what the snapshot DECLARES, not what is reachable this second: a
+// line whose only provider is failing its circuit is still in here. Liveness is
+// the health surface's question, and answering it here would make a catalogue
+// read flap.
+func (i *Inventory) Catalogue() []CatalogueEntry {
+	entries := make([]CatalogueEntry, 0, len(i.currentOf))
+	for id, set := range i.currentOf {
+		seen := make(map[contract.ProviderSlug]struct{}, len(set.endpoints))
+		providers := make([]contract.ProviderSlug, 0, len(set.endpoints))
+		for _, endpoint := range set.endpoints {
+			if _, already := seen[endpoint.Provider]; already {
+				continue
+			}
+			seen[endpoint.Provider] = struct{}{}
+			providers = append(providers, endpoint.Provider)
+		}
+		sort.Slice(providers, func(a, b int) bool { return providers[a] < providers[b] })
+		entries = append(entries, CatalogueEntry{Model: id, Reference: set.Reference(), Providers: providers})
+	}
+	sort.Slice(entries, func(a, b int) bool { return entries[a].Model < entries[b].Model })
+	return entries
+}
+
+// PinnedOnlyReferences lists references no unpinned name resolves to, sorted.
+//
+// A snapshot where every deployment is marked current leaves this empty, which
+// is the ordinary case. It is reported anyway because the alternative is a
+// catalogue that silently omits routable models: "I found fewer" and "there are
+// fewer" look identical to a reader, and this is the difference between them.
+func (i *Inventory) PinnedOnlyReferences() []contract.ModelReference {
+	current := make(map[contract.ModelReference]struct{}, len(i.currentOf))
+	for _, set := range i.currentOf {
+		current[set.Reference()] = struct{}{}
+	}
+	references := make([]contract.ModelReference, 0)
+	for reference := range i.byReference {
+		if _, isCurrent := current[reference]; isCurrent {
+			continue
+		}
+		references = append(references, reference)
+	}
+	sort.Slice(references, func(a, b int) bool { return references[a] < references[b] })
+	return references
+}
+
 // Providers lists the provider slugs the inventory routes to, sorted. The
 // server uses it to refuse at startup if a routable provider has no adapter,
 // rather than discovering it on a customer request.

@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/inference", s.handleInference)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
 	mux.HandleFunc("GET /livez", s.handleLive)
 	return mux
 }
@@ -297,6 +298,55 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// handleModels answers what this snapshot serves, under the names a caller can
+// hold onto.
+//
+// It exists because the alternative is every consumer keeping its own list of
+// model names, and a hand-maintained copy of someone else's catalogue drifts in
+// exactly one direction: it keeps offering what was removed and never offers
+// what was added. Measured against one consumer's table on 2026-08-23, half its
+// misses were spelling — `xai/` against `x-ai/`, `mistral/` against `mistralai/`
+// — on names Kaana was serving the whole time.
+//
+// Signed like the health surface rather than public: the set of models Oxy has
+// contracted for is commercial information, and this route names the providers
+// behind each one.
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	if _, failure := s.readSignedBody(w, r); failure != nil {
+		s.writeRejection(w, http.StatusUnauthorized, failure)
+		return
+	}
+
+	current := s.inventory.Current()
+	now := time.Now()
+	writeJSON(w, http.StatusOK, modelsResponse{
+		ContractVersion: contract.ContractVersion,
+		CheckedAt:       contract.NewTimestamp(now),
+		Configuration:   s.inventory.Status(),
+		// Whether an unpinned name resolves AT ALL right now. Past the staleness
+		// horizon every entry below is refused, so a consumer that read the list
+		// without reading this would build a catalogue of names that all fail.
+		ServesUnpinned:       current.ServesUnpinned(now),
+		Models:               current.Catalogue(),
+		PinnedOnlyReferences: current.PinnedOnlyReferences(),
+	})
+}
+
+type modelsResponse struct {
+	ContractVersion string             `json:"contractVersion"`
+	CheckedAt       contract.Timestamp `json:"checkedAt"`
+	// Configuration is the same snapshot identity the health surface reports, so
+	// a catalogue read and a health read can be compared without guessing
+	// whether they saw the same file.
+	Configuration  inventory.SnapshotStatus   `json:"configuration"`
+	ServesUnpinned bool                       `json:"servesUnpinned"`
+	Models         []inventory.CatalogueEntry `json:"models"`
+	// References no unpinned name resolves to. Usually empty; present so that a
+	// catalogue which omits a routable model says so rather than looking
+	// complete.
+	PinnedOnlyReferences []contract.ModelReference `json:"pinnedOnlyReferences"`
 }
 
 // handleLive is the only unauthenticated route. It carries the contract version
