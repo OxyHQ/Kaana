@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "Which credentials this deployment holds, and what the operator says about each. ILLUSTRATIVE — the key ids and variable names below are shapes, not a deployable set.",
+    "NO CREDENTIAL IS IN THIS FILE, and none ever will be, exactly as inventory.json says of itself. A key names the VARIABLE holding its value; the value arrives the way every other secret does, injected by the platform from the store that owns it. A manifest of SSM paths would instead make a serving process that cannot start when AWS is unreachable, which is a poor trade for a data plane whose job is to be available.",
+    "IT REPLACES SIX ENVIRONMENT VARIABLES PER PROVIDER. `KAANA_PROVIDER_<SLUG>_API_KEY` held a pool as one comma-separated string: rotated as a whole, broken entirely by one bad character, and with nowhere to say that this key is a free tier and that one holds a balance somebody paid for. That shape holds two or three keys. It does not hold thirty.",
+    "CLASS IS DECLARED AND NEVER INFERRED. Measured 2026-08-23: no provider this build serves publishes remaining credit. Groq and xAI publish burst limits whose counts refill; OpenRouter publishes no such header at all, and its account endpoint answered `total_credits: 0` while a completion on the same key really was billed. Nothing observable separates a free-tier key from a funded one.",
+    "ABSENT IS NOT PAID. Keys stated `free` are tried first and everything else keeps the order written here, so an unclassified provider behaves exactly as it did before this file existed, and classifying one key moves that key alone.",
+    "`budgetUsd` IS DECLARED AND NOT YET ENFORCED. Nothing in this build holds a key to it, and the process says so by name at startup rather than letting anyone believe a cap is holding. Enforcing it needs accumulated spend to reach durable storage, which the operator log now carries the key id for."
+  ],
+  "issuedAt": "2026-08-23T00:00:00.000Z",
+  "providers": {
+    "openrouter": {
+      "keysOnSeparateAccounts": true,
+      "keyRetirement": "15m",
+      "keys": [
+        { "keyId": "openrouter-free-01", "secretEnv": "KAANA_KEY_OPENROUTER_FREE_01", "class": "free" },
+        { "keyId": "openrouter-free-02", "secretEnv": "KAANA_KEY_OPENROUTER_FREE_02", "class": "free" },
+        { "keyId": "openrouter-oxy-main", "secretEnv": "KAANA_KEY_OPENROUTER_OXY_MAIN", "class": "paid", "budgetUsd": 500 }
+      ]
+    },
+    "groq": {
+      "keysOnSeparateAccounts": false,
+      "keys": [
+        { "keyId": "groq-free-01", "secretEnv": "KAANA_KEY_GROQ_FREE_01", "class": "free" }
+      ]
+    }
+  }
+}
