@@ -167,3 +167,31 @@ until the request that finds it empty.
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
+
+## Key class, and what "free first" is and is not
+
+A key carries a `KeyClass` the operator STATES — `free`, `paid`, or unstated.
+It is never inferred, and that is a measurement rather than caution: on
+2026-08-23 no provider this build serves published remaining credit. Groq and
+xAI publish burst limits whose counts refill; OpenRouter publishes no such
+header at all, and its account endpoint answered `total_credits: 0` while a
+completion on the same key really was billed. Nothing observable separates a
+free-tier key from a funded one.
+
+Keys stated `free` are tried first. Everything else keeps the order it was
+declared in — **unstated is not a synonym for paid**, because every deployment
+predating this field relies on the declared order, and treating unstated as
+paid would silently reorder a live pool the first time somebody classified one
+key.
+
+That ordering is the whole mechanism, and it is enough because the walk already
+prefers the first usable key and already skips a retired one: a free key that is
+out costs one iteration, not a request. It is an ORDER, not a budget. It cannot
+cap spend, and a pool whose free keys are all retired spends money — which is
+the correct outcome and the reason a budget is a separate thing.
+
+`Key.ID` is the operator's name for a key and is what a log or a health
+projection should prefer once a pool holds more than a handful: with twenty
+keys, "position 14 retired" names nothing anyone can act on. `Position` keeps
+meaning the line the operator wrote, not the slot the key sorted into, so every
+error still points at their file.

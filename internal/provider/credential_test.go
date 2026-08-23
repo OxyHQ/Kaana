@@ -199,7 +199,7 @@ func TestAThrottleIsNeverConfusedWithExhaustion(t *testing.T) {
 
 func newTestPool(t *testing.T, policy KeyPolicy, secrets ...string) *KeyPool {
 	t.Helper()
-	pool, err := NewKeyPool("test-provider", secrets, policy, nil)
+	pool, err := NewKeyPool("test-provider", DeclareKeys(secrets), policy, nil)
 	if err != nil {
 		t.Fatalf("building the pool: %v", err)
 	}
@@ -319,11 +319,11 @@ func TestAThrottleRotatesOnlyWhereTheOperatorSaidTheKeysAreSeparateAccounts(t *t
 
 // TestAPoolRefusesWhatWouldPresentAsWorkingAndBehaveAsBroken.
 func TestAPoolRefusesWhatWouldPresentAsWorkingAndBehaveAsBroken(t *testing.T) {
-	if _, err := NewKeyPool("test-provider", []string{firstCredential, "   "}, KeyPolicy{}, nil); err == nil {
+	if _, err := NewKeyPool("test-provider", DeclareKeys([]string{firstCredential, "   "}), KeyPolicy{}, nil); err == nil {
 		t.Error("a blank credential was accepted; it would be sent and refused, and the pool would report a key it does not have")
 	}
 
-	_, err := NewKeyPool("test-provider", []string{firstCredential, firstCredential}, KeyPolicy{}, nil)
+	_, err := NewKeyPool("test-provider", DeclareKeys([]string{firstCredential, firstCredential}), KeyPolicy{}, nil)
 	if err == nil {
 		t.Fatal("the same credential twice was accepted; it looks like two keys, exhausts as one, and halves the pool the first time it is spent")
 	}
@@ -335,7 +335,7 @@ func TestAPoolRefusesWhatWouldPresentAsWorkingAndBehaveAsBroken(t *testing.T) {
 
 	// The control: two different credentials are accepted, or the two checks
 	// above would pass on a constructor that refuses everything.
-	if _, err := NewKeyPool("test-provider", []string{firstCredential, secondCredential}, KeyPolicy{}, nil); err != nil {
+	if _, err := NewKeyPool("test-provider", DeclareKeys([]string{firstCredential, secondCredential}), KeyPolicy{}, nil); err != nil {
 		t.Errorf("two distinct credentials were refused: %v", err)
 	}
 }
@@ -473,7 +473,7 @@ func TestOnlyExhaustionTakesAKeyOutOfRotation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			now := time.Now()
-			pool, err := NewKeyPool("test-provider", []string{firstCredential, secondCredential}, KeyPolicy{}, mapping)
+			pool, err := NewKeyPool("test-provider", DeclareKeys([]string{firstCredential, secondCredential}), KeyPolicy{}, mapping)
 			if err != nil {
 				t.Fatalf("building the pool: %v", err)
 			}
@@ -494,7 +494,7 @@ func TestAResetHeaderSetsTheRetirementAndCanNeverCauseOne(t *testing.T) {
 		"x-fake-credits-remaining": SignalRemainingCredits,
 		"x-fake-credits-reset":     SignalResetAt,
 	}
-	pool, err := NewKeyPool("test-provider", []string{firstCredential, secondCredential}, KeyPolicy{Retirement: time.Hour}, mapping)
+	pool, err := NewKeyPool("test-provider", DeclareKeys([]string{firstCredential, secondCredential}), KeyPolicy{Retirement: time.Hour}, mapping)
 	if err != nil {
 		t.Fatalf("building the pool: %v", err)
 	}
@@ -553,5 +553,135 @@ func TestTheProjectionCarriesNoCredential(t *testing.T) {
 		if strings.Contains(rendered, secret) {
 			t.Fatalf("the projection carries a credential: %s", rendered)
 		}
+	}
+}
+
+// KeyClass and the ordering it buys.
+//
+// The policy this serves is "spend nothing while something free will do". It is
+// expressed as an ORDER rather than a rule because the walk already prefers the
+// first usable key and already skips a retired one, so a free key that is out
+// costs nothing but the next iteration.
+//
+// The load-bearing half is the negative: a pool nobody classified must come out
+// exactly as it went in. Every deployment predating this field relies on the
+// declared order, and reordering one the first time somebody classifies a
+// single key would be a silent routing change.
+
+func poolOrder(t *testing.T, pool *KeyPool) []string {
+	t.Helper()
+	attempt := pool.Begin()
+	order := make([]string, 0, 4)
+	for {
+		key, ok := attempt.Next(time.Now())
+		if !ok {
+			return order
+		}
+		order = append(order, key.ID)
+	}
+}
+
+func TestStatedFreeKeysAreTriedFirst(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "paid-a", Secret: "secret-1", Class: KeyClassPaid},
+		{KeyID: "free-a", Secret: "secret-2", Class: KeyClassFree},
+		{KeyID: "paid-b", Secret: "secret-3", Class: KeyClassPaid},
+		{KeyID: "free-b", Secret: "secret-4", Class: KeyClassFree},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("NewKeyPool: %v", err)
+	}
+	got := poolOrder(t, pool)
+	want := []string{"free-a", "free-b", "paid-a", "paid-b"}
+	if len(got) != len(want) {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}
+
+// The one that must not change. An unclassified pool is not a paid pool.
+func TestAnUnstatedPoolKeepsTheOrderItWasDeclaredIn(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", DeclareKeys([]string{"secret-1", "secret-2", "secret-3"}), KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("NewKeyPool: %v", err)
+	}
+	got := poolOrder(t, pool)
+	want := []string{"key-1", "key-2", "key-3"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v — an unclassified pool was reordered", got, want)
+		}
+	}
+}
+
+// Mixing a single classified key into an otherwise unstated pool moves that key
+// and disturbs nothing else, which is the migration path an operator actually
+// walks: classify one, deploy, classify the next.
+func TestClassifyingOneKeyDoesNotReorderTheRest(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "a", Secret: "secret-1"},
+		{KeyID: "b", Secret: "secret-2"},
+		{KeyID: "c", Secret: "secret-3", Class: KeyClassFree},
+		{KeyID: "d", Secret: "secret-4"},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("NewKeyPool: %v", err)
+	}
+	got := poolOrder(t, pool)
+	want := []string{"c", "a", "b", "d"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}
+
+// Position keeps naming the operator's line. After reordering, "position 1" has
+// to still mean the first key they wrote, or every error message points at the
+// wrong one.
+func TestPositionNamesTheDeclaredLineNotTheSortedSlot(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "paid", Secret: "secret-1", Class: KeyClassPaid},
+		{KeyID: "free", Secret: "secret-2", Class: KeyClassFree},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("NewKeyPool: %v", err)
+	}
+	attempt := pool.Begin()
+	first, _ := attempt.Next(time.Now())
+	if first.ID != "free" {
+		t.Fatalf("first key = %q, want the free one", first.ID)
+	}
+	if first.Position != 2 {
+		t.Fatalf("the free key reports position %d; it was declared second", first.Position)
+	}
+	if first.Class != KeyClassFree {
+		t.Fatalf("class = %q", first.Class)
+	}
+}
+
+func TestAPoolRefusesTwoKeysUnderOneName(t *testing.T) {
+	_, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "same", Secret: "secret-1"},
+		{KeyID: "same", Secret: "secret-2"},
+	}, KeyPolicy{}, nil)
+	if err == nil {
+		t.Fatal("two keys sharing one id were accepted; every log line about them would be ambiguous")
+	}
+	if strings.Contains(err.Error(), "secret-1") || strings.Contains(err.Error(), "secret-2") {
+		t.Fatalf("the error carries a credential: %v", err)
+	}
+}
+
+func TestAPoolRefusesAClassItDoesNotKnow(t *testing.T) {
+	_, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "a", Secret: "secret-1", Class: KeyClass("cheap")},
+	}, KeyPolicy{}, nil)
+	if err == nil {
+		t.Fatal("an unknown class was accepted, so a typo would silently mean unstated")
 	}
 }

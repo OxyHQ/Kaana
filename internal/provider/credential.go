@@ -287,18 +287,74 @@ const (
 // be constructed anywhere but here: an adapter cannot fabricate one and send a
 // credential the pool has retired.
 type Key struct {
-	// Position is the key's 1-based place in the declared list, and is its
-	// whole identity outside this package. It is a position rather than any
-	// function of the secret, so nothing derived from a credential is ever
-	// written to a log or a health projection.
+	// Position is the key's 1-based place in the declared list. It is a
+	// position rather than any function of the secret, so nothing derived from
+	// a credential is ever written to a log or a health projection.
 	Position int
-	secret   string
+	// ID is the operator's name for this key, and is what a log or a health
+	// projection should prefer once a pool holds more than a handful: with
+	// twenty keys, "position 14 retired" identifies nothing an operator can
+	// act on. Like Position it is never derived from the secret.
+	ID string
+	// Class is what spending on this key costs, as the operator stated it.
+	Class KeyClass
+
+	secret string
 }
 
 // Secret is the credential itself. Every call site is an adapter applying
 // authentication at send time, or redacting the exact bytes it sent out of text
 // bound for a customer.
 func (k Key) Secret() string { return k.secret }
+
+// KeyClass is what spending on a key costs, as the operator states it.
+//
+// It is DECLARED and never inferred. Measured 2026-08-23: no provider this
+// build serves publishes remaining credit — Groq and xAI publish burst limits
+// whose counts refill, OpenRouter publishes no such header at all, and its
+// account endpoint answered `total_credits: 0` while a completion on the same
+// key really was billed. So nothing observable distinguishes a free-tier key
+// from a funded one, and a guess would order the pool wrongly in silence.
+type KeyClass string
+
+const (
+	// KeyClassFree is a key whose use costs no money. Running it out is a rate
+	// limit, not a bill.
+	KeyClassFree KeyClass = "free"
+	// KeyClassPaid is a key whose use draws on a balance somebody paid for.
+	KeyClassPaid KeyClass = "paid"
+	// KeyClassUnstated is the default, and it is NOT a synonym for paid. An
+	// operator who has not classified a pool gets exactly the ordering they
+	// declared, which is what every deployment predating this field relies on.
+	KeyClassUnstated KeyClass = ""
+)
+
+// KeyDeclaration is one credential and what the operator says about it.
+//
+// The secret travels in it and nowhere else: `KeyID` is what appears in a log,
+// a health projection or an error, for the same reason `Key.Position` was the
+// only identity before this type existed.
+type KeyDeclaration struct {
+	// KeyID names the key to operators. Free-form, unique within a pool, and
+	// never derived from the secret. Empty takes "key-<position>".
+	KeyID string
+	// Secret is the credential.
+	Secret string
+	// Class is what spending on it costs. See KeyClass.
+	Class KeyClass
+}
+
+// DeclareKeys turns a bare secret list into declarations, which is what the
+// environment path supplies. Every key is KeyClassUnstated, so the pool keeps
+// the order the operator wrote — this function exists so that path cannot
+// accidentally acquire a class nobody stated.
+func DeclareKeys(secrets []string) []KeyDeclaration {
+	declarations := make([]KeyDeclaration, 0, len(secrets))
+	for _, secret := range secrets {
+		declarations = append(declarations, KeyDeclaration{Secret: secret})
+	}
+	return declarations
+}
 
 // KeyPolicy is the operator-settable half of a pool's behaviour.
 type KeyPolicy struct {
@@ -331,6 +387,8 @@ type KeyPool struct {
 
 type pooledKey struct {
 	position int
+	keyID    string
+	class    KeyClass
 	secret   string
 	// retiredUntil is the moment this key returns to rotation. Zero means it
 	// never left.
@@ -344,26 +402,63 @@ type pooledKey struct {
 // blank entry (an operator's trailing separator, which would send an empty
 // credential and be refused), and a duplicate (a copy-paste that looks like two
 // keys, exhausts as one, and halves the pool the first time it is spent).
-func NewKeyPool(slug contract.ProviderSlug, secrets []string, policy KeyPolicy, signals QuotaHeaders) (*KeyPool, error) {
+func NewKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, policy KeyPolicy, signals QuotaHeaders) (*KeyPool, error) {
 	if policy.Retirement <= 0 {
 		policy.Retirement = DefaultKeyRetirement
 	}
 	pool := &KeyPool{provider: slug, policy: policy, signals: signals}
 
-	seen := make(map[string]int, len(secrets))
-	for index, secret := range secrets {
-		trimmed := strings.TrimSpace(secret)
+	seenSecret := make(map[string]int, len(declarations))
+	seenID := make(map[string]int, len(declarations))
+	free := make([]*pooledKey, 0, len(declarations))
+	rest := make([]*pooledKey, 0, len(declarations))
+
+	for index, declaration := range declarations {
+		position := index + 1
+		trimmed := strings.TrimSpace(declaration.Secret)
 		if trimmed == "" {
-			return nil, fmt.Errorf("provider: %s declares an empty credential at position %d", slug, index+1)
+			return nil, fmt.Errorf("provider: %s declares an empty credential at position %d", slug, position)
 		}
-		if first, duplicate := seen[trimmed]; duplicate {
+		if first, duplicate := seenSecret[trimmed]; duplicate {
 			// Named by POSITION. The credential itself never enters an error,
 			// including the one that reports it is wrong.
-			return nil, fmt.Errorf("provider: %s declares the same credential at positions %d and %d, which is one key wearing two names", slug, first, index+1)
+			return nil, fmt.Errorf("provider: %s declares the same credential at positions %d and %d, which is one key wearing two names", slug, first, position)
 		}
-		seen[trimmed] = index + 1
-		pool.keys = append(pool.keys, &pooledKey{position: index + 1, secret: trimmed})
+		seenSecret[trimmed] = position
+
+		keyID := strings.TrimSpace(declaration.KeyID)
+		if keyID == "" {
+			keyID = fmt.Sprintf("key-%d", position)
+		}
+		if first, duplicate := seenID[keyID]; duplicate {
+			// Two keys under one name make every log line about them ambiguous,
+			// and a retirement recorded against the wrong one is invisible.
+			return nil, fmt.Errorf("provider: %s declares key id %q at positions %d and %d", slug, keyID, first, position)
+		}
+		seenID[keyID] = position
+
+		switch declaration.Class {
+		case KeyClassFree, KeyClassPaid, KeyClassUnstated:
+		default:
+			return nil, fmt.Errorf("provider: %s declares key %q with class %q; it is one of %q, %q, or unstated", slug, keyID, declaration.Class, KeyClassFree, KeyClassPaid)
+		}
+
+		// Position is the operator's line, not the slot this key ends up in.
+		// Every error above and every message below names what they wrote.
+		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: trimmed}
+		if declaration.Class == KeyClassFree {
+			free = append(free, key)
+			continue
+		}
+		rest = append(rest, key)
 	}
+
+	// FREE FIRST, AND ONLY WHAT WAS STATED FREE. Everything else keeps the order
+	// it was declared in, which is what every deployment predating KeyClass
+	// relies on: a pool of unstated keys comes out exactly as it went in. The
+	// alternative — treating unstated as paid — would reorder a live pool the
+	// first time somebody classified one key.
+	pool.keys = append(free, rest...)
 	return pool, nil
 }
 
@@ -503,7 +598,7 @@ func (a *KeyAttempt) Next(at time.Time) (Key, bool) {
 			continue
 		}
 		a.tried[key.position] = true
-		return Key{Position: key.position, secret: key.secret}, true
+		return Key{Position: key.position, ID: key.keyID, Class: key.class, secret: key.secret}, true
 	}
 	return Key{}, false
 }
