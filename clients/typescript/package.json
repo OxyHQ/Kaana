@@ -1,0 +1,35 @@
+{
+  "name": "@oxyhq/kaana-client",
+  "version": "0.1.0",
+  "description": "TypeScript client for Kaana's inference data plane: envelope builders, Ed25519 edge signing, and the normalized event stream.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "conformance": "node conformance.mjs"
+  },
+  "dependencies": {
+    "@oxyhq/contracts": "0.29.0",
+    "zod": "^3.25.64"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  }
+}

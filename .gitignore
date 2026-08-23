@@ -10,6 +10,9 @@
 
 # Node tooling
 node_modules/
+# Built output of clients/typescript. The package publishes it; the repository
+# does not carry it, for the same reason the wire fixtures are not carried.
+/clients/typescript/dist/
 
 # Coverage
 *.out

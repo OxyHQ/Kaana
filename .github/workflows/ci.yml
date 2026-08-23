@@ -96,3 +96,45 @@ jobs:
         # cannot pass as a clean run.
         run: npm run validate --silent
         working-directory: tools/contract
+
+  typescript-client:
+    name: typescript client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go is here because the conformance step reads the wire fixtures
+      # `go test ./internal/contract/...` writes; they are generated and
+      # gitignored, so without that run the fixture directory is empty and the
+      # script refuses rather than reporting a clean pass over nothing.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: clients/typescript/package-lock.json
+
+      - name: install the pinned dependencies
+        run: npm ci
+        working-directory: clients/typescript
+
+      # `npm test` builds first, so this also typechecks the package: tsc is the
+      # only typechecker here and a build that emits is a build that compiled.
+      - name: the client builds and its unit tests pass
+        run: npm test
+        working-directory: clients/typescript
+
+      - name: generate the wire fixtures the conformance step reads
+        run: go test -count=1 ./internal/contract/...
+
+      - name: the client reads the shapes this repository produces
+        # Valid fixtures must decode, and back to the same value; invalid ones
+        # must be refused as a protocol error rather than reaching a caller as an
+        # answer. Fails on an empty fixture directory and on a schema nobody
+        # routed, so a silent no-op cannot pass as a clean run.
+        run: npm run conformance --silent
+        working-directory: clients/typescript

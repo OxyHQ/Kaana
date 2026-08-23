@@ -99,9 +99,19 @@ internal/provider/              the Adapter interface, key pools, error vocabula
 internal/providercost/          upstream cost; never a customer amount
 internal/rotation/              per-deployment circuit breakers and health scoring
 internal/sse/                   SSE decoding (upstream) and encoding (downstream)
+clients/typescript/             the published TypeScript client for this wire
+tools/contract/                 derives descriptor.json and validates the wire fixtures
 configs/inventory.json          the measured snapshot, for a publisher to re-issue
 configs/model-attribution.json  who RELEASED each model — the publisher's only editorial input
 ```
+
+`clients/typescript` is the one artefact here that is not the data plane: it is
+the client Oxy callers use, published from this repository so the wire has one
+implementation rather than one per app. It imports `@oxyhq/contracts` for the
+shapes and declares only what this repository owns — the signing scheme, the SSE
+frame names and the health projection. It carries no money type, and a test
+derives that prohibition from the contract's own billing modules rather than
+from a list.
 
 ## Documentation
 
