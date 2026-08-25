@@ -135,6 +135,22 @@ revision. A tag would not do: `--force-new-deployment` against `:latest`
 relaunches whatever the tag resolves to at that moment, so "what is running"
 stops being a question the task definition can answer.
 
+**Both services, in one release.** The image carries two binaries and there are
+two ECS services — `relay` serves and `relay-publisher` writes the inventory the
+serving tasks read — so the deploy repoints both, `relay` first. One image built
+from one commit is what keeps the publisher from producing snapshots against a
+contract the reader has moved past, and that only holds if both are rolled
+forward together.
+
+It is also the only thing that delivers a CONFIGURATION change to the publisher.
+oxy-infra's `aws_ecs_service.relay_publisher` carries
+`ignore_changes = [task_definition]` on the bargain that Terraform owns what a
+revision contains and CI owns which revision runs; a Terraform change therefore
+registers a revision and does not adopt it. When only `relay` was deployed here,
+the publisher's half of that bargain had no holder: an added provider reached
+the serving task and never reached the process that discovers models, and the
+symptom was a snapshot that quietly went on naming the old provider set.
+
 The image is a stripped, statically linked binary on `distroless/static`,
 running as uid 65532 with no shell and no package manager. It carries no
 inventory, no rate card and no credential of any kind.
