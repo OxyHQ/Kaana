@@ -1,8 +1,13 @@
 name: Deploy to AWS
 
 # Kaana's release path: build the arm64 image, push it to ECR, register a task
-# definition that names the image by DIGEST, and repoint the service at that
+# definition that names the image by DIGEST, and repoint the services at that
 # revision.
+#
+# SERVICES, plural. One image carries two binaries and there are two services —
+# `relay` serves, `relay-publisher` writes the inventory the serving tasks read
+# — and both are deployed here. Deploying only the first is not a smaller
+# release, it is a release the publisher never receives: see the deploy step.
 #
 # # Why the digest and not a tag
 #
@@ -55,6 +60,16 @@ env:
   # the oxy- prefix that oxy-infra's app-service module gives every family.
   APP: relay
   FAMILY: oxy-relay
+  # The inventory publisher. One image, a different entryPoint and a different
+  # task role, so it is a SECOND service and a second family — and it is
+  # deployed here for the same reason the serving one is: oxy-infra's
+  # `aws_ecs_service.relay_publisher` carries `ignore_changes = [task_definition]`
+  # on the stated bargain that CI owns which revision runs. Nothing was holding
+  # up that half, so a Terraform change to the publisher's environment
+  # registered a revision the service never adopted, and the running task went
+  # on asking the provider set it was created with.
+  PUBLISHER_SERVICE: relay-publisher
+  PUBLISHER_FAMILY: oxy-relay-publisher
   CLUSTER: oxy-cluster
 
 jobs:
@@ -160,108 +175,146 @@ jobs:
           echo "image=$IMG@$DIGEST" >> "$GITHUB_OUTPUT"
           echo "pushed $IMG@$DIGEST"
 
-      - name: Deploy to ECS (skipped until the service exists)
+      - name: Deploy to ECS (skipped until a service exists)
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
           set -euo pipefail
 
-          STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
-            --query 'services[0].status' --output text 2>/dev/null || echo NONE)
-          if [ "$STATUS" != "ACTIVE" ]; then
-            echo "::warning::ECS service $APP is not ACTIVE (status=$STATUS); the image is in ECR at $IMAGE, nothing to deploy"
-            exit 0
-          fi
+          # ONE IMAGE, TWO SERVICES, ONE RELEASE.
+          #
+          # `relay` serves and `relay-publisher` writes the inventory the
+          # serving tasks read. They are built from one commit into one image
+          # on purpose — the Dockerfile says so: a publisher lagging the
+          # serving binary produces snapshots against a contract the reader has
+          # moved past. Until this step deployed both, that lag was not a risk
+          # to be avoided but the steady state, because nothing ever repointed
+          # the publisher: oxy-infra cedes `task_definition` to CI with
+          # `ignore_changes`, so a Terraform change to the publisher registered
+          # a revision the service never adopted and the running task kept the
+          # environment it was created with. A provider added to
+          # RELAY_PROVIDERS reached the serving task and not the one that
+          # discovers models, which is silent — the snapshot simply goes on
+          # naming the old provider set.
+          #
+          # The serving service goes first, which is the order that keeps the
+          # common path exactly as it was: if the publisher's rollout fails,
+          # this job fails after Kaana is already serving the new image rather
+          # than instead of deploying it.
+          deploy_one() {
+            service="$1"
+            family="$2"
+            container="$3"
 
-          BASE=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition')
-
-          # Assert the container this job is about to rewrite is actually there.
-          # A jq assignment that matches nothing succeeds and returns the
-          # document unchanged, so without this the job would register a
-          # revision still carrying the OLD image and report a clean deploy.
-          MATCHED=$(printf '%s' "$BASE" | jq --arg c "$APP" '[.containerDefinitions[] | select(.name == $c)] | length')
-          if [ "$MATCHED" != "1" ]; then
-            echo "::error::task definition $FAMILY has $MATCHED containers named '$APP'; expected exactly 1"
-            exit 1
-          fi
-
-          # Everything except the image comes from the family's current revision
-          # — Terraform's shape, carried forward. The dropped keys are the ones
-          # describe-task-definition adds and register-task-definition refuses.
-          printf '%s' "$BASE" | jq --arg c "$APP" --arg img "$IMAGE" '
-            del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
-                .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
-            | .containerDefinitions |= map(if .name == $c then .image = $img else . end)
-          ' > /tmp/task-definition.json
-
-          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/task-definition.json \
-            --query 'taskDefinition.taskDefinitionArn' --output text)
-          echo "registered $ARN"
-
-          # Read the field back. A register that silently kept the old image
-          # would otherwise be indistinguishable from a successful one right up
-          # until someone asked what version was live.
-          REGISTERED=$(aws ecs describe-task-definition --task-definition "$ARN" \
-            --query "taskDefinition.containerDefinitions[?name=='$APP'].image | [0]" --output text)
-          if [ "$REGISTERED" != "$IMAGE" ]; then
-            echo "::error::$ARN names image '$REGISTERED', expected '$IMAGE'"
-            exit 1
-          fi
-
-          # register-task-definition does NOT repoint a service. Naming the
-          # revision here is what makes this deploy the one being watched below.
-          aws ecs update-service --cluster "$CLUSTER" --service "$APP" --task-definition "$ARN" >/dev/null
-          echo "deploying $ARN; polling rollout state"
-
-          # Poll the PRIMARY deployment to steady state. The AWS services-stable
-          # waiter caps at 10 minutes, which is tight while a fresh task pulls
-          # the image and warms up against the target group.
-          DEADLINE=$(( $(date +%s) + 20 * 60 ))
-          while :; do
-            if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-              echo "::error::deployment did not stabilize within 20 minutes"
-              aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
-                --query 'services[0].deployments' --output table || true
-              exit 1
-            fi
-            PRIMARY=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
-              --query 'services[0].deployments[?status==`PRIMARY`] | [0]')
-            PRIMARY_TD=$(printf '%s' "$PRIMARY" | jq -r '.taskDefinition // ""')
-            ROLLOUT=$(printf '%s' "$PRIMARY" | jq -r '.rolloutState // "IN_PROGRESS"')
-            RUNNING=$(printf '%s' "$PRIMARY" | jq -r '.runningCount // 0')
-            DESIRED=$(printf '%s' "$PRIMARY" | jq -r '.desiredCount // 0')
-            echo "  rolloutState=$ROLLOUT  running=$RUNNING/$DESIRED"
-
-            # Identity, not just state. A COMPLETED belonging to somebody else's
-            # revision — a concurrent apply, a manual rollback — is not this
-            # deploy succeeding, and counting it as one is how a job reports
-            # green for a change that never went out.
-            if [ "$PRIMARY_TD" != "$ARN" ]; then
-              echo "::error::the PRIMARY deployment is $PRIMARY_TD, not the revision this run registered ($ARN)"
-              exit 1
+            STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+              --query 'services[0].status' --output text 2>/dev/null || echo NONE)
+            if [ "$STATUS" != "ACTIVE" ]; then
+              echo "::warning::ECS service $service is not ACTIVE (status=$STATUS); the image is in ECR at $IMAGE, nothing to deploy"
+              return 0
             fi
 
-            case "$ROLLOUT" in
-              COMPLETED)
-                # A service parked at desiredCount=0 reaches COMPLETED with
-                # nothing launched, because there was nothing to launch. That
-                # is a legitimate state — it is how the service is held while a
-                # prerequisite is missing — so it is not a failure. But the word
-                # "deployed" would be a lie about it, and this job is the last
-                # thing anyone reads before believing the change went out.
-                if [ "$DESIRED" = "0" ]; then
-                  echo "::warning::rollout COMPLETED with desiredCount=0: $ARN is the service's revision, but no task is running it. This run proves the image built and the revision registered, and nothing about whether Kaana serves."
-                  exit 0
-                fi
-                echo "deployed $APP at $IMAGE ($RUNNING/$DESIRED tasks running)"
-                exit 0
-                ;;
-              FAILED)
-                echo "::error::rollout failed"
-                aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
-                  --query 'services[0].events[0:10]' --output table || true
-                exit 1
-                ;;
-            esac
-            sleep 15
-          done
+            BASE=$(aws ecs describe-task-definition --task-definition "$family" --query 'taskDefinition')
+
+            # Assert the container this job is about to rewrite is actually
+            # there. A jq assignment that matches nothing succeeds and returns
+            # the document unchanged, so without this the job would register a
+            # revision still carrying the OLD image and report a clean deploy.
+            # It also holds the two families apart: `oxy-relay` carries a
+            # second container, the inventory-sync sidecar, whose image is
+            # public.ecr.aws/aws-cli and is not this build's to move.
+            MATCHED=$(printf '%s' "$BASE" | jq --arg c "$container" '[.containerDefinitions[] | select(.name == $c)] | length')
+            if [ "$MATCHED" != "1" ]; then
+              echo "::error::task definition $family has $MATCHED containers named '$container'; expected exactly 1"
+              return 1
+            fi
+
+            # Everything except the image comes from the family's current
+            # revision — Terraform's shape, carried forward. The dropped keys
+            # are the ones describe-task-definition adds and
+            # register-task-definition refuses.
+            printf '%s' "$BASE" | jq --arg c "$container" --arg img "$IMAGE" '
+              del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                  .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+              | .containerDefinitions |= map(if .name == $c then .image = $img else . end)
+            ' > "/tmp/task-definition-$service.json"
+
+            ARN=$(aws ecs register-task-definition --cli-input-json "file:///tmp/task-definition-$service.json" \
+              --query 'taskDefinition.taskDefinitionArn' --output text)
+            echo "registered $ARN"
+
+            # Read the field back. A register that silently kept the old image
+            # would otherwise be indistinguishable from a successful one right
+            # up until someone asked what version was live.
+            REGISTERED=$(aws ecs describe-task-definition --task-definition "$ARN" \
+              --query "taskDefinition.containerDefinitions[?name=='$container'].image | [0]" --output text)
+            if [ "$REGISTERED" != "$IMAGE" ]; then
+              echo "::error::$ARN names image '$REGISTERED', expected '$IMAGE'"
+              return 1
+            fi
+
+            # register-task-definition does NOT repoint a service. Naming the
+            # revision here is what makes this deploy the one being watched
+            # below — and for the publisher it is the whole fix: the revision
+            # Terraform registered has been sitting unadopted.
+            aws ecs update-service --cluster "$CLUSTER" --service "$service" --task-definition "$ARN" >/dev/null
+            echo "deploying $ARN; polling rollout state"
+
+            # Poll the PRIMARY deployment to steady state. The AWS
+            # services-stable waiter caps at 10 minutes, which is tight while a
+            # fresh task pulls the image and warms up against the target group.
+            DEADLINE=$(( $(date +%s) + 20 * 60 ))
+            while :; do
+              if [ "$(date +%s)" -gt "$DEADLINE" ]; then
+                echo "::error::$service did not stabilize within 20 minutes"
+                aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+                  --query 'services[0].deployments' --output table || true
+                return 1
+              fi
+              PRIMARY=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+                --query 'services[0].deployments[?status==`PRIMARY`] | [0]')
+              PRIMARY_TD=$(printf '%s' "$PRIMARY" | jq -r '.taskDefinition // ""')
+              ROLLOUT=$(printf '%s' "$PRIMARY" | jq -r '.rolloutState // "IN_PROGRESS"')
+              RUNNING=$(printf '%s' "$PRIMARY" | jq -r '.runningCount // 0')
+              DESIRED=$(printf '%s' "$PRIMARY" | jq -r '.desiredCount // 0')
+              echo "  $service rolloutState=$ROLLOUT  running=$RUNNING/$DESIRED"
+
+              # Identity, not just state. A COMPLETED belonging to somebody
+              # else's revision — a concurrent apply, a manual rollback — is not
+              # this deploy succeeding, and counting it as one is how a job
+              # reports green for a change that never went out.
+              if [ "$PRIMARY_TD" != "$ARN" ]; then
+                echo "::error::the PRIMARY deployment of $service is $PRIMARY_TD, not the revision this run registered ($ARN)"
+                return 1
+              fi
+
+              case "$ROLLOUT" in
+                COMPLETED)
+                  # A service parked at desiredCount=0 reaches COMPLETED with
+                  # nothing launched, because there was nothing to launch. That
+                  # is a legitimate state — it is how a service is held while a
+                  # prerequisite is missing — so it is not a failure. But the
+                  # word "deployed" would be a lie about it, and this job is the
+                  # last thing anyone reads before believing the change went
+                  # out. For the publisher the lie would be larger: parked at
+                  # zero it writes no snapshot at all, and every unpinned
+                  # reference is refused an hour later.
+                  if [ "$DESIRED" = "0" ]; then
+                    echo "::warning::$service rollout COMPLETED with desiredCount=0: $ARN is the service's revision, but no task is running it. This run proves the image built and the revision registered, and nothing about whether Kaana serves."
+                    return 0
+                  fi
+                  echo "deployed $service at $IMAGE ($RUNNING/$DESIRED tasks running)"
+                  return 0
+                  ;;
+                FAILED)
+                  echo "::error::$service rollout failed"
+                  aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+                    --query 'services[0].events[0:10]' --output table || true
+                  return 1
+                  ;;
+              esac
+              sleep 15
+            done
+          }
+
+          deploy_one "$APP" "$FAMILY" "$APP"
+          deploy_one "$PUBLISHER_SERVICE" "$PUBLISHER_FAMILY" "$PUBLISHER_SERVICE"
