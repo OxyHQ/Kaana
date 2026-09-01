@@ -1,0 +1,55 @@
+# Reconciles Kaana's one owned zone-level rate-limiting rule. `check` performs
+# only GET requests. `apply` creates or updates only the rule identified by its
+# stable `ref`, then reads the entry point back. It never deletes or replaces
+# another rule and it never changes DNS.
+name: Cloudflare rate limit
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'check is read-only. apply reconciles Kaana owned rule.'
+        type: choice
+        options: [check, apply]
+        default: check
+        required: true
+      confirm_apply:
+        description: 'For apply only, enter kaana.ai exactly.'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-kaana-rate-limit
+  cancel-in-progress: false
+
+jobs:
+  rate-limit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test the reconciler
+        run: python3 .github/scripts/cloudflare_rate_limit_test.py
+
+      - name: Require an explicit production confirmation
+        if: inputs.action == 'apply'
+        env:
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: |
+          if [ "$CONFIRM_APPLY" != 'kaana.ai' ]; then
+            echo '::error::apply requires confirm_apply=kaana.ai'
+            exit 1
+          fi
+
+      - name: Check or reconcile the rate limit
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACTION: ${{ inputs.action }}
+        run: python3 .github/scripts/cloudflare_rate_limit.py --action "$ACTION"

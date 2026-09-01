@@ -279,6 +279,36 @@ probe comes from outside the container.
 The edge public key belongs in plain environment. Kaana can verify with it and
 cannot sign an envelope it would accept. The signing private key stays in Oxy.
 
+### Cloudflare request ceiling
+
+Public traffic to `kaana.ai` reaches Cloudflare before Kaana's dedicated load
+balancer. Oxy's normal edge-to-data-plane traffic resolves `kaana.ai` through
+the private Route 53 zone, so it does not consume this public counter.
+
+`.github/workflows/cloudflare-rate-limit.yml` owns one zone-level
+`http_ratelimit` rule, identified by the stable ref
+`kaana_public_inference_per_ip`. It applies only to
+`/internal/v1/inference`, counts by Cloudflare data center and source IP, and
+blocks after 20 requests in 10 seconds for 10 seconds. This is an origin-abuse
+ceiling, not a customer quota or Kaana routing policy.
+
+Run the workflow with `action=check` first. Check mode performs GET requests
+only and fails on missing or drifted state. `action=apply` additionally requires
+`confirm_apply=kaana.ai`; it creates or updates only the rule with Kaana's ref,
+never deletes another rule, then reads the entry point back. A duplicate ref or
+a manual rule using Kaana's managed description is a hard conflict rather than
+an invitation to guess which rule to overwrite. DNS remains owned by the
+separate Cloudflare DNS workflow.
+
+The existing Actions secret `CLOUDFLARE_API_TOKEN` supplies the token. It is
+currently organization-scoped with `visibility=all`, so the public Kaana
+repository receives it; this workflow does not rely on an organization secret
+restricted away from private repositories. For this workflow the token needs
+Zone Read and Zone WAF Edit, scoped only to `kaana.ai`. If the same token
+continues to serve the DNS workflow, its zone-scoped DNS Edit permission remains
+necessary too. The workflow names that one secret directly; it never enumerates
+the repository secret context.
+
 ## Provider lifecycle
 
 Adding a provider:
