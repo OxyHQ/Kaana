@@ -7,8 +7,11 @@ How Kaana splits between this data plane and Oxy's control plane, and what is de
 Kaana owns request normalization, provider adapters, routing **execution**,
 streaming, cancellation, model deployments, provider health and technical
 metering. Kaana never owns accounts, organizations, projects, members,
-applications, credentials, balances, a billing ledger or a customer console. It
-stores Oxy identifiers as **immutable, opaque strings** and never as records it
+applications, customer/API credentials, balances, a billing ledger or a
+customer console. Upstream provider credentials are Kaana-owned operational
+secrets and live only as KMS ciphertext in PostgreSQL; they are not customer
+credentials and never arrive in the signed request. Kaana stores Oxy identifiers
+as **immutable, opaque strings** and never as records it
 may create, edit or delete. Authorization, attribution, scope checks and spend
 reservation all happen **in Oxy, before a request reaches Kaana** — Kaana does
 not re-derive them, and an envelope that does not carry them is refused.
