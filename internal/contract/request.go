@@ -39,13 +39,14 @@ type ContentSource struct {
 type ContentPartType string
 
 const (
-	ContentPartText  ContentPartType = "text"
-	ContentPartImage ContentPartType = "image"
-	ContentPartAudio ContentPartType = "audio"
-	ContentPartFile  ContentPartType = "file"
+	ContentPartText    ContentPartType = "text"
+	ContentPartImage   ContentPartType = "image"
+	ContentPartAudio   ContentPartType = "audio"
+	ContentPartFile    ContentPartType = "file"
+	ContentPartRefusal ContentPartType = "refusal"
 )
 
-var contentPartTypeValues = []ContentPartType{ContentPartText, ContentPartImage, ContentPartAudio, ContentPartFile}
+var contentPartTypeValues = []ContentPartType{ContentPartText, ContentPartImage, ContentPartAudio, ContentPartFile, ContentPartRefusal}
 
 // ContentPart is one part of a message. A message is always a list of parts.
 type ContentPart struct {
@@ -227,6 +228,33 @@ type RoutingPolicyReference struct {
 	PolicyVersion   int    `json:"policyVersion"`
 }
 
+// RouteSubstitution states how one authorized route relates to the first route
+// in the signed list. Authorization is an entry, never a process-wide flag:
+// Kaana may execute only the destinations Oxy put in that list.
+type RouteSubstitution string
+
+const (
+	SubstitutionSameModel  RouteSubstitution = "same_model"
+	SubstitutionCrossModel RouteSubstitution = "cross_model"
+)
+
+var routeSubstitutionValues = []RouteSubstitution{SubstitutionSameModel, SubstitutionCrossModel}
+
+// AuthorizedRoute is one concrete route Oxy has already admitted under the
+// customer's policy. ModelReference is revision-pinned. Regions is either the
+// full attested set Oxy checked or an explicit empty set meaning no regional
+// attestation; Oxy permits the latter only when the policy has no regional
+// control. Cross-model entries can be constructed only with the literal
+// authorizedByPolicy=true.
+type AuthorizedRoute struct {
+	Substitution       RouteSubstitution `json:"substitution"`
+	DeploymentID       DeploymentID      `json:"deploymentId"`
+	ModelReference     ModelReference    `json:"modelReference"`
+	Provider           ProviderSlug      `json:"provider"`
+	Regions            []Region          `json:"regions"`
+	AuthorizedByPolicy *bool             `json:"authorizedByPolicy,omitempty"`
+}
+
 // ClientRequestMetadata is what the edge records about the CALL, as opposed to
 // its content.
 //
@@ -244,20 +272,21 @@ type ClientRequestMetadata struct {
 
 // Request is the canonical internal envelope Oxy's public edge forwards.
 type Request struct {
-	SchemaVersion   int                    `json:"schemaVersion"`
-	Attribution     Attribution            `json:"attribution"`
-	Target          RoutingTarget          `json:"target"`
-	Modality        Modality               `json:"modality"`
-	Input           Input                  `json:"input"`
-	Stream          bool                   `json:"stream"`
-	MaxOutputTokens *int                   `json:"maxOutputTokens,omitempty"`
-	Sampling        SamplingParameters     `json:"sampling"`
-	Tools           []ToolDefinition       `json:"tools,omitempty"`
-	ToolChoice      *ToolChoice            `json:"toolChoice,omitempty"`
-	ResponseFormat  *ResponseFormat        `json:"responseFormat,omitempty"`
-	Client          ClientRequestMetadata  `json:"client"`
-	IdempotencyKey  *IdempotencyKey        `json:"idempotencyKey,omitempty"`
-	RoutingPolicy   RoutingPolicyReference `json:"routingPolicy"`
+	SchemaVersion    int                    `json:"schemaVersion"`
+	Attribution      Attribution            `json:"attribution"`
+	Target           RoutingTarget          `json:"target"`
+	Modality         Modality               `json:"modality"`
+	Input            Input                  `json:"input"`
+	Stream           bool                   `json:"stream"`
+	MaxOutputTokens  *int                   `json:"maxOutputTokens,omitempty"`
+	Sampling         SamplingParameters     `json:"sampling"`
+	Tools            []ToolDefinition       `json:"tools,omitempty"`
+	ToolChoice       *ToolChoice            `json:"toolChoice,omitempty"`
+	ResponseFormat   *ResponseFormat        `json:"responseFormat,omitempty"`
+	Client           ClientRequestMetadata  `json:"client"`
+	IdempotencyKey   *IdempotencyKey        `json:"idempotencyKey,omitempty"`
+	RoutingPolicy    RoutingPolicyReference `json:"routingPolicy"`
+	AuthorizedRoutes []AuthorizedRoute      `json:"authorizedRoutes,omitempty"`
 }
 
 // Validate carries the per-variant and cross-field rules the Go types cannot
@@ -300,6 +329,96 @@ func (r *Request) Validate() error {
 			return fmt.Errorf("contract: tool names must be unique within one request (%q repeats)", tool.Name)
 		}
 		seenTools[tool.Name] = struct{}{}
+	}
+	if err := r.validateAuthorizedRoutes(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Request) validateAuthorizedRoutes() error {
+	if r.AuthorizedRoutes == nil {
+		return nil
+	}
+	if len(r.AuthorizedRoutes) == 0 {
+		return fmt.Errorf("contract: authorizedRoutes must contain at least one route when present")
+	}
+	for index := range r.AuthorizedRoutes {
+		if err := r.AuthorizedRoutes[index].validate(); err != nil {
+			return fmt.Errorf("contract: authorizedRoutes[%d]: %w", index, err)
+		}
+	}
+
+	primary := r.AuthorizedRoutes[0]
+	if primary.Substitution != SubstitutionSameModel {
+		return fmt.Errorf("contract: authorizedRoutes[0].substitution: the first authorized route is the primary and cannot be a substitution")
+	}
+	primaryLine := primary.ModelReference.ModelID()
+
+	if r.Target.Kind == TargetModel {
+		targetReference := *r.Target.ModelReference
+		if targetReference.Pinned() && primary.ModelReference != targetReference {
+			return fmt.Errorf("contract: authorizedRoutes[0].modelReference: a pinned request is served on exactly the revision it pinned")
+		}
+		if !targetReference.Pinned() && primaryLine != targetReference.ModelID() {
+			return fmt.Errorf("contract: authorizedRoutes[0].modelReference: the primary authorized route must serve the model the request named")
+		}
+		if targetReference.Pinned() {
+			for index, route := range r.AuthorizedRoutes {
+				if route.Substitution == SubstitutionCrossModel {
+					return fmt.Errorf("contract: authorizedRoutes[%d].substitution: a request that pinned a revision authorizes no cross-model substitute", index)
+				}
+			}
+		}
+	}
+
+	seenDeployments := make(map[DeploymentID]struct{}, len(r.AuthorizedRoutes))
+	for index, route := range r.AuthorizedRoutes {
+		line := route.ModelReference.ModelID()
+		if route.Substitution == SubstitutionSameModel && line != primaryLine {
+			return fmt.Errorf("contract: authorizedRoutes[%d].substitution: route serves %s, not %s, so it is a cross-model substitute", index, line, primaryLine)
+		}
+		if route.Substitution == SubstitutionCrossModel && line == primaryLine {
+			return fmt.Errorf("contract: authorizedRoutes[%d].substitution: route serves %s, so it is same-model failover", index, primaryLine)
+		}
+		if _, duplicate := seenDeployments[route.DeploymentID]; duplicate {
+			return fmt.Errorf("contract: authorizedRoutes: each deployment appears at most once in the authorized route list (%q repeats)", route.DeploymentID)
+		}
+		seenDeployments[route.DeploymentID] = struct{}{}
+	}
+	return nil
+}
+
+func (r AuthorizedRoute) validate() error {
+	if !isMember(r.Substitution, routeSubstitutionValues) {
+		return fmt.Errorf("%q is not an authorized-route substitution", r.Substitution)
+	}
+	if len(r.DeploymentID) == 0 || len(r.DeploymentID) > 128 {
+		return fmt.Errorf("deploymentId must contain between 1 and 128 characters")
+	}
+	if !r.ModelReference.Valid() || !r.ModelReference.Pinned() {
+		return fmt.Errorf("modelReference must pin an immutable revision (<publisher>/<model>@<revision>)")
+	}
+	if !r.Provider.Valid() {
+		return fmt.Errorf("%q is not a provider slug", r.Provider)
+	}
+	if r.Regions == nil {
+		return fmt.Errorf("regions must be an explicit array; use [] when no regional attestation exists")
+	}
+	for index, region := range r.Regions {
+		if !region.Valid() {
+			return fmt.Errorf("regions[%d]: %q is not a region", index, region)
+		}
+	}
+	switch r.Substitution {
+	case SubstitutionSameModel:
+		if r.AuthorizedByPolicy != nil {
+			return fmt.Errorf("same_model cannot carry authorizedByPolicy")
+		}
+	case SubstitutionCrossModel:
+		if r.AuthorizedByPolicy == nil || !*r.AuthorizedByPolicy {
+			return fmt.Errorf("cross_model requires authorizedByPolicy=true")
+		}
 	}
 	return nil
 }
@@ -371,6 +490,9 @@ func (m Message) validate() error {
 		return fmt.Errorf("only an assistant message makes tool calls")
 	}
 	for index, part := range m.Content {
+		if m.Role != RoleAssistant && part.Type == ContentPartRefusal {
+			return fmt.Errorf("content[%d]: only an assistant message carries a refusal", index)
+		}
 		if err := part.validate(); err != nil {
 			return fmt.Errorf("content[%d]: %w", index, err)
 		}
@@ -380,9 +502,9 @@ func (m Message) validate() error {
 
 func (p ContentPart) validate() error {
 	switch p.Type {
-	case ContentPartText:
+	case ContentPartText, ContentPartRefusal:
 		if p.Text == nil {
-			return fmt.Errorf("a text part must carry text")
+			return fmt.Errorf("a %s part must carry text", p.Type)
 		}
 	case ContentPartImage, ContentPartAudio, ContentPartFile:
 		if p.Source == nil {

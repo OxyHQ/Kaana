@@ -15,9 +15,9 @@ const (
 	// The credentials below are test strings and nothing else. They avoid every
 	// real provider's key prefix so a secret scanner has nothing to flag, and no
 	// real provider key appears in this repository, in a test, or in CI.
-	firstCredential  = "relay-unit-fake-credential-0000"
-	secondCredential = "relay-unit-fake-credential-0001"
-	thirdCredential  = "relay-unit-fake-credential-0002"
+	firstCredential  = "kaana-unit-fake-credential-0000"
+	secondCredential = "kaana-unit-fake-credential-0001"
+	thirdCredential  = "kaana-unit-fake-credential-0002"
 )
 
 func upstreamFailure(code contract.ErrorCode, category contract.UpstreamErrorCategory) error {

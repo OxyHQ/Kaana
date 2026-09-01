@@ -64,14 +64,12 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: tools/contract/package-lock.json
+          bun-version: "1.3.14"
 
       - name: install the pinned contracts package
-        run: npm ci
+        run: bun install --frozen-lockfile
         working-directory: tools/contract
 
       - name: the committed descriptor is what the pinned package produces
@@ -79,10 +77,10 @@ jobs:
         # re-derived. The package version is pinned exactly, so regeneration is
         # deterministic and any diff is a real change.
         run: |
-          npm run generate --silent
+          bun run generate
           if ! git diff --exit-code -- ../../internal/contract/descriptor.json; then
             echo "descriptor.json does not match the pinned @oxyhq/contracts package."
-            echo "Run 'npm ci && npm run generate' in tools/contract and review the diff."
+            echo "Run 'bun install --frozen-lockfile && bun run generate' in tools/contract and review the diff."
             exit 1
           fi
         working-directory: tools/contract
@@ -94,5 +92,5 @@ jobs:
         # Reads the fixtures the step above wrote. It fails on an empty fixture
         # directory and on any rejection control it accepts, so a silent no-op
         # cannot pass as a clean run.
-        run: npm run validate --silent
+        run: bun run validate
         working-directory: tools/contract

@@ -21,7 +21,7 @@
  *     unchanged, which is what catches a hand-edited descriptor and a version
  *     bump that nobody re-derived.
  *
- * Usage: `npm ci && npm run generate` in this directory.
+ * Usage: `bun install --frozen-lockfile && bun run generate` in this directory.
  */
 import { createRequire } from 'node:module';
 import { readdirSync, writeFileSync } from 'node:fs';

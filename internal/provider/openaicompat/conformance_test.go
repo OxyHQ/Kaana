@@ -19,8 +19,8 @@ import (
 // There are two because a pool of one cannot tell an adapter that rotates on
 // exhaustion from one that cannot rotate at all.
 const (
-	fakeAPIKey       = "relay-conformance-fake-credential-0000"
-	fakeSecondAPIKey = "relay-conformance-fake-credential-0001"
+	fakeAPIKey       = "kaana-conformance-fake-credential-0000"
+	fakeSecondAPIKey = "kaana-conformance-fake-credential-0001"
 )
 
 // TestOpenAICompatConformance runs the whole provider suite against the ported

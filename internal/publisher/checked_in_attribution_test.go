@@ -94,3 +94,59 @@ func TestCheckedInAttributionCanStillRefuse(t *testing.T) {
 		t.Error("stealth/ox-alpha is attributed, and its publisher is undisclosed")
 	}
 }
+
+func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	if got := len(table.byProvider["openrouter"]); got != 347 {
+		t.Fatalf("OpenRouter attributions = %d, want the 347 entries whose provenance the checked-in file declares", got)
+	}
+
+	supported := map[contract.ProviderSlug]map[string]contract.ModelID{
+		"openrouter": {
+			"ibm-granite/granite-4.2-8b":          "ibm-granite/granite-4.2-8b",
+			"inclusionai/ling-3.0-flash-fin:free": "inclusionai/ling-3.0-flash-fin",
+			"minimax/minimax-m2.7:free":           "minimax/minimax-m2.7",
+			"minimax/minimax-m3:free":             "minimax/minimax-m3",
+			"mistralai/devstral-2512":             "mistralai/devstral-2512",
+			"qwen/qwen3.8-flash":                  "qwen/qwen3.8-flash",
+			"tencent/hy-mt2-7b":                   "tencent/hy-mt2-7b",
+			"thinkingmachines/inkling-small:free": "thinkingmachines/inkling-small",
+			"thinkingmachines/inkling:free":       "thinkingmachines/inkling",
+			"z-ai/glm-5.3-flash":                  "z-ai/glm-5.3-flash",
+		},
+	}
+	for slug, models := range supported {
+		for upstreamModelID, want := range models {
+			got, ok := table.ModelLine(slug, upstreamModelID)
+			if !ok {
+				t.Errorf("%s/%s is absent", slug, upstreamModelID)
+				continue
+			}
+			if got != want {
+				t.Errorf("%s/%s = %q, want %q", slug, upstreamModelID, got, want)
+			}
+		}
+	}
+
+	for slug, models := range table.byProvider {
+		for upstreamModelID := range models {
+			switch {
+			case strings.HasPrefix(upstreamModelID, "~"):
+				t.Errorf("%s/%s attributes a moving alias", slug, upstreamModelID)
+			case strings.HasSuffix(strings.SplitN(upstreamModelID, ":", 2)[0], "-latest"):
+				t.Errorf("%s/%s attributes a moving alias", slug, upstreamModelID)
+			case strings.HasPrefix(upstreamModelID, "openrouter/"):
+				t.Errorf("%s/%s attributes a router rather than one model", slug, upstreamModelID)
+			case strings.HasSuffix(upstreamModelID, ":batch"), strings.HasSuffix(upstreamModelID, ":thinking"):
+				t.Errorf("%s/%s attributes a delivery mode rather than weights", slug, upstreamModelID)
+			case slug == "groq" && (strings.HasPrefix(upstreamModelID, "canopylabs/orpheus-") || strings.HasPrefix(upstreamModelID, "whisper-") || strings.HasPrefix(upstreamModelID, "groq/compound")):
+				t.Errorf("%s/%s cannot produce the chat contract Kaana serves", slug, upstreamModelID)
+			case slug == "xai" && strings.HasPrefix(upstreamModelID, "grok-imagine-"):
+				t.Errorf("%s/%s cannot produce the chat contract Kaana serves", slug, upstreamModelID)
+			}
+		}
+	}
+}

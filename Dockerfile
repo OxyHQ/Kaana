@@ -2,17 +2,17 @@
 #
 # # Why the build stage is not emulated
 #
-# Kaana's module requires nothing outside the Go standard library, so there is
-# no cgo and nothing to link against a target libc. The build stage therefore
+# Kaana's dependencies are pure Go, so there is no cgo and nothing to link
+# against a target libc. The build stage therefore
 # runs on the BUILDER's architecture and cross-compiles, which is why an arm64
 # image can be produced on an amd64 host with no qemu registered at all.
 #
 # # Why there is no HEALTHCHECK instruction
 #
-# The final stage has no shell and no binary other than relay itself, so a
+# The final stage has no shell and no binary other than kaana itself, so a
 # HEALTHCHECK's command could only be one this image does not carry. Adding a
 # shell to run it would put a package manager and an interpreter in a container
-# whose environment holds provider API keys, to duplicate a check that can be
+# that decrypts provider keys in memory, to duplicate a check that can be
 # made from outside.
 #
 # The consequence belongs with the deployment and not only here: an ECS
@@ -31,23 +31,26 @@
 # # What this image deliberately does not contain
 #
 # No inventory snapshot and no provider rate card. Both are business data, and
-# baking the inventory would freeze its `issuedAt`: past RELAY_INVENTORY_MAX_AGE
+# baking the inventory would freeze its `issuedAt`: past KAANA_INVENTORY_MAX_AGE
 # (default 1h) every unpinned model reference would be refused, so the image
 # would deploy green and degrade an hour later on a clock nobody was watching.
-# Kaana re-reads the file every RELAY_INVENTORY_RELOAD_INTERVAL, so the snapshot
-# is mounted at /etc/relay by whatever publishes it. THE RUNTIME PATHS AND THE
-# SHIPPED BINARY NAMES STILL SAY `relay` WHILE THE SOURCE SAYS `kaana`, and
-# that gap is deliberate: the task definition in oxy-infra names
-# `/usr/local/bin/relay-publisher` as its entryPoint and mounts the inventory
-# volume at /etc/relay, so moving either here without moving terraform in the
-# same breath starts the wrong binary, or mounts the snapshot where nothing
-# reads it. They move in the infrastructure rename, not in this one. See README, "Deploying it".
+# Kaana re-reads the file every KAANA_INVENTORY_RELOAD_INTERVAL, so the snapshot
+# is mounted at /etc/kaana by whatever publishes it. The task definition in
+# oxy-infra names `/usr/local/bin/kaana-publisher` as its entryPoint and mounts
+# the inventory volume at that same path.
 
-ARG GO_VERSION=1.24.4
+ARG GO_VERSION=1.24.10
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:aaa1dedbfef846dbd62fa803cecd7486b0e98a32cb6f68656eee20acac5dd53a AS build
 
 WORKDIR /src
+
+# PostgreSQL uses the RDS trust store rather than assuming a general web-PKI
+# bundle contains the regional database CA. The checksum makes an upstream
+# replacement a reviewed source change instead of mutable build input.
+ADD --checksum=sha256:e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3 \
+    https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+    /tmp/aws-rds-global-bundle.pem
 
 # .dockerignore is the allow-list: it names the only paths that may enter the
 # build context, so this copies the whole context rather than restating that
@@ -62,13 +65,18 @@ COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 
+# Keep cross-compilation bounded on ARM64 builders. This affects only the build
+# stage, not Kaana's runtime workers.
+ENV GOMAXPROCS=2
+ENV GOFLAGS=-p=2
+
 # CGO_ENABLED=0 because the runtime stage has no libc to dynamically link
 # against. -trimpath keeps the builder's directory layout out of the binary,
 # and -s -w drop the symbol table and DWARF sections, which a panic in a Go
 # binary does not need: the runtime's own traceback is built from the pclntab
 # and survives both.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/relay ./cmd/kaana
+    go build -trimpath -ldflags="-s -w" -o /out/kaana ./cmd/kaana
 
 # The inventory publisher ships in the SAME image and runs as a different task.
 # One image because they are one module built from one commit, and a publisher
@@ -78,9 +86,14 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # holding `s3:PutObject` on one key, which the serving task's role does not.
 #
 # Forgetting the override fails loudly rather than silently — the publisher task
-# would start `relay`, which refuses to boot without an inventory snapshot.
+# would start `kaana`, which refuses to boot without an inventory snapshot.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/relay-publisher ./cmd/kaana-publisher
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-publisher ./cmd/kaana-publisher
+
+# Operators run migrations and key lifecycle commands as one-shot tasks. The
+# binary accepts provider plaintext only on stdin and never through argv or env.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-credentials ./cmd/kaana-credentials
 
 # The mount point for the configuration snapshot, created here because the
 # runtime stage has no shell to mkdir with. A volume mounted over it brings its
@@ -88,49 +101,49 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # the unmounted case; what the directory is for is to make the mount point part
 # of the image's stated contract rather than something a task definition
 # invents.
-RUN mkdir -p /out/etc/relay && chown -R 65532:65532 /out/etc/relay
+RUN mkdir -p /out/etc/kaana && chown -R 65532:65532 /out/etc/kaana
 
 # The attribution table is copied into a directory of its OWN, not into
-# /etc/relay: that path is a mount point, and a volume mounted over it shadows
+# /etc/kaana: that path is a mount point, and a volume mounted over it shadows
 # the directory entirely — so a table placed there would vanish on exactly the
 # tasks that mount the snapshot.
-RUN mkdir -p /out/etc/relay-publisher && cp configs/model-attribution.json /out/etc/relay-publisher/ \
-    && chown -R 65532:65532 /out/etc/relay-publisher
+RUN mkdir -p /out/etc/kaana-publisher && cp configs/model-attribution.json /out/etc/kaana-publisher/ \
+    && chown -R 65532:65532 /out/etc/kaana-publisher
+
+RUN mkdir -p /out/etc/ssl/certs \
+    && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
+    && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
 
 # distroless/static carries the CA bundle the provider adapters need for TLS to
 # api.openai.com and api.anthropic.com, plus tzdata, and nothing else — no
 # shell, no package manager, no libc. The :nonroot tag runs as uid 65532.
-FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS runtime
 
-COPY --from=build /out/relay /usr/local/bin/relay
-COPY --from=build /out/relay-publisher /usr/local/bin/relay-publisher
-COPY --from=build --chown=65532:65532 /out/etc/relay /etc/relay
-COPY --from=build --chown=65532:65532 /out/etc/relay-publisher /etc/relay-publisher
+COPY --from=build /out/kaana /usr/local/bin/kaana
+COPY --from=build /out/kaana-publisher /usr/local/bin/kaana-publisher
+COPY --from=build /out/kaana-credentials /usr/local/bin/kaana-credentials
+COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
+COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
+COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own
 # contract with whatever publishes the snapshot, so the task definition does not
 # restate it; what the task definition decides is what gets mounted at
-# /etc/relay. RELAY_PROVIDER_RATES_PATH is deliberately unset — absent means
+# /etc/kaana. KAANA_PROVIDER_RATES_PATH is deliberately unset — absent means
 # provider cost is not measured, and every measurement says so rather than
 # reporting zero.
-# THESE ENV DEFAULTS KEEP THE PRE-RENAME SPELLING, AND SWAPPING THEM EARLY WOULD
-# INVERT AN OVERRIDE. A container definition's `environment` beats an image ENV,
-# which is how oxy-infra sets these. But the binary prefers `KAANA_*` and only
-# falls back to `RELAY_*`, so an image setting `KAANA_INVENTORY_PATH` while the
-# task definition still sets `RELAY_INVENTORY_PATH` makes the IMAGE default win.
-# Today both hold the same value, so it would break nothing and teach nothing —
-# which is exactly why it is worth naming. They move to `KAANA_*` in the same
-# change as the task definition.
-ENV RELAY_INVENTORY_PATH=/etc/relay/inventory.json
+# The task definition restates this value because container environment wins
+# over image defaults. Both declarations therefore move together.
+ENV KAANA_INVENTORY_PATH=/etc/kaana/inventory.json
 
 # The publisher's attribution table. It carries no secret — it is a public
 # statement of who released which weights — so unlike the snapshot it is baked
 # in: it changes when a human adds a model, which is a commit, not a cadence.
-ENV RELAY_PUBLISHER_ATTRIBUTION_PATH=/etc/relay-publisher/model-attribution.json
+ENV KAANA_PUBLISHER_ATTRIBUTION_PATH=/etc/kaana-publisher/model-attribution.json
 
-# Documentation only, and it matches cmd/kaana's default RELAY_ADDR.
+# Documentation only, and it matches cmd/kaana's default KAANA_ADDR.
 EXPOSE 8080
 
 USER 65532:65532
 
-ENTRYPOINT ["/usr/local/bin/relay"]
+ENTRYPOINT ["/usr/local/bin/kaana"]

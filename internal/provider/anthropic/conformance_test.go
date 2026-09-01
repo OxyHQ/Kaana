@@ -17,8 +17,8 @@ import (
 // credential-SHAPE pattern cannot be what saves it. No real provider key
 // appears in this repository, in a test, or in CI.
 const (
-	fakeAPIKey       = "relay-conformance-fake-credential-0000"
-	fakeSecondAPIKey = "relay-conformance-fake-credential-0001"
+	fakeAPIKey       = "kaana-conformance-fake-credential-0000"
+	fakeSecondAPIKey = "kaana-conformance-fake-credential-0001"
 )
 
 const fakeModelReference = contract.ModelReference("anthropic/claude-fake@2026-05-01")

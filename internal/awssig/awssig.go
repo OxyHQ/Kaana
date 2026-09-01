@@ -1,13 +1,11 @@
 // Package awssig signs an HTTP request with AWS Signature Version 4.
 //
-// It exists because this module has no dependencies and the publisher needs to
-// write exactly one object to S3. Pulling the AWS SDK in for a `GET` and a
-// `PUT` would be this repository's first dependency, and it would arrive with a
-// credential-resolution chain, a retry policy and a middleware stack that
-// nothing here wants opinions from. The signing algorithm is public, fixed, and
-// about a hundred lines; `awssig_test.go` checks it against AWS's own published
-// test vector rather than against a second reading of the specification by the
-// same author.
+// It exists because the publisher writes exactly one object to S3 and already
+// owns the HTTP exchange around it. The AWS SDK is present at the KMS boundary,
+// where workload credential resolution and KMS types are the operation; using
+// its S3 middleware here would replace a narrow signer with a second request
+// stack. The signing algorithm is public and fixed; `awssig_test.go` checks it
+// against AWS's published vector rather than another reading of the spec.
 //
 // It signs. It does not resolve credentials, choose a region, retry, or know
 // what S3 is — those belong to the caller, so that the one thing this package

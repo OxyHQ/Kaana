@@ -24,30 +24,27 @@ the cut, and settles as `cancelled`. A partial stream is a settlement case, so
 an adapter that returned nothing on cancellation would make an exact refund
 impossible.
 
-## Same-model failover
+## Authorized failover
 
-When a deployment fails in a way another one could survive, the same **model
-revision** is retried somewhere else. Never a different model: the platform
-forbids serving weights the customer did not ask for, and a fallback that
-crossed models would look exactly like a success.
+Oxy sends `authorizedRoutes` in preference order after applying the customer's
+routing policy. Kaana attempts that list in exactly that order and never adds an
+inventory route, reorders by health, or interprets the policy reference. Before
+execution it resolves every `deploymentId` against one inventory snapshot and
+requires the signed provider, pinned model reference and region set to agree
+exactly. Empty equals empty and means no regional attestation; Oxy excludes such
+a route whenever the effective policy has an allow-list or deny-list of regions.
 
-**That distinction is structural, not a rule someone remembers.** A reference
-resolves to an `inventory.RouteSet`: one model reference, and the endpoints that
-serve it. The reference is stored **once, for the whole set**, and an
-`inventory.Endpoint` carries none of its own — so a candidate that names
-different weights is not a case that has to be excluded, it is a value that
-cannot be constructed. `RouteSet.Candidates()` is the only place a route is
-built from an inventory, and it stamps the set's single reference onto every
-one. Two guards sit on top of that shape, and both are mutation-tested:
-`TestAnEndpointCannotCarryItsOwnModelReference` fails if a future change gives
-an endpoint its own model, and the emitter refuses to announce a switch whose
-origin and destination references differ.
+For a concrete model, every accepted entry serves the primary's exact pinned
+revision; a cross-model entry is refused. For a routing profile, the first entry
+is the primary and later entries may cross model lines only when the contract's
+literal `authorizedByPolicy: true` is present. Same-reference failover emits a
+deployment-scoped `route_switch`; a cross-model failover emits a model-scoped
+switch naming the primary line, origin and destination.
 
-The `route_switch` event it emits is deployment-scoped and cannot be anything
-else: the fields that describe a substitution — `requestedModelId`,
-`fromModelReference`, `toModelReference`, `authorizedByPolicy` — are not set,
-and the function that builds the event takes no argument from which they could
-be.
+An absent list grants nothing. A concrete target resolves to the inventory's
+declared primary and nowhere else, preserving compatibility with envelopes from
+before the optional field existed. A routing-profile target names no concrete
+destination and is therefore refused without a list. An empty list is malformed.
 
 **A switch is only possible while nothing has been streamed.** Once output has
 reached the customer, retrying elsewhere would deliver the beginning of one
@@ -68,30 +65,6 @@ request *means* depend on which route happened to be healthy), a content filter,
 a cancellation, and any failure no adapter classified. One function decides,
 `provider.AttributableCategory`, and the circuit breakers read the same one, so
 the two can never drift apart.
-
-### The policy Kaana is not sent, and what it does about it
-
-**Failover is off by default, and that default is a contract finding rather than
-caution.** The published `routingFallbackPolicySchema` gives the customer two
-booleans that govern exactly this feature — `disabled` and
-`sameModelDeployment` — and `routingPolicySchema` adds `allowedRegions` and
-`deniedRegions`, which govern where a request may be served at all. The envelope
-carries a routing policy **reference** and none of those values. Kaana therefore
-cannot tell a customer who asked for failover from one who switched it off, and
-failing over anyway would silently override a control the platform advertises.
-
-So with no authorisation, a reference resolves to its **declared primary
-deployment and nowhere else** — exactly how this build behaved before failover
-existed. Choosing among deployments at all is the policy decision, so health
-ordering is withheld too, not just the retry.
-
-`KAANA_ASSUME_FAILOVER_AUTHORIZED=<reason>:<YYYY-MM-DD>` turns it on. It is
-deliberately awkward: it states that every caller of this process has a routing
-policy permitting same-model failover across every deployment in its inventory,
-which is true of a first-party canary and of nothing else. An empty value, a
-bare `true`, or a reason with no date either leave the default in place or
-refuse to start — never enable it. See item 11 below, which is the argument for
-the snapshot travelling.
 
 ## Circuit breakers and health scoring
 
@@ -134,11 +107,10 @@ would be paying for it. A successful trial closes the breaker; a failed one
 reopens it with a doubled cooldown, capped, so a long outage is still retried
 within a bounded time.
 
-The **health score** is an exponential moving average of attributable outcomes,
-and it orders candidates: admitting breakers first, healthier before flakier,
-the inventory's declared order as the tie-break. A deployment nothing has routed
-to scores 1 — assuming the worst would sort it permanently last, and it would
-never receive the traffic that would prove otherwise.
+The **health score** is an exponential moving average of attributable outcomes
+used in the health projection. It never reorders `authorizedRoutes`: order is a
+signed control-plane decision. A deployment nothing has routed to scores 1,
+meaning there is no evidence of failure yet.
 
 When every deployment of a model is out of rotation the request is refused with
 `deployment_unavailable`, carrying a retry hint that is **the moment the
@@ -149,4 +121,4 @@ reasonable.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
+[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md

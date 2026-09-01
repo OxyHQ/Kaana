@@ -33,6 +33,7 @@ type snapshotDeployment struct {
 	Provider        contract.ProviderSlug   `json:"provider"`
 	ModelReference  contract.ModelReference `json:"modelReference"`
 	UpstreamModelID string                  `json:"upstreamModelId"`
+	Regions         []contract.Region       `json:"regions,omitempty"`
 	Current         bool                    `json:"current"`
 }
 
@@ -92,14 +93,13 @@ type BuildResult struct {
 
 // BuildSnapshot renders the inventory file from what the providers reported.
 //
-// Ordering is load-bearing rather than cosmetic. Failover is off by default, so
-// a reference resolves to the deployment declared FIRST and no other; a
-// reference whose first deployment sits on a provider this process does not
-// serve is refused even when a later one would work. The caller only passes
-// providers that have a credential, so every deployment here is servable, and
-// within a reference the order is the order providers were declared — which
-// makes the operator's `KAANA_PROVIDERS` the primary-choosing knob, in one
-// place, rather than an emergent property of a map iteration.
+// Ordering is load-bearing rather than cosmetic. A concrete request without
+// authorizedRoutes resolves to the deployment declared FIRST and no other; an
+// explicit signed list carries its own order. The caller only passes providers
+// that have a credential, so every deployment here is servable, and within a
+// reference the snapshot order is the order providers were declared — which
+// makes the operator's `KAANA_PROVIDERS` the default-primary knob, in one place,
+// rather than an emergent property of a map iteration.
 func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time) (BuildResult, error) {
 	if len(discoveries) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: no provider reported any models, so a snapshot would declare nothing and Kaana would refuse it")
@@ -142,6 +142,7 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 				Provider:        discovery.Provider.Slug,
 				ModelReference:  reference,
 				UpstreamModelID: model.UpstreamModelID,
+				Regions:         append([]contract.Region(nil), discovery.Provider.Regions...),
 				// Every line here has exactly one revision — its observation —
 				// so marking it current is the only answer that resolves an
 				// unpinned reference at all. Two revisions of one line cannot
@@ -249,9 +250,9 @@ func contentID(deployments []snapshotDeployment) string {
 		// result is discarded explicitly rather than checked into a branch that
 		// cannot run. The NUL separators matter: without them two different
 		// field splits could render to the same bytes and collide.
-		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%s\x00%t\n",
+		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%s\x00%v\x00%t\n",
 			deployment.DeploymentID, deployment.Provider, deployment.ModelReference,
-			deployment.UpstreamModelID, deployment.Current)
+			deployment.UpstreamModelID, deployment.Regions, deployment.Current)
 	}
 	return "snap_" + hex.EncodeToString(digest.Sum(nil))[:16]
 }
@@ -264,8 +265,9 @@ func snapshotComment() []string {
 		"Every upstream model id here was read from that provider's own /models endpoint with the operator's credential. Nothing is copied from documentation, and a model no provider reported is not here.",
 		"PUBLISHER IS WHO RELEASED THE WEIGHTS, NEVER WHO SERVES THEM. `openai/gpt-oss-120b` served BY Cerebras carries provider `cerebras` and a reference that does not name it. The attribution table is the only place that mapping is declared, and an unattributed model is dropped rather than guessed at.",
 		"THE REVISION LABEL IS AN OBSERVATION, NOT A RELEASE. These providers expose no immutable revision handle, so the pin records the date this publisher first saw the alias. That date is carried forward from the previous snapshot forever: re-dating it would silently re-point every reference a customer has pinned.",
-		"ORDER IS LOAD-BEARING. Failover is off by default, so a reference resolves to the deployment declared FIRST. Deployments appear in the order KAANA_PROVIDERS declares their providers, and only providers holding a credential are declared at all.",
-		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, price or commercial permission. Provider credentials resolve from the environment in cmd/kaana and are never here.",
+		"ORDER IS LOAD-BEARING. A concrete request with no authorizedRoutes resolves to the deployment declared FIRST; a signed list keeps its own exact order. Deployments appear in KAANA_PROVIDERS order, and only providers holding a credential are declared.",
+		"REGIONS ARE UPSTREAM EXECUTION/RESIDENCY, NOT THE AWS REGION RUNNING KAANA. A provider's model API does not report them. KAANA_PROVIDER_<SLUG>_REGIONS carries an explicit verified declaration; when absent, the route has no regional attestation and matches only an explicitly empty signed set that Oxy permits under no regional policy control.",
+		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, price or commercial permission. Provider credentials resolve from Kaana's PostgreSQL/KMS store and are never here.",
 		"STALENESS IS MEASURED FROM `issuedAt`. This file is re-issued on a cadence shorter than KAANA_INVENTORY_MAX_AGE even when nothing has changed, because an unchanged snapshot with an old issuedAt is indistinguishable from a publisher that has stopped.",
 	}
 }

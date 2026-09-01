@@ -22,7 +22,7 @@ import (
 //
 // An adapter is holding the exact bytes it sent. It does not need a heuristic.
 func TestRedactSecretIsStillTheOnlyControl(t *testing.T) {
-	const secret = "relay0test0fake0credential0value"
+	const secret = "kaana0test0fake0credential0value"
 
 	t.Run("a shape the contract now recognises: the diagnostic survives", func(t *testing.T) {
 		echoed := "request rejected: headers were {x-api-key: " + secret + "}"

@@ -19,55 +19,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
-// TestFailoverAcknowledgementCannotBeSetByAccident.
-//
-// Same-model failover overrides a routing-policy control the envelope does not
-// carry, so enabling it is a statement someone makes on purpose. The parser is
-// what makes that true: an empty variable, a bare "true", a "yes", or a reason
-// with no date all leave the safe default in place or refuse to start, and none
-// of them turns it on.
-func TestFailoverAcknowledgementCannotBeSetByAccident(t *testing.T) {
-	refusedOrOff := []struct {
-		name  string
-		value string
-		fails bool
-	}{
-		{name: "unset", value: "", fails: false},
-		{name: "whitespace", value: "   ", fails: false},
-		{name: "a bare truthy word", value: "true", fails: true},
-		{name: "an enthusiastic yes", value: "yes", fails: true},
-		{name: "a reason with no date", value: "alia-canary:", fails: true},
-		{name: "a date with no reason", value: ":2026-08-16", fails: true},
-		{name: "a date nobody can parse", value: "alia-canary:soon", fails: true},
-		{name: "a date in the wrong order", value: "alia-canary:16-08-2026", fails: true},
-	}
-
-	for _, testCase := range refusedOrOff {
-		t.Run(testCase.name, func(t *testing.T) {
-			acknowledgement, err := failoverAcknowledgement(testCase.value)
-			if testCase.fails && err == nil {
-				t.Fatalf("%q was accepted", testCase.value)
-			}
-			if !testCase.fails && err != nil {
-				t.Fatalf("%q was refused: %v", testCase.value, err)
-			}
-			if acknowledgement != "" {
-				t.Errorf("%q enabled failover", testCase.value)
-			}
-		})
-	}
-
-	// The control: a well-formed acknowledgement does enable it, or every case
-	// above would pass on a parser that refuses everything.
-	acknowledgement, err := failoverAcknowledgement(" alia-first-party-canary:2026-08-16 ")
-	if err != nil {
-		t.Fatalf("a well-formed acknowledgement was refused: %v", err)
-	}
-	if !strings.Contains(acknowledgement, "alia-first-party-canary") {
-		t.Errorf("the acknowledgement is recorded as %q; it names who accepted it", acknowledgement)
-	}
-}
-
 // TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials.
 //
 // The inventory names a provider SLUG and holds nothing else about it — no
@@ -75,15 +26,12 @@ func TestFailoverAcknowledgementCannotBeSetByAccident(t *testing.T) {
 // So the slug is resolved here, and what a reviewer needs to see is that three
 // providers speaking ONE protocol are three configurations rather than three
 // adapters.
-func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T) {
+func TestAProviderSlugResolvesToItsOwnAdapterAddressAndPolicy(t *testing.T) {
 	environment := map[string]string{
-		"KAANA_PROVIDERS":                                     "openai,openrouter,cerebras,anthropic",
-		"KAANA_PROVIDER_OPENAI_API_KEY":                       "fake-openai-key",
-		"KAANA_PROVIDER_OPENROUTER_API_KEY":                   " fake-openrouter-a , fake-openrouter-b ,",
+		"KAANA_PROVIDERS": "openai,openrouter,cerebras,anthropic",
 		"KAANA_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS": "true",
 		"KAANA_PROVIDER_OPENROUTER_KEY_RETIREMENT":            "45m",
 		"KAANA_PROVIDER_CEREBRAS_BASE_URL":                    "https://cerebras.example.invalid/v1",
-		"KAANA_PROVIDER_ANTHROPIC_API_KEY":                    "fake-anthropic-key",
 	}
 	configs, err := parseProviders(lookup(environment))
 	if err != nil {
@@ -120,14 +68,9 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 		}
 	}
 
-	// A pool of two, from one variable, with the empty entry a trailing
-	// separator leaves behind discarded rather than sent as a credential.
 	openrouter := byName["openrouter"]
-	if len(openrouter.Declarations) != 2 {
-		t.Fatalf("openrouter declares %d credentials, expected 2 (%v)", len(openrouter.Declarations), openrouter.Declarations)
-	}
-	if openrouter.Declarations[0].Secret != "fake-openrouter-a" || openrouter.Declarations[1].Secret != "fake-openrouter-b" {
-		t.Errorf("the credentials were not trimmed to their declared order: %v", openrouter.Declarations)
+	if len(openrouter.Declarations) != 0 {
+		t.Fatalf("non-secret provider configuration populated credentials: %v", openrouter.Declarations)
 	}
 	if !openrouter.Keys.OnSeparateAccounts {
 		t.Error("the operator declared openrouter's keys are separate accounts and the policy does not carry it")
@@ -135,17 +78,13 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 	if openrouter.Keys.Retirement != 45*time.Minute {
 		t.Errorf("openrouter's retirement window is %s, expected 45m", openrouter.Keys.Retirement)
 	}
-	// A provider with no credential is a supported state, and is not the same
-	// as one that was never declared: it reports itself unconfigured on the
-	// health surface rather than failing at the first request.
-	if len(byName["cerebras"].Declarations) != 0 {
-		t.Error("cerebras declares no credential and one appeared")
-	}
-
 	// Every configuration above must actually build an adapter reporting the
 	// slug it was configured under. A registry keys on the adapter's OWN slug,
 	// so a mis-resolution here would surface as a duplicate or as a receipt
 	// attributed to the wrong provider.
+	for index := range configs {
+		configs[index].Declarations = []provider.KeyDeclaration{{KeyID: "test", Secret: "fake-provider-key"}}
+	}
 	adapters, err := buildAdapters(configs)
 	if err != nil {
 		t.Fatalf("building the adapters: %v", err)
@@ -171,9 +110,7 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials(t *testing.T)
 // credentials, or one with an address this build invented.
 func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 	for name, environment := range map[string]map[string]string{
-		"no providers at all": {
-			"KAANA_PROVIDER_OPENAI_API_KEY": "fake-openai-key",
-		},
+		"no providers at all": {},
 		"a slug that is not a slug": {
 			"KAANA_PROVIDERS": "Open AI",
 		},
@@ -189,8 +126,8 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 			"KAANA_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		},
 		"a provider this build knows no protocol for": {
-			"KAANA_PROVIDERS":              "groq",
-			"KAANA_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
+			"KAANA_PROVIDERS":                          "unknown-provider",
+			"KAANA_PROVIDER_UNKNOWN_PROVIDER_BASE_URL": "https://unknown.example.invalid/v1",
 		},
 		"a protocol this build does not speak": {
 			"KAANA_PROVIDERS":              "groq",
@@ -198,8 +135,13 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 			"KAANA_PROVIDER_GROQ_BASE_URL": "https://groq.example.invalid/v1",
 		},
 		"a provider this build knows no address for": {
-			"KAANA_PROVIDERS":              "groq",
-			"KAANA_PROVIDER_GROQ_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+			"KAANA_PROVIDERS":                          "unknown-provider",
+			"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+		},
+		"a provider credential hidden in the base URL path": {
+			"KAANA_PROVIDERS":                          "unknown-provider",
+			"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+			"KAANA_PROVIDER_UNKNOWN_PROVIDER_BASE_URL": "https://api.example.invalid/v1/sk-abcdefghijkl",
 		},
 		// The Messages API adapter reports its slug as a constant, so serving
 		// it under another name would attribute every event and every usage
@@ -229,74 +171,48 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 	}
 }
 
-// TestADuplicatedCredentialRefusesToStart.
-//
-// Two entries holding one credential look like a pool of two, exhaust as one,
-// and halve the pool the first time it is spent. It is refused where it is
-// read, and the refusal names positions rather than quoting the secret it is
-// complaining about — a startup error is a log line.
-func TestADuplicatedCredentialRefusesToStart(t *testing.T) {
-	configs, err := parseProviders(lookup(map[string]string{
-		"KAANA_PROVIDERS":               "openai",
-		"KAANA_PROVIDER_OPENAI_API_KEY": "fake-openai-key,fake-openai-key",
-	}))
-	if err != nil {
-		t.Fatalf("the configuration was refused before the adapter was built: %v", err)
-	}
-	_, err = buildAdapters(configs)
-	if err == nil {
-		t.Fatal("one credential declared twice was accepted as a pool of two")
-	}
-	if strings.Contains(err.Error(), "fake-openai-key") {
-		t.Errorf("the refusal quotes the credential: %v", err)
-	}
-}
-
 // lookup turns a map into the getenv parseProviders reads, so the whole of it
 // is testable without a process environment.
 func lookup(environment map[string]string) func(string) string {
 	return func(name string) string { return environment[name] }
 }
 
-// TestPerProviderHeadersAreConfigurableAndNeverCarryACredential.
+// TestPerProviderHeadersAreReviewedAndNeverCarryACredential.
 //
 // OpenRouter is served by an adapter whose `Headers` field exists for its
 // attribution headers, and a provider wired without them is compliant until it
 // is not — which is worse than being wired wrong, because nothing fails until
 // the provider decides it should.
-func TestPerProviderHeadersAreConfigurableAndNeverCarryACredential(t *testing.T) {
+func TestPerProviderHeadersAreReviewedAndNeverCarryACredential(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{
-		"KAANA_PROVIDERS":                   "openrouter",
-		"KAANA_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer=https://oxy.so, X-Title=Oxy ",
+		"KAANA_PROVIDERS": "openrouter",
 	}))
 	if err != nil {
 		t.Fatalf("the headers were refused: %v", err)
 	}
 	headers := configs[0].Headers
-	// `=` is the separator precisely so a value can be a URL, which is what an
-	// attribution header holds.
 	if headers["HTTP-Referer"] != "https://oxy.so" || headers["X-Title"] != "Oxy" {
-		t.Errorf("the headers parsed as %v", headers)
+		t.Errorf("the reviewed headers are %v", headers)
 	}
 
 	for name, environment := range map[string]map[string]string{
-		"a pair with no value": {
-			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer",
-		},
-		"a value with no name": {
-			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "=Oxy",
-		},
-		"the same header twice": {
-			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "X-Title=Oxy,X-Title=Other",
-		},
-		// A credential here would look configured, be overwritten by the
-		// adapter at send time, and sit in a plain variable outside the pool
-		// that exists to manage it.
 		"an authorization header": {
 			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "Authorization=Bearer fake-key",
 		},
 		"a provider key header": {
 			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "x-api-key=fake-key",
+		},
+		"a provider key under another vendor spelling": {
+			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "X-Goog-Api-Key=fake-key",
+		},
+		"an unreviewed public-looking header": {
+			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "User-Agent=Kaana",
+		},
+		"a credential in an otherwise public title": {
+			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "X-Title=sk-secret",
+		},
+		"a credential in URL userinfo": {
+			"KAANA_PROVIDERS": "openrouter", "KAANA_PROVIDER_OPENROUTER_HEADERS": "HTTP-Referer=https://sk-secret@oxy.so",
 		},
 		// The Messages API adapter carries no extra headers, so accepting them
 		// would drop them silently — the same outcome as never setting them and
@@ -310,60 +226,6 @@ func TestPerProviderHeadersAreConfigurableAndNeverCarryACredential(t *testing.T)
 				t.Error("the configuration was accepted")
 			}
 		})
-	}
-}
-
-// TestACredentialForAProviderNobodyServesIsNamed.
-//
-// It is the one failure in this area with no downstream signal: the task
-// starts, the health probe passes, the rollout reports complete, and the
-// provider is simply absent. Every check the infrastructure can run says green,
-// because from outside the process there is nothing wrong with it.
-func TestACredentialForAProviderNobodyServesIsNamed(t *testing.T) {
-	configs, err := parseProviders(lookup(map[string]string{
-		"KAANA_PROVIDERS":                     "cerebras,open-router",
-		"KAANA_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
-		"KAANA_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
-		"KAANA_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-		"KAANA_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
-	}))
-	if err != nil {
-		t.Fatalf("the configuration was refused: %v", err)
-	}
-
-	environment := []string{
-		"KAANA_PROVIDER_CEREBRAS_API_KEY=fake-cerebras-key",
-		// The slug is `open-router`, and its variables fold the hyphen to an
-		// underscore. A check that compared slugs rather than prefixes would
-		// report this one as unused.
-		"KAANA_PROVIDER_OPEN_ROUTER_API_KEY=fake-openrouter-key",
-		"KAANA_PROVIDER_OPENAI_API_KEY=fake-openai-key",
-		// Neither of these is a provider credential, and a pattern that matched
-		// on the prefix alone would name both.
-		"KAANA_PROVIDER_RATES_PATH=/etc/relay/rates.json",
-		"KAANA_PROVIDER_CEREBRAS_BASE_URL=https://cerebras.example.invalid/v1",
-		"PATH=/usr/bin",
-	}
-
-	unused := unusedProviderCredentials(environment, configs)
-	if len(unused) != 1 || unused[0] != "KAANA_PROVIDER_OPENAI_API_KEY" {
-		t.Fatalf("named %v as unused; exactly the openai key is", unused)
-	}
-
-	// The control: with openai declared too, nothing is unused — or a check
-	// that named everything would pass the assertion above by accident.
-	served, err := parseProviders(lookup(map[string]string{
-		"KAANA_PROVIDERS":                     "cerebras,open-router,openai",
-		"KAANA_PROVIDER_CEREBRAS_BASE_URL":    "https://cerebras.example.invalid/v1",
-		"KAANA_PROVIDER_CEREBRAS_PROTOCOL":    providerconfig.ProtocolOpenAICompatible,
-		"KAANA_PROVIDER_OPEN_ROUTER_BASE_URL": "https://openrouter.example.invalid/v1",
-		"KAANA_PROVIDER_OPEN_ROUTER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
-	}))
-	if err != nil {
-		t.Fatalf("the control configuration was refused: %v", err)
-	}
-	if unused := unusedProviderCredentials(environment, served); len(unused) != 0 {
-		t.Errorf("named %v as unused when every provider is served", unused)
 	}
 }
 
@@ -553,7 +415,7 @@ func newTestRegistry(t *testing.T, slug contract.ProviderSlug) *provider.Registr
 	t.Helper()
 	adapter, err := openaicompat.New(openaicompat.Config{
 		Provider: slug,
-		BaseURL:  "https://relay-test.invalid/v1",
+		BaseURL:  "https://kaana-test.invalid/v1",
 	})
 	if err != nil {
 		t.Fatalf("building the %s adapter: %v", slug, err)
@@ -575,7 +437,7 @@ func newTestStore(t *testing.T, slug contract.ProviderSlug, logger *slog.Logger)
 		"deployments":[{
 			"deploymentId":"dep_test","provider":%q,
 			"modelReference":"test/model@2026-05-01","upstreamModelId":"model",
-			"region":"test-region","current":true}]}`,
+			"regions":["test-region"],"current":true}]}`,
 		contract.NewTimestamp(time.Now()), slug)
 	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
 		t.Fatalf("writing the inventory: %v", err)
@@ -603,98 +465,4 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
-}
-
-// The manifest boot path.
-//
-// It REPLACES the per-provider environment block rather than blending with it:
-// a half-manifest whose gaps were filled from the environment would be a
-// configuration nobody wrote and nobody could read back.
-func writeManifest(t *testing.T, body string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "keys.json")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatalf("writing the manifest: %v", err)
-	}
-	return path
-}
-
-func TestAManifestConfiguresProviders(t *testing.T) {
-	path := writeManifest(t, `{
-	  "providers": {
-	    "openrouter": {
-	      "keysOnSeparateAccounts": true,
-	      "headers": { "HTTP-Referer": "https://oxy.so" },
-	      "keys": [
-	        { "keyId": "or-paid", "secretEnv": "K_PAID", "class": "paid", "budgetUsd": 500 },
-	        { "keyId": "or-free", "secretEnv": "K_FREE", "class": "free" }
-	      ]
-	    }
-	  }
-	}`)
-	env := func(name string) string {
-		return map[string]string{"K_PAID": "fake-paid", "K_FREE": "fake-free"}[name]
-	}
-
-	configs, unenforced, err := providersFromKeyring(path, env)
-	if err != nil {
-		t.Fatalf("providersFromKeyring: %v", err)
-	}
-	if len(configs) != 1 {
-		t.Fatalf("configs = %d", len(configs))
-	}
-	config := configs[0]
-	if config.Slug != "openrouter" {
-		t.Errorf("slug = %q", config.Slug)
-	}
-	// The address and protocol came from the build's own table for a known
-	// slug, exactly as the environment path takes them.
-	if config.BaseURL != "https://openrouter.ai/api/v1" {
-		t.Errorf("baseURL = %q", config.BaseURL)
-	}
-	if !config.Keys.OnSeparateAccounts {
-		t.Error("keysOnSeparateAccounts did not survive")
-	}
-	if config.Headers["HTTP-Referer"] != "https://oxy.so" {
-		t.Errorf("headers = %v", config.Headers)
-	}
-	if len(config.Declarations) != 2 || config.Declarations[0].Secret != "fake-paid" {
-		t.Fatalf("declarations did not resolve: %+v", config.Declarations)
-	}
-	// Reported by name, so the process can say a declared cap is inert.
-	if len(unenforced) != 1 || unenforced[0] != "openrouter/or-paid" {
-		t.Fatalf("unenforced budgets = %v, want [openrouter/or-paid]", unenforced)
-	}
-}
-
-// The shared validation is reached from this path too. Without it, the manifest
-// would accept what the environment refuses and the drift would be invisible
-// until something routed there.
-func TestAManifestObeysTheSameProviderRules(t *testing.T) {
-	cases := map[string]string{
-		"a protocol this build does not speak": `{"providers":{"groq":{"protocol":"grpc","keys":[{"keyId":"a","secretEnv":"K"}]}}}`,
-		"a slug with no address":               `{"providers":{"made-up":{"protocol":"openai_compatible","keys":[{"keyId":"a","secretEnv":"K"}]}}}`,
-		"a header the adapter applies itself":  `{"providers":{"groq":{"headers":{"Authorization":"Bearer x"},"keys":[{"keyId":"a","secretEnv":"K"}]}}}`,
-	}
-	env := func(string) string { return "fake-secret" }
-	for name, body := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, _, err := providersFromKeyring(writeManifest(t, body), env); err == nil {
-				t.Fatal("the manifest accepted what the environment path refuses")
-			}
-		})
-	}
-}
-
-// The positive control. Without it every case above would pass against a
-// function that refused every manifest.
-//
-// `groq` is deliberately not in this build's known-slug table, so it declares
-// its own protocol and address — which is the case a manifest exists to make
-// tractable, and the same requirement the environment path imposes.
-func TestAValidManifestIsNotRefused(t *testing.T) {
-	body := `{"providers":{"groq":{"protocol":"openai_compatible","baseURL":"https://api.groq.com/openai/v1","keys":[{"keyId":"a","secretEnv":"K"}]}}}`
-	if _, _, err := providersFromKeyring(writeManifest(t, body), func(string) string { return "fake-secret" }); err != nil {
-		t.Fatalf("a valid manifest was refused: %v", err)
-	}
 }

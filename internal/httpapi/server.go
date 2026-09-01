@@ -426,7 +426,7 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 func newLocalRequestID() contract.RequestID {
 	var entropy [12]byte
 	if _, err := rand.Read(entropy[:]); err != nil {
-		return "req_relay_local"
+		return "req_kaana_local"
 	}
-	return contract.RequestID("req_relay_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(entropy[:])))
+	return contract.RequestID("req_kaana_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(entropy[:])))
 }

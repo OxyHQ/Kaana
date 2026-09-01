@@ -95,10 +95,7 @@ func New(config Config) (*Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := config.HTTPClient
-	if client == nil {
-		client = &http.Client{}
-	}
+	client := provider.RefuseRedirects(config.HTTPClient)
 	config.BaseURL = strings.TrimSuffix(config.BaseURL, "/")
 	return &Adapter{config: config, client: client, credentials: credentials}, nil
 }

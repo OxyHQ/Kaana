@@ -39,7 +39,7 @@ console.
 and is answerable to it.
 
 - **Never edit `internal/contract/descriptor.json` by hand.** Regenerate:
-  `cd tools/contract && npm ci && npm run generate`. CI regenerates and fails on
+  `cd tools/contract && bun install --frozen-lockfile && bun run generate`. CI regenerates and fails on
   any diff.
 - **Never add a field to a produced shape that the contract does not have.**
   The descriptor test fails on it, and that failure is correct: Oxy's parse would
@@ -57,20 +57,17 @@ and is answerable to it.
 
 ## Routing, failover and health
 
-- **Failover is same-model or it is nothing.** A request's candidates all come
-  from one `inventory.RouteSet`, which holds the model reference ONCE for the
-  whole set; an `inventory.Endpoint` never names a model. Do not add a model
-  reference to `Endpoint`, and do not build a `provider.Route` from an inventory
-  anywhere but `RouteSet.Candidates()` — those two facts are the guarantee, and
-  the code that emits a `route_switch` has no argument that could make it a
-  substitution.
-- **Kaana chooses among the deployments of one model only when a routing policy
-  authorises it.** `routingFallbackPolicy` gives the customer `disabled` and
-  `sameModelDeployment`, and the envelope carries none of it, so the default is
-  to use the declared primary and nothing else. The override is a dated,
-  reasoned acknowledgement; never widen it to a bare boolean, and never derive
-  authorisation from the inventory — the inventory is global and the policy is
-  per customer.
+- **A `RouteSet` is one exact model reference.** Its endpoints are the only
+  same-model candidates for that reference, and an `inventory.Endpoint` never
+  names a model. Cross-model execution is possible only when the executor
+  resolves a separately signed `authorizedRoutes` entry from another
+  `RouteSet`; it must emit a model-scoped `route_switch`. Do not add a model
+  reference to `Endpoint`, and do not build a `provider.Route` from inventory
+  anywhere but `RouteSet.Candidates()`.
+- **Kaana chooses only among the ordered `authorizedRoutes` in the signed
+  envelope.** An absent list means the declared primary and nothing else; a
+  routing-profile target without a list is refused. Never derive authorization
+  from the inventory — it is global and the policy is per customer.
 - **A route switch is announced at the attempt that replaces the failed one**,
   never at the moment of failure: the replacement's breaker may refuse it, and a
   switch nobody made must not reach a receipt.
@@ -133,10 +130,10 @@ holds the logic; `internal/awssig` is the signer.
 - **A provider with no credential is dropped, not declared**, and one provider
   failing never withdraws the others. A cycle in which nobody answered refuses
   and leaves the published snapshot alone.
-- **Order is per REFERENCE:** failover is off by default, so the first declared
-  deployment of a reference is the only one tried. Emit in `KAANA_PROVIDERS`
-  order and only for providers holding a key, so every declared route is
-  servable.
+- **Inventory order defines the no-list primary; envelope order defines an
+  authorized request.** Emit inventory endpoints in `KAANA_PROVIDERS` order and
+  only for providers holding a key. Never reorder `authorizedRoutes` by health,
+  price or inventory preference.
 - **Never default `KAANA_INVENTORY_BUCKET`.** A plausible default turns a
   variable that never arrived into "published somewhere else, everything green".
 - **It runs in its own process under its own task role.** The write decides all
@@ -147,22 +144,23 @@ holds the logic; `internal/awssig` is the signer.
   question whose failure means "ask again later"; rotation belongs to the
   serving process.
 - **`internal/awssig` is checked against AWS's published `get-vanilla` vector**,
-  not a second reading of the spec by the same author. Adding the AWS SDK would
-  be this module's first dependency.
+  not a second reading of the spec by the same author. It remains the narrow S3
+  signer; the AWS SDK is used only at the KMS boundary.
 
 ## Provider credentials
 
-- **A manifest in this repository names VARIABLES, never values.** The inline
-  `secret` form exists for one producer — the snapshot the publisher renders
-  from the key database — and `TestNoTrackedFileCarriesAnInlineSecret` scans
-  every tracked JSON file for one. Committing a working manifest while
-  debugging is the accident no review catches: the diff looks like the example.
-- **A document carrying `secret` is a credential store.** Encrypted at rest,
-  readable by the task role and nothing else. Anyone who can read it holds every
-  provider key, which the published inventory beside it does not.
-- **A key declares EITHER `secret` or `secretEnv`, never both.** Two answers to
-  which credential a key is, with one silently preferred, is how a rotated key
-  keeps serving the old value.
+- **PostgreSQL is the only durable provider-key store.** A provider key never
+  enters environment, a GitHub secret, argv, a manifest, an inventory or a
+  tracked file. The one-time `import-ssm` command may read a legacy SecureString
+  directly through the AWS SDK; delete that source after verification.
+  `DATABASE_URL` is a database credential, not a provider key.
+- **PostgreSQL stores KMS ciphertext only.** KMS encryption context binds every
+  ciphertext to `provider + keyId`; moving the bytes to another row must make
+  decryption fail. The serving task gets `kms:Decrypt`, never `kms:Encrypt`.
+- **Administration accepts plaintext only on stdin or directly from the legacy
+  SSM API.** `kaana-credentials put` never accepts a value flag or environment
+  variable; `import-ssm` never emits the fetched value. List operations do not
+  initialize KMS or select ciphertext.
 - **Class is stated, never inferred.** Measured 2026-08-23: no provider this
   build serves publishes remaining credit — Groq and xAI publish burst limits
   whose counts refill, OpenRouter publishes none and its account endpoint
@@ -266,8 +264,7 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
   `CredentialVerdictFor` is the one function, as `AttributableCategory` is for
   the deployment; the two answer different questions and disagree on purpose.
 - **Key rotation is not a route switch** — same deployment, no `route_switch`,
-  no routing-policy authorisation. Never weaken
-  `KAANA_ASSUME_FAILOVER_AUTHORIZED`'s default to make it work.
+  and no additional routing-policy authorization.
 - **A refused credential is not failed over onto the same provider slug.** One
   slug is one adapter and one pool, so "another deployment holds a different
   credential" is true across slugs and false within one; failing over there
@@ -293,10 +290,11 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
 - **Provider slugs are not a closed list; PROTOCOLS are.** A build can only
   construct an adapter it contains, so an unknown protocol is refused; a slug
   that declares a protocol and a base URL needs no Go change.
-- **The env var name, the SSM leaf and the GitHub secret name are ONE string**,
-  and a whole key pool lives in one `_API_KEY` variable — credentials are a
-  static list resolved at task launch, so a name per key would grow it with the
-  pool. Two slugs folding onto one variable name are refused, never resolved.
+- **Provider configuration and provider secrets have separate authorities.**
+  Protocol, base URL, headers and pool policy are non-secret task environment;
+  keys are ordered rows in PostgreSQL and are decrypted only after the adapter
+  configuration is validated. Two slugs folding onto one configuration prefix
+  are refused, never resolved.
 - **The snapshot, the adapter set and the credential list move on different
   clocks, and no pairing may be fatal.** An undeclared provider in a snapshot is
   a WARNING, not a refusal to start: stopping takes every supported provider
@@ -307,8 +305,9 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
 ## Secrets and customer data
 
 - **No provider credential, endpoint secret or Oxy secret in this repository,
-  in a test, or in CI.** Upstream credentials come from the process environment.
-  The Oxy edge's key here is a *public* key and is ordinary configuration.
+  in a test, CI, environment or task definition.** Upstream credentials come
+  only from PostgreSQL ciphertext decrypted through KMS. The Oxy edge's key
+  here is a *public* key and is ordinary configuration.
 - **A credential never enters a `Call`, an error, a log, a health projection or
   a usage record.** Authentication is applied at send time and nowhere else.
 - **Redact upstream error text before emitting it.** Provider errors routinely
@@ -350,4 +349,4 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
   out-of-scope list is part of the deliverable.
 
 [ADR 0005]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[ADR 0006]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0006-oxy-relay-boundary.md
+[ADR 0006]: https://github.com/OxyHQ/sdk/blob/main/docs/adr/0006-oxy-kaana-boundary.md

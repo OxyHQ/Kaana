@@ -374,7 +374,7 @@ func Run(t *testing.T, subject Subject) {
 	})
 
 	t.Run("classifies a refused platform credential as nobody's to retry", func(t *testing.T) {
-		// The upstream refused RELAY's credential. Three classifications are
+		// The upstream refused KAANA's credential. Three classifications are
 		// available and two of them are wrong: `authentication_failed` sends the
 		// customer to rotate their own key, and `provider_error` — retryable —
 		// sends every client into a retry loop against a request that cannot
@@ -793,7 +793,7 @@ func execute(t *testing.T, subject Subject, scenario Scenario, request *contract
 			"provider":%q,
 			"modelReference":%q,
 			"upstreamModelId":%q,
-			"region":"test-region",
+			"regions":["test-region"],
 			"current":true
 		}]
 	}`, contract.NewTimestamp(time.Now()), subject.Provider, subject.ModelReference, subject.UpstreamModelID)

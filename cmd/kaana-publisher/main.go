@@ -1,4 +1,4 @@
-// Command relay-publisher builds the deployment inventory and re-issues it.
+// Command kaana-publisher builds the deployment inventory and re-issues it.
 //
 // It is a SEPARATE process from `cmd/kaana` on purpose. Writing the inventory
 // decides which deployment every model reference resolves to, which is a much
@@ -24,7 +24,9 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/publisher"
 )
@@ -41,30 +43,41 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	attribution, err := publisher.LoadAttribution(environmentOr("KAANA_PUBLISHER_ATTRIBUTION_PATH", "/etc/relay/model-attribution.json"))
+	attribution, err := publisher.LoadAttribution(environmentOr("KAANA_PUBLISHER_ATTRIBUTION_PATH", "/etc/kaana-publisher/model-attribution.json"))
 	if err != nil {
 		return err
 	}
 
-	providers, skipped, err := parsePublishableProviders(legacyAwareEnv)
+	providers, err := parsePublishableProviders(os.Getenv)
 	if err != nil {
 		return err
 	}
-	for _, slug := range skipped {
-		// Not fatal, and the whole reason it is a warning: a snapshot may not
-		// name a provider whose key does not exist, because there is no value
-		// of KAANA_PROVIDERS that serves it without either refusing its
-		// references or pinning a permanent `unconfigured` alarm. So the
-		// provider is left out and said out loud.
-		logger.Warn("a declared provider holds no credential, so it is absent from the snapshot and no reference will route to it",
-			"provider", slug, "variable", providerconfig.EnvironmentPrefix(slug)+"_API_KEY")
+	credentialContext, cancelCredentialLoad := context.WithTimeout(ctx, 45*time.Second)
+	credentialStore, credentialDatabase, err := credentialstore.Open(
+		credentialContext,
+		strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		strings.TrimSpace(os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")),
+	)
+	if err != nil {
+		cancelCredentialLoad()
+		return err
+	}
+	declarations, _, err := credentialStore.Load(credentialContext, slugsOf(providers))
+	cancelCredentialLoad()
+	if err != nil {
+		credentialDatabase.Close()
+		return err
+	}
+	defer credentialDatabase.Close()
+	if err := attachDiscoveryCredentials(providers, declarations); err != nil {
+		return err
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	store, err := publisher.NewS3Store(
 		client,
-		providerconfig.EnvName(os.Getenv, "KAANA_INVENTORY_BUCKET"),
-		providerconfig.EnvName(os.Getenv, "KAANA_INVENTORY_KEY"),
+		os.Getenv("KAANA_INVENTORY_BUCKET"),
+		os.Getenv("KAANA_INVENTORY_KEY"),
 		os.Getenv("AWS_REGION"),
 		credentialSource(client),
 	)
@@ -73,6 +86,10 @@ func run(logger *slog.Logger) error {
 	}
 
 	interval, err := intervalFromEnv("KAANA_PUBLISH_INTERVAL", publisher.DefaultInterval)
+	if err != nil {
+		return err
+	}
+	credentialReloadInterval, err := intervalFromEnv("KAANA_CREDENTIAL_RELOAD_INTERVAL", time.Minute)
 	if err != nil {
 		return err
 	}
@@ -97,41 +114,83 @@ func run(logger *slog.Logger) error {
 		"horizon", inventory.DefaultMaxSnapshotAge,
 		"providers", slugsOf(providers))
 
+	go reloadPublisherCredentials(
+		ctx,
+		credentialStore,
+		providers,
+		inventoryPublisher,
+		logger,
+		credentialReloadInterval,
+	)
+
 	return inventoryPublisher.Run(ctx)
 }
 
-// parsePublishableProviders resolves the providers to ask, and the declared
-// ones that hold no credential.
+func reloadPublisherCredentials(
+	ctx context.Context,
+	store *credentialstore.Store,
+	providerConfigs []publisher.Provider,
+	inventoryPublisher *publisher.Publisher,
+	logger *slog.Logger,
+	every time.Duration,
+) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			loadContext, cancel := context.WithTimeout(ctx, 45*time.Second)
+			declarations, _, err := store.Load(loadContext, slugsOf(providerConfigs))
+			cancel()
+			if err != nil {
+				logger.Error("publisher credentials could not be reloaded; keeping the last complete generation", "error", err)
+				continue
+			}
+			replacement := append([]publisher.Provider(nil), providerConfigs...)
+			if err := attachDiscoveryCredentials(replacement, declarations); err != nil {
+				logger.Error("publisher credential reload was incomplete; keeping the previous generation", "error", err)
+				continue
+			}
+			if err := inventoryPublisher.ReplaceProviders(replacement); err != nil {
+				logger.Error("publisher credential generation could not be replaced", "error", err)
+				continue
+			}
+			logger.Info("publisher credentials reloaded from Kaana's database", "providers", len(replacement))
+		}
+	}
+}
+
+// parsePublishableProviders resolves the non-secret provider configuration.
 //
-// It reads the same `KAANA_PROVIDERS` list and the same `KAANA_PROVIDER_<SLUG>_*`
-// variables as the serving process, through the same `providerconfig` helpers,
-// so the two commands cannot disagree about where a provider lives.
-func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider, []contract.ProviderSlug, error) {
+// It reads the same `KAANA_PROVIDERS` list and non-secret
+// `KAANA_PROVIDER_<SLUG>_*` variables as the serving process, through the same
+// `providerconfig` helpers, so the two commands cannot disagree about where a
+// provider lives. Credentials are attached from PostgreSQL after this returns.
+func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider, error) {
 	declared := providerconfig.SplitList(getenv("KAANA_PROVIDERS"))
 	if len(declared) == 0 {
-		return nil, nil, errors.New("KAANA_PROVIDERS is required: it lists the provider slugs to ask, and an empty one would publish a snapshot naming nothing")
+		return nil, errors.New("KAANA_PROVIDERS is required: it lists the provider slugs to ask, and an empty one would publish a snapshot naming nothing")
 	}
 
-	var (
-		providers []publisher.Provider
-		skipped   []contract.ProviderSlug
-	)
+	var providers []publisher.Provider
 	seenSlug := make(map[contract.ProviderSlug]struct{}, len(declared))
 	seenPrefix := make(map[string]contract.ProviderSlug, len(declared))
 
 	for _, name := range declared {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
-			return nil, nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
+			return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
 		}
 		if _, duplicate := seenSlug[slug]; duplicate {
-			return nil, nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
+			return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
 		}
 		seenSlug[slug] = struct{}{}
 
 		prefix := providerconfig.EnvironmentPrefix(slug)
 		if other, collides := seenPrefix[prefix]; collides {
-			return nil, nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
+			return nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
 		}
 		seenPrefix[prefix] = slug
 
@@ -145,7 +204,10 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			baseURL = declaredBaseURL
 		}
 		if baseURL == "" {
-			return nil, nil, fmt.Errorf("%s_BASE_URL is required: this build knows no address for the provider slug %q", prefix, slug)
+			return nil, fmt.Errorf("%s_BASE_URL is required: this build knows no address for the provider slug %q", prefix, slug)
+		}
+		if err := providerconfig.ValidateBaseURL(baseURL); err != nil {
+			return nil, fmt.Errorf("%s_BASE_URL for provider %q: %w", prefix, slug, err)
 		}
 		if protocol != providerconfig.ProtocolOpenAICompatible {
 			// Discovery speaks one shape, `GET /models`, and only the
@@ -153,23 +215,52 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			// such list; a hand-written list for it would be the checked-in
 			// file this command exists to replace, so it is refused rather
 			// than invented.
-			return nil, nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from KAANA_PROVIDERS for the publisher, or its models have to be declared by something that measured them", slug, protocol)
+			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from KAANA_PROVIDERS for the publisher, or its models have to be declared by something that measured them", slug, protocol)
+		}
+		if known.Discovery == providerconfig.DiscoveryNotAvailable {
+			return nil, fmt.Errorf("provider %q has no documented account model-list endpoint, so the publisher cannot verify what this credential can serve", slug)
 		}
 
-		keys := providerconfig.SplitList(getenv(prefix + "_API_KEY"))
-		if len(keys) == 0 {
-			skipped = append(skipped, slug)
-			continue
+		regionValue := strings.TrimSpace(getenv(prefix + "_REGIONS"))
+		regionNames := providerconfig.SplitList(regionValue)
+		if regionValue != "" && len(regionNames) == 0 {
+			return nil, fmt.Errorf("%s_REGIONS declares no region", prefix)
 		}
-		// One key, not the pool: listing models is a single unmetered call, and
-		// the serving process owns the rotation.
-		providers = append(providers, publisher.Provider{Slug: slug, BaseURL: baseURL, APIKey: keys[0]})
-	}
+		var regions []contract.Region
+		if len(regionNames) > 0 {
+			regions = make([]contract.Region, 0, len(regionNames))
+		}
+		seenRegions := make(map[contract.Region]struct{}, len(regionNames))
+		for _, name := range regionNames {
+			region := contract.Region(name)
+			if !region.Valid() {
+				return nil, fmt.Errorf("%s_REGIONS names %q, which is not an inference region", prefix, name)
+			}
+			if _, duplicate := seenRegions[region]; duplicate {
+				return nil, fmt.Errorf("%s_REGIONS names %q twice", prefix, region)
+			}
+			seenRegions[region] = struct{}{}
+			regions = append(regions, region)
+		}
 
-	if len(providers) == 0 {
-		return nil, nil, errors.New("no declared provider holds a credential, so every reference would be unservable and the snapshot would name nothing")
+		providers = append(providers, publisher.Provider{
+			Slug: slug, BaseURL: baseURL, Regions: regions, Discovery: known.Discovery,
+		})
 	}
-	return providers, skipped, nil
+	return providers, nil
+}
+
+// attachDiscoveryCredentials selects one key because listing models is one
+// unmetered call. Serving owns pool rotation and retirement.
+func attachDiscoveryCredentials(providers []publisher.Provider, declarations map[contract.ProviderSlug][]provider.KeyDeclaration) error {
+	for index := range providers {
+		pool := declarations[providers[index].Slug]
+		if len(pool) == 0 {
+			return fmt.Errorf("provider %q has no credential loaded from Kaana's database", providers[index].Slug)
+		}
+		providers[index].APIKey = pool[0].Secret
+	}
+	return nil
 }
 
 // credentialSource prefers the ECS task role and falls back to the environment.
@@ -209,16 +300,16 @@ func warnAboutUnaskedAttributions(logger *slog.Logger, attribution *publisher.At
 	}
 }
 
-func slugsOf(providers []publisher.Provider) []string {
-	slugs := make([]string, 0, len(providers))
+func slugsOf(providers []publisher.Provider) []contract.ProviderSlug {
+	slugs := make([]contract.ProviderSlug, 0, len(providers))
 	for _, target := range providers {
-		slugs = append(slugs, string(target.Slug))
+		slugs = append(slugs, target.Slug)
 	}
 	return slugs
 }
 
 func environmentOr(name, fallback string) string {
-	if value := strings.TrimSpace(providerconfig.EnvName(os.Getenv, name)); value != "" {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value
 	}
 	return fallback
@@ -228,7 +319,7 @@ func environmentOr(name, fallback string) string {
 // than falling back to the default — a typo that silently became fifteen
 // minutes would be indistinguishable from the operator's intent.
 func intervalFromEnv(name string, fallback time.Duration) (time.Duration, error) {
-	value := strings.TrimSpace(providerconfig.EnvName(os.Getenv, name))
+	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
 		return fallback, nil
 	}
@@ -241,7 +332,3 @@ func intervalFromEnv(name string, fallback time.Duration) (time.Duration, error)
 	}
 	return parsed, nil
 }
-
-// legacyAwareEnv is os.Getenv with the pre-rename spelling as a fallback. See
-// providerconfig.EnvName for why it exists and when it is deleted.
-func legacyAwareEnv(name string) string { return providerconfig.EnvName(os.Getenv, name) }

@@ -199,7 +199,7 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 		"deployments":[{
 			"deploymentId":"dep_stub","provider":"stub",
 			"modelReference":"stub/model@2026-05-01","upstreamModelId":"model",
-			"region":"test-region","current":true}]}`, contract.NewTimestamp(time.Now()))
+			"regions":["test-region"],"current":true}]}`, contract.NewTimestamp(time.Now()))
 	if err := os.WriteFile(path, []byte(inventoryJSON), 0o600); err != nil {
 		t.Fatalf("writing the inventory: %v", err)
 	}

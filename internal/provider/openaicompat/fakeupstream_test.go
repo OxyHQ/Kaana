@@ -238,7 +238,7 @@ func (f *fakeUpstream) chunkFor(index int) string {
 		case 1:
 			return `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":"}}]}}]}`
 		default:
-			return `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"relay\"}"}}]}}]}`
+			return `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"kaana\"}"}}]}}]}`
 		}
 	}
 	if index == 0 {

@@ -60,7 +60,7 @@ func (e *emitter) next() int {
 
 func (e *emitter) send(event contract.StreamEvent) error {
 	if e.terminated {
-		return fmt.Errorf("relay: %s event follows a terminal event", event.EventType())
+		return fmt.Errorf("kaana: %s event follows a terminal event", event.EventType())
 	}
 	return e.sink(event)
 }
@@ -68,14 +68,14 @@ func (e *emitter) send(event contract.StreamEvent) error {
 // Start implements provider.Emitter.
 func (e *emitter) Start(resolved contract.ModelReference, at time.Time) error {
 	if e.started {
-		return fmt.Errorf("relay: an adapter emitted a second start event")
+		return fmt.Errorf("kaana: an adapter emitted a second start event")
 	}
 	if !resolved.Pinned() {
 		// The contract requires the start event to name a revision-pinned
 		// reference. An unpinned one here means the route resolution reported
 		// a model line rather than the weights that answered, and a customer
 		// would be told less than the contract promises.
-		return fmt.Errorf("relay: the resolved model reference %q is not revision-pinned", resolved)
+		return fmt.Errorf("kaana: the resolved model reference %q is not revision-pinned", resolved)
 	}
 	e.started = true
 	return e.send(&contract.StreamStartEvent{
@@ -96,7 +96,7 @@ func (e *emitter) Delta(outputIndex int, channel contract.DeltaChannel, text str
 		return err
 	}
 	if outputIndex < 0 {
-		return fmt.Errorf("relay: output index %d is negative", outputIndex)
+		return fmt.Errorf("kaana: output index %d is negative", outputIndex)
 	}
 	if e.firstOutputAt.IsZero() && text != "" {
 		e.firstOutputAt = time.Now()
@@ -118,7 +118,7 @@ func (e *emitter) ToolCall(call provider.ToolCallDelta) error {
 		return err
 	}
 	if call.ID == "" {
-		return fmt.Errorf("relay: a tool-call event carries no tool call id")
+		return fmt.Errorf("kaana: a tool-call event carries no tool call id")
 	}
 	event := &contract.StreamToolCallEvent{
 		SchemaVersion: contract.SchemaVersion,
@@ -146,7 +146,7 @@ func (e *emitter) Usage(units []contract.UsageQuantity, source contract.UsageSou
 		// The contract requires at least one unit. An empty usage event is not
 		// "no usage yet" — it is an unparseable message, and Oxy would drop the
 		// whole stream frame rather than the empty list.
-		return fmt.Errorf("relay: a usage event must carry at least one unit")
+		return fmt.Errorf("kaana: a usage event must carry at least one unit")
 	}
 	return e.send(&contract.StreamUsageEvent{
 		SchemaVersion: contract.SchemaVersion,
@@ -165,10 +165,10 @@ func (e *emitter) Usage(units []contract.UsageQuantity, source contract.UsageSou
 // loop matches on it: this is the difference between "there is nowhere left to
 // go" — an ordinary outcome — and a stream that could not be written to, which
 // is a delivery failure.
-var errSwitchTooLate = errors.New("relay: a route switch follows the stream's start event; retrying now would duplicate output the customer already has")
+var errSwitchTooLate = errors.New("kaana: a route switch follows the stream's start event; retrying now would duplicate output the customer already has")
 
 // routeSwitch reports that an attempt failed and the request is being retried
-// on another deployment of the same model revision.
+// on the next route Oxy authorized.
 //
 // Two rules are enforced here rather than by the caller, because both are the
 // kind that a future change would breach without noticing:
@@ -182,25 +182,48 @@ var errSwitchTooLate = errors.New("relay: a route switch follows the stream's st
 //     anything was streamed, and saying so in order is the honest framing. The
 //     contract specifies event shapes and not their order; see README.
 //
-//  2. **It refuses a switch between two different model references.** The
-//     destination is a route from the same RouteSet as the origin, so the two
-//     references are the same value by construction — this check is what makes
-//     that a fact the code asserts rather than one a reader has to trust. The
-//     event it builds is deployment-scoped and has no parameter that could make
-//     it anything else: the fields that describe a model substitution
-//     (requestedModelId, fromModelReference, toModelReference,
-//     authorizedByPolicy) are not set, and there is no argument here from which
-//     they could be.
-func (e *emitter) routeSwitch(reason contract.RouteSwitchReason, from, to provider.Route, at time.Time) error {
+//  2. **It can report a model switch only with the signed list's primary model
+//     line.** The executor supplies that value after resolving every list entry
+//     against inventory. A switch between two revisions of one line is refused:
+//     neither the deployment-scoped nor model-scoped contract shape can report
+//     that truthfully.
+func (e *emitter) routeSwitch(
+	reason contract.RouteSwitchReason,
+	requestedModelID contract.ModelID,
+	from, to provider.Route,
+	at time.Time,
+) error {
 	if e.started {
 		return errSwitchTooLate
 	}
-	if from.ModelReference != to.ModelReference {
-		return fmt.Errorf("relay: a route switch from %q to %q would substitute the model, which no policy in this envelope authorises",
+	if from.ModelReference == to.ModelReference {
+		reference := to.ModelReference
+		deployment := to.DeploymentID
+		return e.send(&contract.StreamRouteSwitchEvent{
+			SchemaVersion: contract.SchemaVersion,
+			Type:          contract.EventRouteSwitch,
+			RequestID:     e.requestID,
+			Seq:           e.next(),
+			Reason:        reason,
+			Detail: contract.RouteSwitchDetail{
+				Scope:          contract.SwitchScopeDeployment,
+				ToProvider:     to.Provider,
+				ModelReference: &reference,
+				ToDeploymentID: &deployment,
+			},
+			OccurredAt: contract.NewTimestamp(at),
+		})
+	}
+	if from.ModelReference.ModelID() == to.ModelReference.ModelID() {
+		return fmt.Errorf("kaana: a route switch from %q to %q changes revision inside one model line, which the stream contract cannot report truthfully",
 			from.ModelReference, to.ModelReference)
 	}
-	reference := to.ModelReference
-	deployment := to.DeploymentID
+	if !requestedModelID.Valid() {
+		return fmt.Errorf("kaana: a cross-model route switch has no valid primary model line")
+	}
+	authorized := true
+	fromReference := from.ModelReference
+	toReference := to.ModelReference
 	return e.send(&contract.StreamRouteSwitchEvent{
 		SchemaVersion: contract.SchemaVersion,
 		Type:          contract.EventRouteSwitch,
@@ -208,10 +231,12 @@ func (e *emitter) routeSwitch(reason contract.RouteSwitchReason, from, to provid
 		Seq:           e.next(),
 		Reason:        reason,
 		Detail: contract.RouteSwitchDetail{
-			Scope:          contract.SwitchScopeDeployment,
-			ToProvider:     to.Provider,
-			ModelReference: &reference,
-			ToDeploymentID: &deployment,
+			Scope:              contract.SwitchScopeModel,
+			ToProvider:         to.Provider,
+			RequestedModelID:   &requestedModelID,
+			FromModelReference: &fromReference,
+			ToModelReference:   &toReference,
+			AuthorizedByPolicy: &authorized,
 		},
 		OccurredAt: contract.NewTimestamp(at),
 	})
@@ -242,7 +267,7 @@ func (e *emitter) finishWithDone(reason contract.FinishReason, at time.Time) err
 // or route resolution never started, and the customer still needs the error.
 func (e *emitter) finishWithError(failure *contract.Error) error {
 	if e.terminated {
-		return fmt.Errorf("relay: an error event follows a terminal event")
+		return fmt.Errorf("kaana: an error event follows a terminal event")
 	}
 	event := &contract.StreamErrorEvent{
 		SchemaVersion: contract.SchemaVersion,
@@ -258,7 +283,7 @@ func (e *emitter) finishWithError(failure *contract.Error) error {
 
 func (e *emitter) requireStarted(kind contract.StreamEventType) error {
 	if !e.started {
-		return fmt.Errorf("relay: a %s event precedes the stream's start event", kind)
+		return fmt.Errorf("kaana: a %s event precedes the stream's start event", kind)
 	}
 	return nil
 }

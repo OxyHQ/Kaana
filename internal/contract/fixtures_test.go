@@ -44,8 +44,8 @@ func TestWriteWireFixtures(t *testing.T) {
 	if len(valid) != 19 {
 		t.Fatalf("expected 19 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 12 {
-		t.Fatalf("expected 12 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 17 {
+		t.Fatalf("expected 17 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	writeFixtures(t, filepath.Join(fixtureDir, "valid"), valid)
@@ -141,8 +141,11 @@ func validFixtures(t *testing.T) []fixture {
 					},
 				},
 				{
-					Role:    RoleAssistant,
-					Content: []ContentPart{{Type: ContentPartText, Text: pointerTo("")}},
+					Role: RoleAssistant,
+					Content: []ContentPart{
+						{Type: ContentPartText, Text: pointerTo("")},
+						{Type: ContentPartRefusal, Text: pointerTo("I cannot help with that")},
+					},
 					ToolCalls: []ToolCall{
 						{ID: "call_1", Name: "lookup", Arguments: `{"q":"x"}`},
 					},
@@ -188,6 +191,13 @@ func validFixtures(t *testing.T) []fixture {
 		},
 		IdempotencyKey: pointerTo(IdempotencyKey("idem_01JQZ")),
 		RoutingPolicy:  RoutingPolicyReference{RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3},
+		AuthorizedRoutes: []AuthorizedRoute{{
+			Substitution:   SubstitutionSameModel,
+			DeploymentID:   "dep_openai_gpt5_use1",
+			ModelReference: "openai/gpt-5@2026-05-01",
+			Provider:       "openai",
+			Regions:        []Region{"us-east-1"},
+		}},
 	}
 	if err := request.Validate(); err != nil {
 		t.Fatalf("the request fixture does not satisfy Kaana's own validation: %v", err)
@@ -333,10 +343,10 @@ var credentialTextCases = []struct {
 }{
 	// The header spelling a literal `authorization|api_key` pattern missed, and
 	// the reason the prefix group exists.
-	{"header-named-credential", "request rejected: headers were {x-api-key: relay0fake0credential0value}", true},
+	{"header-named-credential", "request rejected: headers were {x-api-key: kaana0fake0credential0value}", true},
 	// The residue a SPAN redaction leaves: the marker is gone, the secret is
 	// not. Refusing this is what stops a producer from redacting the wrong half.
-	{"span-redacted-marker", "request rejected: headers were {x-[redacted] relay0fake0credential0value}", true},
+	{"span-redacted-marker", "request rejected: headers were {x-[redacted] kaana0fake0credential0value}", true},
 	{"bare-bearer-token", "upstream said: Bearer abcdefghijklmnop", true},
 	// No marker at all: the layer that survives a producer stripping one.
 	{"issued-token-grammar", "the key sk-abcdefghijklmnop was not accepted", true},
@@ -358,7 +368,7 @@ var credentialTextCases = []struct {
 	// string carries a secret and the published schema accepts it — which is
 	// why the control that matters is provider.RedactSecret, applied by the
 	// adapter that still holds the bytes it sent.
-	{"unmarked-credential-the-pattern-cannot-see", "the key relay0fake0credential0value was not accepted", false},
+	{"unmarked-credential-the-pattern-cannot-see", "the key kaana0fake0credential0value was not accepted", false},
 }
 
 // TestCredentialShapedAgreesWithGo is half the check; validate.mjs is the other
@@ -407,8 +417,28 @@ func credentialTextFixtures(refused bool) []fixture {
 func invalidFixtures() []fixture {
 	attribution := sampleAttribution()
 	started := Timestamp("2026-08-16T09:41:00.000Z")
+	emptyAuthorizedRoutes := struct {
+		Request
+		AuthorizedRoutes []AuthorizedRoute `json:"authorizedRoutes"`
+	}{Request: validAuthorizedRouteRequest(), AuthorizedRoutes: []AuthorizedRoute{}}
+	duplicateDeployment := validAuthorizedRouteRequest()
+	duplicateDeployment.AuthorizedRoutes[1].DeploymentID = duplicateDeployment.AuthorizedRoutes[0].DeploymentID
+	mislabelledSameModel := validAuthorizedRouteRequest()
+	mislabelledSameModel.AuthorizedRoutes[1].Substitution = SubstitutionSameModel
+	mislabelledSameModel.AuthorizedRoutes[1].AuthorizedByPolicy = nil
+	falseCrossModelAuthorization := validAuthorizedRouteRequest()
+	refused := false
+	falseCrossModelAuthorization.AuthorizedRoutes[1].AuthorizedByPolicy = &refused
+	userRefusal := validAuthorizedRouteRequest()
+	refusalText := "I cannot help with that"
+	userRefusal.Input.Messages[0].Content = []ContentPart{{Type: ContentPartRefusal, Text: &refusalText}}
 
 	return []fixture{
+		{Schema: "inferenceRequestSchema", Case: "empty-authorized-routes", Value: emptyAuthorizedRoutes},
+		{Schema: "inferenceRequestSchema", Case: "duplicate-authorized-deployment", Value: duplicateDeployment},
+		{Schema: "inferenceRequestSchema", Case: "different-line-labelled-same-model", Value: mislabelledSameModel},
+		{Schema: "inferenceRequestSchema", Case: "cross-model-without-literal-authorization", Value: falseCrossModelAuthorization},
+		{Schema: "inferenceRequestSchema", Case: "refusal-on-user-message", Value: userRefusal},
 		{
 			Schema: "inferenceErrorSchema",
 			Case:   "non-retryable-code-marked-retryable",

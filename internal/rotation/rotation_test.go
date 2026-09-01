@@ -239,42 +239,6 @@ func TestReportingAPermitTwiceCountsOnce(t *testing.T) {
 /*  Ordering and projection                                                   */
 /* -------------------------------------------------------------------------- */
 
-// TestOrderingPrefersAdmittingThenHealthier: the breaker decides what may be
-// tried, the score decides what is tried first.
-func TestOrderingPrefersAdmittingThenHealthier(t *testing.T) {
-	clock := newClock()
-	registry := rotation.NewRegistry(testPolicy, clock.now)
-
-	const (
-		healthy = contract.DeploymentID("dep_healthy")
-		flaky   = contract.DeploymentID("dep_flaky")
-		broken  = contract.DeploymentID("dep_broken")
-	)
-	admit(t, registry, healthy).Succeeded()
-	// Under the threshold, so it stays in rotation and only its score suffers.
-	admit(t, registry, flaky).Failed()
-	admit(t, registry, flaky).Succeeded()
-	fail(t, registry, broken, testPolicy.FailuresToOpen)
-
-	if registry.Rank(broken).Admitting {
-		t.Error("an open breaker ranks as admitting")
-	}
-	if registry.Rank(healthy).Score <= registry.Rank(flaky).Score {
-		t.Error("a deployment that has only succeeded does not score above one that has failed")
-	}
-	if !registry.Rank(healthy).Before(registry.Rank(flaky)) {
-		t.Error("the healthiest deployment does not sort first")
-	}
-	if !registry.Rank(flaky).Before(registry.Rank(broken)) {
-		t.Error("a deployment still in rotation does not sort ahead of one that is out of it")
-	}
-	// The open breaker sorts last whatever its score, which is why a candidate
-	// list is ordered before it is walked rather than filtered as it is walked.
-	if registry.Rank(broken).Before(registry.Rank(flaky)) {
-		t.Error("an open breaker sorts ahead of an admitting one")
-	}
-}
-
 // TestSoonestProbeReportsAFactRatherThanAGuess: it is what the executor puts on
 // the retry hint of a refusal, so a client backing off is told when the breaker
 // will really admit a request again.

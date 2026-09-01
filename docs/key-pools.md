@@ -10,10 +10,11 @@ would be a copy of an Oxy entity, and an address there would make one process's
 reachability a global fact. The inventory names the slug; `cmd/kaana` resolves
 it.
 
-**One protocol serves several providers.** OpenAI, OpenRouter and Cerebras all
-speak OpenAI Chat Completions, so all three are a `Config` and a base URL rather
-than three adapters — which is the claim `TestOneProtocolServesSeveralProviders`
-has been making since that adapter was written, now with the wiring to match.
+**One protocol serves several providers.** OpenAI, OpenRouter, Cerebras, Groq,
+xAI, Mistral, DeepSeek, SambaNova, SiliconFlow and AI21 all expose an
+OpenAI-compatible Chat Completions surface, so they are a `Config` and a base
+URL rather than separate adapters. Provider-specific discovery remains
+separate: compatible chat payloads do not imply compatible model catalogs.
 The Messages API is refused under any slug but `anthropic`: that adapter reports
 its slug as a constant, so serving it under another name would attribute every
 event and every usage record to a provider the inventory did not route to.
@@ -121,13 +122,10 @@ Nothing the customer was told about their route has changed, so no `route_switch
 is emitted and `routeSwitches` stays zero — asserted in the conformance suite,
 which fails on a route switch appearing at all.
 
-It therefore needs no routing-policy authorisation and does not touch
-`KAANA_ASSUME_FAILOVER_AUTHORIZED`. Choosing among the DEPLOYMENTS of a model is
-governed by `routingFallbackPolicy.sameModelDeployment` and by
-`allowedRegions`/`deniedRegions`, none of which the envelope carries; choosing
-among the credentials of one deployment is governed by nothing published,
-because there is nothing about it for a customer to have an opinion on. They are
-different axes and the default of one is not weakened to make the other work.
+It therefore needs no additional routing-policy authorization. Choosing among
+DEPLOYMENTS is permitted only by entries in the signed `authorizedRoutes` list;
+choosing among credentials of one deployment is governed by nothing published,
+because the customer-visible route does not change. They are different axes.
 
 **A refused credential is not retried on another deployment of the same
 provider either.** The refusal is attributable, so the breaker takes the route
@@ -166,7 +164,7 @@ until the request that finds it empty.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
+[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
 
 ## Key class, and what "free first" is and is not
 
@@ -198,33 +196,24 @@ error still points at their file.
 
 ## Where the credentials come from
 
-Three shapes, and only the last of them makes adding a key cheap.
+PostgreSQL is the only durable store. Each key is one row carrying its provider,
+operator id, pool position, declared class, optional budget metadata and KMS
+ciphertext. The task environment carries no provider secret, and no manifest or
+inventory can carry one.
 
-**Environment, one variable per provider.** `KAANA_PROVIDER_<SLUG>_API_KEY`
-holds the pool as a comma-separated string. It holds two or three keys: the
-string is rotated as a whole, one bad character breaks every key in it, and
-there is nowhere to record what a key costs. It is still supported and still
-what a deployment that sets nothing else gets.
+KMS authenticates `provider + keyId` as encryption context. A database write
+that swaps ciphertext between rows therefore produces a decryption failure,
+not a credential silently serving under another identity. The configured KMS
+key ARN is also checked against every row before decrypting it.
 
-**A manifest naming variables.** `KAANA_KEYRING_PATH` points at a document that
-declares each key's id, class and budget, and the NAME of the variable holding
-its value. Six variables per provider collapse into it. What it cannot fix is
-the thirtieth key: every new variable name needs a task-definition entry to
-inject it, so adding a key is still a deployment.
+The serving and publisher roles can select active rows and decrypt with that one
+KMS key. They cannot insert, update, migrate or encrypt. A short-lived operator
+task uses `kaana-credentials put`, which accepts plaintext only on stdin,
+encrypts before PostgreSQL sees it and never returns it. Adding a key is a row;
+rotating one is an atomic upsert of the same `(provider, keyId)`.
 
-**A manifest carrying values, rendered from the key database.** The publisher
-reads the keys, renders the document, and it arrives through the same sidecar
-the inventory does — one S3 object into a task-scoped volume. Adding a key is a
-row; the next cycle delivers it; the serving process reloads a file it already
-knows how to reload, and grows no dependency on the database being reachable.
-
-That last one is a **credential store**, and the difference from the inventory
-beside it is not cosmetic: anyone who can read that object holds every provider
-key. It is encrypted at rest, readable by the task role and nothing else, and
-never committed — a test scans every tracked JSON file for an inline secret,
-because the accident is a working manifest pasted in while debugging, whose diff
-looks exactly like the example file.
-
-A key declares either form, never both. Two answers to which credential a key
-is, with one silently preferred, is how a rotated key keeps serving the old
-value.
+Pools are loaded at process start in `position` order. A declared provider with
+no active row is a startup refusal: reporting a green adapter that cannot
+authenticate is no longer a supported state. After a credential change, restart
+both serving and publisher tasks so their in-memory pools converge on the same
+database state.

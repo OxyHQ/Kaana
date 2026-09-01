@@ -151,6 +151,37 @@ func parseSnapshot(t *testing.T, body []byte) snapshotFile {
 	return parsed
 }
 
+func TestExplicitUpstreamRegionsReachThePublishedDeployment(t *testing.T) {
+	upstream := newFakeUpstream(t, "key", "gpt-oss-120b")
+	store := &fakeStore{}
+
+	inventoryPublisher, err := New(Config{
+		Providers: []Provider{{
+			Slug: "cerebras", BaseURL: upstream.baseURL(),
+			Regions: []contract.Region{"us-east-1", "us-west-2"}, APIKey: "key",
+		}},
+		Attribution: testAttribution(t),
+		Store:       store,
+		Client:      upstream.server.Client(),
+		Logger:      quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("wiring the publisher: %v", err)
+	}
+	if err := inventoryPublisher.PublishOnce(context.Background()); err != nil {
+		t.Fatalf("publishing: %v", err)
+	}
+
+	published := parseSnapshot(t, store.written()[0])
+	if len(published.Deployments) != 1 {
+		t.Fatalf("published %d deployments", len(published.Deployments))
+	}
+	regions := published.Deployments[0].Regions
+	if len(regions) != 2 || regions[0] != "us-east-1" || regions[1] != "us-west-2" {
+		t.Errorf("published regions = %v", regions)
+	}
+}
+
 // TestTheSnapshotIsReIssuedWithAFreshIssuedAtWhenNothingChanged is THE
 // requirement `inventory.Store` places on a publisher, and the one a snapshot
 // written once satisfies for exactly one horizon before degrading.
@@ -418,12 +449,12 @@ func TestAnUnattributedModelIsDroppedNotGuessed(t *testing.T) {
 }
 
 // TestTwoProvidersOfOneLineShareOneReferenceAndTheFirstDeclaredLeads is the
-// failover shape AND the ordering requirement in one case.
+// same-model route shape AND the default ordering requirement in one case.
 //
-// Failover is off by default, so a reference resolves to the deployment
-// declared FIRST. Two providers of one model line must therefore produce ONE
-// reference with two endpoints, led by the provider declared first — not two
-// references, which `inventory.Parse` refuses as two current revisions.
+// Without authorizedRoutes a reference resolves to the deployment declared
+// FIRST. Two providers of one model line must therefore produce ONE reference
+// with two endpoints, led by the provider declared first — not two references,
+// which `inventory.Parse` refuses as two current revisions.
 func TestTwoProvidersOfOneLineShareOneReferenceAndTheFirstDeclaredLeads(t *testing.T) {
 	cerebras := newFakeUpstream(t, "c-key", "gpt-oss-120b")
 	groq := newFakeUpstream(t, "g-key", "gpt-oss-120b")

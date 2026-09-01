@@ -99,6 +99,7 @@ var goShapes = map[string]reflect.Type{
 	"responseFormatSchema":         reflect.TypeOf(ResponseFormat{}),
 	"routingTargetSchema":          reflect.TypeOf(RoutingTarget{}),
 	"routingPolicyReferenceSchema": reflect.TypeOf(RoutingPolicyReference{}),
+	"authorizedRouteSchema":        reflect.TypeOf(AuthorizedRoute{}),
 
 	// The normalized stream.
 	"inferenceStreamStartEventSchema":       reflect.TypeOf(StreamStartEvent{}),
@@ -283,11 +284,28 @@ var notApplicable = map[string]string{
 	"productEntitlementSchema":    "entitlement: what a customer bought is resolved at the edge",
 	"productPlanSchema":           "entitlement: plans are an Oxy product concern",
 	"productPlanStatusSchema":     "entitlement: plans are an Oxy product concern",
+
+	// Model-release declarations and compliance documentation are authored and
+	// ingested by Oxy. Kaana executes an already-resolved model reference and
+	// never accepts publisher release material at its serving boundary.
+	"aliaModelReleaseManifestSchema":     "model release: Oxy owns publisher release ingestion",
+	"aliaReleaseArtifactSchema":          "model release: Oxy owns publisher artifact declarations",
+	"aliaReleaseSignatureSchema":         "model release: Oxy owns publisher signature verification",
+	"modelDistributionMethodSchema":      "model documentation: Oxy owns distribution declarations",
+	"modelDocumentationSchema":           "model documentation: Oxy owns assembled compliance documentation",
+	"modelDownstreamDocumentationSchema": "model documentation: Oxy owns downstream documentation",
+	"modelGpaiDocumentationSchema":       "model documentation: Oxy owns GPAI compliance metadata",
+	"modelLineDeclarationSchema":         "model release: Oxy owns model-line declarations",
+	"modelReleaseIngestionRequestSchema": "model release: Oxy owns release ingestion commands",
+	"modelReleaseIngestionResultSchema":  "model release: Oxy owns release ingestion results",
+	"modelSystemicRiskTierSchema":        "model documentation: Oxy owns systemic-risk classification",
+	"sha256DigestSchema":                 "model release: Oxy owns artifact integrity declarations",
+	"trainingComputeFlopsSchema":         "model documentation: Oxy owns training-compute declarations",
 }
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 71
+const expectedNotApplicableCount = 84
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -781,6 +799,7 @@ var inlineEnumBindings = []enumBinding{
 	bindEnum(inputFormatValues),
 	bindEnum(responseFormatTypeValues),
 	bindEnum(routingTargetKindValues),
+	bindEnum(routeSubstitutionValues),
 	bindEnum(routeSwitchScopeValues),
 	bindEnum(streamEventTypeValues),
 }
