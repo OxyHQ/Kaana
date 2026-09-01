@@ -4,20 +4,29 @@
 
 # Kaana
 
-**Kaana is Oxy's own inference provider.** One API in front of many upstream
-providers and many models — the same idea as OpenRouter, run by Oxy for Oxy.
-Alia and every other Oxy app call it, and it is sold to customers outside Oxy
-too. `kaana.ai`.
+**Kaana is Oxy's inference data plane.** One API executes requests across many
+upstream providers and models — the same idea as OpenRouter, operated by Oxy for
+Oxy and external customers. Its one canonical data-plane origin is
+[`https://kaana.ai`](https://kaana.ai).
+
+Apps do not all call Kaana in the same way. A one-shot product feature such as
+translation or summarization goes through the Oxy inference edge to Kaana. A
+conversation that needs memory, tools, approvals or an agent goes to **Alia**;
+Alia performs that orchestration and invokes Kaana through the same Oxy edge.
+Kaana never becomes the agent runtime merely because an agent eventually uses
+a model.
 
 A request names a **model**, not a vendor. Kaana decides which provider serves
 it, translates the request for that provider's API, streams the answer back,
 cancels it when the caller goes away, and reports what was consumed.
 
-## What it serves today
+## Checked-in reference inventory
 
-Measured on 2026-08-23 by reading each provider's own catalogue with that
-account's key — not copied from documentation. `configs/inventory.json` is the
-snapshot; `docs/inventory.md` explains how it is produced and re-issued.
+`configs/inventory.json` is a measured reference snapshot, produced by reading
+each provider's own authenticated catalogue rather than copying a third-party
+catalogue. It is not a production-status page: the production publisher
+discovers and re-issues its own snapshot, and that live object is the authority
+for what Kaana serves now. `docs/inventory.md` explains the distinction.
 
 | | |
 |---|---|
@@ -35,9 +44,11 @@ with three places to get it, and a request that names it is served or refused �
 
 Kaana the product has accounts, plans, balances and a console. **None of that is
 in this repository, on purpose.** This is the *data plane*: it executes what has
-already been authorized and reports what it measured. Accounts, credentials,
-customer balances and the billing ledger live in Oxy, which is the single
-control plane ([ADR 0005][adr0005], [ADR 0006][adr0006]).
+already been authorized and reports what it measured. Accounts, customer/API
+credentials, customer balances and the billing ledger live in Oxy, which is the
+single control plane ([ADR 0005][adr0005], [ADR 0006][adr0006]). Upstream
+provider keys are different: Kaana owns them as KMS ciphertext in its PostgreSQL
+credential store and never receives them through environment variables.
 
 So the split is:
 
@@ -124,6 +135,7 @@ configs/model-attribution.json  who RELEASED each model — the publisher's only
 | | |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | the boundary with Oxy, the Oxy-facing surface, and what is deliberately out of scope |
+| [`docs/identity-and-routing.md`](docs/identity-and-routing.md) | the Kaana/Alia boundary, canonical domain, clean-cut identity migration and product request paths |
 | [`docs/routing.md`](docs/routing.md) | cancellation, same-model failover, circuit breakers and health scoring |
 | [`docs/key-pools.md`](docs/key-pools.md) | several providers and a pool of keys for each; what a failure says about a KEY |
 | [`docs/inventory.md`](docs/inventory.md) | the deployment snapshot, how it is published, and what staleness costs |
