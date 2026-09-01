@@ -52,7 +52,50 @@ func TestProviderRegionDeclarationsAreValidatedAsSets(t *testing.T) {
 // TestTheProviderListIsRequired keeps the empty case from meaning "all of them".
 func TestTheProviderListIsRequired(t *testing.T) {
 	if _, err := parsePublishableProviders(environmentFrom(nil)); err == nil {
-		t.Fatal("an absent KAANA_PROVIDERS was accepted")
+		t.Fatal("an absent discovery provider set was accepted")
+	}
+}
+
+func TestDiscoveryProviderSetCanBeNarrowerThanServing(t *testing.T) {
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":           "chutes,ovhcloud,nebius",
+		"KAANA_DISCOVERY_PROVIDERS": "nebius",
+	}))
+	if err != nil {
+		t.Fatalf("the serving-only providers poisoned the explicit discovery set: %v", err)
+	}
+	if len(providers) != 1 || providers[0].Slug != "nebius" {
+		t.Fatalf("discovery providers = %+v", slugsOf(providers))
+	}
+}
+
+func TestDiscoveryProviderSetMustBeAnOrderedSubsetOfServing(t *testing.T) {
+	for name, environment := range map[string]map[string]string{
+		"missing serving set": {
+			"KAANA_DISCOVERY_PROVIDERS": "nebius",
+		},
+		"provider not served": {
+			"KAANA_PROVIDERS":           "openrouter",
+			"KAANA_DISCOVERY_PROVIDERS": "openrouter,nebius",
+		},
+		"serving priority reversed": {
+			"KAANA_PROVIDERS":           "cerebras,nebius",
+			"KAANA_DISCOVERY_PROVIDERS": "nebius,cerebras",
+		},
+		"invalid serving slug": {
+			"KAANA_PROVIDERS":           "Not Valid,nebius",
+			"KAANA_DISCOVERY_PROVIDERS": "nebius",
+		},
+		"serving prefix collision": {
+			"KAANA_PROVIDERS":           "open-router,open.router,nebius",
+			"KAANA_DISCOVERY_PROVIDERS": "nebius",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parsePublishableProviders(environmentFrom(environment)); err == nil {
+				t.Fatal("an unservable discovery set was accepted")
+			}
+		})
 	}
 }
 
@@ -120,7 +163,7 @@ func TestPublisherRefusesACredentialHiddenInTheBaseURL(t *testing.T) {
 
 func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS": "mistral,siliconflow",
+		"KAANA_PROVIDERS": "mistral,siliconflow,nebius,nscale",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -128,8 +171,13 @@ func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 	if providers[0].Discovery != "mistral_models" || providers[1].Discovery != "siliconflow_models" {
 		t.Fatalf("discovery profiles = %q, %q", providers[0].Discovery, providers[1].Discovery)
 	}
-	if _, err := parsePublishableProviders(environmentFrom(map[string]string{"KAANA_PROVIDERS": "ai21"})); err == nil {
-		t.Fatal("AI21 was accepted for a model-list endpoint it does not publish")
+	if providers[2].Discovery != "nebius_models" || providers[3].Discovery != "openai_models" {
+		t.Fatalf("direct-provider discovery profiles = %q, %q", providers[2].Discovery, providers[3].Discovery)
+	}
+	for _, slug := range []string{"ai21", "chutes", "ovhcloud"} {
+		if _, err := parsePublishableProviders(environmentFrom(map[string]string{"KAANA_PROVIDERS": slug})); err == nil {
+			t.Fatalf("%s was accepted for an account model-list contract Kaana has not verified", slug)
+		}
 	}
 }
 

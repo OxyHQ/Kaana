@@ -35,6 +35,7 @@ const (
 	DiscoveryOpenAIModels  = "openai_models"
 	DiscoveryMistralModels = "mistral_models"
 	DiscoverySiliconModels = "siliconflow_models"
+	DiscoveryNebiusModels  = "nebius_models"
 	DiscoveryNotAvailable  = "not_available"
 )
 
@@ -66,6 +67,10 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"nvidia":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://integrate.api.nvidia.com/v1", Discovery: DiscoveryNotAvailable},
 	"modelscope":   {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api-inference.modelscope.cn/v1", Discovery: DiscoveryNotAvailable},
 	"zai":          {Protocol: ProtocolOpenAICompatible, BaseURL: "https://open.bigmodel.cn/api/paas/v4", Discovery: DiscoveryNotAvailable},
+	"nebius":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.tokenfactory.nebius.com/v1", Discovery: DiscoveryNebiusModels},
+	"nscale":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.api.nscale.com/v1", Discovery: DiscoveryOpenAIModels},
+	"chutes":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://llm.chutes.ai/v1", Discovery: DiscoveryNotAvailable},
+	"ovhcloud":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", Discovery: DiscoveryNotAvailable},
 }
 
 // ValidateBaseURL limits provider credentials to a verified HTTPS origin.

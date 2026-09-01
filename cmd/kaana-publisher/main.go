@@ -164,14 +164,57 @@ func reloadPublisherCredentials(
 
 // parsePublishableProviders resolves the non-secret provider configuration.
 //
-// It reads the same `KAANA_PROVIDERS` list and non-secret
+// It reads `KAANA_DISCOVERY_PROVIDERS` and the same non-secret
 // `KAANA_PROVIDER_<SLUG>_*` variables as the serving process, through the same
 // `providerconfig` helpers, so the two commands cannot disagree about where a
-// provider lives. Credentials are attached from PostgreSQL after this returns.
+// provider lives. KAANA_PROVIDERS is accepted as a compatibility fallback for
+// existing publisher task definitions, but a dedicated discovery set is what
+// lets serving-only providers coexist without making the publisher fail.
+// Credentials are attached from PostgreSQL after this returns.
 func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider, error) {
-	declared := providerconfig.SplitList(getenv("KAANA_PROVIDERS"))
+	providerSetVariable := "KAANA_DISCOVERY_PROVIDERS"
+	declared := providerconfig.SplitList(getenv(providerSetVariable))
 	if len(declared) == 0 {
-		return nil, errors.New("KAANA_PROVIDERS is required: it lists the provider slugs to ask, and an empty one would publish a snapshot naming nothing")
+		providerSetVariable = "KAANA_PROVIDERS"
+		declared = providerconfig.SplitList(getenv(providerSetVariable))
+	}
+	if len(declared) == 0 {
+		return nil, errors.New("KAANA_DISCOVERY_PROVIDERS is required (KAANA_PROVIDERS is the compatibility fallback): an empty set would publish a snapshot naming nothing")
+	}
+	if providerSetVariable == "KAANA_DISCOVERY_PROVIDERS" {
+		serving := providerconfig.SplitList(getenv("KAANA_PROVIDERS"))
+		if len(serving) == 0 {
+			return nil, errors.New("KAANA_PROVIDERS is required alongside KAANA_DISCOVERY_PROVIDERS: the publisher must prove every discovered provider is served")
+		}
+		servedAt := make(map[contract.ProviderSlug]int, len(serving))
+		seenPrefix := make(map[string]contract.ProviderSlug, len(serving))
+		for index, name := range serving {
+			slug := contract.ProviderSlug(name)
+			if !slug.Valid() {
+				return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
+			}
+			if _, duplicate := servedAt[slug]; duplicate {
+				return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
+			}
+			servedAt[slug] = index
+
+			prefix := providerconfig.EnvironmentPrefix(slug)
+			if other, collides := seenPrefix[prefix]; collides {
+				return nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
+			}
+			seenPrefix[prefix] = slug
+		}
+		previousIndex := -1
+		for _, name := range declared {
+			index, ok := servedAt[contract.ProviderSlug(name)]
+			if !ok {
+				return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS names %q, which KAANA_PROVIDERS does not serve", name)
+			}
+			if index <= previousIndex {
+				return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS reorders %q relative to KAANA_PROVIDERS; discovery must preserve serving priority", name)
+			}
+			previousIndex = index
+		}
 	}
 
 	var providers []publisher.Provider
@@ -181,10 +224,10 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 	for _, name := range declared {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
-			return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
+			return nil, fmt.Errorf("%s names %q, which is not a provider slug", providerSetVariable, name)
 		}
 		if _, duplicate := seenSlug[slug]; duplicate {
-			return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
+			return nil, fmt.Errorf("%s names %q twice", providerSetVariable, slug)
 		}
 		seenSlug[slug] = struct{}{}
 
@@ -215,7 +258,7 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			// such list; a hand-written list for it would be the checked-in
 			// file this command exists to replace, so it is refused rather
 			// than invented.
-			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from KAANA_PROVIDERS for the publisher, or its models have to be declared by something that measured them", slug, protocol)
+			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from %s, or its models have to be declared by something that measured them", slug, protocol, providerSetVariable)
 		}
 		if known.Discovery == providerconfig.DiscoveryNotAvailable {
 			return nil, fmt.Errorf("provider %q has no documented account model-list endpoint, so the publisher cannot verify what this credential can serve", slug)
@@ -285,8 +328,9 @@ func credentialSource(client *http.Client) publisher.CredentialSource {
 // warnAboutUnaskedAttributions names a table entry for a provider nobody asks.
 //
 // It is otherwise invisible: an attribution for a provider that is not in
-// KAANA_PROVIDERS looks exactly like an attribution for a provider that serves
-// nothing, and both produce a snapshot missing routes somebody expected.
+// KAANA_DISCOVERY_PROVIDERS looks exactly like an attribution for a provider
+// that serves nothing, and both produce a snapshot missing routes somebody
+// expected.
 func warnAboutUnaskedAttributions(logger *slog.Logger, attribution *publisher.Attribution, providers []publisher.Provider) {
 	asked := make(map[contract.ProviderSlug]struct{}, len(providers))
 	for _, target := range providers {

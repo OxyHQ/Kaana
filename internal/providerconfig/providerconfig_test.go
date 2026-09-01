@@ -17,6 +17,9 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
+	if got := len(providerconfig.Known); got != 24 {
+		t.Fatalf("built-in providers = %d, want the 24 documented in README.md and docs/operating.md", got)
+	}
 	want := map[contract.ProviderSlug]string{
 		"mistral":      "https://api.mistral.ai/v1",
 		"deepseek":     "https://api.deepseek.com",
@@ -32,6 +35,10 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 		"nvidia":       "https://integrate.api.nvidia.com/v1",
 		"modelscope":   "https://api-inference.modelscope.cn/v1",
 		"zai":          "https://open.bigmodel.cn/api/paas/v4",
+		"nebius":       "https://api.tokenfactory.nebius.com/v1",
+		"nscale":       "https://inference.api.nscale.com/v1",
+		"chutes":       "https://llm.chutes.ai/v1",
+		"ovhcloud":     "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
 	}
 	for slug, baseURL := range want {
 		endpoint, ok := providerconfig.Known[slug]
@@ -42,10 +49,16 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	if providerconfig.Known["ai21"].Discovery != providerconfig.DiscoveryNotAvailable {
 		t.Fatal("AI21 was assigned a model-list endpoint its official API does not publish")
 	}
-	for _, slug := range []contract.ProviderSlug{"google", "cohere", "fireworks", "hyperbolic", "nvidia", "modelscope", "zai"} {
+	for _, slug := range []contract.ProviderSlug{"google", "cohere", "fireworks", "hyperbolic", "nvidia", "modelscope", "zai", "chutes", "ovhcloud"} {
 		if providerconfig.Known[slug].Discovery != providerconfig.DiscoveryNotAvailable {
 			t.Errorf("%s was assigned generic discovery without a documented OpenAI-shaped account list at its compatibility base", slug)
 		}
+	}
+	if providerconfig.Known["nebius"].Discovery != providerconfig.DiscoveryNebiusModels {
+		t.Error("Nebius lost the discovery profile that rejects delivery flavours")
+	}
+	if providerconfig.Known["nscale"].Discovery != providerconfig.DiscoveryOpenAIModels {
+		t.Error("Nscale lost its documented authenticated OpenAI model-list contract")
 	}
 }
 

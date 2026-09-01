@@ -65,7 +65,7 @@ role could assume it too.
 
 | Field | Source |
 |---|---|
-| `provider` | `KAANA_PROVIDERS`, filtered to the slugs that hold a credential |
+| `provider` | `KAANA_DISCOVERY_PROVIDERS`, filtered to the slugs that hold a credential |
 | `upstreamModelId` | that provider's own `GET /models`, verbatim |
 | `regions` | explicit `KAANA_PROVIDER_<SLUG>_REGIONS`, backed by upstream execution/residency terms; never `AWS_REGION` |
 | `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
@@ -108,9 +108,9 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 
 A concrete envelope with no `authorizedRoutes` resolves to the deployment
 declared FIRST and no other. A signed list keeps its own exact preference order
-and inventory never widens it. Deployments are emitted in the order
-`KAANA_PROVIDERS` declares their providers, and only providers holding a
-credential are emitted at all.
+and inventory never widens it. Deployments follow serving priority because
+`KAANA_DISCOVERY_PROVIDERS` must preserve the order declared by
+`KAANA_PROVIDERS`; only providers holding a credential are emitted at all.
 
 Two providers of one model line produce ONE reference with two endpoints, which
 is the failover set. That is why the observation date is keyed by model LINE and
@@ -142,7 +142,8 @@ call; serving owns rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `KAANA_PROVIDERS` | yes | the slugs to ask; the same list the serving process reads |
+| `KAANA_PROVIDERS` | yes | serving superset; the publisher refuses a discovery slug absent here |
+| `KAANA_DISCOVERY_PROVIDERS` | yes | the slugs to ask; an ordered discoverable subsequence of serving's `KAANA_PROVIDERS` |
 | `DATABASE_URL` | yes | TLS URL for Kaana's encrypted credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected symmetric KMS key ARN |
 | `KAANA_PROVIDER_<SLUG>_REGIONS` | no | verified upstream execution/residency regions; absence is an unattested empty set, eligible only when Oxy's effective policy has no regional control |
@@ -151,6 +152,13 @@ call; serving owns rotation.
 | `AWS_REGION` | yes | the bucket's region |
 | `KAANA_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `KAANA_INVENTORY_MAX_AGE` |
 | `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/kaana-publisher/model-attribution.json`, baked into the image |
+
+`KAANA_PROVIDERS` remains a compatibility fallback for publisher task
+definitions created before the split. New deployments must set both variables;
+publisher startup refuses any discovery slug absent from the serving set or
+ordered differently. Thus
+adding a serving-only provider cannot make discovery fail, and discovery cannot
+publish a provider the serving task would reject as unroutable.
 
 Credentials come from the ECS task role — `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
 or `_FULL_URI`, refreshed before expiry — falling back to

@@ -103,6 +103,13 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		if target.Discovery == providerconfig.DiscoveryMistralModels && !entry.Capabilities.CompletionChat {
 			continue
 		}
+		if target.Discovery == providerconfig.DiscoveryNebiusModels && strings.HasSuffix(strings.TrimSpace(entry.ID), "-fast") {
+			// Nebius documents `-fast` as an infrastructure flavour with
+			// identical model outputs, not a second immutable model identity. A
+			// provider-specific profile keeps it out before attribution can
+			// accidentally bless one.
+			continue
+		}
 		id := strings.TrimSpace(entry.ID)
 		if id == "" {
 			return nil, fmt.Errorf("publisher: %s's model list contains an entry with no id", target.Slug)
@@ -132,7 +139,8 @@ const maxModelListBytes = 4 << 20
 
 type modelListResponse struct {
 	Data []struct {
-		ID           string `json:"id"`
+		ID string `json:"id"`
+
 		Capabilities struct {
 			CompletionChat bool `json:"completion_chat"`
 		} `json:"capabilities"`
@@ -144,6 +152,15 @@ func discoveryEndpoint(target Provider) (string, error) {
 	switch target.Discovery {
 	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryMistralModels:
 		return base + "/models", nil
+	case providerconfig.DiscoveryNebiusModels:
+		parsed, err := url.Parse(base + "/models")
+		if err != nil {
+			return "", fmt.Errorf("publisher: provider %s has an invalid model list address", target.Slug)
+		}
+		query := parsed.Query()
+		query.Set("verbose", "true")
+		parsed.RawQuery = query.Encode()
+		return parsed.String(), nil
 	case providerconfig.DiscoverySiliconModels:
 		parsed, err := url.Parse(base + "/models")
 		if err != nil {

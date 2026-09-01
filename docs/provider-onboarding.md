@@ -44,6 +44,10 @@ credential only at send time.
 | Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | No account `GET /models` is documented for Model Studio inference | Fixed Qwen snapshots exist alongside moving family ids | Not built in. Generic serving can be configured explicitly, but publishing is not implemented and must not guess `/models`. Requires a verified static-catalog control. |
 | SiliconFlow | `https://api.siliconflow.cn/v1` | `POST /chat/completions` | `GET /models?type=text&sub_type=chat` | Versioned upstream ids exist; `Pro/` is a delivery/payment tier, not different weights | Built-in `openaicompat` serving; publisher applies both discovery filters; five fixed chat ids are attributed. No live credential conformance has been recorded. |
 | AI21 | `https://api.ai21.com/studio/v1` | `POST /chat/completions` | No `GET /models` is documented in the current API reference | Two dated Jamba snapshots are fixed; shorter names are aliases | Built-in `openaicompat` serving configuration. Discovery is `not_available`, so the publisher refuses AI21. No attribution or static-catalog path exists yet. |
+| Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | `POST /chat/completions` | Authenticated `GET /models?verbose=true`, OpenAI list plus rich model metadata | The documented `-fast` flavour may not mint a new model identity; any other id still needs exact attribution | Built-in `openaicompat` serving and provider-specific authenticated discovery. Two fixed Meta ids from official examples are attributed; they remain absent until a verbose account list returns them as base deployments. |
+| Nscale | `https://inference.api.nscale.com/v1` | `POST /chat/completions` | Authenticated, organization-scoped `GET /models`; the catalogue mixes chat, vision, embeddings and image generation | Versioned ids exist, but task capability still needs review | Built-in `openaicompat` serving and generic authenticated discovery. One fixed Meta chat id from the official guide is attributed; every other row remains dropped. |
+| Chutes | `https://llm.chutes.ai/v1` | `POST /chat/completions` | The documented `/models` catalogue is public, not an account entitlement list | TEE suffixes are deployment facts; saved aliases and routing strategies move | Built-in serving only. Discovery is `not_available` until account access, routing identity and streamed usage have a provider-specific control. |
+| OVHcloud AI Endpoints | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | `POST /chat/completions` | Public catalogue at a separate `catalog.endpoints.ai.ovh.net` origin | Availability and decommission state are mutable deployment facts | Built-in serving only. Discovery is `not_available`; Kaana will not send a provider credential to the public catalogue or mistake catalogue presence for account access. |
 
 "Built in" above means that the current tree can construct the shared adapter
 with the documented base URL. It does **not** mean that provider-specific error
@@ -355,6 +359,52 @@ remote native API at `https://ollama.com/api` and the OpenAI-compatible surface
 for local Ollama, but does not currently document a remote OpenAI-compatible
 base that Kaana can pin without inference.[^ollama-cloud][^ollama-openai]
 
+## Second direct-provider cohort
+
+The same external-catalogue review identified four additional provider-owned
+origins. ItsFree was a search lead only: its Nebius address was the retired AI
+Studio hostname, while Nebius now documents Token Factory at
+`https://api.tokenfactory.nebius.com/v1`. Kaana therefore carries no provider
+fact merely because the external repository lists it.[^nebius-api]
+
+Nebius and Nscale both document bearer-authenticated Chat Completions and a
+model list at the same root; Nscale explicitly scopes its OpenAI-shaped list to
+the authenticated organization. Nebius discovery requests `verbose=true` and
+discards the documented `-fast` delivery flavour before attribution. Any other
+unreviewed alias is dropped by the exact attribution allow-list. Nscale uses the
+generic OpenAI list profile.
+The official examples provide two fixed Meta ids for Nebius and one for Nscale,
+so those exact ids are attributed to canonical model lines already established
+by existing routes. They still create no deployment unless the authenticated
+account list returns the exact id. A first real capture must retain Nebius's
+delivery-flavour evidence and review Nscale task capability before
+the allow-list grows.[^nebius-models][^nebius-flavours][^nscale-chat][^nscale-models]
+
+Chutes documents an OpenAI-compatible streaming endpoint, bearer keys and a
+live `/models` catalogue. Its platform also exposes saved aliases and routing
+strategies, and model capabilities depend on the selected backend. The shared
+adapter can therefore be configured from the built-in origin, while publisher
+startup refuses it until Kaana has a provider-specific identity and conformance
+control. `-TEE` describes Chutes's attested delivery, not a second set of model
+weights.[^chutes-start][^chutes-tools]
+
+OVHcloud documents Chat Completions, streaming tool-call deltas and bearer
+authentication. Its official discovery source is instead a public catalogue on
+a different origin, explicitly separate from inference and subject to breaking
+changes. That catalogue reports `available`, category, modalities and lifecycle
+metadata, but not what one Kaana credential is entitled to invoke. OVHcloud is
+therefore built in for serving and deliberately `not_available` to the current
+account publisher.[^ovh-tools][^ovh-catalogue]
+
+Hugging Face Inference Providers, Kilo AI Gateway, LLM7 and OpenCode Zen are not
+added as direct built-ins. Their documented surfaces route among downstream
+providers or protocols; moving selectors such as `:fastest`, `:cheapest`,
+`default`, `kilo-auto/*` and mixed-protocol model entries do not meet Kaana's
+single-provider deployment identity. An operator can still declare a reviewed
+HTTPS origin explicitly, but publication needs a router-aware contract first.
+GLHF is also excluded because no current provider-owned wire contract could be
+verified.[^hf-router][^kilo-gateway][^llm7-models][^opencode-zen]
+
 ## Completion criteria
 
 A provider is production-onboarded only when all applicable checks below are
@@ -423,3 +473,16 @@ green:
 [^zai-chat]: [Zhipu Chat Completions API](https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8)
 [^ollama-cloud]: [Ollama Cloud API access](https://docs.ollama.com/cloud)
 [^ollama-openai]: [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility)
+[^nebius-api]: [Nebius Token Factory API introduction](https://docs.tokenfactory.nebius.com/api-reference/introduction)
+[^nebius-models]: [Nebius Token Factory — list models](https://docs.tokenfactory.nebius.com/api-reference/models/list-models)
+[^nebius-flavours]: [Nebius Token Factory model flavours](https://docs.tokenfactory.nebius.com/ai-models-inference/overview)
+[^nscale-chat]: [Nscale Chat API](https://docs.nscale.com/docs/use-cases/chat)
+[^nscale-models]: [Nscale model overview and models endpoint](https://docs.nscale.com/docs/ai-services/models)
+[^chutes-start]: [Chutes starter guide](https://chutes.ai/docs/guides/starter-guide)
+[^chutes-tools]: [Chutes agents and tools](https://chutes.ai/docs/guides/agents-and-tools)
+[^ovh-tools]: [OVHcloud AI Endpoints function calling](https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-function-calling)
+[^ovh-catalogue]: [OVHcloud AI Endpoints Catalog API](https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-catalog-api)
+[^hf-router]: [Hugging Face Inference Providers routing](https://huggingface.co/docs/inference-providers/en/index)
+[^kilo-gateway]: [Kilo AI Gateway model routing](https://kilo.ai/docs/gateway/models-and-providers)
+[^llm7-models]: [LLM7 model selectors](https://docs.llm7.io/guides/models)
+[^opencode-zen]: [OpenCode Zen model gateway](https://opencode.ai/docs/zen)

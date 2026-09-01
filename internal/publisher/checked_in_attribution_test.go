@@ -150,3 +150,43 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckedInAttributionPinsOnlyTheDocumentedNebiusAndNscaleExamples(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+
+	want := map[contract.ProviderSlug]map[string]contract.ModelID{
+		"nebius": {
+			"meta-llama/Meta-Llama-3.1-70B-Instruct": "meta-llama/llama-3.1-70b-instruct",
+			"meta-llama/Llama-3.3-70B-Instruct":      "meta-llama/llama-3.3-70b-instruct",
+		},
+		"nscale": {
+			"meta-llama/Llama-3.1-8B-Instruct": "meta-llama/llama-3.1-8b-instruct",
+		},
+	}
+	for slug, models := range want {
+		if got := len(table.byProvider[slug]); got != len(models) {
+			t.Errorf("%s has %d attributions, want exactly the %d documented examples", slug, got, len(models))
+		}
+		for upstreamModelID, modelLine := range models {
+			got, ok := table.ModelLine(slug, upstreamModelID)
+			if !ok || got != modelLine {
+				t.Errorf("%s/%s = %q, %t; want %q", slug, upstreamModelID, got, ok, modelLine)
+			}
+		}
+	}
+
+	for _, candidate := range []struct {
+		slug contract.ProviderSlug
+		id   string
+	}{
+		{slug: "nebius", id: "meta-llama/Meta-Llama-3.1-70B-Instruct-fast"},
+		{slug: "nscale", id: "default"},
+	} {
+		if _, ok := table.ModelLine(candidate.slug, candidate.id); ok {
+			t.Errorf("%s/%s attributes a delivery alias rather than fixed weights", candidate.slug, candidate.id)
+		}
+	}
+}
