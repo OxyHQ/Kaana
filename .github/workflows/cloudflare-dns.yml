@@ -1,7 +1,7 @@
-# Reconciles the two DNS records required by kaana.oxy.so:
+# Reconciles the two DNS records required by kaana.ai:
 #
 # - ACM's validation CNAME is DNS-only so certificate issuance reaches AWS.
-# - kaana.oxy.so points at Kaana's dedicated ALB and is proxied so Cloudflare
+# - kaana.ai points at Kaana's dedicated ALB and is proxied so Cloudflare
 #   can rate-limit requests before Kaana reads the signed request body.
 #
 # This lives in the public Kaana repository because GitHub Free does not expose
@@ -69,8 +69,8 @@ jobs:
           if validation_name or validation_value:
               if not validation_name or not validation_value:
                   sys.exit("validation_name and validation_value must be supplied together")
-              if not validation_name.endswith(".kaana.oxy.so"):
-                  sys.exit("validation_name is outside kaana.oxy.so")
+              if not validation_name.endswith(".kaana.ai"):
+                  sys.exit("validation_name is outside kaana.ai")
               if not validation_value.endswith(".acm-validations.aws"):
                   sys.exit("validation_value is not an ACM validation target")
               wanted.append((validation_name, validation_value, False))
@@ -78,7 +78,7 @@ jobs:
           if alb_dns:
               if not alb_dns.endswith(".us-west-2.elb.amazonaws.com"):
                   sys.exit("alb_dns is not a us-west-2 ELB hostname")
-              wanted.append(("kaana.oxy.so", alb_dns, True))
+              wanted.append(("kaana.ai", alb_dns, True))
 
           if not wanted:
               sys.exit("nothing to do")
@@ -101,10 +101,10 @@ jobs:
                   print(f"HTTP {error.code}: {detail.get('errors')}")
                   return detail
 
-          zones = api("GET", "/zones?" + urllib.parse.urlencode({"name": "oxy.so"}))
+          zones = api("GET", "/zones?" + urllib.parse.urlencode({"name": "kaana.ai"}))
           rows = zones.get("result") or []
           if not zones.get("success") or len(rows) != 1:
-              sys.exit(f"cannot resolve the oxy.so zone: {zones.get('errors')}")
+              sys.exit(f"cannot resolve the kaana.ai zone: {zones.get('errors')}")
           zone_id = rows[0]["id"]
 
           failed = False
