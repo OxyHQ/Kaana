@@ -67,6 +67,7 @@ role could assume it too.
 |---|---|
 | `provider` | `KAANA_PROVIDERS`, filtered to the slugs that hold a credential |
 | `upstreamModelId` | that provider's own `GET /models`, verbatim |
+| `regions` | explicit `KAANA_PROVIDER_<SLUG>_REGIONS`, backed by upstream execution/residency terms; never `AWS_REGION` |
 | `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
 | `current` | true; each model line has exactly one revision, its observation |
 | `deploymentId` | derived from the three above, so an unchanged re-issue keeps its ids |
@@ -94,7 +95,7 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 
 | Condition | Result |
 |---|---|
-| a declared provider holds no credential | dropped from the snapshot, warned; naming it would refuse its references or pin a permanent `unconfigured` alarm |
+| a declared provider holds no active database credential | publisher startup refuses; it must not emit a route the serving process cannot authenticate |
 | a provider serves a model nobody attributed | dropped, warned; inferring a publisher from a model id is a claim about somebody else's work |
 | one provider cannot be asked | its routes are absent for that cycle; the others still publish |
 | no provider could be asked | the cycle refuses and the published snapshot is left alone |
@@ -105,11 +106,11 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 
 ### Ordering is load-bearing
 
-Failover is off by default, so a reference resolves to the deployment declared
-FIRST and no other. Deployments are emitted in the order `KAANA_PROVIDERS`
-declares their providers, and only providers holding a credential are emitted at
-all — so every declared route is servable, and the operator's provider list is
-the one place a primary is chosen.
+A concrete envelope with no `authorizedRoutes` resolves to the deployment
+declared FIRST and no other. A signed list keeps its own exact preference order
+and inventory never widens it. Deployments are emitted in the order
+`KAANA_PROVIDERS` declares their providers, and only providers holding a
+credential are emitted at all.
 
 Two providers of one model line produce ONE reference with two endpoints, which
 is the failover set. That is why the observation date is keyed by model LINE and
@@ -133,21 +134,23 @@ is what it replaces and nothing around it moves.
 
 ### Running it
 
-Everything `cmd/kaana` reads about providers, this reads too, from the same
-variables through `internal/providerconfig` — so the two commands cannot
-disagree about where a provider lives. It uses ONE key from a pool: listing
-models is a single unmetered call whose failure means "ask again later", and the
-serving process owns the rotation.
+Everything `cmd/kaana` reads about non-secret provider configuration, this reads
+too through `internal/providerconfig`, so the two commands cannot disagree about
+where a provider lives. Both load their pools from the same PostgreSQL/KMS
+store. The publisher uses one key because listing models is a single unmetered
+call; serving owns rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `KAANA_PROVIDERS` | yes | the slugs to ask; the same list the serving process reads |
-| `KAANA_PROVIDER_<SLUG>_API_KEY` | yes, per slug | a slug with no key is dropped with a warning |
+| `DATABASE_URL` | yes | TLS URL for Kaana's encrypted credential database |
+| `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected symmetric KMS key ARN |
+| `KAANA_PROVIDER_<SLUG>_REGIONS` | no | verified upstream execution/residency regions; absence is an unattested empty set, eligible only when Oxy's effective policy has no regional control |
 | `KAANA_INVENTORY_BUCKET` | yes | the S3 bucket to publish into; never defaulted |
 | `KAANA_INVENTORY_KEY` | yes | the object key, e.g. `inventory/current.json` |
 | `AWS_REGION` | yes | the bucket's region |
 | `KAANA_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `KAANA_INVENTORY_MAX_AGE` |
-| `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/relay-publisher/model-attribution.json`, baked into the image |
+| `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/kaana-publisher/model-attribution.json`, baked into the image |
 
 Credentials come from the ECS task role — `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
 or `_FULL_URI`, refreshed before expiry — falling back to
@@ -156,16 +159,14 @@ defaulted into existence; with neither present the signer refuses and names what
 is missing.
 
 The image carries both binaries. A publisher task overrides `entryPoint` to
-`/usr/local/bin/relay-publisher`; forgetting the override starts `relay`, which
+`/usr/local/bin/kaana-publisher`; forgetting the override starts `kaana`, which
 refuses to boot without a snapshot, so the mistake is loud.
 
-`internal/awssig` is a hundred lines of SigV4 rather than the AWS SDK, because
-this module has no dependencies and needs one `GET` and one `PUT`. It is checked
-against AWS's own published `get-vanilla` test vector, not against a second
-reading of the specification by the same author.
+`internal/awssig` remains the narrow S3 signer and is checked against AWS's
+published `get-vanilla` test vector. The AWS SDK is used only for KMS.
 
 
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
+[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md

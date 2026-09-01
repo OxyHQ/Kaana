@@ -29,7 +29,7 @@
 //
 // signed over, with `\n` separators and no trailing newline:
 //
-//	oxy-relay-envelope:v1
+//	oxy-kaana-envelope:v1
 //	<key id>
 //	<timestamp>
 //	<lowercase hex sha256 of the exact request body>
@@ -61,47 +61,11 @@ const (
 	HeaderSignature = "X-Oxy-Kaana-Signature"
 )
 
-// The spelling this service answered to before it was named Kaana. Both are
-// accepted for exactly as long as it takes Oxy's edge to send the new ones.
-//
-// This is a MIGRATION, not a compatibility layer, and the difference is that it
-// has an end: the edge is the only signer, so once it sends the new names these
-// three constants and the fallback below are deleted. Renaming a header the
-// edge still sends would refuse every request with `unknown key id` — the
-// signature never even gets computed — so a clean cut here is an outage in the
-// window between the two deploys, and there is no ordering of two deploys that
-// removes it.
-const (
-	legacyHeaderKeyID     = "X-Oxy-Relay-Key-Id"
-	legacyHeaderTimestamp = "X-Oxy-Relay-Timestamp"
-	legacyHeaderSignature = "X-Oxy-Relay-Signature"
-)
-
-// headerValue prefers the current name and falls back to the legacy one.
-//
-// Per header rather than all-or-nothing, which is safe because the signature
-// covers the VALUES — key id, timestamp and body hash — and never the names a
-// request happened to carry them in. A mixed pair therefore verifies or fails
-// on its own merits, exactly as a matched pair does.
-func headerValue(header http.Header, current, legacy string) string {
-	if v := header.Get(current); v != "" {
-		return v
-	}
-	return header.Get(legacy)
-}
-
 const signaturePrefix = "v1="
 
 // domainSeparator keeps a signature minted for another Oxy purpose from being
-// replayed here. IT STILL SAYS `relay` AFTER THE RENAME, AND DELIBERATELY SO:
-// this string is inside the signed payload, so changing it changes every
-// signature and would need Oxy's edge to change in the same instant. It is
-// opaque to everyone — no customer, log or dashboard ever sees it — so renaming
-// it would buy nothing and cost a coordinated cutover.
-//
-// The original comment follows.
 // replayable as an inference envelope.
-const domainSeparator = "oxy-relay-envelope:v1"
+const domainSeparator = "oxy-kaana-envelope:v1"
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
 //
@@ -152,13 +116,13 @@ func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Ver
 // it will parse: verifying a re-encoded body would authenticate something other
 // than what gets executed.
 func (v *Verifier) Verify(header http.Header, body []byte) error {
-	keyID := headerValue(header, HeaderKeyID, legacyHeaderKeyID)
+	keyID := header.Get(HeaderKeyID)
 	key, known := v.keys[keyID]
 	if !known {
 		return fmt.Errorf("%w: unknown key id", ErrUnauthorized)
 	}
 
-	milliseconds, err := strconv.ParseInt(headerValue(header, HeaderTimestamp, legacyHeaderTimestamp), 10, 64)
+	milliseconds, err := strconv.ParseInt(header.Get(HeaderTimestamp), 10, 64)
 	if err != nil {
 		return fmt.Errorf("%w: unreadable timestamp", ErrUnauthorized)
 	}
@@ -169,7 +133,7 @@ func (v *Verifier) Verify(header http.Header, body []byte) error {
 		return fmt.Errorf("%w: the signature is outside the accepted time window", ErrUnauthorized)
 	}
 
-	raw := headerValue(header, HeaderSignature, legacyHeaderSignature)
+	raw := header.Get(HeaderSignature)
 	if !strings.HasPrefix(raw, signaturePrefix) {
 		return fmt.Errorf("%w: unversioned signature", ErrUnauthorized)
 	}

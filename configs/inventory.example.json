@@ -2,9 +2,9 @@
   "$comment": [
     "Kaana's deployment inventory: which providers serve which model reference, and what each of them calls the model.",
     "It holds no Oxy-owned concept — no account, application, credential, price or commercial permission. See AGENTS.md.",
-    "snapshotId and issuedAt are REQUIRED. Staleness is measured from issuedAt, not from when Kaana last read this file, so the publisher must re-issue the snapshot on a cadence shorter than RELAY_INVENTORY_MAX_AGE even when nothing has changed. An unchanged file with an old issuedAt is indistinguishable, from Kaana, from a control plane that has stopped publishing.",
-    "Two deployments of one modelReference are a same-model failover set: the same weights, two places to get them. Kaana never substitutes a different model.",
-    "By default Kaana does NOT use the second one. Choosing among the deployments of a model is governed by routing-policy values the envelope does not carry (routingFallbackPolicy.sameModelDeployment, allowedRegions, deniedRegions), so without RELAY_ASSUME_FAILOVER_AUTHORIZED a reference resolves to the deployment declared FIRST here and nowhere else. See README, 'The policy Kaana is not sent'.",
+    "snapshotId and issuedAt are REQUIRED. Staleness is measured from issuedAt, not from when Kaana last read this file, so the publisher must re-issue the snapshot on a cadence shorter than KAANA_INVENTORY_MAX_AGE even when nothing has changed. An unchanged file with an old issuedAt is indistinguishable, from Kaana, from a control plane that has stopped publishing.",
+    "Two deployments of one modelReference are a same-model failover set: the same weights, two places to get them.",
+    "Kaana attempts only the ordered authorizedRoutes signed into a request. With no list, a concrete target uses the deployment declared FIRST here and nowhere else; a routing profile with no list is refused.",
     "The entries below are illustrative. No live provider call has been made from this repository, so the upstream model ids here are unverified against a real provider."
   ],
   "snapshotId": "snap_example_0001",
@@ -15,7 +15,7 @@
       "provider": "openai",
       "modelReference": "openai/gpt-5@2026-05-01",
       "upstreamModelId": "gpt-5-2026-05-01",
-      "region": "us-east-1",
+      "regions": ["us-east-1"],
       "current": true
     },
     {
@@ -23,7 +23,7 @@
       "provider": "openai",
       "modelReference": "openai/gpt-5@2026-05-01",
       "upstreamModelId": "gpt-5-2026-05-01",
-      "region": "us-west-2",
+      "regions": ["us-west-2"],
       "current": true
     },
     {
@@ -31,7 +31,7 @@
       "provider": "anthropic",
       "modelReference": "anthropic/claude-opus@2026-05-01",
       "upstreamModelId": "claude-opus-5",
-      "region": "us-east-1",
+      "regions": ["us-east-1"],
       "current": true
     },
     {
@@ -39,7 +39,7 @@
       "provider": "openai",
       "modelReference": "openai/gpt-5@2026-01-01",
       "upstreamModelId": "gpt-5-2026-01-01",
-      "region": "us-east-1",
+      "regions": ["us-east-1"],
       "current": false
     }
   ]

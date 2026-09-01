@@ -295,7 +295,7 @@ func (f *fakeUpstream) writeBlocks(w http.ResponseWriter, r *http.Request, write
 		if !write("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_fake","name":"lookup","input":{}}}`) {
 			return false
 		}
-		fragments := []string{`""`, `"{\"q\":"`, `"\"relay\"}"`}
+		fragments := []string{`""`, `"{\"q\":"`, `"\"kaana\"}"`}
 		for _, fragment := range fragments {
 			if !f.writeChunk(r, write, "content_block_delta",
 				fmt.Sprintf(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":%s}}`, fragment)) {

@@ -22,17 +22,17 @@ func issued(at time.Time, deployments string) []byte {
 
 const twoRevisions = `
   {"deploymentId":"dep_old","provider":"openai","modelReference":"openai/gpt-5@2026-01-01",
-   "upstreamModelId":"gpt-5-2026-01-01","region":"us-east-1","current":false},
+   "upstreamModelId":"gpt-5-2026-01-01","regions":["us-east-1"],"current":false},
   {"deploymentId":"dep_new","provider":"openai","modelReference":"openai/gpt-5@2026-05-01",
-   "upstreamModelId":"gpt-5-2026-05-01","region":"us-east-1","current":true}`
+   "upstreamModelId":"gpt-5-2026-05-01","regions":["us-east-1"],"current":true}`
 
 // twoDeploymentsOfOneRevision is the failover set: the same weights, two places
 // to get them.
 const twoDeploymentsOfOneRevision = `
   {"deploymentId":"dep_primary","provider":"openai","modelReference":"openai/gpt-5@2026-05-01",
-   "upstreamModelId":"gpt-5-2026-05-01","region":"us-east-1","current":true},
+   "upstreamModelId":"gpt-5-2026-05-01","regions":["us-east-1"],"current":true},
   {"deploymentId":"dep_secondary","provider":"together","modelReference":"openai/gpt-5@2026-05-01",
-   "upstreamModelId":"openai/gpt-5-2026-05-01","region":"us-west-2","current":true}`
+   "upstreamModelId":"openai/gpt-5-2026-05-01","regions":["us-west-2"],"current":true}`
 
 func parse(t *testing.T, document []byte) *inventory.Inventory {
 	t.Helper()
@@ -295,6 +295,11 @@ func TestParseRefusesWhatResolutionWouldHaveToGuessAbout(t *testing.T) {
 			expect:   "not a model reference",
 		},
 		{
+			name:     "a region appears twice",
+			document: issued(now, `{"deploymentId":"d","provider":"openai","modelReference":"openai/gpt-5@r","upstreamModelId":"x","regions":["us-east-1","us-east-1"]}`),
+			expect:   "declares region \"us-east-1\" twice",
+		},
+		{
 			name: "a snapshot that does not say when it was issued",
 			// Its staleness could only be guessed at, and the guess that keeps
 			// serving is the one that silently serves a revision Oxy replaced.
@@ -320,6 +325,23 @@ func TestParseRefusesWhatResolutionWouldHaveToGuessAbout(t *testing.T) {
 				t.Errorf("refused with %q, expected it to mention %q", err, testCase.expect)
 			}
 		})
+	}
+}
+
+func TestAnExplicitEmptyRegionListMeansNoRegionalAttestation(t *testing.T) {
+	now := time.Now()
+	parsed, err := inventory.Parse(issued(now,
+		`{"deploymentId":"d","provider":"openai","modelReference":"openai/gpt-5@r","upstreamModelId":"x","regions":[],"current":true}`), time.Hour)
+	if err != nil {
+		t.Fatalf("an explicit empty unattested region set was refused: %v", err)
+	}
+	set, err := parsed.Resolve("openai/gpt-5@r", now)
+	if err != nil {
+		t.Fatalf("resolving the unattested deployment: %v", err)
+	}
+	routes := set.Candidates()
+	if len(routes) != 1 || len(routes[0].Regions) != 0 {
+		t.Fatalf("the unattested deployment resolved as %+v", routes)
 	}
 }
 

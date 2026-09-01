@@ -72,7 +72,7 @@ func AttributableCategory(category contract.UpstreamErrorCategory) bool {
 	case contract.UpstreamRateLimit, contract.UpstreamQuota, contract.UpstreamTimeout,
 		contract.UpstreamOverloaded, contract.UpstreamServerError, contract.UpstreamAuthentication:
 		// Authentication belongs here because the credential a provider
-		// refused is RELAY's, not the customer's: another deployment holds a
+		// refused is KAANA's, not the customer's: another deployment holds a
 		// different one, and this deployment cannot serve anything until an
 		// operator rotates a key.
 		return true

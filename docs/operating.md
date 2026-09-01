@@ -1,117 +1,21 @@
-# Running and deploying it
+# Running and deploying Kaana
 
-Running it locally, the configuration it needs, and what the deployment must supply.
+Kaana refuses partial configuration. There is no unauthenticated local mode and
+there is no provider-key fallback outside its database.
 
-## Running it
-
-Everything comes from the environment and one inventory file. There is no
-unauthenticated mode, not even for local development: a bypass that exists is a
-bypass that ships.
+## Runtime configuration
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `KAANA_INVENTORY_PATH` | yes | deployment inventory snapshot (see `configs/inventory.example.json`) |
-| `KAANA_EDGE_PUBLIC_KEYS` | yes | `kid:base64,…` Ed25519 **public** keys; not secret |
-| `KAANA_PROVIDERS` | yes | the provider slugs this process serves, e.g. `openai,openrouter,cerebras,anthropic` |
-| `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent ⇒ provider cost is not measured |
-
-Then, per provider, with `<SLUG>` upper-cased and `.`/`-` replaced by `_`. Two
-slugs that collapse onto one variable name are refused at startup rather than
-silently sharing an address and a pool.
-
-| Variable | Required | Meaning |
-|---|---|---|
-| `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
-| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | the provider's API root |
-| `KAANA_PROVIDER_<SLUG>_API_KEY` | no | one credential, or a pool separated by commas; absent ⇒ the provider reports `unconfigured` |
-| `KAANA_PROVIDER_<SLUG>_HEADERS` | no | `Name=Value` pairs the provider expects, comma-separated (OpenRouter's attribution headers) |
-| `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
-| `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT provider accounts; only then does a throttle rotate. Anything but `true`/`false` refuses to start rather than quietly meaning "not set" |
-
-`openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
-published API root, both overridable. Any other slug declares both: an address
-this build guessed would be an address nobody chose. A wrong address fails loudly
-on the first request, which is why a default here is not the kind of invention a
-default sampling parameter would be — no live call has been made from this
-repository to any of them.
-
-This block shows the SHAPE of the per-provider variables. It is not a
-deployment, and the provider list in it is not the one to deploy — see
-[What the deployment must supply](#what-the-deployment-must-supply-and-what-happens-when-it-does-not),
-which declares only the slugs whose key exists.
-
-```bash
-# ILLUSTRATIVE — shows the variable shapes, NOT a deployable provider set.
-# Declaring a slug with no key starts cleanly and serves nothing: the adapter
-# reports `unconfigured` and refuses every request routed to it. Deploy only
-# the slugs whose key exists.
-KAANA_PROVIDERS=cerebras,openrouter,openai
-KAANA_PROVIDER_CEREBRAS_API_KEY=…
-KAANA_PROVIDER_OPENROUTER_API_KEY=…,…,…          # a pool of three
-KAANA_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS=true
-KAANA_PROVIDER_OPENROUTER_HEADERS=HTTP-Referer=https://oxy.so,X-Title=Oxy
-KAANA_PROVIDER_OPENAI_API_KEY=…
-```
-
-**The one closed list here is the PROTOCOL.** It names which adapter
-implementation to construct, and a build can only construct one it contains, so
-an unknown value is refused rather than defaulted. Provider **slugs are not a
-closed list**: the built-in table is defaults, and any slug that declares a
-protocol and a base URL is servable with no Go change.
-
-### What these names have to agree with
-
-The variable name is also the SSM parameter leaf and the GitHub secret name, and
-the three are one string because the deploy sync derives the parameter path from
-the secret name — a design where they differ breaks the sync with no error.
-
-The slug→variable transform is total, and its output is always a legal
-environment variable name: a slug is `[a-z0-9._-]`, the two characters a
-variable name cannot carry are folded to `_`, and the constant prefix means the
-result never begins with a digit. What the folding creates is **collisions** —
-`open-router` and `open.router` are two slugs and one variable name — and those
-are refused at startup rather than resolved, because the loser would silently be
-configured with the winner's address and credentials.
-
-**A whole pool lives in the one `_API_KEY` variable**, not in numbered siblings.
-That is a deployment property rather than a preference: credentials are
-delivered as a static list resolved once at task launch, so a name per key would
-grow that list with the pool and make a missing key inside one an invisible
-deploy-time edit. One name per provider keeps adding a KEY a parameter *value*
-change, and adding a PROVIDER one new name. A credential containing a comma is
-not representable, and a blank or duplicated entry is refused where it is read.
-
-### The three things that move on different clocks
-
-The published snapshot, this build's adapter set and the deployment's credential
-list are updated by different people at different times, and each pairing fails
-differently. None of them is fatal, and one of them is invisible from outside:
-
-| State | What happens |
-|---|---|
-| a provider is declared with no credential | the process starts and the adapter reports `unconfigured`; a request to it is refused non-retryably, naming the operator's gap |
-| the snapshot routes to a provider this build has no adapter for | a startup **warning** naming it; references served only by that provider are refused, every other reference is served |
-| a credential is delivered for a provider that was never declared | a startup **warning** naming the variable — the only signal there is |
-
-The second used to refuse to start. It no longer does, because the inventory is
-published by the control plane while the adapter set is fixed at deploy time: a
-provider can appear in a snapshot before the deploy that gives this build its
-credential, and stopping there would take routing for every SUPPORTED provider
-down over one unsupported one — on the next task replacement rather than when
-the snapshot changed, since the reload path already treated the identical
-condition as a warning. Two answers to one question, and the fatal one was
-reachable only by restarting.
-
-The third is the one worth stating plainly, because **no check outside the
-process can see it**: the task starts, the health probe passes, the rollout
-reports complete, and the provider is simply absent. The environment and the
-provider list are only both visible here, so this is where it is named. It
-warns rather than refuses — retiring a provider means removing it from the list
-before deleting its parameter, and a refusal would turn the safe order into the
-one that stops every task.
-| `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon for unpinned resolution, default `1h` |
+| `KAANA_INVENTORY_PATH` | yes | deployment inventory snapshot |
+| `KAANA_EDGE_PUBLIC_KEYS` | yes | `kid:base64,…` Ed25519 public keys; not secret |
+| `KAANA_PROVIDERS` | yes | provider slugs served by this process |
+| `DATABASE_URL` | yes | TLS PostgreSQL URL for Kaana's credential database |
+| `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | symmetric KMS key ARN; not secret |
+| `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent means cost is not measured |
+| `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon, default `1h` |
 | `KAANA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
-| `KAANA_ASSUME_FAILOVER_AUTHORIZED` | no | `<reason>:<YYYY-MM-DD>`; absent ⇒ no failover, see above |
+| `KAANA_CREDENTIAL_RELOAD_INTERVAL` | no | atomic database/KMS pool reload, default `1m` |
 | `KAANA_BREAKER_FAILURES_TO_OPEN` | no | default `3` |
 | `KAANA_BREAKER_COOLDOWN` | no | default `5s` |
 | `KAANA_BREAKER_MAX_COOLDOWN` | no | default `2m` |
@@ -120,260 +24,282 @@ one that stops every task.
 | `KAANA_EDGE_MAX_SKEW` | no | default `5m` |
 | `KAANA_MAX_ENVELOPE_BYTES` | no | default `16777216` |
 
-```bash
-go build ./... && go vet ./... && go test -race ./...
-golangci-lint run ./...
-cd tools/contract && npm ci && npm run generate && npm run validate
-```
+Failover has no process-wide switch. The signed request's ordered
+`authorizedRoutes` list is the complete authority: an absent list narrows a
+concrete target to its declared primary, and a routing-profile target without a
+list is refused.
 
-## Deploying it
+Per provider, `<SLUG>` is upper-cased and `.`/`-` become `_`:
 
-`Dockerfile` builds a `linux/arm64` image — Oxy's ECS cluster is Graviton —
-and `.github/workflows/deploy-aws.yml` pushes it to ECR, registers a task
-definition naming that image by DIGEST, and repoints the service at the new
-revision. A tag would not do: `--force-new-deployment` against `:latest`
-relaunches whatever the tag resolves to at that moment, so "what is running"
-stops being a question the task definition can answer.
-
-**Both services, in one release.** The image carries two binaries and there are
-two ECS services — `relay` serves and `relay-publisher` writes the inventory the
-serving tasks read — so the deploy repoints both, `relay` first. One image built
-from one commit is what keeps the publisher from producing snapshots against a
-contract the reader has moved past, and that only holds if both are rolled
-forward together.
-
-It is also the only thing that delivers a CONFIGURATION change to the publisher.
-oxy-infra's `aws_ecs_service.relay_publisher` carries
-`ignore_changes = [task_definition]` on the bargain that Terraform owns what a
-revision contains and CI owns which revision runs; a Terraform change therefore
-registers a revision and does not adopt it. When only `relay` was deployed here,
-the publisher's half of that bargain had no holder: an added provider reached
-the serving task and never reached the process that discovers models, and the
-symptom was a snapshot that quietly went on naming the old provider set.
-
-The image is a stripped, statically linked binary on `distroless/static`,
-running as uid 65532 with no shell and no package manager. It carries no
-inventory, no rate card and no credential of any kind.
-
-### The health path is `/livez`
-
-It is the only route that answers without an Oxy edge signature, so it is the
-only one a health probe can use. `/internal/v1/health` returns **401** to an
-unsigned probe and `/health` does not exist — a check pointed at either marks
-every task unhealthy and the service never stabilises.
-
-**The probe has to come from outside the container.** The image carries no
-shell, no `wget` and no `curl`, so neither a Dockerfile `HEALTHCHECK` nor an ECS
-container `healthCheck` can run a command in it, and the ECS one fails by never
-passing rather than by erroring. An HTTP check against `/livez` from a load
-balancer or equivalent needs nothing in the image and works as it stands.
-
-Without any probe, ECS still replaces a task that *exits*, and Kaana exits
-non-zero on every startup failure reachable from configuration. What is
-uncovered is "running but not serving". The alternative that would close that
-gap without a shell is a self-probe flag on the binary, which does not exist
-today and is a change to `cmd/kaana`, not to the image.
-
-### What the deployment must supply, and what happens when it does not
-
-**`KAANA_PROVIDERS` is required and is not a secret.** It lists the slugs this
-process serves, and an empty one is a hard refusal at startup rather than a
-process that serves nothing quietly. It belongs in the task definition's plain
-environment beside `KAANA_EDGE_PUBLIC_KEYS`, and its value is **the slugs that
-have a key**, not the slugs the platform intends to offer eventually:
-
-```
-KAANA_PROVIDERS=cerebras
-```
-
-`openai`, `anthropic`, `openrouter` and `cerebras` carry a built-in protocol and
-base URL, so a slug from that set needs nothing but its key. Any other slug must
-also be given `KAANA_PROVIDER_<SLUG>_{PROTOCOL,BASE_URL}`. The rest of the
-per-provider surface — `_HEADERS`, `_KEY_RETIREMENT`,
-`_KEYS_ON_SEPARATE_ACCOUNTS` — is non-secret too and goes in the same block.
-
-**Do not declare a slug whose key does not exist yet.** An adapter with no
-credential reports `unconfigured` for as long as it is declared, which is
-exactly the condition worth alarming on when a key goes missing later — so
-declaring ahead of the key pins that alarm on permanently and destroys it. A
-signal that is always firing is not a signal.
-
-Three constraints govern the set, and only the last is fatal:
-
-```
-KAANA_PROVIDERS   ⊇ the providers the snapshot routes to   else those references are refused
-KAANA_PROVIDERS   ⊆ the providers that have a key          else a permanent `unconfigured`
-secrets[]         ⊆ the SSM parameters that exist          else the task never starts
-```
-
-The first two together are a constraint on whoever publishes the inventory: a
-snapshot may not name a provider whose key does not exist, because there is no
-value of `KAANA_PROVIDERS` that serves it without either refusing its references
-or pinning an alarm on.
-
-**And naming a servable provider is not enough — it has to be declared FIRST.**
-Failover is off by default, so choosing among the deployments of one model is
-withheld entirely and a reference resolves to the deployment the inventory
-declared first and no other. A reference whose first declared deployment sits on
-a provider this process does not serve is therefore refused even when a later
-deployment of the same reference is one it does, and no health ordering rescues
-it, because health ordering is withheld by the same default. So the requirement
-on the snapshot is per REFERENCE and not per file: for every reference meant to
-be served, a servable deployment has to be the first one declared. See "The
-policy Kaana is not sent".
-
-**Adding a provider runs in one order and retiring one runs in the reverse**,
-both for the same reason — the third constraint above is the only fatal one.
-Add: the repository secret and its name in the workflow's allow-list, then run
-the workflow so the parameter exists, then the slug in `KAANA_PROVIDERS` and the
-parameter's name in `secrets[]`. Retire: out of `secrets[]` and
-`KAANA_PROVIDERS`, deploy, and only then delete the parameter. Deleting it while
-it is still named stops every task rather than that provider's routes.
-
-**Provider credentials are the only secrets**, one per declared slug. The
-deployed set is a subset of these, tracking whichever keys exist:
-
-| SSM parameter | Type | Env var |
+| Variable | Required | Meaning |
 |---|---|---|
-| `/oxy/relay/KAANA_PROVIDER_CEREBRAS_API_KEY` | `SecureString` | `KAANA_PROVIDER_CEREBRAS_API_KEY` |
-| `/oxy/relay/KAANA_PROVIDER_OPENROUTER_API_KEY` | `SecureString` | `KAANA_PROVIDER_OPENROUTER_API_KEY` |
-| `/oxy/relay/KAANA_PROVIDER_OPENAI_API_KEY` | `SecureString` | `KAANA_PROVIDER_OPENAI_API_KEY` |
+| `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
+| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | provider API root |
+| `KAANA_PROVIDER_<SLUG>_REGIONS` | no | upstream execution/residency regions, comma-separated; never Kaana's AWS region |
+| `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | retired-key window, default `15m` |
+| `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | whether a throttle may rotate accounts |
 
-The deploy workflow's allow-list carries all three, because a name there with no
-repository secret is skipped with a warning and is inert. The task definition's
-`secrets` block must carry **only the parameters that exist** — a name there
-without one fails the task at launch with `ResourceInitializationError`, and it
-fails every task, not that provider's routes. The two lists are governed by
-different constraints and are not meant to match.
+No variable contains a provider key. Public attribution metadata is compiled
+into the reviewed provider configuration; adapters apply authentication from
+the decrypted pool at send time.
 
-**No list grows with a key pool.** A pool is comma-separated inside one
-`_API_KEY` value, so widening or rotating one never touches the workflow's
-allow-list, the task definition's `secrets` block, or this table. What moves
-them is a slug arriving or leaving, and the order is not symmetric: **adding**
-goes SSM parameter first, then `secrets[]`, then `KAANA_PROVIDERS`, because each
-step is inert until the one before it exists; **retiring** goes the other way —
-out of `KAANA_PROVIDERS`, then out of `secrets[]` and rolled out, and only then
-delete the parameter, because a `secrets` entry outliving its parameter stops
-every task.
+Twenty providers have protocol and API-root defaults: `openai`, `anthropic`,
+`openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
+`siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
+`digitalocean`, `nvidia`, `modelscope` and `zai`. Alibaba Model Studio remains
+explicit because its root contains the account workspace and region. Protocols
+are a closed list because a binary can only construct adapters it contains;
+provider slugs are not. A built-in serving origin does not imply discovery or
+publication support.
 
-**A credential for a slug `KAANA_PROVIDERS` does not declare is inert**, and the
-process says so at startup — it names the offending variables and tells you to
-either declare the provider or drop the secret. Without that line it would be
-the one failure with no downstream signal at all: the task starts, the probe
-passes, the rollout completes and the provider is simply absent.
+Two slugs that collapse onto one environment prefix are refused. For example,
+`open-router` and `open.router` would both read `KAANA_PROVIDER_OPEN_ROUTER_*`;
+silently choosing one would configure a provider under another identity.
 
-**An absent credential does not stop the process.** The adapter reports itself
-`unconfigured` on `/internal/v1/health`, `/livez` still answers 200, and the
-rollout therefore completes: the gap surfaces as a refused inference request,
-not as a failed deploy. That is deliberate — an operator sees it on the health
-surface before a customer sees it — but it means a green deploy is not evidence
-that a provider is reachable. Conversely, an SSM parameter named in the task
-definition and absent from Parameter Store fails at task launch with
-`ResourceInitializationError: unable to pull secrets`, and the rollout fails.
+Provider model-list endpoints do not report execution/residency regions. The
+publisher copies `_REGIONS` into each discovered deployment only when an
+operator can back the declaration with the upstream provider's own terms. When
+it is absent, the deployment carries no regional attestation. It may match an
+explicitly empty `authorizedRoutes.regions` set, which Oxy emits only when the
+effective policy has neither `allowedRegions` nor `deniedRegions`; any signed
+non-empty set is refused by exact inventory comparison. `AWS_REGION` describes
+where Kaana runs and is never a substitute.
 
-**The Oxy edge key is a public key and belongs in plain environment**, never in
-`secrets`. Kaana holds only public keys and cannot construct an envelope it
-would itself accept; storing a signing key here would destroy that property.
+Example, with no secret material:
 
-```
-KAANA_EDGE_PUBLIC_KEYS=oxy-edge-2026-08-17:jQBxDX3B/Z0ULOHPbQz3gfFinKpl7Qv5MVBTfRYSd34=
+```bash
+KAANA_PROVIDERS=cerebras,openrouter
+KAANA_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS=true
+DATABASE_URL='postgres://kaana:…@postgres.internal.oxy.so:5432/kaana?sslmode=verify-full&sslrootcert=/etc/ssl/certs/aws-rds-global-bundle.pem'
+KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN='arn:aws:kms:us-west-2:…:key/…'
 ```
 
-**`KAANA_ASSUME_FAILOVER_AUTHORIZED` is left unset**, which is the strict
-setting: a model reference resolves to its declared primary deployment and
-nowhere else. Setting it asserts that every caller of the process has a routing
-policy permitting same-model failover, and the envelope carries nothing that
-would let Kaana check that. It is not for a shared production deployment, and
-`cmd/kaana` refuses to start on a bare `true` precisely so it cannot arrive as
-one.
+Provider metadata headers are reviewed constants in the binary. Any
+`KAANA_PROVIDER_<SLUG>_HEADERS` value is refused, including a public-looking
+one, so neither a header value nor a provider base URL can become a second
+environment transport for a provider credential.
 
-### The configuration snapshot is mounted, not baked
+## Credential database
 
-`KAANA_INVENTORY_PATH` defaults to `/etc/relay/inventory.json` in the image, and
-the image ships no file there. Baking one in would freeze its `issuedAt`: past
-`KAANA_INVENTORY_MAX_AGE` every unpinned reference is refused, so the deploy
-would go green and start degrading an hour later. The snapshot has to be
-re-issued on a cadence shorter than the horizon, which is a property of a
-publisher, not of a file — see "Configuration snapshots".
+`provider_credentials` is the only durable home for an upstream key. The row
+contains provider/key identity, KMS ciphertext, KMS key ARN, pool order, class,
+optional budget metadata and lifecycle state. PostgreSQL never receives
+plaintext.
 
-So `/etc/relay` is a volume, and something publishes into it. **The publisher is
-`cmd/kaana-publisher`, in this repository** — see "Publishing the inventory". It
-writes one S3 object; what carries that object into the volume is a deployment
-choice, and two mechanisms fit ECS Fargate:
+The KMS encryption context is:
 
-- **A sidecar syncing from S3** into a task-scoped volume shared with the relay
-  container. Kaana's own reload loop picks the file up within
-  `KAANA_INVENTORY_RELOAD_INTERVAL`. The sidecar should download to a temporary
-  file and `rename(2)` over the destination: a reader that catches a partial
-  write survives it from the second snapshot onward, but on the FIRST there is
-  no last-good snapshot to fall back to and the process exits non-zero.
-- **An EFS access point** mounted by both the publisher and Kaana.
-
-Until one exists, the container exits non-zero at startup with
-`inventory: reading /etc/relay/inventory.json: no such file or directory`, and
-the rollout fails. That is the intended failure: a data plane with no inventory
-routes nothing, and failing loudly beats serving `configs/inventory.example.json`,
-whose routes and upstream model ids are illustrative and were never verified
-against a real provider.
-
-**`configs/inventory.json` is the first snapshot, measured by hand; it is not a
-deployment.** Its two upstream model ids were read from the Cerebras API with
-the account's own key rather than from documentation, and the publisher now
-produces the same content from the same source on a cadence. Committed, the file
-carries a frozen `issuedAt`, and an hour after that instant every unpinned
-reference in it is refused while every pinned one is still served. That is the
-whole difference between a snapshot and a publisher, and it is why mounting this
-file verbatim is not a deployment.
-
-`KAANA_PROVIDER_RATES_PATH` is left unset unless a real rate card is published
-the same way. Unset means provider cost is not measured, and every measurement
-says so rather than reporting zero.
-
-
-
-[epic]: https://github.com/OxyHQ/oxy/issues/972
-[adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
-
-## Declaring credentials in a manifest instead of the environment
-
-`KAANA_KEYRING_PATH` points at a declaration of which credentials this
-deployment holds. Set, it REPLACES the whole per-provider environment block —
-`KAANA_PROVIDERS` and six variables each. Unset, nothing changes.
-
-```json
-{
-  "providers": {
-    "openrouter": {
-      "keysOnSeparateAccounts": true,
-      "headers": { "HTTP-Referer": "https://oxy.so", "X-Title": "Oxy" },
-      "keys": [
-        { "keyId": "openrouter-free-01", "secretEnv": "KAANA_KEY_OR_FREE_01", "class": "free" },
-        { "keyId": "openrouter-oxy-main", "secretEnv": "KAANA_KEY_OR_MAIN", "class": "paid", "budgetUsd": 500 }
-      ]
-    }
-  }
-}
+```text
+kaana:provider = <provider slug>
+kaana:key-id   = <operator key id>
 ```
 
-`configs/keys.example.json` carries the shape and the reasoning.
+Both values are authenticated by KMS. Copying ciphertext from one row to
+another therefore makes decryption fail instead of moving authority between
+providers or key identities.
 
-**No credential is in the file.** A key names the VARIABLE holding its value,
-and the value arrives the way every other secret does. A manifest of secret-store
-paths would instead make a serving process that cannot start when that store is
-unreachable, which is a poor trade for a data plane whose job is availability.
+The runtime role needs only:
 
-**It is the whole declaration or it is absent.** The two are never blended: a
-half-manifest whose gaps were filled from the environment would be a
-configuration nobody wrote and nobody could read back.
+- `SELECT` on `provider_credentials`;
+- `kms:Decrypt` on the one configured key;
+- network access to PostgreSQL and KMS.
 
-**Both paths obey one validation.** Protocol, address and header rules live in
-`validateProvider` and are called from each. Two copies drift, and the drift is
-invisible — the path nobody exercised is the one that accepts what the other
-refuses.
+It does not need `INSERT`, `UPDATE`, DDL or `kms:Encrypt`. The publisher has the
+same read/decrypt need because it authenticates one `GET /models` request. An
+operator one-shot task owns migration/write/encrypt authority and is not a
+long-running service.
 
-**`budgetUsd` is declared and NOT enforced by this build.** The process names
-every key that declared one, at startup, as a warning: an operator who declares
-a cap and is not told it is inert believes they are protected, which is worse
-than having declared nothing. Enforcing it needs accumulated spend in durable
-storage, which is what the key id in the operator log exists to make possible.
+Every mutation calls one `SECURITY DEFINER` database function that changes the
+credential and appends `provider_credential_audit` in the same statement. The
+credential-admin role has no direct table DML and reads metadata through a view
+that excludes ciphertext; it cannot change a row without its audit or forge an
+audit row. The audit contains the session database principal, a required
+`KAANA_CREDENTIAL_ACTOR`, the action and provider/key identity, but neither
+plaintext nor ciphertext.
+
+`DATABASE_URL` is still a secret connection credential and remains in the ECS
+task's secret block. It is not an upstream provider key. It must use
+`sslmode=verify-full` with a trusted root. Encryption without hostname
+verification, and every plaintext or unverified fallback, are startup errors.
+The release image pins AWS's global RDS CA bundle by SHA-256 at build time and
+installs it at `/etc/ssl/certs/aws-rds-global-bundle.pem`.
+
+### Create or migrate the schema
+
+Run with a migration database role, not the serving role:
+
+```bash
+kaana-credentials migrate
+```
+
+The migration is idempotent. Runtime never applies DDL at startup; granting a
+serving process schema authority to make deployment convenient would make every
+request-serving task a migration principal.
+
+### Add or rotate a key
+
+Plaintext is accepted only on standard input:
+
+```bash
+<secret-manager-read-command> | kaana-credentials put \
+  --provider openrouter \
+  --key-id openrouter-main \
+  --position 1 \
+  --class paid
+```
+
+Set `KAANA_CREDENTIAL_ACTOR` to the non-secret operator or automation identity
+for `put`, `import-ssm` and `disable`; a mutation without one is refused.
+
+The source command must write the value only to its stdout. The CLI has no value
+flag and no provider-secret environment variable, so the key cannot land in
+argv, shell history, a task definition or a GitHub Actions environment.
+
+For the one-time removal of legacy SSM SecureStrings, use the direct importer:
+
+```bash
+kaana-credentials import-ssm \
+  --parameter /oxy/alia/PROVIDER_KEY_OPENROUTER \
+  --provider openrouter \
+  --key-id openrouter-main \
+  --position 1 \
+  --class paid
+```
+
+The importer requests decryption through the AWS SDK, immediately re-encrypts
+the value under Kaana's KMS key, and never writes it to stdout, argv, an
+environment variable, or a file. It accepts only `SecureString` values under
+the legacy `/oxy/alia/PROVIDER_KEY_*` handoff prefix, and its task role must
+narrow that further to the exact parameters being migrated. It exists only for migration; after a verified
+provider call, delete the legacy parameter and the corresponding GitHub secret.
+
+Putting an existing `(provider, keyId)` encrypts new plaintext and atomically
+rotates that row. Adding another key is another row and does not register a task
+definition. Serving reloads the complete set atomically every
+`KAANA_CREDENTIAL_RELOAD_INTERVAL`: a partial or failed load leaves the previous
+generation serving. Revoke the old credential upstream first when immediate
+revocation matters; a database disable converges within the configured interval.
+
+List only non-secret metadata:
+
+```bash
+kaana-credentials list
+```
+
+Disable without deleting ciphertext or losing the operator identity:
+
+```bash
+kaana-credentials disable --provider openrouter --key-id openrouter-main
+```
+
+Never print a source key to pipe it. Verify a real provider call through the new
+row, then delete the old SSM/GitHub copy and prove task definitions no longer
+reference it.
+
+## Publisher configuration
+
+`cmd/kaana-publisher` reads the same non-secret provider configuration and the
+same encrypted database pools as the serving process. It uses the first active
+key for one unmetered discovery call; serving owns rotation.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `KAANA_PROVIDERS` | yes | slugs to discover |
+| `DATABASE_URL` | yes | credential database, TLS required |
+| `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected KMS key ARN |
+| `KAANA_INVENTORY_BUCKET` | yes | S3 bucket; never defaulted |
+| `KAANA_INVENTORY_KEY` | yes | object key |
+| `AWS_REGION` | yes | AWS region |
+| `KAANA_PUBLISH_INTERVAL` | no | default `15m` |
+| `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | checked-in attribution table |
+
+A provider declared in `KAANA_PROVIDERS` but missing an active database key is
+a hard startup refusal for both processes. A green task must not advertise an
+adapter that cannot authenticate.
+
+Serving and publisher both reload credentials atomically. A failed database or
+KMS read leaves the previous complete generation in use and is logged; no
+request or discovery cycle observes a pool assembled from two rotations.
+
+Discovery is provider-specific even when serving uses the shared Chat
+Completions adapter. Mistral publishes capability flags and only
+`completion_chat` models are accepted. SiliconFlow is queried with
+`type=text&sub_type=chat`. SambaNova uses the documented OpenAI-compatible
+list. Attribution then allow-lists only independently verified, fixed chat
+identities. Moving aliases and preview ids are dropped.
+
+DeepSeek is serving-compatible but its current direct catalog exposes moving
+aliases; AI21 publishes no account model-list endpoint; Alibaba requires a
+workspace/region URL and has no documented account model list. Those three are
+not eligible for automatic publication until Kaana has a verified static
+catalog control. A generic protocol match is never treated as proof that a
+model exists for the account.
+
+The publisher's S3 permission stays separate from serving. Writing the
+inventory decides routing, so a request-serving role must not acquire it merely
+because the two binaries ship in one image.
+
+## Container and deployment
+
+The image contains three static binaries:
+
+- `/usr/local/bin/kaana` serves inference;
+- `/usr/local/bin/kaana-publisher` publishes inventory;
+- `/usr/local/bin/kaana-credentials` is for one-shot administration.
+
+It runs distroless as uid 65532 with no shell or package manager. CI pushes one
+digest and updates serving and publisher from that same digest. Provider keys
+are never synchronized by CI and never exist as repository secrets.
+
+The inventory is mounted at `/etc/kaana/inventory.json`, not baked into the
+image. A baked snapshot becomes stale on a clock while the container remains
+green. Kaana reloads an atomically replaced file and keeps the last good
+snapshot after a failed reload.
+
+`GET /livez` is the only unsigned route and the load-balancer health path.
+`/internal/v1/health` requires a signed envelope; `/health` does not exist. The
+distroless image cannot run a shell-based Docker/ECS health command, so the
+probe comes from outside the container.
+
+The edge public key belongs in plain environment. Kaana can verify with it and
+cannot sign an envelope it would accept. The signing private key stays in Oxy.
+
+## Provider lifecycle
+
+Adding a provider:
+
+1. verify its official endpoint, protocol, terms and stable model IDs;
+2. run adapter conformance and a real canary;
+3. insert its encrypted database key;
+4. add its non-secret configuration and task IAM/network access;
+5. restart Kaana and publisher;
+6. attribute verified upstream IDs and publish the inventory.
+
+Retiring one reverses the serving dependency:
+
+1. remove its deployments from the published inventory;
+2. remove it from `KAANA_PROVIDERS` and deploy;
+3. disable/revoke its database credentials;
+4. revoke the provider-side key.
+
+Deleting or disabling a key before routes stop using it converts a controlled
+retirement into a full startup failure or refused customer request.
+
+## Validation gates
+
+```bash
+go build ./...
+go vet ./...
+go test -race ./...
+golangci-lint run ./...
+cd tools/contract && bun install --frozen-lockfile && bun run generate && bun run validate
+```
+
+Also verify in production:
+
+- task definitions contain `DATABASE_URL` and the KMS ARN but no provider key;
+- the task role can decrypt only the Kaana KMS key and cannot encrypt;
+- the database contains ciphertext, never plaintext;
+- a row-swapped ciphertext fails KMS context authentication;
+- serving and publisher use the same image digest and provider set;
+- signed health reports every declared provider configured;
+- old GitHub secrets, SSM parameters and task-definition revisions are retired.

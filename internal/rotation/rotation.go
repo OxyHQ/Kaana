@@ -1,5 +1,4 @@
-// Package rotation decides which deployments are servable right now, and in
-// what order.
+// Package rotation decides which deployments are servable right now.
 //
 // It holds one circuit breaker and one health score per deployment. The unit is
 // the DEPLOYMENT rather than the provider: a provider is usually several
@@ -132,8 +131,7 @@ type breaker struct {
 	probesAt      time.Time
 	// score is an exponential moving average of attributable outcomes, 1 for
 	// served and 0 for failed. A deployment nobody has used yet scores 1: the
-	// alternative, assuming the worst, would sort a new deployment permanently
-	// last and it would never receive the traffic that would prove otherwise.
+	// projection must distinguish "no evidence of failure" from known failure.
 	score float64
 }
 
@@ -289,49 +287,6 @@ func (r *Registry) breakerLocked(id contract.DeploymentID) *breaker {
 		r.breakers[id] = entry
 	}
 	return entry
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Ordering                                                                  */
-/* -------------------------------------------------------------------------- */
-
-// Rank is a deployment's position in the preference order. Lower sorts first.
-type Rank struct {
-	// Admitting is false for a breaker that would refuse right now. Those sort
-	// last rather than being removed, so the caller still sees them — a
-	// candidate list that silently shrinks is one nobody can debug.
-	Admitting bool
-	// Score is the health score: higher is healthier.
-	Score float64
-}
-
-// Before reports whether a should be attempted before b.
-func (a Rank) Before(b Rank) bool {
-	if a.Admitting != b.Admitting {
-		return a.Admitting
-	}
-	return a.Score > b.Score
-}
-
-// Rank reports how a deployment currently sorts.
-func (r *Registry) Rank(id contract.DeploymentID) Rank {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	entry := r.breakerLocked(id)
-	return Rank{Admitting: r.admittingLocked(entry), Score: entry.score}
-}
-
-func (r *Registry) admittingLocked(entry *breaker) bool {
-	switch entry.state {
-	case StateClosed:
-		return true
-	case StateOpen:
-		return !r.now().Before(entry.probesAt)
-	case StateHalfOpen:
-		return !entry.trialInFlight
-	}
-	return false
 }
 
 // SoonestProbe reports how long until the earliest of these deployments will

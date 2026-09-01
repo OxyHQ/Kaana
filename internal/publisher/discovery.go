@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // Provider is one upstream the publisher asks what it serves.
@@ -21,6 +23,13 @@ import (
 type Provider struct {
 	Slug    contract.ProviderSlug
 	BaseURL string
+	// Regions are the upstream execution/residency regions every deployment
+	// discovered through this API root may serve from. Provider model-list APIs
+	// do not report them, so they must come from an explicit operator declaration
+	// backed by the provider's own terms; AWS_REGION is unrelated.
+	Regions []contract.Region
+	// Discovery is the documented shape of this provider's model list.
+	Discovery string
 	// APIKey is ONE credential, not the pool. Listing models is a single
 	// unmetered call, so rotating a pool here would spend the operator's keys
 	// against a request whose failure means "ask again later", not "this key is
@@ -55,7 +64,10 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		return nil, fmt.Errorf("publisher: %s has no credential, so its model list could not be read as this account", target.Slug)
 	}
 
-	endpoint := strings.TrimSuffix(target.BaseURL, "/") + "/models"
+	endpoint, err := discoveryEndpoint(target)
+	if err != nil {
+		return nil, err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("publisher: building the model list request for %s: %w", target.Slug, err)
@@ -63,7 +75,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	request.Header.Set("Authorization", "Bearer "+target.APIKey)
 	request.Header.Set("Accept", "application/json")
 
-	response, err := client.Do(request)
+	response, err := provider.RefuseRedirects(client).Do(request)
 	if err != nil {
 		// The credential is in the request, and a transport error can quote the
 		// request. Redact against the exact value rather than a pattern.
@@ -88,6 +100,9 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	seen := make(map[string]struct{}, len(list.Data))
 	models := make([]DiscoveredModel, 0, len(list.Data))
 	for _, entry := range list.Data {
+		if target.Discovery == providerconfig.DiscoveryMistralModels && !entry.Capabilities.CompletionChat {
+			continue
+		}
 		id := strings.TrimSpace(entry.ID)
 		if id == "" {
 			return nil, fmt.Errorf("publisher: %s's model list contains an entry with no id", target.Slug)
@@ -117,6 +132,31 @@ const maxModelListBytes = 4 << 20
 
 type modelListResponse struct {
 	Data []struct {
-		ID string `json:"id"`
+		ID           string `json:"id"`
+		Capabilities struct {
+			CompletionChat bool `json:"completion_chat"`
+		} `json:"capabilities"`
 	} `json:"data"`
+}
+
+func discoveryEndpoint(target Provider) (string, error) {
+	base := strings.TrimSuffix(target.BaseURL, "/")
+	switch target.Discovery {
+	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryMistralModels:
+		return base + "/models", nil
+	case providerconfig.DiscoverySiliconModels:
+		parsed, err := url.Parse(base + "/models")
+		if err != nil {
+			return "", fmt.Errorf("publisher: provider %s has an invalid model list address", target.Slug)
+		}
+		query := parsed.Query()
+		query.Set("type", "text")
+		query.Set("sub_type", "chat")
+		parsed.RawQuery = query.Encode()
+		return parsed.String(), nil
+	case providerconfig.DiscoveryNotAvailable:
+		return "", fmt.Errorf("publisher: provider %s publishes no account model list Kaana can verify", target.Slug)
+	default:
+		return "", fmt.Errorf("publisher: provider %s declares unknown discovery profile %q", target.Slug, target.Discovery)
+	}
 }

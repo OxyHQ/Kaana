@@ -1,9 +1,8 @@
-// Command relay runs the inference data plane.
+// Command kaana runs the inference data plane.
 //
-// Everything it needs comes from the environment and one inventory file. No
-// secret is read from this repository, and the only secret it holds at all is
-// the upstream provider credential — the Oxy edge's key is a PUBLIC key, so
-// Kaana cannot construct an envelope it would itself accept.
+// Provider credentials come from Kaana's PostgreSQL database and are decrypted
+// by KMS only inside this process. The Oxy edge's key is a PUBLIC key, so Kaana
+// cannot construct an envelope it would itself accept.
 package main
 
 import (
@@ -14,18 +13,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/httpapi"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
-	"github.com/OxyHQ/Kaana/internal/keyring"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
@@ -39,13 +37,13 @@ func main() {
 	slog.SetDefault(logger)
 
 	if err := run(logger); err != nil {
-		logger.Error("relay could not start", "error", err)
+		logger.Error("kaana could not start", "error", err)
 		os.Exit(1)
 	}
 }
 
 func run(logger *slog.Logger) error {
-	inventoryPath := providerconfig.EnvName(os.Getenv, "KAANA_INVENTORY_PATH")
+	inventoryPath := os.Getenv("KAANA_INVENTORY_PATH")
 	if inventoryPath == "" {
 		return errors.New("KAANA_INVENTORY_PATH is required: without a deployment inventory nothing can be routed")
 	}
@@ -62,14 +60,14 @@ func run(logger *slog.Logger) error {
 	// absent file means provider cost is not measured, which every measurement
 	// then says rather than reporting zero.
 	var costs *providercost.Cards
-	if ratesPath := providerconfig.EnvName(os.Getenv, "KAANA_PROVIDER_RATES_PATH"); ratesPath != "" {
+	if ratesPath := os.Getenv("KAANA_PROVIDER_RATES_PATH"); ratesPath != "" {
 		costs, err = providercost.Load(ratesPath)
 		if err != nil {
 			return err
 		}
 	}
 
-	keys, err := edgeauth.ParsePublicKeys(providerconfig.EnvName(os.Getenv, "KAANA_EDGE_PUBLIC_KEYS"))
+	keys, err := edgeauth.ParsePublicKeys(os.Getenv("KAANA_EDGE_PUBLIC_KEYS"))
 	if err != nil {
 		return fmt.Errorf("KAANA_EDGE_PUBLIC_KEYS: %w", err)
 	}
@@ -78,29 +76,35 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	// The manifest replaces the whole per-provider environment block when it is
-	// present, and changes nothing when it is not.
-	var providerConfigs []providerConfig
-	if manifestPath := strings.TrimSpace(providerconfig.EnvName(os.Getenv, keyringPathVariable)); manifestPath != "" {
-		var unenforced []string
-		providerConfigs, unenforced, err = providersFromKeyring(manifestPath, legacyAwareEnv)
-		if err != nil {
-			return err
-		}
-		logger.Info("provider credentials declared by manifest", "path", manifestPath, "providers", len(providerConfigs))
-		if len(unenforced) > 0 {
-			// Said by NAME and out loud. An operator who declared a cap and is
-			// not told it is inert believes they are protected, which is worse
-			// than having declared nothing at all.
-			logger.Warn("a declared per-key budget is not enforced by this build",
-				"keys", unenforced,
-				"meaning", "these keys will keep serving past the amount declared for them; nothing here holds them to it")
-		}
-	} else {
-		providerConfigs, err = parseProviders(legacyAwareEnv)
-		if err != nil {
-			return err
-		}
+	providerConfigs, err := parseProviders(os.Getenv)
+	if err != nil {
+		return err
+	}
+	credentialContext, cancelCredentialLoad := context.WithTimeout(context.Background(), 45*time.Second)
+	credentialStore, credentialDatabase, err := credentialstore.Open(
+		credentialContext,
+		strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		strings.TrimSpace(os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")),
+	)
+	if err != nil {
+		cancelCredentialLoad()
+		return err
+	}
+	declarations, unenforcedBudgets, err := credentialStore.Load(credentialContext, providerSlugsFrom(providerConfigs))
+	cancelCredentialLoad()
+	if err != nil {
+		credentialDatabase.Close()
+		return err
+	}
+	defer credentialDatabase.Close()
+	for index := range providerConfigs {
+		providerConfigs[index].Declarations = declarations[providerConfigs[index].Slug]
+	}
+	logger.Info("provider credentials loaded from Kaana's database", "providers", len(providerConfigs))
+	if len(unenforcedBudgets) > 0 {
+		logger.Warn("a declared per-key budget is not enforced by this build",
+			"keys", unenforcedBudgets,
+			"meaning", "these keys will keep serving past the amount declared for them; nothing here holds them to it")
 	}
 	adapters, err := buildAdapters(providerConfigs)
 	if err != nil {
@@ -129,16 +133,6 @@ func run(logger *slog.Logger) error {
 	// reference is served. The operator gets this line.
 	warnAboutUnroutableProviders(logger, inventoryStore.Current(), registry)
 
-	// A credential delivered for a provider this process does not serve is the
-	// one failure with no downstream signal at all: the task starts, the health
-	// probe passes, the rollout completes and the provider is simply absent.
-	if unused := unusedProviderCredentials(os.Environ(), providerConfigs); len(unused) > 0 {
-		logger.Warn("a provider credential was delivered for a provider this process does not serve",
-			"variables", unused,
-			"declared", providerSlugsFrom(providerConfigs),
-			"meaning", "the credential is never read; either add the provider to KAANA_PROVIDERS or remove the secret from the deployment")
-	}
-
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{
 		FailuresToOpen:   intFromEnv("KAANA_BREAKER_FAILURES_TO_OPEN", 0),
 		Cooldown:         durationFromEnv("KAANA_BREAKER_COOLDOWN", 0),
@@ -146,22 +140,11 @@ func run(logger *slog.Logger) error {
 		SuccessesToClose: intFromEnv("KAANA_BREAKER_SUCCESSES_TO_CLOSE", 0),
 	}, nil)
 
-	failoverAck, err := failoverAcknowledgement(providerconfig.EnvName(os.Getenv, "KAANA_ASSUME_FAILOVER_AUTHORIZED"))
-	if err != nil {
-		return err
-	}
-	if failoverAck != "" {
-		logger.Warn("same-model failover is enabled without a routing policy to authorise it",
-			"acknowledgement", failoverAck,
-			"meaning", "every caller of this process is asserted to have a routing policy permitting same-model deployment failover across every deployment in this inventory")
-	}
-
 	executor, err := kaana.NewExecutor(kaana.Config{
-		Inventory:                inventoryStore,
-		Providers:                registry,
-		Rotation:                 rotationRegistry,
-		Costs:                    costs,
-		AssumeFailoverAuthorized: failoverAck != "",
+		Inventory: inventoryStore,
+		Providers: registry,
+		Rotation:  rotationRegistry,
+		Costs:     costs,
 	})
 	if err != nil {
 		return err
@@ -180,7 +163,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	address := providerconfig.EnvName(os.Getenv, "KAANA_ADDR")
+	address := os.Getenv("KAANA_ADDR")
 	if address == "" {
 		address = ":8080"
 	}
@@ -195,7 +178,7 @@ func run(logger *slog.Logger) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	logger.Info("relay is listening",
+	logger.Info("kaana is listening",
 		"address", address,
 		"contractVersion", contract.ContractVersion,
 		"providers", providerSlugs(registry),
@@ -209,6 +192,8 @@ func run(logger *slog.Logger) error {
 
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
 		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
+	go reloadCredentialPools(ctx, credentialStore, providerConfigs, registry, logger,
+		durationFromEnv("KAANA_CREDENTIAL_RELOAD_INTERVAL", time.Minute))
 
 	failed := make(chan error, 1)
 	go func() {
@@ -221,7 +206,7 @@ func run(logger *slog.Logger) error {
 	case err := <-failed:
 		return err
 	case <-ctx.Done():
-		logger.Info("relay is draining")
+		logger.Info("kaana is draining")
 		// In-flight generations finish; nothing new is accepted. A shorter
 		// drain would cut streams a customer is already being charged for.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -230,31 +215,47 @@ func run(logger *slog.Logger) error {
 	}
 }
 
-// failoverAcknowledgement reads the operator's statement that same-model
-// failover is safe here despite the envelope carrying no routing policy.
-//
-// It is deliberately awkward to set. The published routing policy has a
-// customer-facing switch for this behaviour that Kaana is not sent, so enabling
-// failover without it overrides a control on the customer's behalf — defensible
-// for a first-party canary where the operator IS the caller, and for nothing
-// else. Requiring a reason and a date means the setting cannot arrive as an
-// empty string, cannot be copied forward without someone reading it, and names
-// whoever will be asked about it. An unparseable value refuses to start rather
-// than falling back to either behaviour: both defaults would be wrong to
-// choose silently.
-func failoverAcknowledgement(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", nil
+func reloadCredentialPools(
+	ctx context.Context,
+	store *credentialstore.Store,
+	configs []providerConfig,
+	registry *provider.Registry,
+	logger *slog.Logger,
+	every time.Duration,
+) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			loadContext, cancel := context.WithTimeout(ctx, 45*time.Second)
+			declarations, unenforcedBudgets, err := store.Load(loadContext, providerSlugsFrom(configs))
+			cancel()
+			if err != nil {
+				logger.Error("provider credentials could not be reloaded; keeping the last complete pools", "error", err)
+				continue
+			}
+			replacementConfigs := append([]providerConfig(nil), configs...)
+			for index := range replacementConfigs {
+				replacementConfigs[index].Declarations = declarations[replacementConfigs[index].Slug]
+			}
+			adapters, err := buildAdapters(replacementConfigs)
+			if err != nil {
+				logger.Error("reloaded provider credentials could not build a complete adapter set; keeping the previous pools", "error", err)
+				continue
+			}
+			if err := registry.Replace(adapters...); err != nil {
+				logger.Error("reloaded provider credentials could not replace the adapter registry; keeping the previous pools", "error", err)
+				continue
+			}
+			logger.Info("provider credentials reloaded from Kaana's database", "providers", len(replacementConfigs))
+			if len(unenforcedBudgets) > 0 {
+				logger.Warn("a declared per-key budget is not enforced by this build", "keys", unenforcedBudgets)
+			}
+		}
 	}
-	reason, date, found := strings.Cut(trimmed, ":")
-	if !found || strings.TrimSpace(reason) == "" {
-		return "", fmt.Errorf("KAANA_ASSUME_FAILOVER_AUTHORIZED must be `<reason>:<YYYY-MM-DD>`; it states who accepted serving failover without a routing policy, and when")
-	}
-	if _, err := time.Parse("2006-01-02", strings.TrimSpace(date)); err != nil {
-		return "", fmt.Errorf("KAANA_ASSUME_FAILOVER_AUTHORIZED carries %q where a YYYY-MM-DD date belongs: %w", date, err)
-	}
-	return trimmed, nil
 }
 
 // reloadSnapshots re-reads the configuration snapshot on a fixed interval.
@@ -318,18 +319,12 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 //	KAANA_PROVIDERS                                   openai,openrouter,cerebras,anthropic
 //	KAANA_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
 //	KAANA_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
-//	KAANA_PROVIDER_<SLUG>_API_KEY                     one credential, or several separated by commas
-//	KAANA_PROVIDER_<SLUG>_HEADERS                      Name=Value pairs the provider expects, separated by commas
 //	KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
 //	KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
 //
-// A whole POOL lives in the one _API_KEY variable rather than in numbered
-// siblings, and that is a deployment property rather than a stylistic one: the
-// variable name, the SSM parameter leaf and the GitHub secret name have to be
-// one string for the deploy sync to work, and one name per provider keeps a
-// growing pool out of the task definition's static secret list entirely.
-// Adding a key becomes a parameter VALUE change; adding a provider stays one
-// new name.
+// Provider secrets are deliberately absent from this environment contract.
+// The pool is loaded from PostgreSQL and decrypted through KMS after this
+// non-secret adapter configuration has been validated.
 //
 // The one closed list in any of this is the PROTOCOL. It names which adapter
 // implementation to construct, and a build can only construct one it contains,
@@ -347,9 +342,8 @@ type providerConfig struct {
 	Protocol string
 	BaseURL  string
 	// Declarations is the provider's key pool, in the order it was declared,
-	// each key carrying what the operator says it costs. It is the one field
-	// here that holds a secret, the secret comes from the environment either
-	// way, and it is never logged, echoed or projected.
+	// each key carrying what the operator says it costs. It is populated only
+	// from the encrypted credential store and is never logged or projected.
 	Declarations []provider.KeyDeclaration
 	Keys         provider.KeyPolicy
 	// Headers are the non-secret headers this provider expects on every
@@ -373,7 +367,6 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 	seenSlug := make(map[contract.ProviderSlug]struct{}, len(declared))
 	seenPrefix := make(map[string]contract.ProviderSlug, len(declared))
 
-	var err error
 	for _, name := range declared {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
@@ -402,10 +395,10 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			config.BaseURL = declaredBaseURL
 		}
 
-		config.Headers, err = parseHeaders(getenv(prefix + "_HEADERS"))
-		if err != nil {
-			return nil, fmt.Errorf("%s_HEADERS: %w", prefix, err)
+		if strings.TrimSpace(getenv(prefix+"_HEADERS")) != "" {
+			return nil, fmt.Errorf("%s_HEADERS is not supported: public provider metadata is reviewed in the Kaana binary and provider authentication comes only from the encrypted credential store", prefix)
 		}
+		config.Headers = reviewedHeaders(slug)
 		// One authority for what a provider configuration must satisfy. Two
 		// copies of "which protocols this build speaks" drift, and the drift is
 		// invisible: the path nobody exercised is the one that accepts what the
@@ -419,7 +412,6 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 			return nil, fmt.Errorf("%s_KEYS_ON_SEPARATE_ACCOUNTS: %w", prefix, err)
 		}
 
-		config.Declarations = provider.DeclareKeys(providerconfig.SplitList(getenv(prefix + "_API_KEY")))
 		config.Keys = provider.KeyPolicy{
 			Retirement:         durationOrZero(getenv(prefix + "_KEY_RETIREMENT")),
 			OnSeparateAccounts: onSeparateAccounts,
@@ -429,95 +421,37 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 	return configs, nil
 }
 
-// credentialHeaders are the header names an operator may not set here.
-//
-// Two different reasons, both silent if unguarded. An authentication header is
-// applied by the adapter at send time and would be overwritten, so a credential
-// placed here would look configured, do nothing, and sit in a plain environment
-// variable outside the pool that exists to manage it. `anthropic-version` is
-// pinned in code beside the parser that reads that provider's responses, and an
-// operator changing it would change the JSON that package decodes.
-var credentialHeaders = map[string]struct{}{
-	"authorization":       {},
-	"proxy-authorization": {},
-	"x-api-key":           {},
-	"api-key":             {},
-	"anthropic-version":   {},
+// reviewedProviderHeaders are public product identity, compiled into the
+// binary rather than accepted from environment. Even an allow-listed header
+// name is not enough: `X-Title=sk-...` would still put a provider key in an ECS
+// task definition. New metadata therefore requires a code review, while all
+// provider authentication continues to come from PostgreSQL/KMS.
+var reviewedProviderHeaders = map[contract.ProviderSlug]map[string]string{
+	"openrouter": {
+		"HTTP-Referer": "https://oxy.so",
+		"X-Title":      "Oxy",
+	},
 }
 
-// parseHeaders reads `Name=Value,Name=Value`.
-//
-// The separator is `=` rather than `:` because these values are routinely URLs,
-// and a header value carrying a comma is not representable — said here rather
-// than discovered by an operator whose attribution header arrived truncated.
-func parseHeaders(value string) (map[string]string, error) {
-	pairs := providerconfig.SplitList(value)
-	if len(pairs) == 0 {
-		return nil, nil
+func reviewedHeaders(slug contract.ProviderSlug) map[string]string {
+	reviewed := reviewedProviderHeaders[slug]
+	if len(reviewed) == 0 {
+		return nil
 	}
-	headers := make(map[string]string, len(pairs))
-	for _, pair := range pairs {
-		name, headerValue, found := strings.Cut(pair, "=")
-		name, headerValue = strings.TrimSpace(name), strings.TrimSpace(headerValue)
-		switch {
-		case !found || name == "":
-			return nil, fmt.Errorf("%q is not a `Name=Value` pair", pair)
-		case headerValue == "":
-			return nil, fmt.Errorf("header %q has no value", name)
-		}
-		if _, refused := credentialHeaders[strings.ToLower(name)]; refused {
-			return nil, fmt.Errorf("header %q is applied by the adapter and must not be set here", name)
-		}
-		if _, duplicate := headers[name]; duplicate {
-			return nil, fmt.Errorf("header %q is declared twice", name)
-		}
-		headers[name] = headerValue
+	headers := make(map[string]string, len(reviewed))
+	for name, value := range reviewed {
+		headers[name] = value
 	}
-	return headers, nil
-}
-
-// unusedProviderCredentials names credentials the process was handed for a
-// provider it does not serve.
-//
-// It is the one failure in this area that nothing downstream can see. A
-// credential missing from the deployment stops the task; a provider missing
-// from the inventory refuses a request; but a key delivered for a provider that
-// was never declared produces a process that starts, answers its health probe,
-// reports its rollout complete, and routes to nothing — every signal green. The
-// only place both halves are visible is here.
-//
-// It warns rather than refuses. Retiring a provider means removing it from this
-// list before deleting its parameter, and a refusal would turn the safe order
-// into the one that stops every task.
-func unusedProviderCredentials(environment []string, configs []providerConfig) []string {
-	declared := make(map[string]struct{}, len(configs))
-	for _, config := range configs {
-		declared[providerconfig.EnvironmentPrefix(config.Slug)] = struct{}{}
-	}
-
-	unused := make([]string, 0)
-	for _, entry := range environment {
-		name, _, found := strings.Cut(entry, "=")
-		if !found || !strings.HasPrefix(name, "KAANA_PROVIDER_") || !strings.HasSuffix(name, "_API_KEY") {
-			continue
-		}
-		if _, serves := declared[strings.TrimSuffix(name, "_API_KEY")]; !serves {
-			unused = append(unused, name)
-		}
-	}
-	sort.Strings(unused)
-	return unused
+	return headers
 }
 
 // parseDeclaredBool reads a value an operator sets to state a fact about the
 // deployment, and refuses anything it cannot read.
 //
-// It refuses rather than falling back for the same reason
-// failoverAcknowledgement does: the variables in this family exist so a human
-// states something the process cannot work out for itself, and a spelling that
-// quietly means "not set" gives them the default while they believe they
-// changed it. `TRUE` disabling key rotation, silently, is not a defensible
-// answer to somebody who wrote `TRUE`.
+// It refuses rather than falling back because the variables in this family
+// state facts the process cannot work out for itself, and a spelling that
+// quietly means "not set" gives them the default while an operator believes
+// they changed it. `TRUE` disabling key rotation, silently, is not defensible.
 func parseDeclaredBool(value string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
@@ -620,7 +554,7 @@ func providerSlugs(registry *provider.Registry) []contract.ProviderSlug {
 }
 
 func durationFromEnv(name string, fallback time.Duration) time.Duration {
-	value := providerconfig.EnvName(os.Getenv, name)
+	value := os.Getenv(name)
 	if value == "" {
 		return fallback
 	}
@@ -632,7 +566,7 @@ func durationFromEnv(name string, fallback time.Duration) time.Duration {
 }
 
 func int64FromEnv(name string, fallback int64) int64 {
-	value := providerconfig.EnvName(os.Getenv, name)
+	value := os.Getenv(name)
 	if value == "" {
 		return fallback
 	}
@@ -647,83 +581,8 @@ func intFromEnv(name string, fallback int) int {
 	return int(int64FromEnv(name, int64(fallback)))
 }
 
-// legacyAwareEnv is os.Getenv with the pre-rename spelling as a fallback. See
-// providerconfig.EnvName for why it exists and when it is deleted.
-func legacyAwareEnv(name string) string { return providerconfig.EnvName(os.Getenv, name) }
-
-/* -------------------------------------------------------------------------- */
-/*  The key manifest                                                          */
-/* -------------------------------------------------------------------------- */
-
-// keyringPathVariable points at a declaration of which credentials this
-// deployment holds. Set, it REPLACES the whole per-provider environment block —
-// KAANA_PROVIDERS and six variables each. Unset, nothing changes.
-//
-// Both are accepted for exactly as long as it takes a deployment to move, which
-// is the same migration shape the rename used. They are not blended: a manifest
-// is the whole declaration or it is absent, because a half-manifest whose gaps
-// were filled from the environment would be a configuration nobody wrote and
-// nobody could read back.
-const keyringPathVariable = "KAANA_KEYRING_PATH"
-
-// providersFromKeyring reads the manifest and validates it exactly as the
-// environment path is validated.
-//
-// The validation is shared rather than restated. Two copies of "which protocols
-// this build speaks" drift, and the drift is invisible: the path nobody
-// exercised is the one that accepts what the other refuses.
-func providersFromKeyring(path string, getenv func(string) string) ([]providerConfig, []string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("reading the key manifest %s: %w", path, err)
-	}
-	pools, err := keyring.Parse(raw, getenv)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	configs := make([]providerConfig, 0, len(pools))
-	unenforced := make([]string, 0)
-	seenPrefix := make(map[string]contract.ProviderSlug, len(pools))
-
-	for _, pool := range pools {
-		if !pool.Provider.Valid() {
-			return nil, nil, fmt.Errorf("the key manifest names %q, which is not a provider slug", pool.Provider)
-		}
-		prefix := providerconfig.EnvironmentPrefix(pool.Provider)
-		if other, collides := seenPrefix[prefix]; collides {
-			return nil, nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, pool.Provider, prefix)
-		}
-		seenPrefix[prefix] = pool.Provider
-
-		known := providerconfig.Known[pool.Provider]
-		config := providerConfig{
-			Slug:         pool.Provider,
-			Protocol:     known.Protocol,
-			BaseURL:      known.BaseURL,
-			Declarations: pool.Declarations,
-			Keys:         pool.Policy,
-			Headers:      pool.Headers,
-		}
-		if pool.Protocol != "" {
-			config.Protocol = pool.Protocol
-		}
-		if pool.BaseURL != "" {
-			config.BaseURL = pool.BaseURL
-		}
-		if err := validateProvider(&config, "the key manifest"); err != nil {
-			return nil, nil, err
-		}
-		for _, keyID := range pool.UnenforcedBudgets {
-			unenforced = append(unenforced, string(pool.Provider)+"/"+keyID)
-		}
-		configs = append(configs, config)
-	}
-	return configs, unenforced, nil
-}
-
-// validateProvider holds the rules both paths obey. `source` names where the
-// configuration came from, so an error sends the reader to the right file.
+// validateProvider holds the adapter configuration rules. `source` names where
+// the configuration came from, so an error sends the reader to the right place.
 func validateProvider(config *providerConfig, source string) error {
 	switch config.Protocol {
 	case providerconfig.ProtocolOpenAICompatible:
@@ -744,10 +603,14 @@ func validateProvider(config *providerConfig, source string) error {
 	if config.BaseURL == "" {
 		return fmt.Errorf("%s: provider %q declares no base URL and this build knows no address for that slug", source, config.Slug)
 	}
+	if err := providerconfig.ValidateBaseURL(config.BaseURL); err != nil {
+		return fmt.Errorf("%s: provider %q: %w", source, config.Slug, err)
+	}
 
 	for name := range config.Headers {
-		if _, refused := credentialHeaders[strings.ToLower(strings.TrimSpace(name))]; refused {
-			return fmt.Errorf("%s: provider %q sets header %q, which the adapter applies itself", source, config.Slug, name)
+		value, allowed := reviewedProviderHeaders[config.Slug][name]
+		if !allowed || value != config.Headers[name] {
+			return fmt.Errorf("%s: provider %q sets header %q, which is not reviewed public configuration", source, config.Slug, name)
 		}
 	}
 	if len(config.Headers) > 0 && config.Protocol != providerconfig.ProtocolOpenAICompatible {

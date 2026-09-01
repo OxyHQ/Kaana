@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -77,6 +78,7 @@ type Config struct {
 
 // Publisher re-issues the inventory snapshot.
 type Publisher struct {
+	providersMu sync.RWMutex
 	providers   []Provider
 	attribution *Attribution
 	store       ObjectStore
@@ -138,6 +140,26 @@ func New(config Config) (*Publisher, error) {
 // Interval is the cadence this publisher re-issues on.
 func (p *Publisher) Interval() time.Duration { return p.interval }
 
+// ReplaceProviders atomically installs a new credential generation for the
+// same configured provider set. Discovery never observes a half-rotated set.
+func (p *Publisher) ReplaceProviders(providers []Provider) error {
+	p.providersMu.Lock()
+	defer p.providersMu.Unlock()
+	if len(providers) != len(p.providers) {
+		return errors.New("publisher: credential reload changed the configured provider set")
+	}
+	for index, candidate := range providers {
+		if candidate.Slug != p.providers[index].Slug || candidate.BaseURL != p.providers[index].BaseURL || candidate.Discovery != p.providers[index].Discovery {
+			return fmt.Errorf("publisher: credential reload changed provider configuration at position %d", index+1)
+		}
+		if candidate.APIKey == "" {
+			return fmt.Errorf("publisher: credential reload left provider %q without a key", candidate.Slug)
+		}
+	}
+	p.providers = append([]Provider(nil), providers...)
+	return nil
+}
+
 // Run publishes immediately, then every interval until ctx is cancelled.
 //
 // A failed cycle is logged and the loop continues. It does not stop, because
@@ -196,8 +218,11 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 			"destination", p.store.Describe())
 	}
 
-	discoveries := make([]Discovery, 0, len(p.providers))
-	for _, target := range p.providers {
+	p.providersMu.RLock()
+	providers := append([]Provider(nil), p.providers...)
+	p.providersMu.RUnlock()
+	discoveries := make([]Discovery, 0, len(providers))
+	for _, target := range providers {
 		models, err := Discover(ctx, p.client, target)
 		if err != nil {
 			// One provider failing must not withdraw the others. Withdrawing

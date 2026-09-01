@@ -1,24 +1,20 @@
-// Package relay executes one normalized inference request: it resolves the
-// routes that serve it, hands the request to an adapter, fails over to another
-// deployment of the SAME model revision when one fails, frames what the adapter
-// reports as a normalized event stream, and produces the technical usage record
-// settlement runs against.
+// Package kaana executes one normalized inference request: it resolves the
+// routes Oxy authorized for it, hands the request to an adapter, fails over only
+// within that signed list, frames what the adapter reports as a normalized event
+// stream, and produces the technical usage record settlement runs against.
 //
 // Everything a customer could be told "no" about was already decided at the Oxy
 // edge — scopes, account access, credential status, spend. Kaana does not
 // re-derive any of it; the envelope it receives is an already-authorized
 // instruction (ADR 0006).
 //
-// # Failover is same-model, structurally
+// # Authorization is an ordered route list
 //
-// A request resolves to an inventory.RouteSet: one model reference and the
-// endpoints that serve it. Every candidate this executor can attempt comes from
-// that one set, and the set holds the reference once for all of them — so the
-// second attempt is the same weights at a different address, and a candidate
-// naming a different model is not a case that is excluded here but a value that
-// cannot be built. Cross-model fallback would need a routing policy authorising
-// the substitution, and the envelope carries a policy REFERENCE rather than a
-// snapshot, so this build has nothing to authorise it with. See README.
+// The edge sends authorizedRoutes in preference order after applying the
+// customer's policy. Kaana resolves every deployment id against its own
+// inventory and refuses metadata that disagrees, but it never adds a route from
+// that inventory to the list. A concrete target with no list keeps the additive
+// contract's default-deny behaviour: its declared primary and nothing else.
 package kaana
 
 import (
@@ -27,7 +23,6 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -40,12 +35,11 @@ import (
 
 // Executor turns an envelope into a stream and a usage report.
 type Executor struct {
-	inventory                *inventory.Store
-	registry                 *provider.Registry
-	rotation                 *rotation.Registry
-	costs                    *providercost.Cards
-	assumeFailoverAuthorized bool
-	now                      func() time.Time
+	inventory *inventory.Store
+	registry  *provider.Registry
+	rotation  *rotation.Registry
+	costs     *providercost.Cards
+	now       func() time.Time
 }
 
 // Config wires an Executor.
@@ -63,29 +57,6 @@ type Config struct {
 	// Costs prices upstream attempts. Optional — absent means cost is not
 	// measured, and every measurement says so rather than reporting zero.
 	Costs *providercost.Cards
-	// AssumeFailoverAuthorized permits Kaana to choose among the deployments of
-	// one model reference: to order them by health, and to retry a failed one
-	// on another.
-	//
-	// It is false by default, and that default is a contract finding rather
-	// than caution. The published `routingFallbackPolicySchema` gives the
-	// CUSTOMER two booleans that govern exactly this behaviour — `disabled` and
-	// `sameModelDeployment` — alongside `allowedRegions` and `deniedRegions`
-	// that govern where a request may be served. The envelope carries a routing
-	// policy REFERENCE and none of those values, so Kaana cannot tell a
-	// customer who asked for failover from one who switched it off. Failing
-	// over anyway would silently override a control the platform advertises,
-	// which is the failure this whole boundary exists to prevent; so with this
-	// false a reference resolves to its declared primary deployment and
-	// nowhere else, exactly as it did before failover existed.
-	//
-	// Setting it true is a statement by the operator that every caller of this
-	// process has a routing policy permitting same-model failover across every
-	// deployment in its inventory — true of a first-party canary, and of
-	// nothing else. `cmd/kaana` requires a dated, reasoned acknowledgement to
-	// set it, so it cannot be switched on by an empty environment variable and
-	// then forgotten. See README, "What Oxy still has to decide".
-	AssumeFailoverAuthorized bool
 	// Now is the clock, injectable for tests.
 	Now func() time.Time
 }
@@ -94,23 +65,22 @@ type Config struct {
 func NewExecutor(config Config) (*Executor, error) {
 	switch {
 	case config.Inventory == nil:
-		return nil, fmt.Errorf("relay: no inventory store")
+		return nil, fmt.Errorf("kaana: no inventory store")
 	case config.Providers == nil:
-		return nil, fmt.Errorf("relay: no adapter registry")
+		return nil, fmt.Errorf("kaana: no adapter registry")
 	case config.Rotation == nil:
-		return nil, fmt.Errorf("relay: no rotation registry")
+		return nil, fmt.Errorf("kaana: no rotation registry")
 	}
 	now := config.Now
 	if now == nil {
 		now = time.Now
 	}
 	return &Executor{
-		inventory:                config.Inventory,
-		registry:                 config.Providers,
-		rotation:                 config.Rotation,
-		costs:                    config.Costs,
-		assumeFailoverAuthorized: config.AssumeFailoverAuthorized,
-		now:                      now,
+		inventory: config.Inventory,
+		registry:  config.Providers,
+		rotation:  config.Rotation,
+		costs:     config.Costs,
+		now:       now,
 	}, nil
 }
 
@@ -137,7 +107,7 @@ type Result struct {
 // ErrClientGone reports that the sink stopped accepting events. The executor
 // treats it as a cancellation rather than a failure, because the customer
 // withdrawing is not the provider failing.
-var ErrClientGone = errors.New("relay: the event sink is gone")
+var ErrClientGone = errors.New("kaana: the event sink is gone")
 
 // attempt is one candidate's turn.
 type attempt struct {
@@ -148,6 +118,13 @@ type attempt struct {
 	// It is decided in the loop, where the request context is in scope, rather
 	// than re-derived at settlement from an error that no longer carries it.
 	cancelled bool
+}
+
+// candidate is one resolved destination. It came either from the request's
+// signed authorizedRoutes list or from the single-primary concrete fallback
+// used when that additive field is absent.
+type candidate struct {
+	route provider.Route
 }
 
 // Execute runs the request, emitting normalized events to sink.
@@ -183,7 +160,8 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 		abandoned *attempt
 	)
 
-	for _, route := range candidates {
+	for _, authorized := range candidates {
+		route := authorized.route
 		permit, admitted := e.rotation.Admit(route.DeploymentID)
 		if !admitted {
 			// The breaker is doing its job. This is route SELECTION, not a
@@ -225,7 +203,13 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 		}
 
 		if abandoned != nil {
-			err := emit.routeSwitch(switchReason(abandoned.err), abandoned.route, route, e.now())
+			err := emit.routeSwitch(
+				switchReason(abandoned.err),
+				candidates[0].route.ModelReference.ModelID(),
+				abandoned.route,
+				route,
+				e.now(),
+			)
 			switch {
 			case errors.Is(err, errSwitchTooLate):
 				// Output has already reached the customer, so this request
@@ -313,7 +297,7 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 	// Every candidate was refused before it was attempted. Nothing ran, so
 	// there is nothing to settle — but the customer is owed a retry hint that
 	// is a fact rather than a guess.
-	refusal := e.everyRouteOutOfRotation(requestID, candidates, skipped, startedAt)
+	refusal := e.everyRouteOutOfRotation(requestID, len(candidates), skipped, startedAt)
 	_ = emit.finishWithError(refusal)
 	return Result{Failure: refusal}
 }
@@ -438,7 +422,7 @@ func (e *Executor) finalize(report *contract.UsageReport, failure *contract.Erro
 /* -------------------------------------------------------------------------- */
 
 // resolve turns the envelope's target into the ordered candidates that serve it.
-func (e *Executor) resolve(request *contract.Request, at time.Time) ([]provider.Route, *contract.Error) {
+func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate, *contract.Error) {
 	requestID := request.Attribution.RequestID
 
 	if err := request.Validate(); err != nil {
@@ -453,15 +437,27 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]provider.
 			"the envelope does not carry inference:invoke")
 	}
 
+	if request.AuthorizedRoutes != nil {
+		if request.Target.Kind == contract.TargetModel {
+			primary := request.AuthorizedRoutes[0].ModelReference
+			for index, route := range request.AuthorizedRoutes {
+				if route.Substitution == contract.SubstitutionCrossModel {
+					return nil, invalidAuthorizedRoute(requestID, index,
+						"a concrete model target cannot authorize cross-model substitution")
+				}
+				if route.ModelReference != primary {
+					return nil, invalidAuthorizedRoute(requestID, index,
+						fmt.Sprintf("same-model execution must keep the primary revision %q", primary))
+				}
+			}
+		}
+		return e.resolveAuthorizedRoutes(request, at)
+	}
+
 	if request.Target.Kind == contract.TargetRoutingProfile {
-		// Resolving a profile needs its candidate list, which lives in the Oxy
-		// catalogue and is not in the envelope: it carries a routing policy
-		// REFERENCE, not a snapshot. Choosing a model here would be exactly the
-		// silent substitution the platform forbids, so the request is refused
-		// with the field named. See README, "What Oxy still has to decide".
 		return nil, contract.NewError(requestID, contract.CodeInvalidRequest,
-			"this build serves concrete model targets only: the envelope carries a routing policy reference, not the snapshot a profile would have to be resolved against",
-		).WithParam("target.routingProfile")
+			"a routing-profile target requires the ordered authorizedRoutes list resolved by Oxy",
+		).WithParam("authorizedRoutes")
 	}
 
 	set, err := e.inventory.Current().Resolve(*request.Target.ModelReference, at)
@@ -484,42 +480,91 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]provider.
 		return nil, contract.NewError(requestID, contract.CodeInternalError, err.Error())
 	}
 
-	candidates := set.Candidates()
-	if !e.assumeFailoverAuthorized && len(candidates) > 1 {
-		// Choosing among the deployments of one reference — which to try first,
-		// and whether to try a second — is governed by routing-policy values
-		// the envelope does not carry. Without them Kaana makes the weakest
-		// choice available to it: the deployment the inventory declared first,
-		// and no other. See Config.AssumeFailoverAuthorized.
-		candidates = candidates[:1]
-	}
-	e.order(candidates)
-	return candidates, nil
+	routes := set.Candidates()
+	return []candidate{{route: routes[0]}}, nil
 }
 
-// order sorts candidates by rotation preference: deployments whose breakers
-// would admit a request first, healthier ones before flakier ones, and the
-// inventory's own order as the tie-break so a route is not chosen at random.
-func (e *Executor) order(candidates []provider.Route) {
-	ranks := make(map[contract.DeploymentID]rotation.Rank, len(candidates))
-	for _, route := range candidates {
-		ranks[route.DeploymentID] = e.rotation.Rank(route.DeploymentID)
+// resolveAuthorizedRoutes turns the signed list into executable routes without
+// adding, reordering or correcting an entry. Inventory is an identity oracle
+// here, not an authorization source: a disagreement is refused whole.
+func (e *Executor) resolveAuthorizedRoutes(request *contract.Request, at time.Time) ([]candidate, *contract.Error) {
+	requestID := request.Attribution.RequestID
+	snapshot := e.inventory.Current()
+	candidates := make([]candidate, 0, len(request.AuthorizedRoutes))
+	resolvedRevisions := make(map[contract.ModelID]contract.ModelReference)
+
+	for index, authorized := range request.AuthorizedRoutes {
+		set, err := snapshot.Resolve(authorized.ModelReference, at)
+		if err != nil {
+			return nil, invalidAuthorizedRoute(requestID, index,
+				fmt.Sprintf("modelReference %q is not present in Kaana's inventory", authorized.ModelReference))
+		}
+
+		var resolved *provider.Route
+		for _, inventoryRoute := range set.Candidates() {
+			if inventoryRoute.DeploymentID == authorized.DeploymentID {
+				route := inventoryRoute
+				resolved = &route
+				break
+			}
+		}
+		if resolved == nil {
+			return nil, invalidAuthorizedRoute(requestID, index,
+				fmt.Sprintf("deploymentId %q does not serve modelReference %q in Kaana's inventory", authorized.DeploymentID, authorized.ModelReference))
+		}
+		if resolved.Provider != authorized.Provider {
+			return nil, invalidAuthorizedRoute(requestID, index,
+				fmt.Sprintf("provider %q does not match inventory provider %q for deployment %q", authorized.Provider, resolved.Provider, authorized.DeploymentID))
+		}
+		// Empty equals empty deliberately. It means both sides agree that no
+		// regional attestation exists; Oxy has already excluded this route when
+		// the effective policy carries any regional control. A non-empty set
+		// remains an exact unordered equality, so neither side can widen it.
+		regionsMatch := len(authorized.Regions) == len(resolved.Regions)
+		inventoriedRegions := make(map[contract.Region]struct{}, len(resolved.Regions))
+		for _, region := range resolved.Regions {
+			inventoriedRegions[region] = struct{}{}
+		}
+		for _, region := range authorized.Regions {
+			if _, present := inventoriedRegions[region]; !present {
+				regionsMatch = false
+				break
+			}
+			delete(inventoriedRegions, region)
+		}
+		if len(inventoriedRegions) != 0 {
+			regionsMatch = false
+		}
+		if !regionsMatch {
+			return nil, invalidAuthorizedRoute(requestID, index,
+				fmt.Sprintf("regions %q do not match inventory regions %q for deployment %q", authorized.Regions, resolved.Regions, authorized.DeploymentID))
+		}
+
+		line := resolved.ModelReference.ModelID()
+		if revision, seen := resolvedRevisions[line]; seen && revision != resolved.ModelReference {
+			return nil, invalidAuthorizedRoute(requestID, index,
+				fmt.Sprintf("model line %q appears with both %q and %q; one execution cannot switch revisions silently", line, revision, resolved.ModelReference))
+		}
+		resolvedRevisions[line] = resolved.ModelReference
+		candidates = append(candidates, candidate{route: *resolved})
 	}
-	sort.SliceStable(candidates, func(a, b int) bool {
-		return ranks[candidates[a].DeploymentID].Before(ranks[candidates[b].DeploymentID])
-	})
+	return candidates, nil
+}
+func invalidAuthorizedRoute(requestID contract.RequestID, index int, detail string) *contract.Error {
+	return contract.NewError(requestID, contract.CodeInvalidRequest, detail).
+		WithParam(fmt.Sprintf("authorizedRoutes[%d]", index))
 }
 
 // everyRouteOutOfRotation builds the refusal for a request whose every
 // deployment is open.
 func (e *Executor) everyRouteOutOfRotation(
 	requestID contract.RequestID,
-	candidates []provider.Route,
+	candidateCount int,
 	skipped []contract.DeploymentID,
 	at time.Time,
 ) *contract.Error {
 	failure := contract.NewError(requestID, contract.CodeDeploymentUnavailable,
-		fmt.Sprintf("all %d deployments serving this model are out of rotation", len(candidates)))
+		fmt.Sprintf("all %d authorized deployments are out of rotation", candidateCount))
 	if wait, known := e.rotation.SoonestProbe(skipped, at); known {
 		// A retry hint the breaker can actually keep: this is when the earliest
 		// of them will admit its next trial, not a number chosen to look

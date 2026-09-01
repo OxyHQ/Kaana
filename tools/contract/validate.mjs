@@ -16,7 +16,7 @@
  *    validator with a broken schema lookup, a swallowed exception or an
  *    always-true parse would pass the valid ones and fail here.
  *
- * Usage: `npm ci && npm run validate` after `go test ./internal/contract/...`.
+ * Usage: `bun install --frozen-lockfile && bun run validate` after `go test ./internal/contract/...`.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

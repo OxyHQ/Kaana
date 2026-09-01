@@ -17,7 +17,7 @@ func testRoute() provider.Route {
 		Provider:        Slug,
 		ModelReference:  fakeModelReference,
 		UpstreamModelID: "claude-fake-2026-05-01",
-		Region:          "test-region",
+		Regions:         []contract.Region{"test-region"},
 	}
 }
 

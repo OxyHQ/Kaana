@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -67,7 +68,7 @@ type Route struct {
 	Provider        contract.ProviderSlug
 	ModelReference  contract.ModelReference
 	UpstreamModelID string
-	Region          contract.Region
+	Regions         []contract.Region
 }
 
 // Call is a translated, ready-to-send upstream request.
@@ -201,6 +202,7 @@ type ToolCallDelta struct {
 // registration, so a typo cannot produce a provider that serves requests under
 // one name and reports usage under another.
 type Registry struct {
+	mu       sync.RWMutex
 	adapters map[contract.ProviderSlug]Adapter
 }
 
@@ -222,15 +224,33 @@ func NewRegistry(adapters ...Adapter) (*Registry, error) {
 
 // Lookup returns the adapter serving a provider slug.
 func (r *Registry) Lookup(slug contract.ProviderSlug) (Adapter, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	adapter, found := r.adapters[slug]
 	return adapter, found
 }
 
 // All returns every registered adapter, for the health surface.
 func (r *Registry) All() []Adapter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	all := make([]Adapter, 0, len(r.adapters))
 	for _, adapter := range r.adapters {
 		all = append(all, adapter)
 	}
 	return all
+}
+
+// Replace atomically swaps every adapter after validating the complete new
+// registry. Requests already holding an old adapter finish on it; subsequent
+// lookups see the new credential pools as one coherent generation.
+func (r *Registry) Replace(adapters ...Adapter) error {
+	replacement, err := NewRegistry(adapters...)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.adapters = replacement.adapters
+	r.mu.Unlock()
+	return nil
 }

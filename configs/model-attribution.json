@@ -4,9 +4,12 @@
     "THIS TABLE IS THE HALF OF THE INVENTORY THAT IS OXY'S. ADR 0006 gives model catalogue IDENTITY to Oxy and deployment availability to Kaana; the inventory file has to carry both, so neither side owns it outright. It lives here because ADR 0006's 'What crosses the boundary' declares exactly one Oxy\u2192Kaana channel \u2014 the per-request envelope \u2014 and no channel by which a catalogue could publish an inventory. If Oxy ever grows one, this file is what it replaces, and nothing around it moves. See internal/publisher/attribution.go.",
     "IT IS DECLARED, NEVER DERIVED. A provider's own /models endpoint is authoritative about what it SERVES and says nothing about who released it: Cerebras answers `gpt-oss-120b`, not `openai/gpt-oss-120b`. Inferring the publisher from the string would put a claim about somebody else's work into a customer-visible identifier on the strength of a substring, so a model id nobody has attributed is DROPPED from the snapshot with a warning and no reference resolves to it.",
     "PROVENANCE OF THE TWO ENTRIES BELOW: read from the Cerebras API with the account's own key on 2026-08-18. `GET https://api.cerebras.ai/v1/models` returned exactly these two ids and nothing else, and `GET /v1/models/<id>` answered 200 for both while every id outside the list answered 404 `model_not_found`. The publisher attribution \u2014 `gpt-oss-120b` to OpenAI, `gemma-4-31b` to Google \u2014 is each publisher's own announcement of the weights, not Cerebras's description of them.",
-    "NO CREDENTIAL, NO ADDRESS, NO PRICE. A provider slug resolves to an adapter, an address and a key pool in cmd/kaana, from the process environment. Adding any of them here would make one process's configuration a global fact.",
+    "NO CREDENTIAL, NO ADDRESS, NO PRICE. A provider slug resolves to an adapter and address from non-secret process configuration; its credential pool resolves exclusively from Kaana's KMS-encrypted PostgreSQL store. Adding any of them here would make one process's configuration a global fact.",
     "A NEW ENTRY NEEDS A SOURCE, NOT A GUESS. The cheapest way to add a model is to read the publisher's own release announcement; that is the point. An entry for a provider nobody discovers is warned about at startup, because it is otherwise indistinguishable from a provider that serves nothing.",
-    "OPENROUTER'S ENTRIES ARE TRANSCRIBED FROM ITS OWN NAMESPACE, WHICH IS A WEAKER SOURCE THAN A RELEASE ANNOUNCEMENT \u2014 SAY SO RATHER THAN LET THE TABLE IMPLY OTHERWISE. Cerebras serves bare aliases (`gemma-4-31b`), so its two entries are a judgement somebody made from the publisher's own release. OpenRouter's ids already carry a publisher as a separate path segment, and these 339 entries transcribe it. They are DECLARED, not derived: the publisher reads this table and nothing else, so a wrong segment is corrected here and the catalogue's identity stays Oxy's (ADR 0006). But the evidence behind each one is OpenRouter's word, and any single entry can be upgraded by reading the publisher's release. `stealth/ox-alpha` is deliberately ABSENT: OpenRouter uses `stealth/` for a release whose publisher is undisclosed, so attributing it would name a publisher nobody knows. The publisher drops it and names it, which is correct."
+    "OPENROUTER'S ENTRIES ARE TRANSCRIBED FROM ITS OWN NAMESPACE, WHICH IS A WEAKER SOURCE THAN A RELEASE ANNOUNCEMENT \u2014 SAY SO RATHER THAN LET THE TABLE IMPLY OTHERWISE. Cerebras serves bare aliases (`gemma-4-31b`), so its two entries are a judgement somebody made from the publisher's own release. OpenRouter's ids already carry a publisher as a separate path segment, and these 347 entries transcribe it. They are DECLARED, not derived: the publisher reads this table and nothing else, so a wrong segment is corrected here and the catalogue's identity stays Oxy's (ADR 0006). But the evidence behind each one is OpenRouter's word, and any single entry can be upgraded by reading the publisher's release. `stealth/ox-alpha` is deliberately ABSENT: OpenRouter uses `stealth/` for a release whose publisher is undisclosed, so attributing it would name a publisher nobody knows. The publisher drops it and names it, which is correct.",
+    "THE 2026-09-01 LIVE-CATALOGUE DELTA WAS CLASSIFIED, NOT BLINDLY COPIED. Ten newly served OpenRouter ids below have text output and an immutable canonical slug (or a free route whose canonical slug is already attributed). Batch routes, `~...latest` aliases, OpenRouter routers, previews, Groq Compound systems, Groq speech models and xAI image/video generators remain unattributed because the current Kaana contract cannot represent their delivery mode or output. The public itsfree.ai catalogue was only a discovery signal; no source, prose or data was copied from that unlicensed repository.",
+    "MISTRAL, SAMBANOVA AND SILICONFLOW WERE ONBOARDED FROM THEIR OFFICIAL API AND MODEL DOCUMENTATION ON 2026-09-01, NOT FROM ITSFREE.AI. These lines are an allow-list of fixed, chat-capable model identities. They still become deployments only when the provider's authenticated account model list returns the exact upstream id. Moving `latest` aliases and preview models are absent. Mistral discovery additionally requires `capabilities.completion_chat`; SiliconFlow asks `/models?type=text&sub_type=chat`.",
+    "DEEPSEEK AND AI21 ARE SERVING-COMPATIBLE BUT NOT PUBLISHED HERE YET. DeepSeek's direct account list currently exposes moving aliases or an experimental vision id, not immutable chat references. AI21 documents no account `/models` endpoint. Kaana refuses to invent availability for either; fixed AI21 ids and Alibaba workspace deployments require an independently verified static-catalog control before they can enter this table."
   ],
   "attribution": {
     "cerebras": {
@@ -107,10 +110,12 @@
       "gryphe/mythomax-l2-13b": "gryphe/mythomax-l2-13b",
       "ibm-granite/granite-4.0-h-micro": "ibm-granite/granite-4.0-h-micro",
       "ibm-granite/granite-4.1-8b": "ibm-granite/granite-4.1-8b",
+      "ibm-granite/granite-4.2-8b": "ibm-granite/granite-4.2-8b",
       "inception/mercury-2": "inception/mercury-2",
       "inclusionai/ling-2.6-1t": "inclusionai/ling-2.6-1t",
       "inclusionai/ling-2.6-flash": "inclusionai/ling-2.6-flash",
       "inclusionai/ling-3.0-flash": "inclusionai/ling-3.0-flash",
+      "inclusionai/ling-3.0-flash-fin:free": "inclusionai/ling-3.0-flash-fin",
       "inclusionai/ring-2.6-1t": "inclusionai/ring-2.6-1t",
       "kwaipilot/kat-coder-air-v2.5": "kwaipilot/kat-coder-air-v2.5",
       "kwaipilot/kat-coder-pro-v2": "kwaipilot/kat-coder-pro-v2",
@@ -139,8 +144,11 @@
       "minimax/minimax-m2.1": "minimax/minimax-m2.1",
       "minimax/minimax-m2.5": "minimax/minimax-m2.5",
       "minimax/minimax-m2.7": "minimax/minimax-m2.7",
+      "minimax/minimax-m2.7:free": "minimax/minimax-m2.7",
       "minimax/minimax-m3": "minimax/minimax-m3",
+      "minimax/minimax-m3:free": "minimax/minimax-m3",
       "mistralai/codestral-2508": "mistralai/codestral-2508",
+      "mistralai/devstral-2512": "mistralai/devstral-2512",
       "mistralai/ministral-14b-2512": "mistralai/ministral-14b-2512",
       "mistralai/ministral-3b-2512": "mistralai/ministral-3b-2512",
       "mistralai/ministral-8b": "mistralai/ministral-8b",
@@ -302,6 +310,7 @@
       "qwen/qwen3.7-plus": "qwen/qwen3.7-plus",
       "qwen/qwen3.8-2.4t-a95b": "qwen/qwen3.8-2.4t-a95b",
       "qwen/qwen3.8-27b": "qwen/qwen3.8-27b",
+      "qwen/qwen3.8-flash": "qwen/qwen3.8-flash",
       "qwen/qwen3.8-max": "qwen/qwen3.8-max",
       "rekaai/reka-edge": "rekaai/reka-edge",
       "rekaai/reka-flash-3": "rekaai/reka-flash-3",
@@ -317,6 +326,7 @@
       "tencent/hunyuan-a13b-instruct": "tencent/hunyuan-a13b-instruct",
       "tencent/hy-mt2-1.8b": "tencent/hy-mt2-1.8b",
       "tencent/hy-mt2-30b-a3b": "tencent/hy-mt2-30b-a3b",
+      "tencent/hy-mt2-7b": "tencent/hy-mt2-7b",
       "tencent/hy3": "tencent/hy3",
       "tencent/hy3-preview": "tencent/hy3-preview",
       "thedrummer/cydonia-24b-v4.1": "thedrummer/cydonia-24b-v4.1",
@@ -324,7 +334,9 @@
       "thedrummer/skyfall-36b-v2": "thedrummer/skyfall-36b-v2",
       "thedrummer/unslopnemo-12b": "thedrummer/unslopnemo-12b",
       "thinkingmachines/inkling": "thinkingmachines/inkling",
+      "thinkingmachines/inkling:free": "thinkingmachines/inkling",
       "thinkingmachines/inkling-small": "thinkingmachines/inkling-small",
+      "thinkingmachines/inkling-small:free": "thinkingmachines/inkling-small",
       "undi95/remm-slerp-l2-13b": "undi95/remm-slerp-l2-13b",
       "upstage/solar-pro-3": "upstage/solar-pro-3",
       "upstage/solar-pro4": "upstage/solar-pro4",
@@ -350,7 +362,28 @@
       "z-ai/glm-5.2": "z-ai/glm-5.2",
       "z-ai/glm-5.2:free": "z-ai/glm-5.2",
       "z-ai/glm-5.3": "z-ai/glm-5.3",
+      "z-ai/glm-5.3-flash": "z-ai/glm-5.3-flash",
       "z-ai/glm-5v-turbo": "z-ai/glm-5v-turbo"
+    },
+    "mistral": {
+      "mistral-medium-3-5": "mistralai/mistral-medium-3.5",
+      "mistral-small-2603": "mistralai/mistral-small-2603",
+      "mistral-large-2512": "mistralai/mistral-large-2512",
+      "ministral-8b-2512": "mistralai/ministral-8b-2512",
+      "ministral-14b-2512": "mistralai/ministral-14b-2512"
+    },
+    "sambanova": {
+      "MiniMax-M2.7": "minimax/minimax-m2.7",
+      "DeepSeek-V3.1": "deepseek/deepseek-v3.1",
+      "Meta-Llama-3.3-70B-Instruct": "meta-llama/llama-3.3-70b-instruct",
+      "gpt-oss-120b": "openai/gpt-oss-120b"
+    },
+    "siliconflow": {
+      "Pro/zai-org/GLM-5": "z-ai/glm-5",
+      "Pro/zai-org/GLM-4.7": "z-ai/glm-4.7",
+      "deepseek-ai/DeepSeek-V3.2": "deepseek/deepseek-v3.2",
+      "Qwen/Qwen3.5-397B-A17B": "qwen/qwen3.5-397b-a17b",
+      "deepseek-ai/DeepSeek-V3.1-Terminus": "deepseek/deepseek-v3.1-terminus"
     },
     "groq": {
       "allam-2-7b": "sdaia/allam-2-7b",

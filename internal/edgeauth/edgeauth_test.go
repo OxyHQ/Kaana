@@ -170,64 +170,15 @@ func TestParsePublicKeys(t *testing.T) {
 	}
 }
 
-// The rename migration. Oxy's edge signs with the header names it was built
-// with, so for the window between the two deploys this service must answer to
-// both spellings — a clean cut refuses every request with `unknown key id`,
-// before a signature is even computed, and no ordering of two deploys avoids
-// that window.
-//
-// These tests are what makes the fallback removable later: when the edge sends
-// only the current names, deleting the legacy constants turns
-// TestTheLegacyHeaderSpellingStillVerifies red, which is the signal that the
-// deletion is a real change and not a no-op.
-func legacySignedRequest(t *testing.T, private ed25519.PrivateKey, at time.Time, body []byte) http.Header {
-	t.Helper()
-	milliseconds := at.UnixMilli()
-	signature := ed25519.Sign(private, edgeauth.SigningInput(keyID, milliseconds, body))
-	header := http.Header{}
-	header.Set("X-Oxy-Relay-Key-Id", keyID)
-	header.Set("X-Oxy-Relay-Timestamp", strconv.FormatInt(milliseconds, 10))
-	header.Set("X-Oxy-Relay-Signature", "v1="+base64.StdEncoding.EncodeToString(signature))
-	return header
-}
-
-func TestTheLegacyHeaderSpellingStillVerifies(t *testing.T) {
+func TestAnotherHeaderNamespaceIsNotAccepted(t *testing.T) {
 	verifier, private := newVerifier(t)
 	body := []byte(`{"schemaVersion":1}`)
-	if err := verifier.Verify(legacySignedRequest(t, private, time.Now(), body), body); err != nil {
-		t.Fatalf("an envelope signed under the pre-rename header names was rejected: %v", err)
-	}
-}
-
-// The signature covers the VALUES, never the names they arrived in, which is
-// why the fallback is per-header rather than all-or-nothing. This proves that
-// property rather than assuming it.
-func TestAMixedHeaderPairVerifies(t *testing.T) {
-	verifier, private := newVerifier(t)
-	body := []byte(`{"schemaVersion":1}`)
-	legacy := legacySignedRequest(t, private, time.Now(), body)
-
-	mixed := http.Header{}
-	mixed.Set(edgeauth.HeaderKeyID, legacy.Get("X-Oxy-Relay-Key-Id"))
-	mixed.Set("X-Oxy-Relay-Timestamp", legacy.Get("X-Oxy-Relay-Timestamp"))
-	mixed.Set(edgeauth.HeaderSignature, legacy.Get("X-Oxy-Relay-Signature"))
-
-	if err := verifier.Verify(mixed, body); err != nil {
-		t.Fatalf("a request mixing both header spellings was rejected: %v", err)
-	}
-}
-
-// The negative control. Without it, a verifier that ignored header names
-// entirely would pass both tests above while checking nothing.
-func TestAThirdHeaderSpellingIsNotAccepted(t *testing.T) {
-	verifier, private := newVerifier(t)
-	body := []byte(`{"schemaVersion":1}`)
-	legacy := legacySignedRequest(t, private, time.Now(), body)
+	current := newSignedRequest(t, private, keyID, time.Now(), body, nil)
 
 	other := http.Header{}
-	other.Set("X-Oxy-Gateway-Key-Id", legacy.Get("X-Oxy-Relay-Key-Id"))
-	other.Set("X-Oxy-Gateway-Timestamp", legacy.Get("X-Oxy-Relay-Timestamp"))
-	other.Set("X-Oxy-Gateway-Signature", legacy.Get("X-Oxy-Relay-Signature"))
+	other.Set("X-Oxy-Gateway-Key-Id", current.Get(edgeauth.HeaderKeyID))
+	other.Set("X-Oxy-Gateway-Timestamp", current.Get(edgeauth.HeaderTimestamp))
+	other.Set("X-Oxy-Gateway-Signature", current.Get(edgeauth.HeaderSignature))
 
 	if err := verifier.Verify(other, body); err == nil {
 		t.Fatal("a header spelling this service never used was accepted")

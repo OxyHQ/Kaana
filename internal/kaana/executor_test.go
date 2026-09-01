@@ -24,7 +24,7 @@ import (
 const oneDeployment = `{
   "deploymentId":"dep_test","provider":"stub",
   "modelReference":"stub/model@2026-05-01","upstreamModelId":"model",
-  "region":"test-region","current":true}`
+  "regions":["test-region"],"current":true}`
 
 /* -------------------------------------------------------------------------- */
 /*  Adapters the tests script                                                 */
@@ -89,12 +89,9 @@ type harness struct {
 	costs       *providercost.Cards
 	issuedAt    time.Time
 	now         func() time.Time
-	// failoverAuthorized stands in for the routing-policy value the envelope
-	// does not carry. Every test that exercises failover sets it, because with
-	// it false Kaana deliberately never chooses among deployments at all — see
-	// kaana.Config.AssumeFailoverAuthorized, and the test that pins that
-	// default.
-	failoverAuthorized bool
+	// routes are the exact destinations Oxy authorized for tests that exercise
+	// failover. nil exercises the additive contract's no-list default.
+	routes []contract.AuthorizedRoute
 }
 
 func (h harness) build(t *testing.T) *kaana.Executor {
@@ -104,7 +101,7 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 	if issuedAt.IsZero() {
 		issuedAt = time.Now()
 	}
-	document := fmt.Sprintf(`{"snapshotId":"snap_relay_test","issuedAt":%q,"deployments":[%s]}`,
+	document := fmt.Sprintf(`{"snapshotId":"snap_kaana_test","issuedAt":%q,"deployments":[%s]}`,
 		contract.NewTimestamp(issuedAt), h.deployments)
 
 	path := filepath.Join(t.TempDir(), "inventory.json")
@@ -129,12 +126,11 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		rotationRegistry = rotation.NewRegistry(rotation.Policy{}, h.now)
 	}
 	executor, err := kaana.NewExecutor(kaana.Config{
-		Inventory:                store,
-		Providers:                registry,
-		Rotation:                 rotationRegistry,
-		Costs:                    h.costs,
-		AssumeFailoverAuthorized: h.failoverAuthorized,
-		Now:                      h.now,
+		Inventory: store,
+		Providers: registry,
+		Rotation:  rotationRegistry,
+		Costs:     h.costs,
+		Now:       h.now,
 	})
 	if err != nil {
 		t.Fatalf("building the executor: %v", err)
@@ -144,6 +140,11 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 
 func (h harness) run(t *testing.T, request *contract.Request) ([]contract.StreamEvent, kaana.Result) {
 	t.Helper()
+	if h.routes != nil {
+		copy := *request
+		copy.AuthorizedRoutes = append([]contract.AuthorizedRoute(nil), h.routes...)
+		request = &copy
+	}
 	var events []contract.StreamEvent
 	result := h.build(t).Execute(context.Background(), request, func(event contract.StreamEvent) error {
 		events = append(events, event)
@@ -211,12 +212,10 @@ func happyAdapter() *scriptedAdapter {
 /*  Refusals                                                                  */
 /* -------------------------------------------------------------------------- */
 
-// TestARoutingProfileTargetIsRefusedWithTheFieldNamed pins the one place this
-// build knowingly serves less than the contract describes. Resolving a profile
-// needs its candidate list, and the envelope carries a routing policy REFERENCE
-// rather than a snapshot — so choosing a model here would be exactly the silent
-// substitution the platform forbids.
-func TestARoutingProfileTargetIsRefusedWithTheFieldNamed(t *testing.T) {
+// TestARoutingProfileWithoutAuthorizedRoutesIsRefusedWithTheFieldNamed pins the
+// default-deny half of the contract. A profile names no model, so only Oxy's
+// signed list can give Kaana a destination; inventory is never a substitute.
+func TestARoutingProfileWithoutAuthorizedRoutesIsRefusedWithTheFieldNamed(t *testing.T) {
 	request := baseRequest()
 	profile := contract.RoutingProfileSlug("auto")
 	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfile, RoutingProfile: &profile}
@@ -230,13 +229,259 @@ func TestARoutingProfileTargetIsRefusedWithTheFieldNamed(t *testing.T) {
 		t.Errorf("refused with %q", result.Failure.Code)
 	}
 	if result.Failure.Retryable {
-		t.Error("the refusal is retryable, but no retry can add a policy snapshot to the envelope")
+		t.Error("the refusal is retryable, but an identical envelope still names no authorized destination")
 	}
-	if result.Failure.Param == nil || *result.Failure.Param != "target.routingProfile" {
+	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes" {
 		t.Errorf("the refusal names %v as the field at fault", result.Failure.Param)
 	}
 	if len(events) != 1 || events[0].EventType() != contract.EventError {
 		t.Errorf("the refusal produced %d events", len(events))
+	}
+}
+
+const routingProfileDeployments = `
+  {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
+   "upstreamModelId":"model-a","regions":["r1"],"current":true},
+  {"deploymentId":"dep_b","provider":"backup","modelReference":"backup/other@2026-06-01",
+   "upstreamModelId":"model-b","regions":["r2"],"current":true},
+  {"deploymentId":"dep_c","provider":"unlisted","modelReference":"unlisted/third@2026-07-01",
+   "upstreamModelId":"model-c","regions":["r3"],"current":true}`
+
+func routingProfileRequest() *contract.Request {
+	request := baseRequest()
+	profile := contract.RoutingProfileSlug("kaana-v1")
+	authorized := true
+	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfile, RoutingProfile: &profile}
+	request.AuthorizedRoutes = []contract.AuthorizedRoute{
+		{
+			Substitution:   contract.SubstitutionSameModel,
+			DeploymentID:   "dep_a",
+			ModelReference: "stub/model@2026-05-01",
+			Provider:       "stub",
+			Regions:        []contract.Region{"r1"},
+		},
+		{
+			Substitution:       contract.SubstitutionCrossModel,
+			DeploymentID:       "dep_b",
+			ModelReference:     "backup/other@2026-06-01",
+			Provider:           "backup",
+			Regions:            []contract.Region{"r2"},
+			AuthorizedByPolicy: &authorized,
+		},
+	}
+	return request
+}
+
+func TestRoutingProfileFailsOverOnlyWithinItsAuthorizedRouteList(t *testing.T) {
+	primary := failingAdapter("stub", overloaded("stub"), nil)
+	secondary := succeedingAdapter("backup", 9)
+	unlisted := succeedingAdapter("unlisted", 99)
+
+	events, result := harness{
+		deployments: routingProfileDeployments,
+		adapters:    []provider.Adapter{primary, secondary, unlisted},
+	}.run(t, routingProfileRequest())
+
+	if result.Failure != nil {
+		t.Fatalf("the profile's authorized alternate was not served: %v", result.Failure)
+	}
+	if primary.attempts() != 1 || secondary.attempts() != 1 {
+		t.Fatalf("authorized attempts were primary=%d alternate=%d", primary.attempts(), secondary.attempts())
+	}
+	if unlisted.attempts() != 0 {
+		t.Fatalf("an inventory route absent from authorizedRoutes was attempted %d times", unlisted.attempts())
+	}
+	if result.Report == nil || result.Report.ResolvedModelReference != "backup/other@2026-06-01" {
+		t.Fatalf("the settled route is %+v", result.Report)
+	}
+
+	switches := eventsOfType(events, contract.EventRouteSwitch)
+	if len(switches) != 1 {
+		t.Fatalf("the cross-model failover emitted %d route switches", len(switches))
+	}
+	detail := switches[0].(*contract.StreamRouteSwitchEvent).Detail
+	if detail.Scope != contract.SwitchScopeModel || detail.AuthorizedByPolicy == nil || !*detail.AuthorizedByPolicy {
+		t.Fatalf("the cross-model switch is not reported as policy-authorized: %+v", detail)
+	}
+	if detail.RequestedModelID == nil || *detail.RequestedModelID != "stub/model" ||
+		detail.FromModelReference == nil || *detail.FromModelReference != "stub/model@2026-05-01" ||
+		detail.ToModelReference == nil || *detail.ToModelReference != "backup/other@2026-06-01" {
+		t.Errorf("the cross-model switch reports the wrong path: %+v", detail)
+	}
+}
+
+func TestAuthorizedRouteMetadataMustMatchInventoryExactly(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*contract.AuthorizedRoute)
+	}{
+		{
+			name: "deployment is not inventoried for the reference",
+			mutate: func(route *contract.AuthorizedRoute) {
+				route.DeploymentID = "dep_missing"
+			},
+		},
+		{
+			name: "model reference disagrees",
+			mutate: func(route *contract.AuthorizedRoute) {
+				route.ModelReference = "backup/other@2026-06-01"
+			},
+		},
+		{
+			name: "provider disagrees",
+			mutate: func(route *contract.AuthorizedRoute) {
+				route.Provider = "backup"
+			},
+		},
+		{
+			name: "regions disagree",
+			mutate: func(route *contract.AuthorizedRoute) {
+				route.Regions = []contract.Region{"r9"}
+			},
+		},
+		{
+			name: "an empty signed set disagrees with attested inventory",
+			mutate: func(route *contract.AuthorizedRoute) {
+				route.Regions = []contract.Region{}
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			primary := succeedingAdapter("stub", 1)
+			backup := succeedingAdapter("backup", 1)
+			unlisted := succeedingAdapter("unlisted", 1)
+			request := routingProfileRequest()
+			request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+			testCase.mutate(&request.AuthorizedRoutes[0])
+
+			_, result := harness{
+				deployments: routingProfileDeployments,
+				adapters:    []provider.Adapter{primary, backup, unlisted},
+			}.run(t, request)
+
+			if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
+				t.Fatalf("mismatched metadata was reported as %v", result.Failure)
+			}
+			if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes[0]" {
+				t.Errorf("the refusal names %v as the offending field", result.Failure.Param)
+			}
+			if primary.attempts()+backup.attempts()+unlisted.attempts() != 0 {
+				t.Fatal("an adapter was reached before the authorized route list was validated whole")
+			}
+		})
+	}
+
+	// Positive control: the same first entry executes when every signed field
+	// agrees, so the table above is not passing because this fixture never runs.
+	primary := succeedingAdapter("stub", 1)
+	request := routingProfileRequest()
+	request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+	if _, result := (harness{
+		deployments: routingProfileDeployments,
+		adapters:    []provider.Adapter{primary, succeedingAdapter("backup", 1), succeedingAdapter("unlisted", 1)},
+	}).run(t, request); result.Failure != nil {
+		t.Fatalf("matching route metadata was refused: %v", result.Failure)
+	}
+	if primary.attempts() != 1 {
+		t.Fatal("matching metadata still did not reach its authorized adapter")
+	}
+}
+
+func TestAuthorizedRouteListIsValidatedWholeBeforeItsPrimaryExecutes(t *testing.T) {
+	primary := succeedingAdapter("stub", 1)
+	backup := succeedingAdapter("backup", 1)
+	unlisted := succeedingAdapter("unlisted", 1)
+	request := routingProfileRequest()
+	request.AuthorizedRoutes[1].Provider = "unlisted"
+
+	_, result := harness{
+		deployments: routingProfileDeployments,
+		adapters:    []provider.Adapter{primary, backup, unlisted},
+	}.run(t, request)
+
+	if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
+		t.Fatalf("a bad second route was reported as %v", result.Failure)
+	}
+	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes[1]" {
+		t.Errorf("the refusal names %v as the offending field", result.Failure.Param)
+	}
+	if primary.attempts()+backup.attempts()+unlisted.attempts() != 0 {
+		t.Fatal("the authorized route list was executed before every entry was validated")
+	}
+}
+
+func TestConcreteTargetRejectsAnAuthorizedCrossModelEntry(t *testing.T) {
+	primary := succeedingAdapter("stub", 1)
+	backup := succeedingAdapter("backup", 1)
+	unlisted := succeedingAdapter("unlisted", 1)
+	request := routingProfileRequest()
+	unpinned := contract.ModelReference("stub/model")
+	request.Target = contract.RoutingTarget{Kind: contract.TargetModel, ModelReference: &unpinned}
+
+	_, result := harness{
+		deployments: routingProfileDeployments,
+		adapters:    []provider.Adapter{primary, backup, unlisted},
+	}.run(t, request)
+
+	if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
+		t.Fatalf("a concrete cross-model entry was reported as %v", result.Failure)
+	}
+	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes[1]" {
+		t.Errorf("the refusal names %v as the offending field", result.Failure.Param)
+	}
+	if primary.attempts()+backup.attempts()+unlisted.attempts() != 0 {
+		t.Fatal("a concrete cross-model list reached an adapter")
+	}
+}
+
+func TestAnEmptySignedRegionSetMatchesUnattestedInventory(t *testing.T) {
+	const deploymentWithoutRegion = `
+  {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
+   "upstreamModelId":"model-a","current":true}`
+	primary := succeedingAdapter("stub", 1)
+	request := routingProfileRequest()
+	request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+	request.AuthorizedRoutes[0].Regions = []contract.Region{}
+
+	_, result := harness{
+		deployments: deploymentWithoutRegion,
+		adapters:    []provider.Adapter{primary},
+	}.run(t, request)
+
+	if result.Failure != nil {
+		t.Fatalf("matching empty unattested region sets were refused: %v", result.Failure)
+	}
+	if primary.attempts() != 1 {
+		t.Fatal("matching empty unattested region sets did not reach the adapter")
+	}
+}
+
+func TestASignedRegionCannotMatchUnattestedInventory(t *testing.T) {
+	const deploymentWithoutRegion = `
+  {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
+   "upstreamModelId":"model-a","current":true}`
+	primary := succeedingAdapter("stub", 1)
+	request := routingProfileRequest()
+	request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+
+	_, result := harness{
+		deployments: deploymentWithoutRegion,
+		adapters:    []provider.Adapter{primary},
+	}.run(t, request)
+
+	if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
+		t.Fatalf("a signed region with no inventory attestation was reported as %v", result.Failure)
+	}
+	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes[0]" {
+		t.Errorf("the refusal names %v as the offending field", result.Failure.Param)
+	}
+	if !strings.Contains(result.Failure.Message, "do not match inventory regions") {
+		t.Errorf("the refusal does not explain the mismatched authority: %q", result.Failure.Message)
+	}
+	if primary.attempts() != 0 {
+		t.Fatal("the route executed without inventory attestation for its signed region")
 	}
 }
 

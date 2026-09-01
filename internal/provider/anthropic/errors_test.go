@@ -135,7 +135,7 @@ func TestEveryFailureThisProviderNamesMapsOntoTheClosedVocabulary(t *testing.T) 
 // reading behind the 401 row above, which is the one an adapter author is most
 // likely to get backwards.
 //
-// The credential this provider refused is RELAY's, and it is the case
+// The credential this provider refused is KAANA's, and it is the case
 // `provider_credential_invalid` was added to the contract for
 // (OxyHQ/oxy#1019): `authentication_failed` would send a customer to rotate
 // their own key, and `provider_error` would send every client into a retry loop

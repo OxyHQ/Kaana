@@ -4,7 +4,7 @@
 
 ## The contract is not re-invented here
 
-`@oxyhq/contracts@0.29.0` (contract version 1.1.0) is the wire contract, and the Go types in
+`@oxyhq/contracts@0.34.0` (contract version 1.3.0) is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 
@@ -27,12 +27,10 @@ upstream appears on the next regeneration.
 - `ContractVersion` equals the published `INFERENCE_CONTRACT_VERSION`.
 
 CI regenerates the descriptor and fails on any diff, which catches a hand-edit
-and a version bump nobody re-derived. The bump to `0.28.0` is what that gate is
-for: it brought 25 shapes from two new modules — account billing, entitlements
-and reconciliation — every one of which is a control-plane concept this
-repository is forbidden to hold, so all 25 are recorded not-applicable with the
-reason naming the owner, and `expectedNotApplicableCount` moved in the same
-change.
+and a version bump nobody re-derived. Version `0.34.0` adds the ordered
+`authorizedRouteSchema`, which Kaana consumes, and model-release/compliance
+shapes owned by Oxy, which are recorded not-applicable with exact reasons and an
+exact count.
 
 **What it catches:** a field renamed, added, removed, or flipped between
 required and optional; a scalar's type changed; a reference repointed; a version
@@ -46,18 +44,18 @@ Structure is not values. `go test ./internal/contract/...` marshals one fixture
 per wire shape using the same Go types the server uses — with **every optional
 field populated**, because an optional field that drifted is invisible in a
 minimal fixture — and `tools/contract/validate.mjs` parses each with the
-published schema itself. It also feeds six deliberately invalid fixtures that
+published schema itself. It also feeds deliberately invalid fixtures that
 the schemas must **reject**, and fails if it saw no fixtures at all: a validator
 with a broken schema lookup would otherwise report the same clean run.
 
 Regenerate after a version bump:
 
 ```bash
-cd tools/contract && npm ci && npm run generate
+cd tools/contract && bun install --frozen-lockfile && bun run generate
 ```
 
 
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-relay-boundary.md
+[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md

@@ -19,12 +19,11 @@
 //
 // A model reference resolves to a RouteSet: one reference and the endpoints
 // that serve it. The reference is stored once, for the whole set, and an
-// Endpoint carries none of its own. That shape is the structural half of the
-// rule that same-model failover can never become cross-model substitution —
-// every route the executor can build for a request is this set's single
-// reference paired with a different place to send it, so a route naming
-// different weights is not a case that has to be excluded, it is a value that
-// cannot be constructed.
+// Endpoint carries none of its own. That shape guarantees that every route
+// built from this set serves the same exact weights. Cross-model execution is
+// a separate executor operation: it resolves another RouteSet only for an
+// explicit entry in the signed authorizedRoutes list and reports that change
+// as a model-scoped route switch.
 package inventory
 
 import (
@@ -57,15 +56,21 @@ type Deployment struct {
 	// weights.
 	ModelReference contract.ModelReference `json:"modelReference"`
 	// UpstreamModelID is what the provider's own API calls this model.
-	UpstreamModelID string          `json:"upstreamModelId"`
-	Region          contract.Region `json:"region"`
+	UpstreamModelID string `json:"upstreamModelId"`
+	// Regions are the attested upstream execution/residency regions this
+	// deployment may serve from. They are not the AWS region Kaana itself runs
+	// in. Absent and empty both mean no regional attestation. Such a deployment
+	// may match only an explicitly empty signed region set, which Oxy emits only
+	// when the customer's effective policy has no regional control.
+	Regions []contract.Region `json:"regions,omitempty"`
 	// Current marks the revision an UNPINNED reference to this model line
 	// resolves to.
 	//
 	// Choosing the current revision of a model is described in the contract as
 	// Oxy's decision, but the envelope carries no resolution and the stream's
-	// start event must report a revision-pinned reference — so in practice the
-	// choice lands here. See README, "What Oxy still has to decide".
+	// start event must report a revision-pinned reference. An authorizedRoutes
+	// entry is already pinned by Oxy; only an older no-list request reaches this
+	// inventory choice.
 	Current bool `json:"current"`
 }
 
@@ -79,7 +84,7 @@ type Endpoint struct {
 	DeploymentID    contract.DeploymentID
 	Provider        contract.ProviderSlug
 	UpstreamModelID string
-	Region          contract.Region
+	Regions         []contract.Region
 }
 
 // RouteSet is every endpoint serving ONE model reference, in the order the
@@ -108,7 +113,7 @@ func (s RouteSet) Candidates() []provider.Route {
 			Provider:        endpoint.Provider,
 			ModelReference:  s.reference,
 			UpstreamModelID: endpoint.UpstreamModelID,
-			Region:          endpoint.Region,
+			Regions:         append([]contract.Region(nil), endpoint.Regions...),
 		})
 	}
 	return routes
@@ -242,8 +247,16 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 			return nil, fmt.Errorf("inventory: %s must pin an immutable revision (<publisher>/<model>@<revision>), got %q", deployment.DeploymentID, deployment.ModelReference)
 		case deployment.UpstreamModelID == "":
 			return nil, fmt.Errorf("inventory: %s declares no upstream model id, so nothing could be sent to %s", deployment.DeploymentID, deployment.Provider)
-		case deployment.Region != "" && !deployment.Region.Valid():
-			return nil, fmt.Errorf("inventory: %s has region %q, which is not a region", deployment.DeploymentID, deployment.Region)
+		}
+		seenRegions := make(map[contract.Region]struct{}, len(deployment.Regions))
+		for index, region := range deployment.Regions {
+			if !region.Valid() {
+				return nil, fmt.Errorf("inventory: %s has regions[%d] %q, which is not a region", deployment.DeploymentID, index, region)
+			}
+			if _, duplicate := seenRegions[region]; duplicate {
+				return nil, fmt.Errorf("inventory: %s declares region %q twice", deployment.DeploymentID, region)
+			}
+			seenRegions[region] = struct{}{}
 		}
 
 		if _, duplicate := seenIDs[deployment.DeploymentID]; duplicate {
@@ -251,16 +264,16 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 		}
 		seenIDs[deployment.DeploymentID] = struct{}{}
 
-		// Several deployments of one reference is the failover case, and the
-		// order they are declared in is the order they are tried in before
-		// health scoring reorders them.
+		// Several deployments of one reference is the same-model failover shape.
+		// Declaration order selects the no-list primary; a signed route list
+		// carries its own exact attempt order and health never reorders it.
 		set := inventory.byReference[deployment.ModelReference]
 		set.reference = deployment.ModelReference
 		set.endpoints = append(set.endpoints, Endpoint{
 			DeploymentID:    deployment.DeploymentID,
 			Provider:        deployment.Provider,
 			UpstreamModelID: deployment.UpstreamModelID,
-			Region:          deployment.Region,
+			Regions:         append([]contract.Region(nil), deployment.Regions...),
 		})
 		inventory.byReference[deployment.ModelReference] = set
 

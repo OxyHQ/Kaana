@@ -2,13 +2,14 @@
   "name": "@oxyhq/kaana-contract-tools",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "bun@1.3.14",
   "type": "module",
   "description": "Derives internal/contract/descriptor.json from the published @oxyhq/contracts inference module, and validates Kaana-produced fixtures against the published Zod schemas.",
   "scripts": {
-    "generate": "node generate.mjs",
-    "validate": "node validate.mjs"
+    "generate": "bun generate.mjs",
+    "validate": "bun validate.mjs"
   },
   "dependencies": {
-    "@oxyhq/contracts": "0.29.0"
+    "@oxyhq/contracts": "0.35.0"
   }
 }

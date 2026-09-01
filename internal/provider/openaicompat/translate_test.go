@@ -21,7 +21,7 @@ func testRoute() provider.Route {
 		Provider:        "openai",
 		ModelReference:  "openai/gpt-5@2026-05-01",
 		UpstreamModelID: "gpt-5-2026-05-01",
-		Region:          "us-east-1",
+		Regions:         []contract.Region{"us-east-1"},
 	}
 }
 
@@ -176,7 +176,7 @@ func TestAssistantToolCallsAndToolAnswersSurviveTranslation(t *testing.T) {
 			Role:    contract.RoleAssistant,
 			Content: []contract.ContentPart{textPartOf("")},
 			ToolCalls: []contract.ToolCall{{
-				ID: "call_1", Name: "lookup", Arguments: `{"q":"relay"}`,
+				ID: "call_1", Name: "lookup", Arguments: `{"q":"kaana"}`,
 			}},
 		},
 		{
@@ -199,7 +199,7 @@ func TestAssistantToolCallsAndToolAnswersSurviveTranslation(t *testing.T) {
 	function := call["function"].(map[string]any)
 	// Carried as JSON TEXT, not a parsed object: models emit invalid JSON often
 	// enough that parsing it would turn a recoverable mistake into a rejection.
-	if function["arguments"] != `{"q":"relay"}` {
+	if function["arguments"] != `{"q":"kaana"}` {
 		t.Errorf("the tool call's arguments translated to %#v", function["arguments"])
 	}
 

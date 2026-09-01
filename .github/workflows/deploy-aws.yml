@@ -5,7 +5,7 @@ name: Deploy to AWS
 # revision.
 #
 # SERVICES, plural. One image carries two binaries and there are two services —
-# `relay` serves, `relay-publisher` writes the inventory the serving tasks read
+# `kaana` serves, `kaana-publisher` writes the inventory the serving tasks read
 # — and both are deployed here. Deploying only the first is not a smaller
 # release, it is a release the publisher never receives: see the deploy step.
 #
@@ -45,7 +45,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-relay
+  group: deploy-kaana
   # NOT cancel-in-progress. A cancelled run leaves a rollout it started still
   # running, unmonitored: the service goes on replacing tasks, and nobody is
   # left watching for the FAILED that would have failed this job. Two deploys
@@ -56,20 +56,20 @@ env:
   AWS_REGION: us-west-2
   ECR_REGISTRY: 237343248947.dkr.ecr.us-west-2.amazonaws.com
   # The ECS service, the ECR repository suffix and the container name inside the
-  # task definition. All three are `relay`; the task-definition FAMILY carries
+  # task definition. All three are `kaana`; the task-definition FAMILY carries
   # the oxy- prefix that oxy-infra's app-service module gives every family.
-  APP: relay
-  FAMILY: oxy-relay
+  APP: kaana
+  FAMILY: oxy-kaana
   # The inventory publisher. One image, a different entryPoint and a different
   # task role, so it is a SECOND service and a second family — and it is
   # deployed here for the same reason the serving one is: oxy-infra's
-  # `aws_ecs_service.relay_publisher` carries `ignore_changes = [task_definition]`
+  # `aws_ecs_service.kaana_publisher` carries `ignore_changes = [task_definition]`
   # on the stated bargain that CI owns which revision runs. Nothing was holding
   # up that half, so a Terraform change to the publisher's environment
   # registered a revision the service never adopted, and the running task went
   # on asking the provider set it was created with.
-  PUBLISHER_SERVICE: relay-publisher
-  PUBLISHER_FAMILY: oxy-relay-publisher
+  PUBLISHER_SERVICE: kaana-publisher
+  PUBLISHER_FAMILY: oxy-kaana-publisher
   CLUSTER: oxy-cluster
 
 jobs:
@@ -84,68 +84,8 @@ jobs:
       - name: Configure AWS credentials (OIDC, no stored keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::237343248947:role/oxy-github-deploy
+          role-to-assume: arn:aws:iam::237343248947:role/oxy-kaana-github-deploy
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Sync provider credentials -> SSM (GitHub is the source of truth)
-        # The ONLY secrets Kaana holds are the upstream provider credentials.
-        # The Oxy edge's key is a PUBLIC key and is ordinary environment, set in
-        # the task definition in plain sight — Kaana verifies envelopes and
-        # cannot construct one, which is the whole point of the asymmetric
-        # scheme and is lost the moment a signing key is stored here.
-        #
-        # The SYNC_ prefix keeps these clear of the AWS CLI's own reserved
-        # credential variables, so exporting one cannot shadow the OIDC role
-        # assumed above.
-        #
-        # RELAY_SECRETS below and this env: block are two halves of one fact and
-        # move together. A name in the list with no mapping here reads as an
-        # unset repository secret and is skipped in silence, which is how the
-        # OPENAI/ANTHROPIC pair sat in the list while the only credential that
-        # existed — CEREBRAS — was never synced at all. The loop now separates
-        # the two cases instead of collapsing them.
-        env:
-          SYNC_RELAY_PROVIDER_CEREBRAS_API_KEY: ${{ secrets.RELAY_PROVIDER_CEREBRAS_API_KEY }}
-          SYNC_RELAY_PROVIDER_GROQ_API_KEY: ${{ secrets.RELAY_PROVIDER_GROQ_API_KEY }}
-          SYNC_RELAY_PROVIDER_XAI_API_KEY: ${{ secrets.RELAY_PROVIDER_XAI_API_KEY }}
-          SYNC_RELAY_PROVIDER_OPENROUTER_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENROUTER_API_KEY }}
-          SYNC_RELAY_PROVIDER_OPENAI_API_KEY: ${{ secrets.RELAY_PROVIDER_OPENAI_API_KEY }}
-        run: |
-          set -euo pipefail
-          # Every credential that may reach SSM. A name absent here never
-          # reaches Parameter Store no matter what is set on the repository, so
-          # SSM and GitHub drift apart on the next rotation without erroring.
-          #
-          # One entry per provider in RELAY_PROVIDERS, listed in the order the
-          # inventory declares them so the two files read alike. It does not
-          # grow with a key pool: a pool is comma-separated INSIDE one _API_KEY
-          # value, so rotating or widening a pool never touches this list. ANTHROPIC is
-          # absent because the deployed set does not declare it — the adapter
-          # still exists and the slug is still known, so re-adding it is a
-          # RELAY_PROVIDERS change plus a line here, not a code change.
-          RELAY_SECRETS="RELAY_PROVIDER_CEREBRAS_API_KEY RELAY_PROVIDER_GROQ_API_KEY RELAY_PROVIDER_XAI_API_KEY RELAY_PROVIDER_OPENROUTER_API_KEY RELAY_PROVIDER_OPENAI_API_KEY"
-
-          for k in $RELAY_SECRETS; do
-            # An UNSET repository secret still leaves SYNC_$k defined-and-empty,
-            # so a printenv that fails outright means the env: block above is
-            # missing this name — a workflow bug, not a missing credential.
-            # Collapsing the two with `|| true` is what makes that bug invisible.
-            if ! v=$(printenv "SYNC_$k"); then
-              echo "::error::$k is in RELAY_SECRETS but has no SYNC_$k entry in this step's env: block, so it can never be synced"
-              exit 1
-            fi
-            # Defence in depth, and no more than that: a secret left empty or as
-            # a single dash is almost always a mistake — never set, or scripted
-            # with a placeholder body — and skipping preserves whatever SSM
-            # already holds rather than replacing a working credential with
-            # garbage. A real but WRONG value propagates; this is not a review.
-            if [ -z "$v" ] || [ "$v" = "-" ]; then
-              echo "::warning::skip empty/placeholder secret $k; /oxy/$APP/$k unchanged"
-              continue
-            fi
-            aws ssm put-parameter --name "/oxy/$APP/$k" --value "$v" --type SecureString --overwrite >/dev/null
-            echo "synced -> /oxy/$APP/$k"
-          done
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -183,7 +123,7 @@ jobs:
 
           # ONE IMAGE, TWO SERVICES, ONE RELEASE.
           #
-          # `relay` serves and `relay-publisher` writes the inventory the
+          # `kaana` serves and `kaana-publisher` writes the inventory the
           # serving tasks read. They are built from one commit into one image
           # on purpose — the Dockerfile says so: a publisher lagging the
           # serving binary produces snapshots against a contract the reader has
@@ -193,7 +133,7 @@ jobs:
           # `ignore_changes`, so a Terraform change to the publisher registered
           # a revision the service never adopted and the running task kept the
           # environment it was created with. A provider added to
-          # RELAY_PROVIDERS reached the serving task and not the one that
+          # KAANA_PROVIDERS reached the serving task and not the one that
           # discovers models, which is silent — the snapshot simply goes on
           # naming the old provider set.
           #
@@ -219,7 +159,7 @@ jobs:
             # there. A jq assignment that matches nothing succeeds and returns
             # the document unchanged, so without this the job would register a
             # revision still carrying the OLD image and report a clean deploy.
-            # It also holds the two families apart: `oxy-relay` carries a
+            # It also holds the two families apart: `oxy-kaana` carries a
             # second container, the inventory-sync sidecar, whose image is
             # public.ecr.aws/aws-cli and is not this build's to move.
             MATCHED=$(printf '%s' "$BASE" | jq --arg c "$container" '[.containerDefinitions[] | select(.name == $c)] | length')

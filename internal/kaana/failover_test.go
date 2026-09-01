@@ -18,9 +18,34 @@ import (
 // same-model rather than a substitution.
 const twoDeploymentsOfOneRevision = `
   {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
-   "upstreamModelId":"model-a","region":"r1","current":true},
+   "upstreamModelId":"model-a","regions":["r1"],"current":true},
   {"deploymentId":"dep_b","provider":"backup","modelReference":"stub/model@2026-05-01",
-   "upstreamModelId":"model-b","region":"r2","current":true}`
+   "upstreamModelId":"model-b","regions":["r2"],"current":true}`
+
+func sameModelAuthorizedRoutes() []contract.AuthorizedRoute {
+	return []contract.AuthorizedRoute{
+		{
+			Substitution:   contract.SubstitutionSameModel,
+			DeploymentID:   "dep_a",
+			ModelReference: "stub/model@2026-05-01",
+			Provider:       "stub",
+			Regions:        []contract.Region{"r1"},
+		},
+		{
+			Substitution:   contract.SubstitutionSameModel,
+			DeploymentID:   "dep_b",
+			ModelReference: "stub/model@2026-05-01",
+			Provider:       "backup",
+			Regions:        []contract.Region{"r2"},
+		},
+	}
+}
+
+func authorizedRequest() *contract.Request {
+	request := baseRequest()
+	request.AuthorizedRoutes = sameModelAuthorizedRoutes()
+	return request
+}
 
 func succeedingAdapter(slug contract.ProviderSlug, tokens int) *scriptedAdapter {
 	return &scriptedAdapter{slug: slug, stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
@@ -84,41 +109,38 @@ func eventsOfType(events []contract.StreamEvent, kind contract.StreamEventType) 
 }
 
 /* -------------------------------------------------------------------------- */
-/*  The policy this build is not sent                                         */
+/*  Default deny without signed routes                                        */
 /* -------------------------------------------------------------------------- */
 
-// TestWithoutARoutingPolicyKaanaNeverChoosesAmongDeployments pins the default,
+// TestWithoutAuthorizedRoutesKaanaNeverChoosesAmongDeployments pins the default,
 // and it is the most important test in this file.
 //
-// The published routingFallbackPolicySchema gives the customer `disabled` and
-// `sameModelDeployment` — two booleans that govern exactly this feature — and
-// routingPolicySchema adds allowedRegions and deniedRegions. The envelope
-// carries a routing policy REFERENCE and none of those values. So a Kaana that
-// failed over by default would silently override a control the platform
-// advertises to customers, for every customer who switched it off.
+// Oxy resolves the customer's fallback and region controls before signing the
+// envelope. A routing-policy reference alone carries no executable authority;
+// only the ordered authorizedRoutes list does. A Kaana that chose a second
+// deployment from inventory would silently override that policy decision.
 //
 // With the default in place a reference resolves to its declared primary and
 // nowhere else, which is exactly how this build behaved before failover
-// existed. Every other test in this file sets the authorisation explicitly; if
-// this one ever passes for the wrong reason, they all become vacuous.
-func TestWithoutARoutingPolicyKaanaNeverChoosesAmongDeployments(t *testing.T) {
+// existed. Every other test in this file supplies the signed routes explicitly;
+// if this one ever passes for the wrong reason, they all become vacuous.
+func TestWithoutAuthorizedRoutesKaanaNeverChoosesAmongDeployments(t *testing.T) {
 	primary := failingAdapter("stub", overloaded("stub"), nil)
 	secondary := succeedingAdapter("backup", 7)
 
 	events, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
 		adapters:    []provider.Adapter{primary, secondary},
-		// failoverAuthorized deliberately left false: this is the shipped default.
 	}.run(t, baseRequest())
 
 	if primary.attempts() != 1 {
 		t.Errorf("the declared primary was attempted %d times", primary.attempts())
 	}
 	if secondary.attempts() != 0 {
-		t.Errorf("a second deployment was used %d times without a policy authorising the choice", secondary.attempts())
+		t.Errorf("a second deployment was used %d times without a signed route authorizing the choice", secondary.attempts())
 	}
 	if len(eventsOfType(events, contract.EventRouteSwitch)) != 0 {
-		t.Error("a route switch was announced without a policy authorising it")
+		t.Error("a route switch was announced without a signed route authorizing it")
 	}
 	if result.Failure == nil || result.Failure.Code != contract.CodeProviderOverloaded {
 		t.Fatalf("the customer was told %v; the declared primary failed and nothing else was tried", result.Failure)
@@ -127,16 +149,15 @@ func TestWithoutARoutingPolicyKaanaNeverChoosesAmongDeployments(t *testing.T) {
 		t.Errorf("the report counts %v route switches", result.Report)
 	}
 
-	// The control: the identical fixture DOES fail over once the policy value
-	// says it may, so the refusal above is the authorisation and not a broken
-	// fixture.
+	// The control: the identical fixture DOES fail over once the signed list
+	// names both deployments, so the refusal above is authorization and not a
+	// broken fixture.
 	authorized := failingAdapter("stub", overloaded("stub"), nil)
 	authorizedSecondary := succeedingAdapter("backup", 7)
 	if _, result := (harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{authorized, authorizedSecondary},
-		failoverAuthorized: true,
-	}).run(t, baseRequest()); result.Failure != nil {
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{authorized, authorizedSecondary},
+	}).run(t, authorizedRequest()); result.Failure != nil {
 		t.Fatalf("with failover authorised the same fixture still failed: %v", result.Failure)
 	}
 	if authorizedSecondary.attempts() != 1 {
@@ -153,10 +174,9 @@ func TestAFailedDeploymentFailsOverToAnotherServingTheSameRevision(t *testing.T)
 	secondary := succeedingAdapter("backup", 12)
 
 	events, result := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{primary, secondary},
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+	}.run(t, authorizedRequest())
 
 	if result.Failure != nil {
 		t.Fatalf("a request with a healthy second deployment failed: %v", result.Failure)
@@ -207,24 +227,23 @@ func TestAFailedDeploymentFailsOverToAnotherServingTheSameRevision(t *testing.T)
 	}
 }
 
-// TestFailoverNeverCrossesToADifferentModel is the assertion the whole feature
-// is fenced by. The platform forbids serving a different model than the one
-// asked for, and a failover that quietly crossed models would look exactly like
-// a successful request.
+// TestConcreteSameModelFailoverNeverCrossesToADifferentModel pins the concrete
+// target rule. Its authorized list may change deployment, but may not change
+// model weights; cross-model substitution is reserved for an explicitly
+// authorized routing profile and is covered in executor_test.go.
 //
 // The structural half of the guarantee is elsewhere: an inventory.Endpoint
 // carries no model reference of its own, so every candidate is the route set's
 // one reference paired with a different address. What this checks is that the
 // event Kaana emits says so too, and cannot be read as a substitution.
-func TestFailoverNeverCrossesToADifferentModel(t *testing.T) {
+func TestConcreteSameModelFailoverNeverCrossesToADifferentModel(t *testing.T) {
 	events, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
 		adapters: []provider.Adapter{
 			failingAdapter("stub", overloaded("stub"), nil),
 			succeedingAdapter("backup", 3),
 		},
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+	}.run(t, authorizedRequest())
 
 	requested := contract.ModelReference("stub/model@2026-05-01")
 	switches := eventsOfType(events, contract.EventRouteSwitch)
@@ -279,10 +298,9 @@ func TestFailoverStopsOnceOutputHasBeenEmitted(t *testing.T) {
 	secondary := succeedingAdapter("backup", 99)
 
 	events, result := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{primary, secondary},
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+	}.run(t, authorizedRequest())
 
 	if secondary.attempts() != 0 {
 		t.Error("the request was retried elsewhere after output had already reached the customer")
@@ -321,10 +339,9 @@ func TestARequestTheProviderCannotExpressIsNotRetriedElsewhere(t *testing.T) {
 	secondary := succeedingAdapter("backup", 1)
 
 	_, result := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{primary, secondary},
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+	}.run(t, authorizedRequest())
 
 	if secondary.attempts() != 0 {
 		t.Errorf("a refusal to translate was retried on %d other deployments", secondary.attempts())
@@ -347,14 +364,13 @@ func TestACustomerFaultIsNotRetriedElsewhereAndCostsNoDeploymentItsPlace(t *test
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 2}, nil)
 
 	executor := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{primary, secondary},
-		rotation:           rotationRegistry,
-		failoverAuthorized: true,
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+		rotation:    rotationRegistry,
 	}.build(t)
 
 	for range 5 {
-		_, result := runOn(executor, baseRequest())
+		_, result := runOn(executor, authorizedRequest())
 		if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
 			t.Fatalf("a request the provider rejected reported %v", result.Failure)
 		}
@@ -386,22 +402,21 @@ func TestAnOpenDeploymentIsNoLongerTriedFirst(t *testing.T) {
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 2, Cooldown: time.Hour}, nil)
 
 	executor := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{primary, secondary},
-		rotation:           rotationRegistry,
-		failoverAuthorized: true,
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+		rotation:    rotationRegistry,
 	}.build(t)
 
 	// Two failures open dep_a's breaker. Each of these requests fails over and
 	// is served, so the customer never sees the provider's trouble.
 	for range 2 {
-		if _, result := runOn(executor, baseRequest()); result.Failure != nil {
+		if _, result := runOn(executor, authorizedRequest()); result.Failure != nil {
 			t.Fatalf("a request with a healthy second deployment failed: %v", result.Failure)
 		}
 	}
 	attemptsBefore := primary.attempts()
 
-	events, result := runOn(executor, baseRequest())
+	events, result := runOn(executor, authorizedRequest())
 
 	if primary.attempts() != attemptsBefore {
 		t.Errorf("the open deployment was attempted again (%d attempts, was %d)", primary.attempts(), attemptsBefore)
@@ -437,24 +452,23 @@ func TestNoSwitchIsAnnouncedToADeploymentThatIsNeverTried(t *testing.T) {
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 1, Cooldown: time.Hour}, nil)
 
 	executor := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{primary, secondary},
-		rotation:           rotationRegistry,
-		failoverAuthorized: true,
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+		rotation:    rotationRegistry,
 	}.build(t)
 
 	// The first request tries both and opens both breakers. It legitimately
 	// switches once, which is the control: the assertions below are about a
 	// switch that must NOT be announced, and a build that announced none at all
 	// would pass them vacuously.
-	events, _ := runOn(executor, baseRequest())
+	events, _ := runOn(executor, authorizedRequest())
 	if len(eventsOfType(events, contract.EventRouteSwitch)) != 1 {
 		t.Fatalf("the control request announced %d switches, expected exactly 1", len(eventsOfType(events, contract.EventRouteSwitch)))
 	}
 
 	// Now dep_b is open. dep_a is open too, so nothing is attempted at all and
 	// the request is refused before any provider is reached.
-	if _, result := runOn(executor, baseRequest()); result.Failure.Code != contract.CodeDeploymentUnavailable {
+	if _, result := runOn(executor, authorizedRequest()); result.Failure.Code != contract.CodeDeploymentUnavailable {
 		t.Fatalf("with both breakers open the request reported %q", result.Failure.Code)
 	}
 
@@ -463,7 +477,7 @@ func TestNoSwitchIsAnnouncedToADeploymentThatIsNeverTried(t *testing.T) {
 	rotationRegistry.Retain([]contract.DeploymentID{"dep_b"})
 	attemptsBefore := secondary.attempts()
 
-	events, result := runOn(executor, baseRequest())
+	events, result := runOn(executor, authorizedRequest())
 
 	if secondary.attempts() != attemptsBefore {
 		t.Errorf("the out-of-rotation deployment was attempted (%d attempts, was %d)", secondary.attempts(), attemptsBefore)
@@ -501,16 +515,15 @@ func TestEveryRouteOutOfRotationRefusesWithARealRetryHint(t *testing.T) {
 			failingAdapter("stub", overloaded("stub"), nil),
 			failingAdapter("backup", overloaded("backup"), nil),
 		},
-		rotation:           rotationRegistry,
-		failoverAuthorized: true,
+		rotation: rotationRegistry,
 	}.build(t)
 
 	// The first request tries both, fails over once, and opens both breakers.
-	if _, result := runOn(executor, baseRequest()); result.Failure == nil {
+	if _, result := runOn(executor, authorizedRequest()); result.Failure == nil {
 		t.Fatal("a request whose every deployment failed was reported successful")
 	}
 
-	events, result := runOn(executor, baseRequest())
+	events, result := runOn(executor, authorizedRequest())
 
 	if result.Failure == nil {
 		t.Fatal("a request with no route in rotation was served")
@@ -568,9 +581,8 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 			failingAdapter("stub", overloaded("stub"), burned),
 			succeedingAdapter("backup", 4),
 		},
-		costs:              cards,
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+		costs: cards,
+	}.run(t, authorizedRequest())
 
 	if result.Failure != nil {
 		t.Fatalf("the request failed: %v", result.Failure)
@@ -666,9 +678,16 @@ func TestAStaleSnapshotServesPinnedTargetsAndRefusesUnpinnedOnes(t *testing.T) {
 // one credential pool, so these two rows do NOT hold different credentials.
 const twoDeploymentsOfOneProvider = `
   {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
-   "upstreamModelId":"model-a","region":"r1","current":true},
+   "upstreamModelId":"model-a","regions":["r1"],"current":true},
   {"deploymentId":"dep_b","provider":"stub","modelReference":"stub/model@2026-05-01",
-   "upstreamModelId":"model-b","region":"r2","current":true}`
+   "upstreamModelId":"model-b","regions":["r2"],"current":true}`
+
+func sameProviderAuthorizedRequest() *contract.Request {
+	request := baseRequest()
+	request.AuthorizedRoutes = sameModelAuthorizedRoutes()
+	request.AuthorizedRoutes[1].Provider = "stub"
+	return request
+}
 
 func credentialRefused(slug contract.ProviderSlug) provider.ErrUpstream {
 	return provider.ErrUpstream{
@@ -695,10 +714,9 @@ func TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider(t *t
 	sameProvider := failingAdapter("stub", credentialRefused("stub"), nil)
 
 	events, result := harness{
-		deployments:        twoDeploymentsOfOneProvider,
-		adapters:           []provider.Adapter{sameProvider},
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+		deployments: twoDeploymentsOfOneProvider,
+		adapters:    []provider.Adapter{sameProvider},
+	}.run(t, sameProviderAuthorizedRequest())
 
 	if sameProvider.attempts() != 1 {
 		t.Errorf("the refused credential was sent %d times; both deployments draw on the same pool, so every attempt after the first burns another key for one blip", sameProvider.attempts())
@@ -717,10 +735,9 @@ func TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider(t *t
 	refused := failingAdapter("stub", credentialRefused("stub"), nil)
 	elsewhere := succeedingAdapter("backup", 7)
 	_, crossProvider := harness{
-		deployments:        twoDeploymentsOfOneRevision,
-		adapters:           []provider.Adapter{refused, elsewhere},
-		failoverAuthorized: true,
-	}.run(t, baseRequest())
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{refused, elsewhere},
+	}.run(t, authorizedRequest())
 
 	if elsewhere.attempts() != 1 {
 		t.Fatalf("a refused credential was not retried on a deployment holding a different one (%d attempts), so the check above measures nothing", elsewhere.attempts())
