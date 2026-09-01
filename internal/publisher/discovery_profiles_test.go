@@ -51,3 +51,33 @@ func TestSiliconFlowDiscoveryRequestsOnlyTextChatModels(t *testing.T) {
 		t.Fatalf("models = %+v", models)
 	}
 }
+
+func TestNebiusDiscoveryRejectsDeliveryFlavours(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("verbose"); got != "true" {
+			t.Errorf("verbose = %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Errorf("Authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"meta-llama/Meta-Llama-3.1-70B-Instruct"},
+			{"id":"meta-llama/Meta-Llama-3.1-70B-Instruct-fast"}
+		]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	models, err := publisher.Discover(context.Background(), server.Client(), publisher.Provider{
+		Slug: "nebius", BaseURL: server.URL + "/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryNebiusModels,
+	})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(models) != 1 || models[0].UpstreamModelID != "meta-llama/Meta-Llama-3.1-70B-Instruct" {
+		t.Fatalf("models = %+v", models)
+	}
+}

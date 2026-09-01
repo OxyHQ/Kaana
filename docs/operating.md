@@ -43,14 +43,14 @@ No variable contains a provider key. Public attribution metadata is compiled
 into the reviewed provider configuration; adapters apply authentication from
 the decrypted pool at send time.
 
-Twenty providers have protocol and API-root defaults: `openai`, `anthropic`,
+Twenty-four providers have protocol and API-root defaults: `openai`, `anthropic`,
 `openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
 `siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
-`digitalocean`, `nvidia`, `modelscope` and `zai`. Alibaba Model Studio remains
-explicit because its root contains the account workspace and region. Protocols
-are a closed list because a binary can only construct adapters it contains;
-provider slugs are not. A built-in serving origin does not imply discovery or
-publication support.
+`digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
+`ovhcloud`. Alibaba Model Studio remains explicit because its root contains the
+account workspace and region. Protocols are a closed list because a binary can
+only construct adapters it contains; provider slugs are not. A built-in serving
+origin does not imply discovery or publication support.
 
 Two slugs that collapse onto one environment prefix are refused. For example,
 `open-router` and `open.router` would both read `KAANA_PROVIDER_OPEN_ROUTER_*`;
@@ -203,7 +203,8 @@ key for one unmetered discovery call; serving owns rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `KAANA_PROVIDERS` | yes | slugs to discover |
+| `KAANA_PROVIDERS` | yes | serving superset used to prove that discovery cannot publish an unroutable provider |
+| `KAANA_DISCOVERY_PROVIDERS` | yes | slugs to discover; an ordered subsequence of the serving task's `KAANA_PROVIDERS` |
 | `DATABASE_URL` | yes | credential database, TLS required |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected KMS key ARN |
 | `KAANA_INVENTORY_BUCKET` | yes | S3 bucket; never defaulted |
@@ -212,9 +213,13 @@ key for one unmetered discovery call; serving owns rotation.
 | `KAANA_PUBLISH_INTERVAL` | no | default `15m` |
 | `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | checked-in attribution table |
 
-A provider declared in `KAANA_PROVIDERS` but missing an active database key is
-a hard startup refusal for both processes. A green task must not advertise an
-adapter that cannot authenticate.
+A provider declared in either process's provider set but missing an active
+database key is a hard startup refusal for that process. A green task must not
+advertise an adapter or discovery target that cannot authenticate. The
+publisher temporarily accepts `KAANA_PROVIDERS` as a compatibility fallback,
+but new task definitions must set both variables explicitly. Publisher startup
+proves that every discovery slug is present in the serving superset and keeps
+the same priority order.
 
 Serving and publisher both reload credentials atomically. A failed database or
 KMS read leaves the previous complete generation in use and is logged; no
@@ -224,7 +229,12 @@ Discovery is provider-specific even when serving uses the shared Chat
 Completions adapter. Mistral publishes capability flags and only
 `completion_chat` models are accepted. SiliconFlow is queried with
 `type=text&sub_type=chat`. SambaNova uses the documented OpenAI-compatible
-list. Attribution then allow-lists only independently verified, fixed chat
+list. Nebius requests verbose model metadata and drops `-fast` delivery
+flavours; every other id still needs an exact attribution. Nscale documents an
+organization-scoped OpenAI list.
+Only three fixed Meta ids from their official examples are attributed. An
+account capture must still prove entitlement and task before that allow-list
+can grow. Attribution then accepts only independently verified, fixed chat
 identities. Moving aliases and preview ids are dropped.
 
 DeepSeek is serving-compatible but its current direct catalog exposes moving
@@ -233,6 +243,12 @@ workspace/region URL and has no documented account model list. Those three are
 not eligible for automatic publication until Kaana has a verified static
 catalog control. A generic protocol match is never treated as proof that a
 model exists for the account.
+
+Chutes and OVHcloud have built-in serving origins but are marked
+`not_available` for publication: their documented catalogues are public and do
+not establish what one Kaana credential may invoke. Hugging Face, Kilo, LLM7
+and OpenCode Zen remain explicit configuration because their endpoints are
+routers; a downstream-provider selector is not a direct provider deployment.
 
 The publisher's S3 permission stays separate from serving. Writing the
 inventory decides routing, so a request-serving role must not acquire it merely
@@ -277,7 +293,7 @@ Adding a provider:
 Retiring one reverses the serving dependency:
 
 1. remove its deployments from the published inventory;
-2. remove it from `KAANA_PROVIDERS` and deploy;
+2. remove it from both `KAANA_PROVIDERS` and `KAANA_DISCOVERY_PROVIDERS` where present, then deploy;
 3. disable/revoke its database credentials;
 4. revoke the provider-side key.
 
@@ -300,6 +316,8 @@ Also verify in production:
 - the task role can decrypt only the Kaana KMS key and cannot encrypt;
 - the database contains ciphertext, never plaintext;
 - a row-swapped ciphertext fails KMS context authentication;
-- serving and publisher use the same image digest and provider set;
+- serving and publisher use the same image digest and endpoint facts; publisher
+  startup has proved its explicit provider set is an ordered subsequence of
+  serving;
 - signed health reports every declared provider configured;
 - old GitHub secrets, SSM parameters and task-definition revisions are retired.

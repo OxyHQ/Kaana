@@ -132,10 +132,11 @@ jobs:
           # the publisher: oxy-infra cedes `task_definition` to CI with
           # `ignore_changes`, so a Terraform change to the publisher registered
           # a revision the service never adopted and the running task kept the
-          # environment it was created with. A provider added to
-          # KAANA_PROVIDERS reached the serving task and not the one that
-          # discovers models, which is silent — the snapshot simply goes on
-          # naming the old provider set.
+          # environment it was created with. The serving task's
+          # KAANA_PROVIDERS and the publisher's KAANA_DISCOVERY_PROVIDERS are
+          # intentionally different sets, but both task revisions still have
+          # to move with one release; otherwise the snapshot silently keeps the
+          # old discoverable subset.
           #
           # The serving service goes first, which is the order that keeps the
           # common path exactly as it was: if the publisher's rollout fails,

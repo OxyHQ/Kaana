@@ -78,12 +78,14 @@ Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 | `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
 | `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT accounts; only then does a throttle rotate |
 
-Twenty providers carry a built-in protocol and API root: `openai`, `anthropic`,
+Twenty-four providers carry a built-in protocol and API root: `openai`, `anthropic`,
 `openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
 `siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
-`digitalocean`, `nvidia`, `modelscope` and `zai`. Alibaba remains explicit
-because its root is scoped by workspace and region. **Any other slug is servable
-by declaring protocol and HTTPS root — no Go change.** Discovery and publication
+`digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
+`ovhcloud`. Alibaba remains explicit because its root is scoped by workspace
+and region. Hugging Face and Kilo remain explicit because they are provider
+routers, not direct inference providers. **Any other slug is servable by
+declaring protocol and HTTPS root — no Go change.** Discovery and publication
 remain separate gates; a built-in serving origin does not invent a model list.
 Provider keys never enter this environment contract. They are ciphertext rows
 in PostgreSQL, decrypted by the Kaana task through KMS and bound to their
