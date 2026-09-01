@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/ssm/types"
@@ -14,6 +15,7 @@ import (
 
 const maxImportedCredentialBytes = 4096
 const legacyProviderParameterPrefix = "/oxy/alia/PROVIDER_KEY_"
+const legacyRelayCerebrasParameter = "/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY"
 
 type ssmClient interface {
 	GetParameter(context.Context, *ssm.GetParameterInput, ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
@@ -45,10 +47,14 @@ func NewSSMSource(client ssmClient) (*SSMSource, error) {
 
 // ReadSecureString retrieves one explicit parameter with KMS decryption. The
 // result must be cleared by the caller after it has been re-encrypted.
-func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string) ([]byte, error) {
+func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string, provider contract.ProviderSlug) ([]byte, error) {
 	name := strings.TrimSpace(parameterName)
-	if name == "" || name != parameterName || !strings.HasPrefix(name, legacyProviderParameterPrefix) || len(name) > 2048 {
-		return nil, fmt.Errorf("credential import: parameter must be one legacy %s* handoff path", legacyProviderParameterPrefix)
+	aliaHandoff := strings.HasPrefix(name, legacyProviderParameterPrefix) && len(name) > len(legacyProviderParameterPrefix)
+	if name == "" || name != parameterName || (!aliaHandoff && name != legacyRelayCerebrasParameter) || len(name) > 2048 {
+		return nil, fmt.Errorf("credential import: parameter must be an allow-listed legacy provider-key handoff path")
+	}
+	if name == legacyRelayCerebrasParameter && provider != "cerebras" {
+		return nil, fmt.Errorf("credential import: the legacy Relay Cerebras handoff may only populate provider %q", "cerebras")
 	}
 	withDecryption := true
 	output, err := s.client.GetParameter(ctx, &ssm.GetParameterInput{

@@ -120,7 +120,8 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		if err != nil {
 			return err
 		}
-		secret, err := source.ReadSecureString(ctx, *parameter)
+		providerSlugValue := contract.ProviderSlug(strings.TrimSpace(*providerSlug))
+		secret, err := source.ReadSecureString(ctx, *parameter, providerSlugValue)
 		if err != nil {
 			return err
 		}
@@ -132,7 +133,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		defer repository.Close()
 		input := credentialstore.EncryptedCredential{
 			Scope: credentialstore.Scope{
-				Provider: contract.ProviderSlug(strings.TrimSpace(*providerSlug)),
+				Provider: providerSlugValue,
 				KeyID:    strings.TrimSpace(*keyID),
 			},
 			Class:     provider.KeyClass(strings.TrimSpace(*class)),

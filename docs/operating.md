@@ -168,9 +168,28 @@ kaana-credentials import-ssm \
 The importer requests decryption through the AWS SDK, immediately re-encrypts
 the value under Kaana's KMS key, and never writes it to stdout, argv, an
 environment variable, or a file. It accepts only `SecureString` values under
-the legacy `/oxy/alia/PROVIDER_KEY_*` handoff prefix, and its task role must
-narrow that further to the exact parameters being migrated. It exists only for migration; after a verified
+the legacy `/oxy/alia/PROVIDER_KEY_*` handoff prefix plus the exact historical
+Cerebras path `/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY`; other Relay paths
+are refused. Its task role must narrow that code allow-list further to the exact
+parameters being migrated. It exists only for migration; after a verified
 provider call, delete the legacy parameter and the corresponding GitHub secret.
+
+The Cerebras handoff uses the same command, with the source identity stated
+explicitly and no value crossing the command line:
+
+```bash
+kaana-credentials import-ssm \
+  --parameter /oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY \
+  --provider cerebras \
+  --key-id cerebras-relay-main \
+  --position 1
+```
+
+Deploy the importer code and its exact IAM source grant before running that
+one-shot. Verify the resulting non-secret row metadata, then deploy publisher
+and serving configuration with Cerebras enabled. A successful real request
+through Kaana is the gate before removing the legacy source; an import alone is
+not proof that the account can invoke a model.
 
 Putting an existing `(provider, keyId)` encrypts new plaintext and atomically
 rotates that row. Adding another key is another row and does not register a task

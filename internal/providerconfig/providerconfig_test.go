@@ -46,6 +46,12 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 			t.Errorf("%s endpoint = %+v", slug, endpoint)
 		}
 	}
+	cerebras := providerconfig.Known["cerebras"]
+	if cerebras.Protocol != providerconfig.ProtocolOpenAICompatible ||
+		cerebras.BaseURL != "https://api.cerebras.ai/v1" ||
+		cerebras.Discovery != providerconfig.DiscoveryOpenAIModels {
+		t.Fatalf("Cerebras serving/discovery contract = %+v", cerebras)
+	}
 	if providerconfig.Known["ai21"].Discovery != providerconfig.DiscoveryNotAvailable {
 		t.Fatal("AI21 was assigned a model-list endpoint its official API does not publish")
 	}
