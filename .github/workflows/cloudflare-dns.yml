@@ -1,0 +1,159 @@
+# Reconciles the two DNS records required by kaana.ai:
+#
+# - ACM's validation CNAME is DNS-only so certificate issuance reaches AWS.
+# - kaana.ai points at Kaana's dedicated ALB and is proxied so Cloudflare
+#   can rate-limit requests before Kaana reads the signed request body.
+#
+# This lives in the public Kaana repository because GitHub Free does not expose
+# organization-level Actions secrets to private repositories. The workflow
+# creates missing records only. A conflicting record is reported and left
+# untouched; replacing DNS is never an implicit side effect.
+name: Cloudflare DNS
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'check reads only. apply creates missing records.'
+        type: choice
+        options: [check, apply]
+        default: check
+        required: true
+      validation_name:
+        description: 'ACM validation CNAME name from describe-certificate.'
+        type: string
+        required: false
+      validation_value:
+        description: 'ACM validation CNAME value.'
+        type: string
+        required: false
+      alb_dns:
+        description: 'Kaana ALB DNS name. Empty skips the public record.'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  dns:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACTION: ${{ inputs.action }}
+          VAL_NAME: ${{ inputs.validation_name }}
+          VAL_VALUE: ${{ inputs.validation_value }}
+          ALB_DNS: ${{ inputs.alb_dns }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["CF_TOKEN"].strip()
+          if not token:
+              sys.exit("CLOUDFLARE_API_TOKEN is empty")
+
+          apply = os.environ["ACTION"] == "apply"
+          validation_name = os.environ.get("VAL_NAME", "").strip().rstrip(".").lower()
+          validation_value = os.environ.get("VAL_VALUE", "").strip().rstrip(".").lower()
+          alb_dns = os.environ.get("ALB_DNS", "").strip().rstrip(".").lower()
+
+          wanted = []
+          if validation_name or validation_value:
+              if not validation_name or not validation_value:
+                  sys.exit("validation_name and validation_value must be supplied together")
+              if not validation_name.endswith(".kaana.ai"):
+                  sys.exit("validation_name is outside kaana.ai")
+              if not validation_value.endswith(".acm-validations.aws"):
+                  sys.exit("validation_value is not an ACM validation target")
+              wanted.append((validation_name, validation_value, False))
+
+          if alb_dns:
+              if not alb_dns.endswith(".us-west-2.elb.amazonaws.com"):
+                  sys.exit("alb_dns is not a us-west-2 ELB hostname")
+              wanted.append(("kaana.ai", alb_dns, True))
+
+          if not wanted:
+              sys.exit("nothing to do")
+
+          def api(method, path, body=None):
+              request = urllib.request.Request(
+                  f"https://api.cloudflare.com/client/v4{path}",
+                  method=method,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  detail = json.load(error)
+                  print(f"HTTP {error.code}: {detail.get('errors')}")
+                  return detail
+
+          zones = api("GET", "/zones?" + urllib.parse.urlencode({"name": "kaana.ai"}))
+          rows = zones.get("result") or []
+          if not zones.get("success") or len(rows) != 1:
+              sys.exit(f"cannot resolve the kaana.ai zone: {zones.get('errors')}")
+          zone_id = rows[0]["id"]
+
+          failed = False
+          for name, value, proxied in wanted:
+              query = urllib.parse.urlencode({"name": name, "type": "CNAME"})
+              found = api("GET", f"/zones/{zone_id}/dns_records?{query}")
+              existing = found.get("result") or []
+
+              exact = [
+                  record for record in existing
+                  if record["content"].rstrip(".").lower() == value
+                  and bool(record.get("proxied")) == proxied
+              ]
+              if len(exact) == 1 and len(existing) == 1:
+                  print(f"OK {name} -> {value} proxied={proxied}")
+                  continue
+              if existing:
+                  print(
+                      f"CONFLICT {name}: "
+                      f"{[(r['content'], r.get('proxied')) for r in existing]}"
+                  )
+                  failed = True
+                  continue
+              if not apply:
+                  print(f"MISSING {name} -> {value} proxied={proxied}")
+                  continue
+
+              created = api("POST", f"/zones/{zone_id}/dns_records", {
+                  "type": "CNAME",
+                  "name": name,
+                  "content": value,
+                  "ttl": 120,
+                  "proxied": proxied,
+              })
+              if not created.get("success"):
+                  print(f"FAILED {name}: {created.get('errors')}")
+                  failed = True
+                  continue
+              print(f"CREATED {name} -> {value} proxied={proxied}")
+
+              verify = api("GET", f"/zones/{zone_id}/dns_records?{query}")
+              verified = [
+                  record for record in (verify.get("result") or [])
+                  if record["content"].rstrip(".").lower() == value
+                  and bool(record.get("proxied")) == proxied
+              ]
+              if len(verified) != 1:
+                  print(f"FAILED read-back for {name}")
+                  failed = True
+
+          sys.exit(1 if failed else 0)
+          PY
