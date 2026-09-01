@@ -39,9 +39,9 @@
 # oxy-infra names `/usr/local/bin/kaana-publisher` as its entryPoint and mounts
 # the inventory volume at that same path.
 
-ARG GO_VERSION=1.24.10
+ARG GO_VERSION=1.26.7
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:aaa1dedbfef846dbd62fa803cecd7486b0e98a32cb6f68656eee20acac5dd53a AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:e8c859f5632dcfde7b32d2012b4351728f6437930887c2f6a91ea242459e5514 AS build
 
 WORKDIR /src
 

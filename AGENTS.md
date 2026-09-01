@@ -338,7 +338,7 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
 
 ## Working here
 
-- Go 1.24. `gofmt`, `go vet`, `golangci-lint run ./...` and `go test -race ./...`
+- Go 1.26.7. `gofmt`, `go vet`, `golangci-lint run ./...` and `go test -race ./...`
   all gate the PR — run the commands CI runs, not near-equivalents.
 - No `TODO`, `FIXME`, `HACK`, no back-compat shims, no deprecated aliases.
   Breaking changes are clean cuts.
