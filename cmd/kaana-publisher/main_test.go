@@ -193,6 +193,9 @@ func TestKnownProvidersResolveWithoutAnAddress(t *testing.T) {
 	if want := "https://api.cerebras.ai/v1"; providers[0].BaseURL != want {
 		t.Errorf("cerebras resolved to %q, want the published root %q", providers[0].BaseURL, want)
 	}
+	if providers[0].Discovery != "openai_models" {
+		t.Errorf("cerebras discovery = %q, want the authenticated OpenAI model-list contract", providers[0].Discovery)
+	}
 }
 
 // TestOnlyTheFirstKeyOfAPoolIsUsed: the serving process owns rotation. Spending
