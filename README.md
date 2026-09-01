@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/kaana-logo.svg" alt="Kaana" width="640">
+</p>
+
 # Kaana
 
 **Kaana is Oxy's own inference provider.** One API in front of many upstream
