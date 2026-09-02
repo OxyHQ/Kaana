@@ -85,6 +85,48 @@ func ValidateBaseURL(raw string) error {
 	return nil
 }
 
+// ValidateEndpointIdentity binds OpenRouter's provider-specific request policy
+// to the endpoint that actually receives the request. A slug alone is not an
+// identity boundary: without this check an arbitrary OpenAI-compatible slug
+// could point at OpenRouter and omit its mandatory privacy controls, or the
+// OpenRouter slug could point elsewhere and leak OpenRouter-only fields.
+//
+// Exact normalized host equality is deliberate when reserving OpenRouter's
+// known hostnames from other slugs. The OpenRouter slug itself is narrower: it
+// accepts only the exact canonical URL the HTTP client will send. DNS
+// resolution is neither an identity proof nor safe here — OpenRouter sits
+// behind shared infrastructure — and substring matching would reserve
+// attacker-controlled names such as openrouter.ai.example.com.
+func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("provider endpoint identity: parsing base URL: %w", err)
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	_, reservedOpenRouterHost := openRouterHosts[host]
+	if slug != "openrouter" {
+		if reservedOpenRouterHost {
+			return fmt.Errorf("provider endpoint identity: OpenRouter host %q is reserved for the provider slug %q", host, "openrouter")
+		}
+		return nil
+	}
+
+	// Validate the exact value the HTTP client will use. Accepting an
+	// equivalent-looking URL here while preserving raw would validate one
+	// endpoint and send to another (for example /api//v1). OpenRouter publishes
+	// one canonical API base, so configuration has no reason to be broader.
+	if raw != Known["openrouter"].BaseURL {
+		return fmt.Errorf("provider endpoint identity: provider %q must use the canonical OpenRouter HTTPS API base", slug)
+	}
+	return nil
+}
+
+var openRouterHosts = map[string]struct{}{
+	"api.openrouter.ai": {},
+	"openrouter.ai":     {},
+	"www.openrouter.ai": {},
+}
+
 // Endpoint is where a provider is reached and what it speaks there.
 type Endpoint struct {
 	Protocol string

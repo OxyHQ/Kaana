@@ -1,12 +1,14 @@
 package openaicompat
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/conformance"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // The fake credentials are test strings and nothing else. The conformance
@@ -29,16 +31,16 @@ func TestOpenAICompatConformance(t *testing.T) {
 	conformance.Run(t, subject("openai"))
 }
 
-// TestOneProtocolServesSeveralProviders is the claim the port is built on: the
-// six other Alia adapters that speak this protocol differ from `openai` only by
-// base URL, so serving one of them must be a Config, not a rewrite.
+// TestOneProtocolServesSeveralProviders is the claim the port is built on: all
+// of these providers speak the same response and error protocol, so serving one
+// of them must remain a Config, not a rewrite.
 //
 // It is a test rather than a comment because "the abstraction generalises" is
-// exactly the kind of claim that stops being true without anybody noticing. If
-// a provider-specific behaviour ever leaks into this package, this run fails
-// while the `openai` one still passes.
+// exactly the kind of claim that stops being true without anybody noticing.
+// Provider-specific request fields are tested separately at the actual HTTP
+// boundary and must not change the common response normalization.
 func TestOneProtocolServesSeveralProviders(t *testing.T) {
-	for _, slug := range []contract.ProviderSlug{"together", "xai", "cerebras"} {
+	for _, slug := range []contract.ProviderSlug{"together", "groq", "xai", "cerebras", "openrouter"} {
 		t.Run(string(slug), func(t *testing.T) {
 			conformance.Run(t, subject(slug))
 		})
@@ -67,7 +69,17 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 
 		NewAdapter: func(t *testing.T, upstreamURL string) provider.Adapter {
 			t.Helper()
-			adapter, err := New(Config{Provider: slug, BaseURL: upstreamURL, Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey})})
+			baseURL := upstreamURL
+			var client *http.Client
+			if slug == "openrouter" {
+				baseURL = providerconfig.Known["openrouter"].BaseURL
+				client = openRouterFakeClient(t, upstreamURL)
+			}
+			adapter, err := New(Config{
+				Provider: slug, BaseURL: baseURL,
+				Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
+				HTTPClient:   client,
+			})
 			if err != nil {
 				t.Fatalf("building the %s adapter: %v", slug, err)
 			}
@@ -76,7 +88,11 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 
 		NewUnconfigured: func(t *testing.T) provider.Adapter {
 			t.Helper()
-			adapter, err := New(Config{Provider: slug, BaseURL: "https://unreachable.invalid"})
+			baseURL := "https://unreachable.invalid"
+			if slug == "openrouter" {
+				baseURL = providerconfig.Known["openrouter"].BaseURL
+			}
+			adapter, err := New(Config{Provider: slug, BaseURL: baseURL})
 			if err != nil {
 				t.Fatalf("building the unconfigured %s adapter: %v", slug, err)
 			}

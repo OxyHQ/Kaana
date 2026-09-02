@@ -252,6 +252,9 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 		if err := providerconfig.ValidateBaseURL(baseURL); err != nil {
 			return nil, fmt.Errorf("%s_BASE_URL for provider %q: %w", prefix, slug, err)
 		}
+		if err := providerconfig.ValidateEndpointIdentity(slug, baseURL); err != nil {
+			return nil, fmt.Errorf("%s_BASE_URL for provider %q: %w", prefix, slug, err)
+		}
 		if protocol != providerconfig.ProtocolOpenAICompatible {
 			// Discovery speaks one shape, `GET /models`, and only the
 			// OpenAI-compatible providers answer it. Anthropic publishes no

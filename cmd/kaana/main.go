@@ -606,6 +606,9 @@ func validateProvider(config *providerConfig, source string) error {
 	if err := providerconfig.ValidateBaseURL(config.BaseURL); err != nil {
 		return fmt.Errorf("%s: provider %q: %w", source, config.Slug, err)
 	}
+	if err := providerconfig.ValidateEndpointIdentity(config.Slug, config.BaseURL); err != nil {
+		return fmt.Errorf("%s: provider %q: %w", source, config.Slug, err)
+	}
 
 	for name := range config.Headers {
 		value, allowed := reviewedProviderHeaders[config.Slug][name]

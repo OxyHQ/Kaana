@@ -161,6 +161,26 @@ func TestPublisherRefusesACredentialHiddenInTheBaseURL(t *testing.T) {
 	}
 }
 
+func TestPublisherCannotPublishOpenRouterUnderAnotherEndpointIdentity(t *testing.T) {
+	for name, environment := range map[string]map[string]string{
+		"OpenRouter origin under an alias": {
+			"KAANA_PROVIDERS": "custom-compatible",
+			"KAANA_PROVIDER_CUSTOM_COMPATIBLE_PROTOCOL": "openai_compatible",
+			"KAANA_PROVIDER_CUSTOM_COMPATIBLE_BASE_URL": "https://www.openrouter.ai/api/v1",
+		},
+		"OpenRouter slug on another origin": {
+			"KAANA_PROVIDERS":                    "openrouter",
+			"KAANA_PROVIDER_OPENROUTER_BASE_URL": "https://api.groq.com/openai/v1",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parsePublishableProviders(environmentFrom(environment)); err == nil {
+				t.Fatal("the mismatched provider endpoint identity was accepted")
+			}
+		})
+	}
+}
+
 func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
 		"KAANA_PROVIDERS": "mistral,siliconflow,nebius,nscale",

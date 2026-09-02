@@ -50,12 +50,22 @@ A port of Alia's `openai` provider
 (`packages/api/src/internal/providers/lib/providers/openai.ts`).
 
 **Why that one.** Seven of Alia's adapters — openai, together, xai, cerebras,
-hyperbolic, digitalocean, openrouter — are byte-identical apart from a base URL
-and the word in their error string, because they all speak the OpenAI Chat
-Completions protocol. Porting the *protocol* rather than a provider makes the
-next six a `Config` and a conformance registration.
-`TestOneProtocolServesSeveralProviders` runs the full suite under three more
-slugs to keep that claim honest.
+hyperbolic, digitalocean, openrouter — speak the OpenAI Chat Completions
+protocol. Porting the *protocol* rather than a provider makes the next six a
+`Config` and a conformance registration. Provider-specific request policy is
+still explicit: every OpenRouter inference request carries exactly
+`provider: {zdr: true, data_collection: "deny", require_parameters: true}` as
+documented by [OpenRouter's provider-routing API][openrouter-routing]. Kaana
+constructs that typed object internally; it is neither an Oxy contract field nor
+an operator/caller passthrough, so an unknown inbound `provider` object cannot
+weaken it. The normalized OpenRouter API origin is reserved for that exact slug,
+and that slug is bound back to the reserved origin; a custom compatibility slug
+cannot bypass the policy by borrowing the URL, and another provider cannot
+receive the field by borrowing the slug. Other OpenAI-compatible providers
+receive no `provider` field.
+`TestOneProtocolServesSeveralProviders` runs the full suite under five more
+slugs to keep the shared protocol claim honest, while a real-wire fake pins the
+provider-specific request body.
 
 **What the port deliberately changes.** Alia's `proxy()` returned the upstream's
 raw stream to its caller — no normalization, no usage, no cancellation, no error
@@ -176,3 +186,4 @@ changes, and the distinction matters:
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
+[openrouter-routing]: https://openrouter.ai/docs/guides/routing/provider-selection

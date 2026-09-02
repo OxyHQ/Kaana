@@ -92,3 +92,56 @@ func TestProviderBaseURLMustBeVerifiedHTTPS(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenRouterEndpointIdentityCannotBeAliasedOrBorrowed(t *testing.T) {
+	if raw := "https://openrouter.ai/api/v1"; providerconfig.ValidateEndpointIdentity("openrouter", raw) != nil {
+		t.Errorf("canonical OpenRouter endpoint %q was refused", raw)
+	}
+
+	for _, raw := range []string{
+		"http://openrouter.ai/api/v1",
+		"https://openrouter.ai:443/api/v1",
+		"https://openrouter.ai:8443/api/v1",
+		"https://openrouter.ai/v1",
+		"https://openrouter.ai/api/v1/",
+		"HTTPS://OPENROUTER.AI./api/./v1/",
+		"https://www.openrouter.ai/api/v1",
+		"https://api.openrouter.ai/api/v1",
+		"https://openrouter.ai/api/other/../v1",
+		"https://openrouter.ai/api//v1",
+		"https://openrouter.ai/api/%76%31",
+		"https://user@openrouter.ai/api/v1",
+		"https://openrouter.ai/api/v1?route=other",
+		"https://openrouter.ai/api/v1#other",
+		"https://notopenrouter.ai/api/v1",
+	} {
+		if err := providerconfig.ValidateEndpointIdentity("openrouter", raw); err == nil {
+			t.Errorf("OpenRouter accepted non-canonical endpoint %q", raw)
+		}
+	}
+
+	for _, raw := range []string{
+		"https://openrouter.ai/api/v1",
+		"https://OPENROUTER.AI.:443/api/./v1/",
+		"https://user@openrouter.ai/api/v1",
+		"https://www.openrouter.ai/another/path",
+		"https://api.openrouter.ai:8443/api/v2",
+	} {
+		if err := providerconfig.ValidateEndpointIdentity("custom-compatible", raw); err == nil {
+			t.Errorf("another slug borrowed reserved OpenRouter endpoint %q", raw)
+		}
+	}
+
+	for _, raw := range []string{
+		"https://openrouter.ai.example.com/api/v1",
+		"https://notopenrouter.ai/api/v1",
+		"https://openrouter-api.ai/api/v1",
+		"https://example.com/openrouter.ai/api/v1",
+		"https://openrouter.ai@evil.example/api/v1",
+		"https://user@notopenrouter.ai/api/v1",
+	} {
+		if err := providerconfig.ValidateEndpointIdentity("custom-compatible", raw); err != nil {
+			t.Errorf("similar but unrelated endpoint %q was reserved: %v", raw, err)
+		}
+	}
+}
