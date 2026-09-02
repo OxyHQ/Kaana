@@ -15,7 +15,13 @@ import (
 
 const maxImportedCredentialBytes = 4096
 const legacyProviderParameterPrefix = "/oxy/alia/PROVIDER_KEY_"
-const legacyRelayCerebrasParameter = "/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY"
+
+var legacyRelayProviderParameters = map[string]contract.ProviderSlug{
+	"/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY":   "cerebras",
+	"/oxy/relay/RELAY_PROVIDER_GROQ_API_KEY":       "groq",
+	"/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY": "openrouter",
+	"/oxy/relay/RELAY_PROVIDER_XAI_API_KEY":        "xai",
+}
 
 type ssmClient interface {
 	GetParameter(context.Context, *ssm.GetParameterInput, ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
@@ -50,11 +56,12 @@ func NewSSMSource(client ssmClient) (*SSMSource, error) {
 func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string, provider contract.ProviderSlug) ([]byte, error) {
 	name := strings.TrimSpace(parameterName)
 	aliaHandoff := strings.HasPrefix(name, legacyProviderParameterPrefix) && len(name) > len(legacyProviderParameterPrefix)
-	if name == "" || name != parameterName || (!aliaHandoff && name != legacyRelayCerebrasParameter) || len(name) > 2048 {
+	relayProvider, relayHandoff := legacyRelayProviderParameters[name]
+	if name == "" || name != parameterName || (!aliaHandoff && !relayHandoff) || len(name) > 2048 {
 		return nil, fmt.Errorf("credential import: parameter must be an allow-listed legacy provider-key handoff path")
 	}
-	if name == legacyRelayCerebrasParameter && provider != "cerebras" {
-		return nil, fmt.Errorf("credential import: the legacy Relay Cerebras handoff may only populate provider %q", "cerebras")
+	if relayHandoff && provider != relayProvider {
+		return nil, fmt.Errorf("credential import: the legacy Relay handoff may only populate provider %q", relayProvider)
 	}
 	withDecryption := true
 	output, err := s.client.GetParameter(ctx, &ssm.GetParameterInput{
