@@ -1,11 +1,15 @@
 # Customer provider credentials
 
 Every upstream provider key has one durable home: KMS ciphertext in Kaana's
-PostgreSQL database. That includes a customer's BYOK key. Oxy owns the
-connection's metadata, validation, scope, eligibility and policy; it stores only
-the opaque `credentialHandle` Kaana returned and the current revision beside
-that metadata. It never stores plaintext or a Vault, SSM, Secrets Manager or
-other independently resolvable secret locator.
+PostgreSQL database. That includes a customer's BYOK key. The implemented Kaana
+boundary mints an opaque `credentialHandle`, versions it and records durable
+mutation outcomes without exposing a plaintext or ciphertext read route.
+
+This is a merged Kaana source capability, not a production-availability claim.
+The coordinated Oxy cut that will store only the returned handle and revision
+beside Oxy-owned connection metadata is still pending. Until the Oxy wire,
+migration, IAM/KMS split and live request gates pass together, BYOK execution
+remains disabled rather than resolving an old locator or guessing by provider.
 
 ## Exact identity
 
