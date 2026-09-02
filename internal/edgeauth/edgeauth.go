@@ -105,10 +105,10 @@ func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Ver
 	return newVerifier(keys, maxSkew, inferenceDomainSeparator)
 }
 
-// NewCredentialControlVerifier builds the separate BYOK-mutation verifier.
+// NewCredentialControlVerifier builds the separate BYOK control verifier.
 // Its signatures cannot authorize inference, and inference signatures cannot
-// authorize a credential mutation, even if a key pair is misconfigured in both
-// public-key sets.
+// authorize a credential mutation or outcome query, even if a key pair is
+// misconfigured in both public-key sets.
 func NewCredentialControlVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
 	return newVerifier(keys, maxSkew, credentialControlDomainSeparator)
 }
@@ -177,7 +177,7 @@ func SigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 }
 
 // CredentialControlSigningInput is the exact, separately domain-bound input
-// Oxy signs for a customer provider credential mutation.
+// Oxy signs for a customer provider credential mutation or outcome query.
 func CredentialControlSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	return signingInput(credentialControlDomainSeparator, keyID, timestampMillis, body)
 }

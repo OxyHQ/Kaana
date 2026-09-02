@@ -128,7 +128,7 @@ cmd/kaana-publisher/            re-issues the inventory snapshot on a cadence
 cmd/kaana-credentials/          migrate and administer encrypted provider keys
 cmd/kaana-credential-control/   signed customer-BYOK create/rotate/revoke task
 internal/contract/              Go types for @oxyhq/contracts' inference module
-internal/credentialcontrol/     mutation-only BYOK HTTP boundary
+internal/credentialcontrol/     mutation and exact-outcome BYOK HTTP boundary
 internal/credentialstore/       PostgreSQL ciphertext store and KMS boundary
 internal/edgeauth/              Ed25519 verification of the Oxy edge's signature
 internal/httpapi/               the Oxy-facing HTTP surface

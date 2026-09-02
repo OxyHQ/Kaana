@@ -22,19 +22,24 @@ const (
 	// MutationPath is the one signed action-discriminated surface. Keeping all
 	// actions on one path prevents an authenticated body from changing meaning
 	// when replayed to a sibling route.
-	MutationPath                = "/internal/v1/customer-provider-credentials/mutations"
+	MutationPath = "/internal/v1/customer-provider-credentials/mutations"
+	// OutcomePath is a signed metadata-only reconciliation route. Its body must
+	// repeat the exact non-secret operation identity; operation id alone reveals
+	// nothing.
+	OutcomePath                 = "/internal/v1/customer-provider-credentials/outcomes"
 	maxMutationBytes      int64 = 16 << 10
 	mutationSchemaVersion       = 1
 )
 
 type mutationWriter interface {
-	Create(context.Context, credentialstore.CustomerCredentialIdentity, []byte, string) (credentialstore.CustomerCredentialReference, error)
-	Rotate(context.Context, credentialstore.CustomerCredentialScope, []byte, string) (credentialstore.CustomerCredentialReference, error)
-	Revoke(context.Context, credentialstore.CustomerCredentialScope, string) (credentialstore.CustomerCredentialReference, error)
+	Create(context.Context, string, credentialstore.CustomerCredentialIdentity, []byte, string) (credentialstore.CustomerCredentialOutcome, error)
+	Rotate(context.Context, string, credentialstore.CustomerCredentialScope, []byte, string) (credentialstore.CustomerCredentialOutcome, error)
+	Revoke(context.Context, string, credentialstore.CustomerCredentialScope, string) (credentialstore.CustomerCredentialOutcome, error)
+	Outcome(context.Context, credentialstore.CustomerCredentialOperation) (credentialstore.CustomerCredentialOutcome, error)
 }
 
-// Server accepts signed Oxy control-plane mutations and returns only Kaana's
-// opaque handle and revision. It has no read or plaintext-resolution route.
+// Server accepts signed Oxy control-plane mutations and exact outcome queries.
+// It has no credential metadata, ciphertext, or plaintext-resolution route.
 type Server struct {
 	verifier *edgeauth.Verifier
 	writer   mutationWriter
@@ -55,11 +60,12 @@ func New(verifier *edgeauth.Verifier, writer mutationWriter, logger *slog.Logger
 	return &Server{verifier: verifier, writer: writer, logger: logger}, nil
 }
 
-// Handler returns a handler containing exactly one mutation route and an
-// unsigned liveness route that exposes no credential state.
+// Handler returns one mutation route, one exact outcome route and an unsigned
+// liveness route that exposes no credential state.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+MutationPath, s.handleMutation)
+	mux.HandleFunc("POST "+OutcomePath, s.handleOutcome)
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
@@ -73,6 +79,7 @@ type mutationHeader struct {
 }
 
 type mutationIdentity struct {
+	OperationID    string                `json:"operationId"`
 	Provider       contract.ProviderSlug `json:"provider"`
 	OwnerAccountID string                `json:"ownerAccountId"`
 	ConnectionID   string                `json:"connectionId"`
@@ -106,8 +113,11 @@ type revokeMutation struct {
 
 type mutationResponse struct {
 	SchemaVersion    int    `json:"schemaVersion"`
-	CredentialHandle string `json:"credentialHandle"`
-	Revision         int64  `json:"revision"`
+	OperationID      string `json:"operationId"`
+	Action           string `json:"action"`
+	Status           string `json:"status"`
+	CredentialHandle string `json:"credentialHandle,omitempty"`
+	Revision         int64  `json:"revision,omitempty"`
 }
 
 type errorResponse struct {
@@ -137,7 +147,7 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var reference credentialstore.CustomerCredentialReference
+	var outcome credentialstore.CustomerCredentialOutcome
 	switch header.Action {
 	case "create":
 		var request createMutation
@@ -146,13 +156,9 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer clear(request.Secret)
-		reference, err = s.writer.Create(r.Context(), request.identity(), request.Secret, request.OperationActor)
-		if errors.Is(err, credentialstore.ErrCustomerCredentialExists) {
-			writeReference(w, http.StatusConflict, reference)
-			return
-		}
+		outcome, err = s.writer.Create(r.Context(), request.OperationID, request.identity(), request.Secret, request.OperationActor)
 		if errors.Is(err, credentialstore.ErrCustomerCredentialConflict) {
-			writeError(w, http.StatusConflict, "credential_conflict")
+			writeOutcome(w, http.StatusConflict, outcome)
 			return
 		}
 		if errors.Is(err, credentialstore.ErrCustomerCredentialInvalid) {
@@ -163,7 +169,7 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 			s.writeMutationFailure(w, err)
 			return
 		}
-		writeReference(w, http.StatusCreated, reference)
+		writeOutcome(w, http.StatusCreated, outcome)
 	case "rotate":
 		var request rotateMutation
 		if decodeStrict(body, &request) != nil || request.Action != "rotate" || request.SchemaVersion != mutationSchemaVersion {
@@ -171,9 +177,9 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer clear(request.Secret)
-		reference, err = s.writer.Rotate(r.Context(), request.scope(), request.Secret, request.OperationActor)
+		outcome, err = s.writer.Rotate(r.Context(), request.OperationID, request.scope(), request.Secret, request.OperationActor)
 		if errors.Is(err, credentialstore.ErrCustomerCredentialConflict) {
-			writeError(w, http.StatusConflict, "credential_conflict")
+			writeOutcome(w, http.StatusConflict, outcome)
 			return
 		}
 		if errors.Is(err, credentialstore.ErrCustomerCredentialInvalid) {
@@ -184,7 +190,7 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 			s.writeMutationFailure(w, err)
 			return
 		}
-		writeReference(w, http.StatusOK, reference)
+		writeOutcome(w, http.StatusOK, outcome)
 	case "revoke":
 		var request revokeMutation
 		if decodeStrict(body, &request) != nil || request.Action != "revoke" || request.SchemaVersion != mutationSchemaVersion {
@@ -192,9 +198,9 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		reference, err = s.writer.Revoke(r.Context(), request.scope(), request.OperationActor)
+		outcome, err = s.writer.Revoke(r.Context(), request.OperationID, request.scope(), request.OperationActor)
 		if errors.Is(err, credentialstore.ErrCustomerCredentialConflict) {
-			writeError(w, http.StatusConflict, "credential_conflict")
+			writeOutcome(w, http.StatusConflict, outcome)
 			return
 		}
 		if errors.Is(err, credentialstore.ErrCustomerCredentialInvalid) {
@@ -205,10 +211,132 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 			s.writeMutationFailure(w, err)
 			return
 		}
-		writeReference(w, http.StatusOK, reference)
+		writeOutcome(w, http.StatusOK, outcome)
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request")
 	}
+}
+
+type baseOutcomeRequest struct {
+	SchemaVersion  int                   `json:"schemaVersion"`
+	Action         string                `json:"action"`
+	OperationID    string                `json:"operationId"`
+	Provider       contract.ProviderSlug `json:"provider"`
+	OwnerAccountID string                `json:"ownerAccountId"`
+	ConnectionID   string                `json:"connectionId"`
+	Environment    contract.Environment  `json:"environment"`
+}
+
+type createOutcomeRequest struct {
+	baseOutcomeRequest
+	SecretSHA256 string `json:"secretSha256"`
+}
+
+type rotateOutcomeRequest struct {
+	createOutcomeRequest
+	CredentialHandle string `json:"credentialHandle"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
+type revokeOutcomeRequest struct {
+	baseOutcomeRequest
+	CredentialHandle string `json:"credentialHandle"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
+func (s *Server) handleOutcome(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxMutationBytes))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	defer clear(body)
+	if err := s.verifier.Verify(r.Header, body); err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var header mutationHeader
+	if err := json.Unmarshal(body, &header); err != nil || header.SchemaVersion != mutationSchemaVersion {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	var operation credentialstore.CustomerCredentialOperation
+	switch header.Action {
+	case "create":
+		var request createOutcomeRequest
+		if decodeStrict(body, &request) != nil || request.Action != "create" || request.SchemaVersion != mutationSchemaVersion {
+			writeError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		operation = request.operation()
+	case "rotate":
+		var request rotateOutcomeRequest
+		if decodeStrict(body, &request) != nil || request.Action != "rotate" || request.SchemaVersion != mutationSchemaVersion {
+			writeError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		operation = request.operation()
+	case "revoke":
+		var request revokeOutcomeRequest
+		if decodeStrict(body, &request) != nil || request.Action != "revoke" || request.SchemaVersion != mutationSchemaVersion {
+			writeError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		operation = request.operation()
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	outcome, err := s.writer.Outcome(r.Context(), operation)
+	if errors.Is(err, credentialstore.ErrCustomerCredentialOutcomeUnavailable) {
+		writeError(w, http.StatusNotFound, "outcome_not_found")
+		return
+	}
+	if errors.Is(err, credentialstore.ErrCustomerCredentialInvalid) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if err != nil {
+		s.writeMutationFailure(w, err)
+		return
+	}
+	writeOutcome(w, http.StatusOK, outcome)
+}
+
+func (r createOutcomeRequest) operation() credentialstore.CustomerCredentialOperation {
+	operation := r.baseOutcomeRequest.operation()
+	operation.SecretSHA256 = r.SecretSHA256
+	return operation
+}
+
+func (r baseOutcomeRequest) operation() credentialstore.CustomerCredentialOperation {
+	return credentialstore.CustomerCredentialOperation{
+		OperationID: r.OperationID,
+		Action:      credentialstore.CustomerCredentialAction(r.Action),
+		CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+			Provider: r.Provider, OwnerAccountID: r.OwnerAccountID,
+			ConnectionID: r.ConnectionID, Environment: r.Environment,
+		},
+	}
+}
+
+func (r rotateOutcomeRequest) operation() credentialstore.CustomerCredentialOperation {
+	operation := r.createOutcomeRequest.operation()
+	operation.CredentialHandle = r.CredentialHandle
+	operation.ExpectedRevision = r.ExpectedRevision
+	return operation
+}
+
+func (r revokeOutcomeRequest) operation() credentialstore.CustomerCredentialOperation {
+	operation := r.baseOutcomeRequest.operation()
+	operation.CredentialHandle = r.CredentialHandle
+	operation.ExpectedRevision = r.ExpectedRevision
+	return operation
 }
 
 func decodeStrict(body []byte, destination any) error {
@@ -318,11 +446,14 @@ func (s *Server) writeMutationFailure(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusServiceUnavailable, "service_unavailable")
 }
 
-func writeReference(w http.ResponseWriter, status int, reference credentialstore.CustomerCredentialReference) {
+func writeOutcome(w http.ResponseWriter, status int, outcome credentialstore.CustomerCredentialOutcome) {
 	writeJSON(w, status, mutationResponse{
 		SchemaVersion:    mutationSchemaVersion,
-		CredentialHandle: reference.CredentialHandle,
-		Revision:         reference.Revision,
+		OperationID:      outcome.Operation.OperationID,
+		Action:           string(outcome.Operation.Action),
+		Status:           string(outcome.Status),
+		CredentialHandle: outcome.CredentialHandle,
+		Revision:         outcome.Revision,
 	})
 }
 

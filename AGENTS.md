@@ -167,10 +167,15 @@ holds the logic; `internal/awssig` is the signer.
   and no decrypt; the inference task gets one exact resolver plus `kms:Decrypt`
   and no encrypt. No HTTP endpoint, list operation, or control-plane response
   may return plaintext.
-- **Rotation and revocation require the exact handle and expected revision.** A
-  replay, stale writer, mismatched identity, absent handle or revoked row fails
-  closed. KMS context also binds the Kaana handle and revision, so restoring an
-  older ciphertext cannot silently roll a credential back.
+- **Every BYOK mutation has one exact opaque operation id.** The operation,
+  credential write and audit row commit atomically. An exact replay returns its
+  first terminal outcome; reusing the id with another action, actor, identity,
+  handle, revision or secret fails closed. A write-only secret fingerprint may
+  enforce that last comparison but never leaves PostgreSQL through the signed
+  outcome function. The query repeats every non-secret selector, so an absent
+  operation and a mismatch are
+  indistinguishable. KMS context also binds the Kaana handle and revision, so
+  restoring an older ciphertext cannot silently roll a credential back.
 - **PostgreSQL stores KMS ciphertext only.** KMS encryption context binds every
   ciphertext to `provider + keyId`; moving the bytes to another row must make
   decryption fail. The serving task gets `kms:Decrypt`, never `kms:Encrypt`.
