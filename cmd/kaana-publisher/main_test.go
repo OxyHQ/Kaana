@@ -183,7 +183,8 @@ func TestPublisherCannotPublishOpenRouterUnderAnotherEndpointIdentity(t *testing
 
 func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS": "mistral,siliconflow,nebius,nscale",
+		"KAANA_PROVIDERS":                 "mistral,siliconflow,nebius,nscale,alibaba",
+		"KAANA_PROVIDER_ALIBABA_BASE_URL": "https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -194,7 +195,10 @@ func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 	if providers[2].Discovery != "nebius_models" || providers[3].Discovery != "openai_models" {
 		t.Fatalf("direct-provider discovery profiles = %q, %q", providers[2].Discovery, providers[3].Discovery)
 	}
-	for _, slug := range []string{"ai21", "chutes", "ovhcloud"} {
+	if providers[4].Discovery != "alibaba_models" {
+		t.Fatalf("Alibaba discovery profile = %q", providers[4].Discovery)
+	}
+	for _, slug := range []string{"ai21", "chutes", "ovhcloud", "cloudflare"} {
 		if _, err := parsePublishableProviders(environmentFrom(map[string]string{"KAANA_PROVIDERS": slug})); err == nil {
 			t.Fatalf("%s was accepted for an account model-list contract Kaana has not verified", slug)
 		}

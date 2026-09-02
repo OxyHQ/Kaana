@@ -103,6 +103,31 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndPolicy(t *testing.T) {
 	}
 }
 
+func TestAccountScopedBuiltInsRequireOnlyTheirNonSecretBaseURL(t *testing.T) {
+	environment := map[string]string{
+		"KAANA_PROVIDERS":                    "alibaba,cloudflare",
+		"KAANA_PROVIDER_ALIBABA_BASE_URL":    "https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+		"KAANA_PROVIDER_CLOUDFLARE_BASE_URL": "https://api.cloudflare.com/client/v4/accounts/account-opaque/ai/v1",
+	}
+	configs, err := parseProviders(lookup(environment))
+	if err != nil {
+		t.Fatalf("account-scoped providers were refused: %v", err)
+	}
+	for _, config := range configs {
+		if config.Protocol != providerconfig.ProtocolOpenAICompatible {
+			t.Errorf("%s protocol = %q", config.Slug, config.Protocol)
+		}
+		if len(config.Declarations) != 0 {
+			t.Errorf("%s received a provider credential from non-secret configuration", config.Slug)
+		}
+	}
+	for _, slug := range []string{"alibaba", "cloudflare"} {
+		if _, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": slug})); err == nil {
+			t.Errorf("%s was accepted without its account-scoped base URL", slug)
+		}
+	}
+}
+
 // TestTheProviderConfigurationRefusesWhatItCannotResolve.
 //
 // Every case is a configuration that would otherwise present as working: a

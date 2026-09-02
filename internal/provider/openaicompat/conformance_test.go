@@ -8,7 +8,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/conformance"
-	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // The fake credentials are test strings and nothing else. The conformance
@@ -40,7 +39,7 @@ func TestOpenAICompatConformance(t *testing.T) {
 // Provider-specific request fields are tested separately at the actual HTTP
 // boundary and must not change the common response normalization.
 func TestOneProtocolServesSeveralProviders(t *testing.T) {
-	for _, slug := range []contract.ProviderSlug{"together", "groq", "xai", "cerebras", "openrouter"} {
+	for _, slug := range []contract.ProviderSlug{"together", "groq", "xai", "cerebras", "openrouter", "alibaba", "cloudflare"} {
 		t.Run(string(slug), func(t *testing.T) {
 			conformance.Run(t, subject(slug))
 		})
@@ -71,9 +70,9 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 			t.Helper()
 			baseURL := upstreamURL
 			var client *http.Client
-			if slug == "openrouter" {
-				baseURL = providerconfig.Known["openrouter"].BaseURL
-				client = openRouterFakeClient(t, upstreamURL)
+			if reviewedBaseURL, identityBound := identityBoundTestBaseURL(slug); identityBound {
+				baseURL = reviewedBaseURL
+				client = identityBoundFakeClient(t, upstreamURL)
 			}
 			adapter, err := New(Config{
 				Provider: slug, BaseURL: baseURL,
@@ -89,8 +88,8 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 		NewUnconfigured: func(t *testing.T) provider.Adapter {
 			t.Helper()
 			baseURL := "https://unreachable.invalid"
-			if slug == "openrouter" {
-				baseURL = providerconfig.Known["openrouter"].BaseURL
+			if reviewedBaseURL, identityBound := identityBoundTestBaseURL(slug); identityBound {
+				baseURL = reviewedBaseURL
 			}
 			adapter, err := New(Config{Provider: slug, BaseURL: baseURL})
 			if err != nil {

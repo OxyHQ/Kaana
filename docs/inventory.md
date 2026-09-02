@@ -188,8 +188,9 @@ is what it replaces and nothing around it moves.
 Everything `cmd/kaana` reads about non-secret provider configuration, this reads
 too through `internal/providerconfig`, so the two commands cannot disagree about
 where a provider lives. Both load their pools from the same PostgreSQL/KMS
-store. The publisher uses one key because listing models is a single unmetered
-call; serving owns rotation.
+store. The publisher uses one key because listing models is one authenticated
+catalogue question even when the provider paginates its answer; rotating a pool
+would spend several accounts on that one question. Serving owns rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|

@@ -63,9 +63,16 @@ and that slug is bound back to the reserved origin; a custom compatibility slug
 cannot bypass the policy by borrowing the URL, and another provider cannot
 receive the field by borrowing the slug. Other OpenAI-compatible providers
 receive no `provider` field.
-`TestOneProtocolServesSeveralProviders` runs the full suite under five more
+`TestOneProtocolServesSeveralProviders` runs the full suite under seven more
 slugs to keep the shared protocol claim honest, while a real-wire fake pins the
 provider-specific request body.
+
+Alibaba Model Studio and Cloudflare Workers AI use the same adapter without
+gaining a guessed global origin. Their official URLs contain a workspace/region
+or account id, so Kaana compiles the reviewed protocol and exact endpoint shape
+while requiring the non-secret base URL at runtime. Both slugs run the complete
+synthetic conformance suite; provider enablement still requires a scrubbed real
+wire capture, and catalogue support remains a separate gate.
 
 **What the port deliberately changes.** Alia's `proxy()` returned the upstream's
 raw stream to its caller — no normalization, no usage, no cancellation, no error

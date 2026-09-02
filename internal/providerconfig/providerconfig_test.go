@@ -17,8 +17,8 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 24 {
-		t.Fatalf("built-in providers = %d, want the 24 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 26 {
+		t.Fatalf("built-in providers = %d, want the 26 documented in README.md and docs/operating.md", got)
 	}
 	want := map[contract.ProviderSlug]string{
 		"mistral":      "https://api.mistral.ai/v1",
@@ -65,6 +65,12 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	}
 	if providerconfig.Known["nscale"].Discovery != providerconfig.DiscoveryOpenAIModels {
 		t.Error("Nscale lost its documented authenticated OpenAI model-list contract")
+	}
+	if endpoint := providerconfig.Known["alibaba"]; endpoint.Protocol != providerconfig.ProtocolOpenAICompatible || endpoint.BaseURL != "" || endpoint.Discovery != providerconfig.DiscoveryAlibabaModels {
+		t.Errorf("Alibaba dynamic endpoint = %+v", endpoint)
+	}
+	if endpoint := providerconfig.Known["cloudflare"]; endpoint.Protocol != providerconfig.ProtocolOpenAICompatible || endpoint.BaseURL != "" || endpoint.Discovery != providerconfig.DiscoveryNotAvailable {
+		t.Errorf("Cloudflare dynamic endpoint = %+v", endpoint)
 	}
 }
 
@@ -142,6 +148,49 @@ func TestOpenRouterEndpointIdentityCannotBeAliasedOrBorrowed(t *testing.T) {
 	} {
 		if err := providerconfig.ValidateEndpointIdentity("custom-compatible", raw); err != nil {
 			t.Errorf("similar but unrelated endpoint %q was reserved: %v", raw, err)
+		}
+	}
+}
+
+func TestAccountScopedProviderEndpointIdentityIsExact(t *testing.T) {
+	accepted := map[contract.ProviderSlug][]string{
+		"alibaba": {
+			"https://dashscope.aliyuncs.com/compatible-mode/v1",
+			"https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			"https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+			"https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+			"https://workspace-opaque.eu-central-1.maas.aliyuncs.com/compatible-mode/v1",
+		},
+		"cloudflare": {
+			"https://api.cloudflare.com/client/v4/accounts/account-opaque/ai/v1",
+		},
+	}
+	for slug, addresses := range accepted {
+		for _, raw := range addresses {
+			if err := providerconfig.ValidateEndpointIdentity(slug, raw); err != nil {
+				t.Errorf("%s endpoint %q was refused: %v", slug, raw, err)
+			}
+		}
+	}
+
+	for _, candidate := range []struct {
+		slug contract.ProviderSlug
+		raw  string
+	}{
+		{slug: "alibaba", raw: "https://dashscope-intl.aliyuncs.com/api/v1"},
+		{slug: "alibaba", raw: "https://workspace-opaque.example.com/compatible-mode/v1"},
+		{slug: "alibaba", raw: "https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/"},
+		{slug: "alibaba", raw: "http://dashscope-intl.aliyuncs.com/compatible-mode/v1"},
+		{slug: "cloudflare", raw: "https://api.cloudflare.com/client/v4/accounts/account-opaque/ai/v1/"},
+		{slug: "cloudflare", raw: "https://api.cloudflare.com/client/v4/accounts//ai/v1"},
+		{slug: "cloudflare", raw: "https://api.cloudflare.com/client/v4/accounts/../ai/v1"},
+		{slug: "cloudflare", raw: "https://api.cloudflare.com/client/v4/accounts/account-opaque/ai/v1?route=other"},
+		{slug: "cloudflare", raw: "https://example.com/client/v4/accounts/account-opaque/ai/v1"},
+		{slug: "custom-compatible", raw: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"},
+		{slug: "custom-compatible", raw: "https://api.cloudflare.com/client/v4/accounts/account-opaque/ai/v1"},
+	} {
+		if err := providerconfig.ValidateEndpointIdentity(candidate.slug, candidate.raw); err == nil {
+			t.Errorf("provider %q accepted mismatched endpoint %q", candidate.slug, candidate.raw)
 		}
 	}
 }

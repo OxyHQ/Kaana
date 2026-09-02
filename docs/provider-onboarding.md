@@ -6,8 +6,9 @@ claim that an account currently holds access: availability is accepted only
 from the provider's authenticated account catalogue, and every provider key
 lives as KMS ciphertext in Kaana's PostgreSQL credential store.
 
-The facts below were checked on 2026-09-01 against provider-owned API and model
-documentation. Nothing in this document or the corresponding attribution
+The original cohort below was checked on 2026-09-01. The Alibaba and Cloudflare
+additions were re-derived on 2026-09-02 from provider-owned API, lifecycle and
+model documentation. Nothing in this document or the corresponding attribution
 allow-list is sourced from a third-party catalogue.
 
 ## The three separate gates
@@ -41,7 +42,8 @@ credential only at send time.
 | Mistral | `https://api.mistral.ai/v1` | `POST /chat/completions` | `GET /models`; response includes `capabilities.completion_chat` | Fixed GA ids are available; `*-latest` and major aliases move; `labs-*` may update silently | Built-in `openaicompat` serving; publisher filters for chat capability; five fixed ids are attributed. No live credential conformance has been recorded. |
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `GET /models`, OpenAI list shape | Current direct ids are moving aliases; vision id is experimental | Built-in `openaicompat` serving and generic discovery. Direct attribution is deliberately absent, so discovery cannot emit a direct DeepSeek deployment yet. |
 | SambaNova | `https://api.sambanova.ai/v1` | `POST /chat/completions` | `GET /models`; includes context, max output and pricing metadata | Four production ids are allowed; `DeepSeek-V3.2` is preview | Built-in `openaicompat` serving and generic discovery; four production ids are attributed. Publisher currently consumes only ids, not SambaNova's richer metadata. No live credential conformance has been recorded. |
-| Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | No account `GET /models` is documented for Model Studio inference | Fixed Qwen snapshots exist alongside moving family ids | Not built in. Generic serving can be configured explicitly, but publishing is not implemented and must not guess `/models`. Requires a verified static-catalog control. |
+| Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | Authenticated native `GET /api/v1/models`, paginated and filterable by capability/support | Four dated Qwen snapshots are allowed; moving family ids and previews remain absent | Built-in protocol and endpoint identity with explicit base; native authenticated discovery; exact snapshot attribution. No live credential conformance has been recorded. |
+| Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` | `POST /chat/completions` | Separate authenticated `GET /accounts/{account_id}/ai/models/search`; official result rows are currently untyped | Catalogue ids and lifecycle are provider-managed; no id is attributed by this change | Built-in protocol and endpoint identity with explicit base; serving only. Discovery fails closed until Cloudflare publishes a stable row schema. |
 | SiliconFlow | `https://api.siliconflow.cn/v1` | `POST /chat/completions` | `GET /models?type=text&sub_type=chat` | Versioned upstream ids exist; `Pro/` is a delivery/payment tier, not different weights | Built-in `openaicompat` serving; publisher applies both discovery filters; five fixed chat ids are attributed. No live credential conformance has been recorded. |
 | AI21 | `https://api.ai21.com/studio/v1` | `POST /chat/completions` | No `GET /models` is documented in the current API reference | Two dated Jamba snapshots are fixed; shorter names are aliases | Built-in `openaicompat` serving configuration. Discovery is `not_available`, so the publisher refuses AI21. No attribution or static-catalog path exists yet. |
 | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | `POST /chat/completions` | Authenticated `GET /models?verbose=true`, OpenAI list plus rich model metadata | The documented `-fast` flavour may not mint a new model identity; any other id still needs exact attribution | Built-in `openaicompat` serving and provider-specific authenticated discovery. Two fixed Meta ids from official examples are attributed; they remain absent until a verbose account list returns them as base deployments. |
@@ -170,7 +172,6 @@ calls; misuse can suspend the subscription or revoke the key.[^alibaba-token-pla
 
 Fixed snapshot candidates documented by Alibaba include:
 
-- `qwen3.7-max-2026-06-08`
 - `qwen3.7-plus-2026-05-26`
 - `qwen3.7-flash-2026-07-15`
 - `qwen3.6-plus-2026-04-02`
@@ -178,25 +179,77 @@ Fixed snapshot candidates documented by Alibaba include:
 
 The family ids without a date are not substitutes for these snapshots. Several
 snapshot families are already listed as legacy even though their fixed ids
-remain documented, so a static catalogue also needs lifecycle state and a
-scheduled source refresh.[^alibaba-catalogue]
+remain documented, so the attribution allow-list still needs lifecycle review
+instead of treating a once-seen id as permanently deployable.[^alibaba-catalogue][^alibaba-lifecycle]
+
+Alibaba now documents a separate authenticated native model-list API at
+`GET /api/v1/models`. It accepts `capabilities=TG`, `supports=inference`,
+`page_no` and `page_size`, and returns the exact callable id as
+`output.models[].model` plus input/output modality metadata. It is not the
+OpenAI `GET /models` shape and is not located below `/compatible-mode/v1`, so a
+generic compatibility probe would still be wrong.[^alibaba-model-list]
 
 Kaana status:
 
-- No built-in endpoint exists, correctly: a fixed default would send a key to
-  the wrong workspace or region.
-- An explicitly configured `openai_compatible` provider can construct the
-  serving adapter, but this path has no Alibaba-specific conformance fixture.
-- Model Studio documents no authenticated inference `GET /models`. Do not add
-  Alibaba to `kaana-publisher` until it has a separate, official-source static
-  catalogue control and an account-level invocation/access check.
-- The current generic fallback for an unknown OpenAI-compatible slug would try
-  `/models`; that behavior is not valid evidence for Alibaba and is a remaining
-  onboarding blocker.
+- `providerconfig.Known["alibaba"]` supplies the reviewed OpenAI-compatible
+  protocol and native discovery profile but deliberately no root. Both serving
+  and publisher require the exact non-secret workspace/region base URL.
+- Endpoint validation accepts only Alibaba's documented compatibility origins
+  and exact `/compatible-mode/v1` path. The workspace id remains an opaque URL
+  segment; Kaana never parses it or uses ordering to infer identity.
+- Discovery maps the serving origin to the provider-documented regional
+  catalogue origin, requests only text-generation inference rows, follows every
+  page, requires a stable declared total and rejects duplicate or normalized
+  ids. A legacy/non-workspace base that does not identify its documented
+  catalogue workspace is refused rather than guessed.
+- Only exact `response_modality=["Text"]` rows proceed to attribution, and only
+  the four dated snapshots above are attributed. Undated families, previews and
+  every other catalogue row are dropped and named.
+- The shared adapter passes Kaana's synthetic OpenAI-wire conformance suite
+  under the `alibaba` slug. A scrubbed real-account capture of invalid-key,
+  non-stream, SSE, usage, tools and quota errors is still required before
+  production enablement.
+- The provider API key remains exclusively a KMS ciphertext row in Kaana's
+  PostgreSQL credential store. The workspace/region URL is non-secret process
+  configuration and never substitutes for the key.
 - New-user free quota is regional, model-specific and time-limited; it can roll
   into paid usage. It must be recorded as expiring account evidence, never as
   a fixed model price. Alibaba's documentation announces a 90-day rule for new
   activations from 2026-09-08 and should be rechecked after that date.[^alibaba-free]
+
+## Cloudflare Workers AI
+
+Cloudflare documents an OpenAI-compatible Chat Completions base whose path
+contains the account id:
+
+```text
+https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1
+```
+
+The API token uses bearer authentication. In Kaana it remains only in the
+encrypted PostgreSQL credential store; the account-scoped URL is non-secret
+configuration. Endpoint validation requires the exact Cloudflare host and path
+shape and treats the account id as one opaque segment.[^cloudflare-openai]
+
+Cloudflare separately documents an authenticated model-search endpoint at
+`GET /accounts/{account_id}/ai/models/search`, including task, experimental and
+deprecation filters. Its currently published API contract types both default
+and marketplace result rows as unknown rather than defining the id and task
+fields Kaana would have to trust. The compatibility root also does not thereby
+gain an OpenAI-shaped `/models` endpoint.[^cloudflare-model-search]
+
+Kaana status:
+
+- `providerconfig.Known["cloudflare"]` supplies the reviewed shared protocol
+  and exact account-scoped endpoint identity, but no default root.
+- The shared adapter passes the synthetic OpenAI-wire conformance suite under
+  the `cloudflare` slug. A scrubbed real-account wire capture remains required.
+- Discovery is deliberately `not_available`, there are no Cloudflare
+  attribution rows, and publisher startup refuses the slug. Parsing an
+  undocumented response shape would turn a provider change into silent model
+  identity drift.
+- No free-tier, price or regional-residency claim is made. Those are account and
+  deployment facts that require separately timestamped evidence.
 
 ## SiliconFlow
 
@@ -255,8 +308,8 @@ Kaana status:
   rather than trying `/models`.
 - No AI21 attribution entries exist because there is no verified account-list
   path connecting the documented catalogue to this credential's access.
-- Onboarding needs the same static-catalogue control as Alibaba, followed by a
-  real non-stream, SSE, usage, error and tool-call conformance capture.
+- Onboarding needs a reviewed static-catalogue control, followed by a real
+  non-stream, SSE, usage, error and tool-call conformance capture.
 - New accounts receive a USD 10 credit for three months, after which billing is
   required. That trial is expiring account state, not a free model tier.[^ai21-pricing]
 
@@ -321,14 +374,15 @@ This is serving configuration, not automatic publication:
   Fireworks and Hyperbolic do not document the generic account-list contract
   Kaana's publisher consumes. Those four are therefore marked
   `not_available` for discovery instead of trying a plausible `/models` URL.
-- Cloudflare Workers AI remains explicit configuration rather than a built-in
-  origin because its official URL contains the customer's account id. Kaana
-  accepts that HTTPS base through `KAANA_PROVIDER_CLOUDFLARE_BASE_URL`; the API
-  token itself remains only in the credential database.[^cloudflare-openai]
-- Alibaba Model Studio remains explicit for the same reason: its origin binds a
-  workspace and region. Perplexity's current Sonar endpoint is `/v1/sonar`, not
-  the `/chat/completions` path the shared adapter constructs, so it is not
-  falsely advertised as implemented by this cohort.
+- Cloudflare Workers AI and Alibaba Model Studio now carry built-in protocol and
+  endpoint-identity rules, while their account/workspace-scoped roots remain
+  explicit through `KAANA_PROVIDER_<SLUG>_BASE_URL`. Both API tokens remain only
+  in Kaana's encrypted credential database. Alibaba has a separately verified
+  native discovery profile; Cloudflare remains serving-only because its current
+  official model-search rows are untyped.[^cloudflare-openai][^cloudflare-model-search][^alibaba-model-list]
+- Perplexity's current Sonar endpoint is `/v1/sonar`, not the
+  `/chat/completions` path the shared adapter constructs, so it is not falsely
+  advertised as implemented by this cohort.
 
 ## Additional direct providers recovered from the external catalogue
 
@@ -441,9 +495,11 @@ green:
 [^sambanova-catalogue]: [SambaCloud models](https://docs.sambanova.ai/docs/en/models/sambacloud-models)
 [^sambanova-deprecations]: [SambaNova model deprecations](https://docs.sambanova.ai/docs/en/models/deprecations)
 [^sambanova-limits]: [SambaCloud rate-limit tiers](https://docs.sambanova.ai/docs/en/models/rate-limits)
-[^alibaba-chat]: [Alibaba Model Studio — OpenAI-compatible Chat](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/qwen-api-via-openai-chat-completions)
+[^alibaba-chat]: [Alibaba Model Studio — OpenAI-compatible Chat](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope)
 [^alibaba-token-plan]: [Alibaba Model Studio Token Plan usage policy](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/token-plan-personal-overview)
 [^alibaba-catalogue]: [Alibaba Model Studio text-generation models](https://www.alibabacloud.com/help/en/model-studio/text-generation-model)
+[^alibaba-model-list]: [Alibaba Model Studio — authenticated model list](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/list-models)
+[^alibaba-lifecycle]: [Alibaba Model Studio — model decommissioning policy](https://www.alibabacloud.com/help/en/model-studio/model-depreciation)
 [^alibaba-free]: [Alibaba Model Studio new-user free quota](https://www.alibabacloud.com/help/en/model-studio/new-free-quota)
 [^silicon-chat]: [SiliconFlow — Chat Completions](https://docs.siliconflow.cn/en/api-reference/chat-completions/chat-completions)
 [^silicon-models]: [SiliconFlow — List Models](https://docs.siliconflow.cn/en/api-reference/models/get-model-list)
@@ -467,6 +523,7 @@ green:
 [^hyperbolic-openai]: [Hyperbolic serverless inference quickstart](https://docs.hyperbolic.xyz/docs/getting-started)
 [^digitalocean-openai]: [DigitalOcean Serverless Inference endpoints](https://docs.digitalocean.com/products/inference/how-to/si-endpoints/)
 [^cloudflare-openai]: [Cloudflare Workers AI OpenAI-compatible endpoints](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/)
+[^cloudflare-model-search]: [Cloudflare API — Workers AI model search](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/)
 [^nvidia-hosted-chat]: [NVIDIA hosted NIM Chat Completions](https://docs.api.nvidia.com/nim/reference/z-ai-glm-5.2-infer)
 [^modelscope-qwen]: [ModelScope Qwen3-8B API Inference example](https://www.modelscope.cn/models/Qwen/Qwen3-8B)
 [^modelscope-limits]: [ModelScope API Inference limits and permitted use](https://modelscope.cn/docs/model-service/API-Inference/limits)
