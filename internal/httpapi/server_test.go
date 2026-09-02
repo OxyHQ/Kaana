@@ -642,6 +642,18 @@ func TestUpstreamCostNeverReachesTheCustomer(t *testing.T) {
 	if !strings.Contains(logged, amount) {
 		t.Fatalf("the upstream cost %s was not measured or not logged, so the containment check measures nothing:\n%s", amount, logged)
 	}
+	for _, required := range []string{
+		`"deploymentId":"dep_stub"`,
+		`"timeToFirstTokenMs":`,
+		`"units":[{"unit":"requests","quantity":1},{"unit":"output_tokens","quantity":3}]`,
+	} {
+		if !strings.Contains(logged, required) {
+			t.Errorf("the operator log does not carry the routing measurement %s:\n%s", required, logged)
+		}
+	}
+	if strings.Contains(logged, "chunk 0") {
+		t.Errorf("the operator log carries generated content:\n%s", logged)
+	}
 
 	served := string(body)
 	for _, forbidden := range []string{amount, testCurrency, "upstreamCost", "currency", "cost"} {

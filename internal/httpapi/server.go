@@ -223,8 +223,15 @@ func (s *Server) logResult(requestID contract.RequestID, result kaana.Result, el
 			"model", result.Report.ResolvedModelReference,
 			"outcome", result.Report.Outcome,
 			"usageSource", result.Report.UsageSource,
+			"units", result.Report.Units,
 			"routeSwitches", result.Report.RouteSwitches,
 		)
+		if result.Report.DeploymentID != nil {
+			attributes = append(attributes, "deploymentId", *result.Report.DeploymentID)
+		}
+		if result.Report.TimeToFirstTokenMs != nil {
+			attributes = append(attributes, "timeToFirstTokenMs", *result.Report.TimeToFirstTokenMs)
+		}
 	}
 	if len(result.UpstreamCost.Attempts) > 0 {
 		// What the providers will invoice for this request, including attempts
