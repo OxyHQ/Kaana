@@ -70,9 +70,9 @@ func TestOpenRouterProviderPolicyOnTheUpstreamWire(t *testing.T) {
 
 			baseURL := upstream.URL
 			var client *http.Client
-			if testCase.slug == "openrouter" {
-				baseURL = providerconfig.Known["openrouter"].BaseURL
-				client = openRouterFakeClient(t, upstream.URL)
+			if reviewedBaseURL, identityBound := identityBoundTestBaseURL(testCase.slug); identityBound {
+				baseURL = reviewedBaseURL
+				client = identityBoundFakeClient(t, upstream.URL)
 			}
 			adapter, err := New(Config{
 				Provider:     testCase.slug,
@@ -211,7 +211,7 @@ func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, 
 // openRouterFakeClient keeps the configured identity canonical while sending
 // the request to the in-memory real-wire fake. Changing BaseURL in a test would
 // disable the same binding the test is meant to exercise.
-func openRouterFakeClient(t *testing.T, upstream string) *http.Client {
+func identityBoundFakeClient(t *testing.T, upstream string) *http.Client {
 	t.Helper()
 	target, err := url.Parse(upstream)
 	if err != nil {
@@ -224,4 +224,17 @@ func openRouterFakeClient(t *testing.T, upstream string) *http.Client {
 		redirected.Host = ""
 		return http.DefaultTransport.RoundTrip(redirected)
 	})}
+}
+
+func identityBoundTestBaseURL(slug contract.ProviderSlug) (string, bool) {
+	switch slug {
+	case "openrouter":
+		return providerconfig.Known[slug].BaseURL, true
+	case "alibaba":
+		return "https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1", true
+	case "cloudflare":
+		return "https://api.cloudflare.com/client/v4/accounts/account-opaque/ai/v1", true
+	default:
+		return "", false
+	}
 }

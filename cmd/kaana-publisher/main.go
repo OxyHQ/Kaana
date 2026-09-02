@@ -256,11 +256,10 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			return nil, fmt.Errorf("%s_BASE_URL for provider %q: %w", prefix, slug, err)
 		}
 		if protocol != providerconfig.ProtocolOpenAICompatible {
-			// Discovery speaks one shape, `GET /models`, and only the
-			// OpenAI-compatible providers answer it. Anthropic publishes no
-			// such list; a hand-written list for it would be the checked-in
-			// file this command exists to replace, so it is refused rather
-			// than invented.
+			// Every discovery profile currently registered here belongs to a
+			// provider served through the OpenAI-compatible adapter. The list
+			// itself may be native (Alibaba) or OpenAI-shaped; neither fact is
+			// inferred from protocol compatibility.
 			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from %s, or its models have to be declared by something that measured them", slug, protocol, providerSetVariable)
 		}
 		if known.Discovery == providerconfig.DiscoveryNotAvailable {
@@ -297,7 +296,7 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 }
 
 // attachDiscoveryCredentials selects one key because listing models is one
-// unmetered call. Serving owns pool rotation and retirement.
+// authenticated catalogue question. Serving owns pool rotation and retirement.
 func attachDiscoveryCredentials(providers []publisher.Provider, declarations map[contract.ProviderSlug][]provider.KeyDeclaration) error {
 	for index := range providers {
 		pool := declarations[providers[index].Slug]

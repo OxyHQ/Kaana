@@ -36,11 +36,15 @@ const (
 	DiscoveryMistralModels = "mistral_models"
 	DiscoverySiliconModels = "siliconflow_models"
 	DiscoveryNebiusModels  = "nebius_models"
+	DiscoveryAlibabaModels = "alibaba_models"
 	DiscoveryNotAvailable  = "not_available"
 )
 
-// Known is the protocol and address of the providers this build carries
-// built in, so a slug from this set needs nothing but its key.
+// Known is the protocol, discovery contract and, where one exists globally,
+// the address of the providers this build carries built in. A provider whose
+// official origin embeds an account, workspace or region deliberately has no
+// BaseURL default: its non-secret address must be stated by the operator while
+// its protocol and discovery shape remain reviewed code.
 //
 // The roots are the providers' published ones. No live call has been made from
 // this repository to any of them by a human reading a documentation page; the
@@ -71,6 +75,8 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"nscale":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.api.nscale.com/v1", Discovery: DiscoveryOpenAIModels},
 	"chutes":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://llm.chutes.ai/v1", Discovery: DiscoveryNotAvailable},
 	"ovhcloud":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", Discovery: DiscoveryNotAvailable},
+	"alibaba":      {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryAlibabaModels},
+	"cloudflare":   {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryNotAvailable},
 }
 
 // ValidateBaseURL limits provider credentials to a verified HTTPS origin.
@@ -85,11 +91,11 @@ func ValidateBaseURL(raw string) error {
 	return nil
 }
 
-// ValidateEndpointIdentity binds OpenRouter's provider-specific request policy
-// to the endpoint that actually receives the request. A slug alone is not an
-// identity boundary: without this check an arbitrary OpenAI-compatible slug
-// could point at OpenRouter and omit its mandatory privacy controls, or the
-// OpenRouter slug could point elsewhere and leak OpenRouter-only fields.
+// ValidateEndpointIdentity binds a provider slug to any provider-specific
+// endpoint facts Kaana relies on. A slug alone is not an identity boundary:
+// without this check an arbitrary OpenAI-compatible slug could point at an
+// endpoint whose policy or catalogue handling differs, or a reviewed slug
+// could point elsewhere while retaining those assumptions.
 //
 // Exact normalized host equality is deliberate when reserving OpenRouter's
 // known hostnames from other slugs. The OpenRouter slug itself is narrower: it
@@ -108,17 +114,70 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 		if reservedOpenRouterHost {
 			return fmt.Errorf("provider endpoint identity: OpenRouter host %q is reserved for the provider slug %q", host, "openrouter")
 		}
+	} else {
+		// Validate the exact value the HTTP client will use. Accepting an
+		// equivalent-looking URL here while preserving raw would validate one
+		// endpoint and send to another (for example /api//v1). OpenRouter
+		// publishes one canonical API base, so configuration has no reason to be
+		// broader.
+		if raw != Known["openrouter"].BaseURL {
+			return fmt.Errorf("provider endpoint identity: provider %q must use the canonical OpenRouter HTTPS API base", slug)
+		}
 		return nil
 	}
+	alibabaEndpoint := isAlibabaEndpoint(parsed, host)
+	if slug != "alibaba" && alibabaEndpoint {
+		return fmt.Errorf("provider endpoint identity: the Alibaba Model Studio compatibility base is reserved for the provider slug %q", "alibaba")
+	}
+	cloudflareEndpoint := isCloudflareEndpoint(parsed)
+	if slug != "cloudflare" && cloudflareEndpoint {
+		return fmt.Errorf("provider endpoint identity: the Workers AI compatibility base is reserved for the provider slug %q", "cloudflare")
+	}
 
-	// Validate the exact value the HTTP client will use. Accepting an
-	// equivalent-looking URL here while preserving raw would validate one
-	// endpoint and send to another (for example /api//v1). OpenRouter publishes
-	// one canonical API base, so configuration has no reason to be broader.
-	if raw != Known["openrouter"].BaseURL {
-		return fmt.Errorf("provider endpoint identity: provider %q must use the canonical OpenRouter HTTPS API base", slug)
+	switch slug {
+	case "alibaba":
+		if !alibabaEndpoint {
+			return fmt.Errorf("provider endpoint identity: provider %q must use a documented Alibaba Model Studio HTTPS compatibility base", slug)
+		}
+	case "cloudflare":
+		if !cloudflareEndpoint {
+			return fmt.Errorf("provider endpoint identity: provider %q must use the documented account-scoped Workers AI HTTPS compatibility base", slug)
+		}
 	}
 	return nil
+}
+
+func alibabaHost(host string) bool {
+	if host == "dashscope.aliyuncs.com" || host == "dashscope-intl.aliyuncs.com" ||
+		host == "dashscope-us.aliyuncs.com" || host == "cn-hongkong.dashscope.aliyuncs.com" {
+		return true
+	}
+	for _, suffix := range []string{
+		".ap-southeast-1.maas.aliyuncs.com",
+		".cn-beijing.maas.aliyuncs.com",
+		".cn-hongkong.maas.aliyuncs.com",
+		".eu-central-1.maas.aliyuncs.com",
+		".ap-northeast-1.maas.aliyuncs.com",
+		".us-east-1.maas.aliyuncs.com",
+	} {
+		if prefix, found := strings.CutSuffix(host, suffix); found && prefix != "" && !strings.Contains(prefix, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+func isAlibabaEndpoint(parsed *url.URL, host string) bool {
+	return parsed.Scheme == "https" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" &&
+		alibabaHost(host) && parsed.Host == host && parsed.Path == "/compatible-mode/v1" && parsed.RawPath == ""
+}
+
+func isCloudflareEndpoint(parsed *url.URL) bool {
+	segments := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
+	return parsed.Scheme == "https" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" &&
+		parsed.Host == "api.cloudflare.com" && parsed.RawPath == "" && len(segments) == 6 &&
+		segments[0] == "client" && segments[1] == "v4" && segments[2] == "accounts" &&
+		segments[3] != "" && segments[3] != "." && segments[3] != ".." && segments[4] == "ai" && segments[5] == "v1"
 }
 
 var openRouterHosts = map[string]struct{}{

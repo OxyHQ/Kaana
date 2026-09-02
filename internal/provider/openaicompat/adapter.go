@@ -3,9 +3,10 @@
 // It is a port of Alia's provider adapters
 // (`packages/api/src/internal/providers/lib/providers/`), and specifically of
 // the `openai` one. That choice is not arbitrary: openai, together, xai,
-// cerebras, hyperbolic, digitalocean and openrouter all speak this one
-// protocol. Porting the protocol rather than a provider makes each one a
-// configuration and a conformance registration instead of a second adapter.
+// cerebras, hyperbolic, digitalocean, openrouter, Alibaba Model Studio and
+// Cloudflare Workers AI all speak this one protocol. Porting the protocol
+// rather than a provider makes each one a configuration and a conformance
+// registration instead of a second adapter.
 // Provider-specific wire policy still belongs here: Kaana's mandatory privacy
 // and parameter-support preferences for OpenRouter are added by Translate and
 // are never exposed as caller or operator configuration.
