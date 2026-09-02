@@ -31,19 +31,19 @@ func (f *fakeSSMClient) GetParameter(_ context.Context, input *ssm.GetParameterI
 }
 
 func TestSSMImportRequestsDecryptionAndReturnsNoMetadata(t *testing.T) {
-	for _, parameter := range []string{
-		"/oxy/alia/PROVIDER_KEY_OPENROUTER",
-		"/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY",
-	} {
+	parameters := map[string]contract.ProviderSlug{
+		"/oxy/alia/PROVIDER_KEY_OPENROUTER":            "openrouter",
+		"/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY":   "cerebras",
+		"/oxy/relay/RELAY_PROVIDER_GROQ_API_KEY":       "groq",
+		"/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY": "openrouter",
+		"/oxy/relay/RELAY_PROVIDER_XAI_API_KEY":        "xai",
+	}
+	for parameter, provider := range parameters {
 		t.Run(parameter, func(t *testing.T) {
 			client := &fakeSSMClient{value: "provider-secret"}
 			source, err := NewSSMSource(client)
 			if err != nil {
 				t.Fatalf("NewSSMSource: %v", err)
-			}
-			provider := contract.ProviderSlug("openrouter")
-			if parameter == "/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY" {
-				provider = "cerebras"
 			}
 			secret, err := source.ReadSecureString(context.Background(), parameter, provider)
 			if err != nil {
@@ -71,7 +71,7 @@ func TestSSMImportRefusesUnsafeInputsWithoutEchoingSecrets(t *testing.T) {
 		"/legacy/provider-key",
 		"/oxy/alia/DATABASE_URL",
 		"/oxy/alia/PROVIDER_KEY_",
-		"/oxy/relay/RELAY_PROVIDER_GROQ_API_KEY",
+		"/oxy/relay/RELAY_PROVIDER_ANTHROPIC_API_KEY",
 		"/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY/extra",
 	} {
 		client := &fakeSSMClient{value: "provider-secret"}
@@ -92,8 +92,8 @@ func TestSSMImportRefusesUnsafeInputsWithoutEchoingSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSSMSource: %v", err)
 	}
-	if _, err := source.ReadSecureString(context.Background(), "/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY", "openrouter"); err == nil {
-		t.Fatal("the exact Relay Cerebras handoff was accepted for a different provider identity")
+	if _, err := source.ReadSecureString(context.Background(), "/oxy/relay/RELAY_PROVIDER_GROQ_API_KEY", "openrouter"); err == nil {
+		t.Fatal("the exact Relay Groq handoff was accepted for a different provider identity")
 	}
 	if client.input != nil {
 		t.Fatal("a mismatched provider identity reached SSM")

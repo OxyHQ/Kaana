@@ -185,14 +185,15 @@ kaana-credentials import-ssm \
 The importer requests decryption through the AWS SDK, immediately re-encrypts
 the value under Kaana's KMS key, and never writes it to stdout, argv, an
 environment variable, or a file. It accepts only `SecureString` values under
-the legacy `/oxy/alia/PROVIDER_KEY_*` handoff prefix plus the exact historical
-Cerebras path `/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY`; other Relay paths
-are refused. Its task role must narrow that code allow-list further to the exact
-parameters being migrated. It exists only for migration; after a verified
+the legacy `/oxy/alia/PROVIDER_KEY_*` handoff prefix plus four exact historical
+Relay paths for Cerebras, Groq, OpenRouter and xAI. It accepts no Relay prefix,
+wildcard or other provider. Each Relay path is bound to its exact provider slug,
+and the task role narrows that code allow-list further to the exact parameters
+being migrated. It exists only for migration; after a verified
 provider call, delete the legacy parameter and the corresponding GitHub secret.
 
-The Cerebras handoff uses the same command, with the source identity stated
-explicitly and no value crossing the command line:
+Each Relay handoff uses the same command, with its bound provider identity stated
+explicitly and no value crossing the command line. For example:
 
 ```bash
 kaana-credentials import-ssm \
