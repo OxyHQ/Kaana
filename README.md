@@ -98,19 +98,22 @@ Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 | Variable | Required | Meaning |
 |---|---|---|
 | `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
-| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | the provider's API root |
+| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown or account-scoped slug | the provider's non-secret API root |
 | `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
 | `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT accounts; only then does a throttle rotate |
 
-Twenty-four providers carry a built-in protocol and API root: `openai`, `anthropic`,
+Twenty-four providers carry a built-in protocol and global API root: `openai`, `anthropic`,
 `openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
 `siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
 `digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
-`ovhcloud`. Alibaba remains explicit because its root is scoped by workspace
-and region. Hugging Face and Kilo remain explicit because they are provider
-routers, not direct inference providers. **Any other slug is servable by
+`ovhcloud`. `alibaba` and `cloudflare` also carry reviewed protocol and endpoint
+identity, but require `BASE_URL` because their official origins contain a
+workspace/region or account id. Hugging Face and Kilo remain explicit because
+they are provider routers, not direct inference providers. **Any other slug is servable by
 declaring protocol and HTTPS root — no Go change.** Discovery and publication
-remain separate gates; a built-in serving origin does not invent a model list.
+remain separate gates: Alibaba has native authenticated catalogue ingestion,
+while Cloudflare is serving-only until its model-search response has a stable,
+provider-owned schema. A built-in adapter never invents a model list.
 Provider keys never enter this environment contract. They are ciphertext rows
 in PostgreSQL, decrypted by the Kaana task through KMS and bound to their
 `provider + keyId` identity with KMS encryption context.

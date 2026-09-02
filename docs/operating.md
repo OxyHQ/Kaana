@@ -34,7 +34,7 @@ Per provider, `<SLUG>` is upper-cased and `.`/`-` become `_`:
 | Variable | Required | Meaning |
 |---|---|---|
 | `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
-| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown slug | provider API root |
+| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown or account-scoped slug | non-secret provider API root |
 | `KAANA_PROVIDER_<SLUG>_REGIONS` | no | upstream execution/residency regions, comma-separated; never Kaana's AWS region |
 | `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | retired-key window, default `15m` |
 | `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | whether a throttle may rotate accounts |
@@ -43,14 +43,16 @@ No variable contains a provider key. Public attribution metadata is compiled
 into the reviewed provider configuration; adapters apply authentication from
 the decrypted pool at send time.
 
-Twenty-four providers have protocol and API-root defaults: `openai`, `anthropic`,
+Twenty-four providers have protocol and global API-root defaults: `openai`, `anthropic`,
 `openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
 `siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
 `digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
-`ovhcloud`. Alibaba Model Studio remains explicit because its root contains the
-account workspace and region. Protocols are a closed list because a binary can
-only construct adapters it contains; provider slugs are not. A built-in serving
-origin does not imply discovery or publication support.
+`ovhcloud`. Alibaba Model Studio and Cloudflare Workers AI carry built-in
+protocol and endpoint-identity rules, but no default root: their official URLs
+contain a workspace/region or account id, so `_BASE_URL` remains explicit.
+Protocols are a closed list because a binary can only construct adapters it
+contains; provider slugs are not. A built-in serving configuration does not
+imply discovery or publication support.
 
 Two slugs that collapse onto one environment prefix are refused. For example,
 `open-router` and `open.router` would both read `KAANA_PROVIDER_OPEN_ROUTER_*`;
@@ -233,7 +235,8 @@ reference it.
 
 `cmd/kaana-publisher` reads the same non-secret provider configuration and the
 same encrypted database pools as the serving process. It uses the first active
-key for one unmetered discovery call; serving owns rotation.
+key for one authenticated catalogue traversal, including every required page;
+serving owns rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
@@ -264,19 +267,25 @@ Completions adapter. Mistral publishes capability flags and only
 `completion_chat` models are accepted. SiliconFlow is queried with
 `type=text&sub_type=chat`. SambaNova uses the documented OpenAI-compatible
 list. Nebius requests verbose model metadata and drops `-fast` delivery
-flavours; every other id still needs an exact attribution. Nscale documents an
+flavours; every other id still needs an exact attribution. Alibaba uses its
+native authenticated `/api/v1/models` catalogue, paginates the declared total,
+asks only for `TG` inference rows and retains only exact text-output ids; only
+four separately attributed dated snapshots may publish. Cloudflare remains
+absent from `KAANA_DISCOVERY_PROVIDERS` because its current official
+model-search schema leaves result rows untyped. Nscale documents an
 organization-scoped OpenAI list.
 Only three fixed Meta ids from their official examples are attributed. An
 account capture must still prove entitlement and task before that allow-list
 can grow. Attribution then accepts only independently verified, fixed chat
 identities. Moving aliases and preview ids are dropped.
 
-DeepSeek is serving-compatible but its current direct catalog exposes moving
-aliases; AI21 publishes no account model-list endpoint; Alibaba requires a
-workspace/region URL and has no documented account model list. Those three are
-not eligible for automatic publication until Kaana has a verified static
-catalog control. A generic protocol match is never treated as proof that a
-model exists for the account.
+DeepSeek is serving-compatible but its current direct catalogue exposes moving
+aliases, and AI21 publishes no account model-list endpoint. Neither is eligible
+for automatic publication until Kaana has a reviewed catalogue control.
+Alibaba instead uses its documented authenticated native catalogue and can
+publish only the exact dated snapshots present in the attribution allow-list.
+A generic protocol match is never treated as proof that a model exists for the
+account.
 
 Chutes and OVHcloud have built-in serving origins but are marked
 `not_available` for publication: their documented catalogues are public and do

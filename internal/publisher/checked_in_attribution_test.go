@@ -190,3 +190,30 @@ func TestCheckedInAttributionPinsOnlyTheDocumentedNebiusAndNscaleExamples(t *tes
 		}
 	}
 }
+
+func TestCheckedInAttributionPinsOnlyDocumentedAlibabaSnapshots(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	want := map[string]contract.ModelID{
+		"qwen3.6-flash-2026-04-16": "qwen/qwen3.6-flash-2026-04-16",
+		"qwen3.6-plus-2026-04-02":  "qwen/qwen3.6-plus-2026-04-02",
+		"qwen3.7-flash-2026-07-15": "qwen/qwen3.7-flash-2026-07-15",
+		"qwen3.7-plus-2026-05-26":  "qwen/qwen3.7-plus-2026-05-26",
+	}
+	if got := len(table.byProvider["alibaba"]); got != len(want) {
+		t.Fatalf("Alibaba has %d attributions, want exactly %d dated snapshots", got, len(want))
+	}
+	for upstreamModelID, modelLine := range want {
+		got, ok := table.ModelLine("alibaba", upstreamModelID)
+		if !ok || got != modelLine {
+			t.Errorf("alibaba/%s = %q, %t; want %q", upstreamModelID, got, ok, modelLine)
+		}
+	}
+	for _, excluded := range []string{"qwen3.7-plus", "qwen3.7-flash", "qwen3.8-max", "qwen3.7-max-preview"} {
+		if _, ok := table.ModelLine("alibaba", excluded); ok {
+			t.Errorf("alibaba/%s attributes a moving or preview id", excluded)
+		}
+	}
+}
