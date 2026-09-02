@@ -7,7 +7,9 @@
 # This lives in the public Kaana repository because GitHub Free does not expose
 # organization-level Actions secrets to private repositories. The workflow
 # creates missing records only. A conflicting record is reported and left
-# untouched; replacing DNS is never an implicit side effect.
+# untouched; replacing DNS is never an implicit side effect. The sole deletion
+# is the legacy api.kaana.ai name, behind an explicit default-off input and only
+# after the exact apex ALB record and public Kaana liveness are re-verified.
 name: Cloudflare DNS
 
 on:
@@ -31,6 +33,11 @@ on:
         description: 'Kaana ALB DNS name. Empty skips the public record.'
         type: string
         required: false
+      retire_legacy_api_dns:
+        description: 'With apply, delete api.kaana.ai only after apex and livez verification.'
+        type: boolean
+        default: false
+        required: true
 
 permissions:
   contents: read
@@ -47,6 +54,7 @@ jobs:
           VAL_NAME: ${{ inputs.validation_name }}
           VAL_VALUE: ${{ inputs.validation_value }}
           ALB_DNS: ${{ inputs.alb_dns }}
+          RETIRE_LEGACY_API_DNS: ${{ inputs.retire_legacy_api_dns }}
         run: |
           python3 - <<'PY'
           import json
@@ -61,9 +69,14 @@ jobs:
               sys.exit("CLOUDFLARE_API_TOKEN is empty")
 
           apply = os.environ["ACTION"] == "apply"
+          retire_legacy = os.environ.get("RETIRE_LEGACY_API_DNS", "false").lower() == "true"
           validation_name = os.environ.get("VAL_NAME", "").strip().rstrip(".").lower()
           validation_value = os.environ.get("VAL_VALUE", "").strip().rstrip(".").lower()
           alb_dns = os.environ.get("ALB_DNS", "").strip().rstrip(".").lower()
+          if retire_legacy and not apply:
+              sys.exit("retire_legacy_api_dns requires action=apply")
+          if retire_legacy and not alb_dns:
+              sys.exit("retire_legacy_api_dns requires the expected dedicated alb_dns")
 
           wanted = []
           if validation_name or validation_value:
@@ -155,5 +168,58 @@ jobs:
                   print(f"FAILED read-back for {name}")
                   failed = True
 
-          sys.exit(1 if failed else 0)
+          if failed:
+              sys.exit(1)
+
+          if retire_legacy:
+              # Re-read the apex after all reconciliation. The legacy name is
+              # not touched unless the exact proxied CNAME still targets the
+              # operator-supplied dedicated Kaana ALB.
+              apex_query = urllib.parse.urlencode({"name": "kaana.ai", "type": "CNAME"})
+              apex = api("GET", f"/zones/{zone_id}/dns_records?{apex_query}")
+              apex_records = apex.get("result") or []
+              apex_exact = [
+                  record for record in apex_records
+                  if record["content"].rstrip(".").lower() == alb_dns
+                  and bool(record.get("proxied"))
+              ]
+              if not apex.get("success") or len(apex_records) != 1 or len(apex_exact) != 1:
+                  sys.exit("refusing legacy DNS retirement: apex is not the exact proxied dedicated ALB record")
+
+              live_request = urllib.request.Request(
+                  "https://kaana.ai/livez",
+                  headers={"Accept": "application/json", "User-Agent": "kaana-dns-retirement/1"},
+              )
+              try:
+                  with urllib.request.urlopen(live_request, timeout=30) as response:
+                      if response.status != 200:
+                          sys.exit(f"refusing legacy DNS retirement: apex livez returned {response.status}")
+                      live = json.load(response)
+              except (urllib.error.URLError, json.JSONDecodeError) as error:
+                  sys.exit(f"refusing legacy DNS retirement: apex livez failed: {error}")
+              if live.get("status") != "ok" or not live.get("contractVersion"):
+                  sys.exit("refusing legacy DNS retirement: apex livez response is not Kaana")
+
+              legacy_query = urllib.parse.urlencode({"name": "api.kaana.ai"})
+              legacy = api("GET", f"/zones/{zone_id}/dns_records?{legacy_query}")
+              legacy_records = legacy.get("result") or []
+              if not legacy.get("success"):
+                  sys.exit("refusing legacy DNS retirement: cannot read the exact legacy name")
+              if len(legacy_records) == 0:
+                  print("OK api.kaana.ai is already absent")
+              elif len(legacy_records) != 1:
+                  sys.exit("refusing legacy DNS retirement: the exact legacy name is ambiguous")
+              else:
+                  record_id = legacy_records[0].get("id")
+                  if not record_id:
+                      sys.exit("refusing legacy DNS retirement: the exact legacy record has no id")
+                  deleted = api("DELETE", f"/zones/{zone_id}/dns_records/{record_id}")
+                  if not deleted.get("success"):
+                      sys.exit(f"FAILED deleting api.kaana.ai: {deleted.get('errors')}")
+                  verify_legacy = api("GET", f"/zones/{zone_id}/dns_records?{legacy_query}")
+                  if not verify_legacy.get("success") or (verify_legacy.get("result") or []):
+                      sys.exit("FAILED read-back after deleting api.kaana.ai")
+                  print("DELETED api.kaana.ai after exact apex and livez verification")
+
+          sys.exit(0)
           PY

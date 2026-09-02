@@ -295,6 +295,14 @@ snapshot after a failed reload.
 distroless image cannot run a shell-based Docker/ECS health command, so the
 probe comes from outside the container.
 
+The Cloudflare DNS workflow never retires the legacy `api.kaana.ai` name by
+default. Retirement requires `action=apply`,
+`retire_legacy_api_dns=true`, and the expected dedicated `alb_dns`. In that
+mode it re-reads the exact proxied apex CNAME, requires
+`https://kaana.ai/livez` to identify a healthy Kaana response, then deletes
+only the single exact legacy record id and verifies its absence. A missing,
+ambiguous or drifted prerequisite refuses the deletion.
+
 The edge public key belongs in plain environment. Kaana can verify with it and
 cannot sign an envelope it would accept. The signing private key stays in Oxy.
 

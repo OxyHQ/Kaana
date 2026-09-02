@@ -49,7 +49,7 @@ no filesystem path in it.
 `POST /internal/v1/deployments/query` is the operator surface Oxy uses to turn
 an opaque Kaana deployment id into the exact route identity it must sign. The
 request body is part of the existing Oxy-to-Kaana Ed25519 signature. There are
-only two accepted JSON bodies:
+only three accepted JSON bodies:
 
 List the serving snapshot:
 
@@ -63,11 +63,20 @@ Look up one exact identity:
 {"deploymentId":"dep_exact"}
 ```
 
+Attest one bounded set of exact identities from one serving snapshot:
+
+```json
+{"deploymentIds":["dep_exact_a","dep_exact_b"]}
+```
+
 The first lists the serving snapshot; the second compares the decoded opaque id
-for exact equality and returns a list of length one. `null`, unknown or extra
-fields, duplicate keys, malformed or trailing JSON, an empty body, and URL
-query parameters are refused. Moving the id from one value to another therefore
-invalidates the signature rather than changing an unsigned selector.
+for exact equality and returns a list of length one. The batch accepts 1–64
+unique exact ids and is atomic: if any requested id is absent, the whole request
+is refused without returning the matching subset. `null`, empty or duplicate
+batch entries, unknown or extra fields, duplicate keys, malformed or trailing
+JSON, an empty body, and URL query parameters are refused. Moving an id from one
+value to another therefore invalidates the signature rather than changing an
+unsigned selector.
 
 The response contains `snapshotId` and a `deployments` array whose entries have
 only `deploymentId`, revision-pinned `modelReference`, `provider`, and `regions`.
@@ -82,7 +91,7 @@ tie-break. The descriptor endpoint supplies identity evidence, not route quality
 
 Every response sets `Cache-Control: no-store`, including a `401`. A missing or
 invalid signature is `401`; an invalid signed body is `400`; an absent exact id
-is `404 no_route_available`; and any duplicate deployment identity is a
+in either lookup shape is `404 no_route_available`; and any duplicate deployment identity is a
 fail-closed `503 service_unavailable`. Inventory loading already rejects
 duplicates, and the HTTP projection checks uniqueness again independently.
 

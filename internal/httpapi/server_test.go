@@ -181,7 +181,18 @@ func testRateCards(t *testing.T) *providercost.Cards {
 
 func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 	t.Helper()
+	return newHarnessWithDeployments(t, adapter, []map[string]any{{
+		"deploymentId":    "dep_stub",
+		"provider":        "stub",
+		"modelReference":  "stub/model@2026-05-01",
+		"upstreamModelId": "provider-private-route-name",
+		"regions":         []string{"test-region"},
+		"current":         true,
+	}})
+}
 
+func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments []map[string]any) *harness {
+	t.Helper()
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("generating an edge key: %v", err)
@@ -193,14 +204,15 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 		t.Fatalf("building the verifier: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "inventory.json")
-	inventoryJSON := fmt.Sprintf(`{
-		"snapshotId":"snap_stub",
-		"issuedAt":%q,
-		"deployments":[{
-			"deploymentId":"dep_stub","provider":"stub",
-			"modelReference":"stub/model@2026-05-01","upstreamModelId":"provider-private-route-name",
-			"regions":["test-region"],"current":true}]}`, contract.NewTimestamp(time.Now()))
-	if err := os.WriteFile(path, []byte(inventoryJSON), 0o600); err != nil {
+	inventoryJSON, err := json.Marshal(map[string]any{
+		"snapshotId":  "snap_stub",
+		"issuedAt":    contract.NewTimestamp(time.Now()),
+		"deployments": deployments,
+	})
+	if err != nil {
+		t.Fatalf("encoding the inventory: %v", err)
+	}
+	if err := os.WriteFile(path, inventoryJSON, 0o600); err != nil {
 		t.Fatalf("writing the inventory: %v", err)
 	}
 	logs := &lockedBuffer{}
@@ -960,6 +972,71 @@ func TestDeploymentDescriptorListNamesTheServingSnapshot(t *testing.T) {
 	}
 }
 
+func TestDeploymentDescriptorBatchIsAtomicAndContainsNoExtraRoutes(t *testing.T) {
+	harness := newHarnessWithDeployments(t, &stubAdapter{}, []map[string]any{
+		{
+			"deploymentId": "dep_z", "provider": "stub",
+			"modelReference": "stub/z@2026-05-01", "upstreamModelId": "private-z",
+			"regions": []string{"region-z"}, "current": true,
+		},
+		{
+			"deploymentId": "dep_a", "provider": "stub",
+			"modelReference": "stub/a@2026-05-01", "upstreamModelId": "private-a",
+			"regions": []string{}, "current": true,
+		},
+		{
+			"deploymentId": "dep_extra", "provider": "stub",
+			"modelReference": "stub/extra@2026-05-01", "upstreamModelId": "private-extra",
+			"regions": []string{"region-extra"}, "current": true,
+		},
+	})
+
+	response := harness.postDeploymentQuery(t, []byte(`{"deploymentIds":["dep_z","dep_a"]}`), true)
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil {
+		t.Fatalf("reading the batch descriptor response: %v", readErr)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("the batch descriptor lookup was answered %d: %s", response.StatusCode, body)
+	}
+	var projection struct {
+		SnapshotID  string `json:"snapshotId"`
+		Deployments []struct {
+			DeploymentID string   `json:"deploymentId"`
+			Regions      []string `json:"regions"`
+		} `json:"deployments"`
+	}
+	if err := json.Unmarshal(body, &projection); err != nil {
+		t.Fatalf("decoding the batch descriptor response: %v", err)
+	}
+	if projection.SnapshotID != "snap_stub" {
+		t.Errorf("the batch names snapshot %q", projection.SnapshotID)
+	}
+	if len(projection.Deployments) != 2 ||
+		projection.Deployments[0].DeploymentID != "dep_a" ||
+		projection.Deployments[1].DeploymentID != "dep_z" {
+		t.Fatalf("the batch is not the exact stable projection: %+v", projection.Deployments)
+	}
+	if projection.Deployments[0].Regions == nil || len(projection.Deployments[0].Regions) != 0 {
+		t.Errorf("the unattested region set changed to %#v", projection.Deployments[0].Regions)
+	}
+
+	missing := harness.postDeploymentQuery(
+		t, []byte(`{"deploymentIds":["dep_a","dep_missing"]}`), true)
+	missingBody, readErr := io.ReadAll(missing.Body)
+	_ = missing.Body.Close()
+	if readErr != nil {
+		t.Fatalf("reading the atomic batch refusal: %v", readErr)
+	}
+	if missing.StatusCode != http.StatusNotFound {
+		t.Fatalf("the partial batch was answered %d: %s", missing.StatusCode, missingBody)
+	}
+	if strings.Contains(string(missingBody), "dep_a") {
+		t.Fatalf("the partial batch leaked a matching descriptor: %s", missingBody)
+	}
+}
+
 func (h *harness) postDeploymentQuery(t *testing.T, body []byte, signed bool) *http.Response {
 	t.Helper()
 	request, err := http.NewRequest(
@@ -1009,6 +1086,12 @@ func TestDeploymentDescriptorLookupDoesNotGuess(t *testing.T) {
 		{name: "an unknown field is invalid", body: `{"deploymentID":"dep_stub"}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
 		{name: "an extra field is invalid", body: `{"deploymentId":"dep_stub","foo":"bar"}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
 		{name: "a duplicate key is invalid", body: `{"deploymentId":"dep_stub","deploymentId":"dep_absent"}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "an empty batch is invalid", body: `{"deploymentIds":[]}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "a null batch is invalid", body: `{"deploymentIds":null}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "a non-string batch id is invalid", body: `{"deploymentIds":["dep_stub",1]}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "a duplicate batch id is invalid", body: `{"deploymentIds":["dep_stub","dep_stub"]}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "the single and batch selectors cannot mix", body: `{"deploymentId":"dep_stub","deploymentIds":["dep_stub"]}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "a duplicate batch key is invalid", body: `{"deploymentIds":["dep_stub"],"deploymentIds":["dep_stub"]}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
 		{name: "trailing JSON is invalid", body: `{"deploymentId":"dep_stub"}{}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
 		{name: "malformed JSON is invalid", body: `{"deploymentId":`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
 		{name: "an empty body is invalid", body: ``, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
