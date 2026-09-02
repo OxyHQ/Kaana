@@ -320,5 +320,5 @@ func validateCustomerSecret(secret []byte) error {
 }
 
 func invalidCustomerCredential(err error) error {
-	return fmt.Errorf("%w: %v", ErrCustomerCredentialInvalid, err)
+	return fmt.Errorf("%w: %w", ErrCustomerCredentialInvalid, err)
 }

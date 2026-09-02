@@ -295,13 +295,9 @@ func (m mutationIdentity) identity() credentialstore.CustomerCredentialIdentity 
 	}
 }
 
-func (m createMutation) identity() credentialstore.CustomerCredentialIdentity {
-	return m.mutationIdentity.identity()
-}
-
 func (m rotateMutation) scope() credentialstore.CustomerCredentialScope {
 	return credentialstore.CustomerCredentialScope{
-		CustomerCredentialIdentity: m.mutationIdentity.identity(),
+		CustomerCredentialIdentity: m.identity(),
 		CredentialHandle:           m.CredentialHandle,
 		Revision:                   m.ExpectedRevision,
 	}
@@ -309,7 +305,7 @@ func (m rotateMutation) scope() credentialstore.CustomerCredentialScope {
 
 func (m revokeMutation) scope() credentialstore.CustomerCredentialScope {
 	return credentialstore.CustomerCredentialScope{
-		CustomerCredentialIdentity: m.mutationIdentity.identity(),
+		CustomerCredentialIdentity: m.identity(),
 		CredentialHandle:           m.CredentialHandle,
 		Revision:                   m.ExpectedRevision,
 	}
