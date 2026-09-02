@@ -90,8 +90,10 @@ Customer BYOK keys live beside the platform pools in
 `customer_provider_credentials`, never in Oxy, Vault, SSM, Secrets Manager or
 environment. Their KMS context binds `provider + ownerAccountId + connectionId
 + environment + credentialHandle + revision`. See
-`customer-provider-credentials.md`; that task split is separate from the
-operator pool commands below.
+`customer-provider-credentials.md`; its separate operation ledger contains
+signed request identity, terminal outcomes and a write-only SHA-256 secret
+fingerprint for changed-secret replay refusal, and that task split is separate
+from the operator pool commands below.
 
 The credential-control task requires a verified-TLS `DATABASE_URL` for its
 dedicated database login, `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN`, and

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -31,33 +33,89 @@ type fakeMutationWriter struct {
 	identity    credentialstore.CustomerCredentialIdentity
 	scope       credentialstore.CustomerCredentialScope
 	actor       string
+	operationID string
 	rotateErr   error
+	outcome     credentialstore.CustomerCredentialOutcome
+	outcomeErr  error
 }
 
-func (w *fakeMutationWriter) Create(_ context.Context, identity credentialstore.CustomerCredentialIdentity, secret []byte, actor string) (credentialstore.CustomerCredentialReference, error) {
+func (w *fakeMutationWriter) Create(_ context.Context, operationID string, identity credentialstore.CustomerCredentialIdentity, secret []byte, actor string) (credentialstore.CustomerCredentialOutcome, error) {
 	w.createCalls++
+	w.operationID = operationID
 	w.identity = identity
 	w.secret = append([]byte(nil), secret...)
 	w.actor = actor
-	return credentialstore.CustomerCredentialReference{CredentialHandle: controlTestHandle, Revision: 1}, nil
+	w.outcome = appliedOutcome(operationID, credentialstore.CustomerCredentialActionCreate, identity, "", 0, secret)
+	return w.outcome, nil
 }
 
-func (w *fakeMutationWriter) Rotate(_ context.Context, scope credentialstore.CustomerCredentialScope, secret []byte, actor string) (credentialstore.CustomerCredentialReference, error) {
+func (w *fakeMutationWriter) Rotate(_ context.Context, operationID string, scope credentialstore.CustomerCredentialScope, secret []byte, actor string) (credentialstore.CustomerCredentialOutcome, error) {
 	w.rotateCalls++
+	w.operationID = operationID
 	w.scope = scope
 	w.secret = append([]byte(nil), secret...)
 	w.actor = actor
 	if w.rotateErr != nil {
-		return credentialstore.CustomerCredentialReference{}, w.rotateErr
+		if errors.Is(w.rotateErr, credentialstore.ErrCustomerCredentialConflict) {
+			return credentialstore.CustomerCredentialOutcome{
+				Operation: operationForTest(operationID, credentialstore.CustomerCredentialActionRotate, scope, secret),
+				Status:    credentialstore.CustomerCredentialOutcomeConflict,
+			}, w.rotateErr
+		}
+		return credentialstore.CustomerCredentialOutcome{}, w.rotateErr
 	}
-	return credentialstore.CustomerCredentialReference{CredentialHandle: scope.CredentialHandle, Revision: scope.Revision + 1}, nil
+	w.outcome = appliedOutcome(operationID, credentialstore.CustomerCredentialActionRotate, scope.CustomerCredentialIdentity, scope.CredentialHandle, scope.Revision, secret)
+	return w.outcome, nil
 }
 
-func (w *fakeMutationWriter) Revoke(_ context.Context, scope credentialstore.CustomerCredentialScope, actor string) (credentialstore.CustomerCredentialReference, error) {
+func (w *fakeMutationWriter) Revoke(_ context.Context, operationID string, scope credentialstore.CustomerCredentialScope, actor string) (credentialstore.CustomerCredentialOutcome, error) {
 	w.revokeCalls++
+	w.operationID = operationID
 	w.scope = scope
 	w.actor = actor
-	return credentialstore.CustomerCredentialReference{CredentialHandle: scope.CredentialHandle, Revision: scope.Revision + 1}, nil
+	w.outcome = appliedOutcome(operationID, credentialstore.CustomerCredentialActionRevoke, scope.CustomerCredentialIdentity, scope.CredentialHandle, scope.Revision, nil)
+	return w.outcome, nil
+}
+
+func (w *fakeMutationWriter) Outcome(_ context.Context, operation credentialstore.CustomerCredentialOperation) (credentialstore.CustomerCredentialOutcome, error) {
+	if w.outcomeErr != nil {
+		return credentialstore.CustomerCredentialOutcome{}, w.outcomeErr
+	}
+	if w.outcome.Operation != operation {
+		return credentialstore.CustomerCredentialOutcome{}, credentialstore.ErrCustomerCredentialOutcomeUnavailable
+	}
+	return w.outcome, nil
+}
+
+func appliedOutcome(operationID string, action credentialstore.CustomerCredentialAction, identity credentialstore.CustomerCredentialIdentity, handle string, expectedRevision int64, secret []byte) credentialstore.CustomerCredentialOutcome {
+	operation := credentialstore.CustomerCredentialOperation{
+		OperationID: operationID, Action: action, CustomerCredentialIdentity: identity,
+		CredentialHandle: handle, ExpectedRevision: expectedRevision,
+	}
+	if secret != nil {
+		digest := sha256.Sum256(secret)
+		operation.SecretSHA256 = hex.EncodeToString(digest[:])
+	}
+	if action == credentialstore.CustomerCredentialActionCreate {
+		handle = controlTestHandle
+	}
+	return credentialstore.CustomerCredentialOutcome{
+		Operation: operation, Status: credentialstore.CustomerCredentialOutcomeApplied,
+		CredentialHandle: handle, Revision: expectedRevision + 1,
+	}
+}
+
+func operationForTest(operationID string, action credentialstore.CustomerCredentialAction, scope credentialstore.CustomerCredentialScope, secret []byte) credentialstore.CustomerCredentialOperation {
+	operation := credentialstore.CustomerCredentialOperation{
+		OperationID: operationID, Action: action,
+		CustomerCredentialIdentity: scope.CustomerCredentialIdentity,
+		CredentialHandle:           scope.CredentialHandle, ExpectedRevision: scope.Revision,
+	}
+	if secret != nil {
+		digest := sha256.Sum256(secret)
+		operation.SecretSHA256 = hex.EncodeToString(digest[:])
+	}
+	return operation
 }
 
 type controlHarness struct {
@@ -86,9 +144,9 @@ func newControlHarness(t *testing.T) controlHarness {
 	return controlHarness{handler: server.Handler(), writer: writer, private: private, logs: logs}
 }
 
-func (h controlHarness) request(t *testing.T, body string, signed bool) *httptest.ResponseRecorder {
+func (h controlHarness) requestAt(t *testing.T, path string, body string, signed bool) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, MutationPath, strings.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	if signed {
 		milliseconds := time.Now().UnixMilli()
 		signature := ed25519.Sign(h.private, edgeauth.CredentialControlSigningInput(controlTestKeyID, milliseconds, []byte(body)))
@@ -101,16 +159,21 @@ func (h controlHarness) request(t *testing.T, body string, signed bool) *httptes
 	return response
 }
 
+func (h controlHarness) request(t *testing.T, body string, signed bool) *httptest.ResponseRecorder {
+	t.Helper()
+	return h.requestAt(t, MutationPath, body, signed)
+}
+
 func TestSignedCreateAcceptsSecretTransientlyAndReturnsOnlyOpaqueReference(t *testing.T) {
 	harness := newControlHarness(t)
 	plaintext := "customer-provider-secret"
-	body := `{"schemaVersion":1,"action":"create","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:acc_customer_01","secretBase64":"` + base64.StdEncoding.EncodeToString([]byte(plaintext)) + `"}`
+	body := `{"schemaVersion":1,"action":"create","operationId":"operation_create_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:acc_customer_01","secretBase64":"` + base64.StdEncoding.EncodeToString([]byte(plaintext)) + `"}`
 	response := harness.request(t, body, true)
 
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if harness.writer.createCalls != 1 || string(harness.writer.secret) != plaintext {
+	if harness.writer.createCalls != 1 || harness.writer.operationID != "operation_create_01" || string(harness.writer.secret) != plaintext {
 		t.Fatalf("writer calls/secret = %d/%q", harness.writer.createCalls, harness.writer.secret)
 	}
 	if harness.writer.identity.OwnerAccountID != "acc_customer_01" || harness.writer.identity.ConnectionID != "conn_customer_01" {
@@ -127,7 +190,7 @@ func TestSignedCreateAcceptsSecretTransientlyAndReturnsOnlyOpaqueReference(t *te
 
 func TestUnsignedMutationIsRejectedBeforeTheWriter(t *testing.T) {
 	harness := newControlHarness(t)
-	body := `{"schemaVersion":1,"action":"revoke","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1}`
+	body := `{"schemaVersion":1,"action":"revoke","operationId":"operation_revoke_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1}`
 	response := harness.request(t, body, false)
 	if response.Code != http.StatusUnauthorized || harness.writer.revokeCalls != 0 {
 		t.Fatalf("status/calls = %d/%d", response.Code, harness.writer.revokeCalls)
@@ -136,9 +199,9 @@ func TestUnsignedMutationIsRejectedBeforeTheWriter(t *testing.T) {
 
 func TestMutationContractRejectsUnknownDuplicateAndCrossActionFields(t *testing.T) {
 	for name, body := range map[string]string{
-		"unknown field":    `{"schemaVersion":1,"action":"revoke","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1,"providerName":"Anthropic"}`,
-		"duplicate handle": `{"schemaVersion":1,"action":"revoke","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","credentialHandle":"` + controlTestHandle + `","expectedRevision":1}`,
-		"secret on revoke": `{"schemaVersion":1,"action":"revoke","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1,"secretBase64":"c2VjcmV0"}`,
+		"unknown field":    `{"schemaVersion":1,"action":"revoke","operationId":"operation_revoke_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1,"providerName":"Anthropic"}`,
+		"duplicate handle": `{"schemaVersion":1,"action":"revoke","operationId":"operation_revoke_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","credentialHandle":"` + controlTestHandle + `","expectedRevision":1}`,
+		"secret on revoke": `{"schemaVersion":1,"action":"revoke","operationId":"operation_revoke_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1,"secretBase64":"c2VjcmV0"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			harness := newControlHarness(t)
@@ -153,16 +216,16 @@ func TestMutationContractRejectsUnknownDuplicateAndCrossActionFields(t *testing.
 	}
 }
 
-func TestRotationReplayConflictsInsteadOfRotatingAgain(t *testing.T) {
+func TestRotationConflictReturnsTheExactOperationOutcome(t *testing.T) {
 	harness := newControlHarness(t)
-	body := `{"schemaVersion":1,"action":"rotate","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":4,"secretBase64":"` + base64.StdEncoding.EncodeToString([]byte("rotated-secret")) + `"}`
+	body := `{"schemaVersion":1,"action":"rotate","operationId":"operation_rotate_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":4,"secretBase64":"` + base64.StdEncoding.EncodeToString([]byte("rotated-secret")) + `"}`
 	first := harness.request(t, body, true)
 	if first.Code != http.StatusOK || harness.writer.scope.Revision != 4 {
 		t.Fatalf("first status/scope = %d/%#v", first.Code, harness.writer.scope)
 	}
 	harness.writer.rotateErr = credentialstore.ErrCustomerCredentialConflict
 	second := harness.request(t, body, true)
-	if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), "credential_conflict") {
+	if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), `"status":"conflict"`) || !strings.Contains(second.Body.String(), `"operationId":"operation_rotate_01"`) {
 		t.Fatalf("replay status/body = %d/%s", second.Code, second.Body.String())
 	}
 }
@@ -180,12 +243,45 @@ func TestNoCredentialResolutionHTTPRouteExists(t *testing.T) {
 func TestInternalFailuresExposeNoErrorDetail(t *testing.T) {
 	harness := newControlHarness(t)
 	harness.writer.rotateErr = errors.New("kms refused customer-provider-secret")
-	body := `{"schemaVersion":1,"action":"rotate","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":4,"secretBase64":"` + base64.StdEncoding.EncodeToString([]byte("customer-provider-secret")) + `"}`
+	body := `{"schemaVersion":1,"action":"rotate","operationId":"operation_rotate_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":4,"secretBase64":"` + base64.StdEncoding.EncodeToString([]byte("customer-provider-secret")) + `"}`
 	response := harness.request(t, body, true)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d", response.Code)
 	}
 	if strings.Contains(response.Body.String()+harness.logs.String(), "customer-provider-secret") || strings.Contains(response.Body.String()+harness.logs.String(), "kms refused") {
 		t.Fatal("an internal credential error escaped")
+	}
+}
+
+func TestSignedOutcomeReconcilesLostResponseOnlyForExactIdentity(t *testing.T) {
+	harness := newControlHarness(t)
+	mutation := `{"schemaVersion":1,"action":"rotate","operationId":"operation_rotate_lost","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":4,"secretBase64":"` + base64.StdEncoding.EncodeToString([]byte("rotated-secret")) + `"}`
+	if response := harness.request(t, mutation, true); response.Code != http.StatusOK {
+		t.Fatalf("mutation status/body = %d/%s", response.Code, response.Body.String())
+	}
+	digest := sha256.Sum256([]byte("rotated-secret"))
+	query := `{"schemaVersion":1,"action":"rotate","operationId":"operation_rotate_lost","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","secretSha256":"` + hex.EncodeToString(digest[:]) + `","credentialHandle":"` + controlTestHandle + `","expectedRevision":4}`
+	response := harness.requestAt(t, OutcomePath, query, true)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"applied"`) || !strings.Contains(response.Body.String(), `"revision":5`) {
+		t.Fatalf("outcome status/body = %d/%s", response.Code, response.Body.String())
+	}
+	wrongIdentity := strings.Replace(query, "acc_customer_01", "acc_other", 1)
+	response = harness.requestAt(t, OutcomePath, wrongIdentity, true)
+	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), controlTestHandle) {
+		t.Fatalf("wrong-identity status/body = %d/%s", response.Code, response.Body.String())
+	}
+	wrongFingerprint := strings.Replace(query, hex.EncodeToString(digest[:]), strings.Repeat("0", 64), 1)
+	response = harness.requestAt(t, OutcomePath, wrongFingerprint, true)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("wrong-fingerprint status/body = %d/%s", response.Code, response.Body.String())
+	}
+}
+
+func TestCredentialControlRejectsOversizedSignedBody(t *testing.T) {
+	harness := newControlHarness(t)
+	body := `{"schemaVersion":1,"action":"create","operationId":"operation_large","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","secretBase64":"` + strings.Repeat("a", int(maxMutationBytes)) + `"}`
+	response := harness.request(t, body, true)
+	if response.Code != http.StatusBadRequest || harness.writer.createCalls != 0 {
+		t.Fatalf("oversized status/calls = %d/%d", response.Code, harness.writer.createCalls)
 	}
 }

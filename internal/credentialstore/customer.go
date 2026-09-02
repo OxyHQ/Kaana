@@ -4,30 +4,53 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base32"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
-const customerCredentialHandlePrefix = "kcred_"
+const (
+	customerCredentialHandlePrefix       = "kcred_"
+	maxSafeJSONInteger             int64 = 1<<53 - 1
+)
 
 var (
 	// ErrCustomerCredentialInvalid means a signed mutation is structurally
 	// invalid. Callers may map it to a generic 400 without returning details.
 	ErrCustomerCredentialInvalid = errors.New("customer provider credential mutation is invalid")
-	// ErrCustomerCredentialExists means the exact Oxy connection identity is
-	// already bound to a Kaana credential handle. Creation never rotates it.
-	ErrCustomerCredentialExists = errors.New("customer provider credential already exists")
 	// ErrCustomerCredentialConflict covers a stale revision, revoked handle, or
-	// mismatch between the handle and any member of its exact identity.
+	// mismatch between an operation id and any member of its exact request.
 	ErrCustomerCredentialConflict = errors.New("customer provider credential identity or revision conflicts")
+	// ErrCustomerCredentialOutcomeUnavailable is deliberately returned for both
+	// an absent operation and an exact-operation query whose identity differs.
+	ErrCustomerCredentialOutcomeUnavailable = errors.New("customer provider credential outcome is unavailable")
 	// ErrCustomerCredentialUnavailable is the deliberately indistinguishable
 	// inference result for an absent, revoked, mismatched, or undecryptable row.
 	ErrCustomerCredentialUnavailable = errors.New("customer provider credential is unavailable")
+)
+
+// CustomerCredentialAction is the exact mutation meaning bound to an Oxy
+// operation id. An id can never move between actions.
+type CustomerCredentialAction string
+
+const (
+	CustomerCredentialActionCreate CustomerCredentialAction = "create"
+	CustomerCredentialActionRotate CustomerCredentialAction = "rotate"
+	CustomerCredentialActionRevoke CustomerCredentialAction = "revoke"
+)
+
+// CustomerCredentialOutcomeStatus is the durable terminal answer for one
+// operation. A conflict carries no credential reference.
+type CustomerCredentialOutcomeStatus string
+
+const (
+	CustomerCredentialOutcomeApplied  CustomerCredentialOutcomeStatus = "applied"
+	CustomerCredentialOutcomeConflict CustomerCredentialOutcomeStatus = "conflict"
 )
 
 // CustomerCredentialIdentity is the immutable Oxy identity a BYOK secret is
@@ -48,6 +71,30 @@ type CustomerCredentialScope struct {
 	Revision         int64
 }
 
+// CustomerCredentialOperation is the complete replay identity of a BYOK
+// mutation. Create has no requested handle or revision; rotate and revoke have
+// both. Create and rotate also carry a one-way secret fingerprint. OperationID
+// is supplied by Oxy and treated as one exact opaque string.
+type CustomerCredentialOperation struct {
+	OperationID string
+	Action      CustomerCredentialAction
+	CustomerCredentialIdentity
+	CredentialHandle string
+	ExpectedRevision int64
+	SecretSHA256     string
+}
+
+// CustomerCredentialOutcome is an immutable terminal operation result. The
+// internal replay bit lets callers validate a freshly proposed create handle
+// without placing that transport detail on the HTTP wire.
+type CustomerCredentialOutcome struct {
+	Operation        CustomerCredentialOperation
+	Status           CustomerCredentialOutcomeStatus
+	CredentialHandle string
+	Revision         int64
+	Replayed         bool
+}
+
 // EncryptedCustomerCredential is the ciphertext-only row exchanged with
 // PostgreSQL. Plaintext has no database representation.
 type EncryptedCustomerCredential struct {
@@ -56,20 +103,14 @@ type EncryptedCustomerCredential struct {
 	KMSKeyARN  string
 }
 
-// CustomerCredentialReference is the only value Oxy needs to retain beside its
-// own connection metadata.
-type CustomerCredentialReference struct {
-	CredentialHandle string `json:"credentialHandle"`
-	Revision         int64  `json:"revision"`
-}
-
 // CustomerRepository is the least database authority needed by the BYOK
 // boundary. Implementations perform mutations through SECURITY DEFINER
 // functions rather than granting table DML to the control process.
 type CustomerRepository interface {
-	CreateCustomer(context.Context, EncryptedCustomerCredential, string) (*CustomerCredentialReference, error)
-	RotateCustomer(context.Context, EncryptedCustomerCredential, int64, string) (bool, error)
-	RevokeCustomer(context.Context, CustomerCredentialScope, string) (bool, error)
+	CreateCustomer(context.Context, CustomerCredentialOperation, EncryptedCustomerCredential, string) (CustomerCredentialOutcome, error)
+	RotateCustomer(context.Context, CustomerCredentialOperation, EncryptedCustomerCredential, string) (CustomerCredentialOutcome, error)
+	RevokeCustomer(context.Context, CustomerCredentialOperation, string) (CustomerCredentialOutcome, error)
+	GetCustomerOutcome(context.Context, CustomerCredentialOperation) (CustomerCredentialOutcome, error)
 	GetActiveCustomer(context.Context, CustomerCredentialScope) (EncryptedCustomerCredential, error)
 }
 
@@ -114,96 +155,142 @@ func newCustomerWriter(repository CustomerRepository, encryptor CustomerEncrypto
 }
 
 // Create allocates a Kaana-owned opaque handle and creates one immutable
-// identity at revision one. A duplicate identity is reported, never upserted.
-func (w *CustomerWriter) Create(ctx context.Context, identity CustomerCredentialIdentity, plaintext []byte, actor string) (CustomerCredentialReference, error) {
+// identity at revision one. Repeating the same operation returns its first
+// terminal outcome; a different operation for that identity conflicts.
+func (w *CustomerWriter) Create(ctx context.Context, operationID string, identity CustomerCredentialIdentity, plaintext []byte, actor string) (CustomerCredentialOutcome, error) {
 	if err := validateCustomerIdentity(identity); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	if err := validateCustomerSecret(plaintext); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	if err := validateActor(actor); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
+	}
+	secretDigest := sha256.Sum256(plaintext)
+	operation := CustomerCredentialOperation{
+		OperationID:                operationID,
+		Action:                     CustomerCredentialActionCreate,
+		CustomerCredentialIdentity: identity,
+		SecretSHA256:               hex.EncodeToString(secretDigest[:]),
+	}
+	if err := validateCustomerOperation(operation); err != nil {
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	handle, err := w.newHandle()
 	if err != nil {
-		return CustomerCredentialReference{}, fmt.Errorf("credential store: allocating customer credential handle: %w", err)
+		return CustomerCredentialOutcome{}, fmt.Errorf("credential store: allocating customer credential handle: %w", err)
 	}
 	scope := CustomerCredentialScope{CustomerCredentialIdentity: identity, CredentialHandle: handle, Revision: 1}
 	if err := validateCustomerScope(scope); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	ciphertext, keyARN, err := w.encryptor.EncryptCustomer(ctx, scope, plaintext)
 	if err != nil {
-		return CustomerCredentialReference{}, fmt.Errorf("credential store: encrypting customer provider credential: %w", err)
+		return CustomerCredentialOutcome{}, fmt.Errorf("credential store: encrypting customer provider credential: %w", err)
 	}
-	existing, err := w.repository.CreateCustomer(ctx, EncryptedCustomerCredential{
+	outcome, err := w.repository.CreateCustomer(ctx, operation, EncryptedCustomerCredential{
 		CustomerCredentialScope: scope,
 		Ciphertext:              ciphertext,
 		KMSKeyARN:               keyARN,
 	}, actor)
 	if err != nil {
-		return CustomerCredentialReference{}, fmt.Errorf("credential store: creating customer provider credential: %w", err)
+		return CustomerCredentialOutcome{}, fmt.Errorf("credential store: creating customer provider credential: %w", err)
 	}
-	if existing != nil {
-		if !validCustomerCredentialHandle(existing.CredentialHandle) || existing.Revision <= 0 {
-			return CustomerCredentialReference{}, ErrCustomerCredentialConflict
-		}
-		return *existing, ErrCustomerCredentialExists
+	if err := validateCustomerOutcome(operation, outcome); err != nil {
+		return CustomerCredentialOutcome{}, err
 	}
-	return CustomerCredentialReference{CredentialHandle: handle, Revision: 1}, nil
+	if outcome.Status == CustomerCredentialOutcomeConflict {
+		return outcome, ErrCustomerCredentialConflict
+	}
+	if !outcome.Replayed && (outcome.CredentialHandle != handle || outcome.Revision != 1) {
+		return CustomerCredentialOutcome{}, errors.New("credential store: fresh create outcome does not match its proposed handle")
+	}
+	return outcome, nil
 }
 
 // Rotate replaces the ciphertext only when the handle, complete identity, and
-// expected revision all match one active row. A retry of a successful rotation
-// is therefore a conflict rather than a second rotation.
-func (w *CustomerWriter) Rotate(ctx context.Context, scope CustomerCredentialScope, plaintext []byte, actor string) (CustomerCredentialReference, error) {
+// expected revision all match one active row. Repeating the same operation id
+// returns its original terminal outcome and never rotates twice.
+func (w *CustomerWriter) Rotate(ctx context.Context, operationID string, scope CustomerCredentialScope, plaintext []byte, actor string) (CustomerCredentialOutcome, error) {
 	if err := validateCustomerScope(scope); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	if err := validateCustomerSecret(plaintext); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	if err := validateActor(actor); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
+	}
+	secretDigest := sha256.Sum256(plaintext)
+	operation := operationForScope(operationID, CustomerCredentialActionRotate, scope)
+	operation.SecretSHA256 = hex.EncodeToString(secretDigest[:])
+	if err := validateCustomerOperation(operation); err != nil {
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	next := scope
 	next.Revision++
 	ciphertext, keyARN, err := w.encryptor.EncryptCustomer(ctx, next, plaintext)
 	if err != nil {
-		return CustomerCredentialReference{}, fmt.Errorf("credential store: encrypting rotated customer provider credential: %w", err)
+		return CustomerCredentialOutcome{}, fmt.Errorf("credential store: encrypting rotated customer provider credential: %w", err)
 	}
-	changed, err := w.repository.RotateCustomer(ctx, EncryptedCustomerCredential{
+	outcome, err := w.repository.RotateCustomer(ctx, operation, EncryptedCustomerCredential{
 		CustomerCredentialScope: next,
 		Ciphertext:              ciphertext,
 		KMSKeyARN:               keyARN,
-	}, scope.Revision, actor)
+	}, actor)
 	if err != nil {
-		return CustomerCredentialReference{}, fmt.Errorf("credential store: rotating customer provider credential: %w", err)
+		return CustomerCredentialOutcome{}, fmt.Errorf("credential store: rotating customer provider credential: %w", err)
 	}
-	if !changed {
-		return CustomerCredentialReference{}, ErrCustomerCredentialConflict
+	if err := validateCustomerOutcome(operation, outcome); err != nil {
+		return CustomerCredentialOutcome{}, err
 	}
-	return CustomerCredentialReference{CredentialHandle: scope.CredentialHandle, Revision: next.Revision}, nil
+	if outcome.Status == CustomerCredentialOutcomeConflict {
+		return outcome, ErrCustomerCredentialConflict
+	}
+	return outcome, nil
 }
 
 // Revoke terminally removes a handle from inference resolution. It is
 // optimistic-concurrency controlled for the same replay property as rotation.
-func (w *CustomerWriter) Revoke(ctx context.Context, scope CustomerCredentialScope, actor string) (CustomerCredentialReference, error) {
+func (w *CustomerWriter) Revoke(ctx context.Context, operationID string, scope CustomerCredentialScope, actor string) (CustomerCredentialOutcome, error) {
 	if err := validateCustomerScope(scope); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
 	if err := validateActor(actor); err != nil {
-		return CustomerCredentialReference{}, invalidCustomerCredential(err)
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
-	changed, err := w.repository.RevokeCustomer(ctx, scope, actor)
+	operation := operationForScope(operationID, CustomerCredentialActionRevoke, scope)
+	if err := validateCustomerOperation(operation); err != nil {
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
+	}
+	outcome, err := w.repository.RevokeCustomer(ctx, operation, actor)
 	if err != nil {
-		return CustomerCredentialReference{}, fmt.Errorf("credential store: revoking customer provider credential: %w", err)
+		return CustomerCredentialOutcome{}, fmt.Errorf("credential store: revoking customer provider credential: %w", err)
 	}
-	if !changed {
-		return CustomerCredentialReference{}, ErrCustomerCredentialConflict
+	if err := validateCustomerOutcome(operation, outcome); err != nil {
+		return CustomerCredentialOutcome{}, err
 	}
-	return CustomerCredentialReference{CredentialHandle: scope.CredentialHandle, Revision: scope.Revision + 1}, nil
+	if outcome.Status == CustomerCredentialOutcomeConflict {
+		return outcome, ErrCustomerCredentialConflict
+	}
+	return outcome, nil
+}
+
+// Outcome reads one terminal result only when the operation id, action,
+// complete immutable identity, handle and expected revision all match exactly.
+func (w *CustomerWriter) Outcome(ctx context.Context, operation CustomerCredentialOperation) (CustomerCredentialOutcome, error) {
+	if err := validateCustomerOperation(operation); err != nil {
+		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
+	}
+	outcome, err := w.repository.GetCustomerOutcome(ctx, operation)
+	if err != nil {
+		return CustomerCredentialOutcome{}, err
+	}
+	if err := validateCustomerOutcome(operation, outcome); err != nil {
+		return CustomerCredentialOutcome{}, err
+	}
+	return outcome, nil
 }
 
 // CustomerResolver is intentionally mutation-free. Its only caller is the
@@ -279,8 +366,108 @@ func validateCustomerScope(scope CustomerCredentialScope) error {
 	if !validCustomerCredentialHandle(scope.CredentialHandle) {
 		return errors.New("credential store: invalid customer credential handle")
 	}
-	if scope.Revision <= 0 || scope.Revision == math.MaxInt64 {
+	if scope.Revision <= 0 || scope.Revision > maxSafeJSONInteger {
 		return errors.New("credential store: customer credential revision must be positive")
+	}
+	return nil
+}
+
+func operationForScope(operationID string, action CustomerCredentialAction, scope CustomerCredentialScope) CustomerCredentialOperation {
+	return CustomerCredentialOperation{
+		OperationID:                operationID,
+		Action:                     action,
+		CustomerCredentialIdentity: scope.CustomerCredentialIdentity,
+		CredentialHandle:           scope.CredentialHandle,
+		ExpectedRevision:           scope.Revision,
+	}
+}
+
+func validateCustomerOperation(operation CustomerCredentialOperation) error {
+	if err := validateOpaqueCustomerID("operation id", operation.OperationID, 128); err != nil {
+		return err
+	}
+	if err := validateCustomerIdentity(operation.CustomerCredentialIdentity); err != nil {
+		return err
+	}
+	switch operation.Action {
+	case CustomerCredentialActionCreate:
+		if operation.CredentialHandle != "" || operation.ExpectedRevision != 0 {
+			return errors.New("credential store: create operation carries a credential reference")
+		}
+		if !validSecretSHA256(operation.SecretSHA256) {
+			return errors.New("credential store: create operation has an invalid secret fingerprint")
+		}
+	case CustomerCredentialActionRotate:
+		if err := validateCustomerScope(CustomerCredentialScope{
+			CustomerCredentialIdentity: operation.CustomerCredentialIdentity,
+			CredentialHandle:           operation.CredentialHandle,
+			Revision:                   operation.ExpectedRevision,
+		}); err != nil {
+			return err
+		}
+		if operation.ExpectedRevision >= maxSafeJSONInteger {
+			return errors.New("credential store: customer credential revision cannot be advanced safely")
+		}
+		if !validSecretSHA256(operation.SecretSHA256) {
+			return errors.New("credential store: rotate operation has an invalid secret fingerprint")
+		}
+	case CustomerCredentialActionRevoke:
+		if err := validateCustomerScope(CustomerCredentialScope{
+			CustomerCredentialIdentity: operation.CustomerCredentialIdentity,
+			CredentialHandle:           operation.CredentialHandle,
+			Revision:                   operation.ExpectedRevision,
+		}); err != nil {
+			return err
+		}
+		if operation.ExpectedRevision >= maxSafeJSONInteger {
+			return errors.New("credential store: customer credential revision cannot be advanced safely")
+		}
+		if operation.SecretSHA256 != "" {
+			return errors.New("credential store: revoke operation carries a secret fingerprint")
+		}
+	default:
+		return errors.New("credential store: invalid customer credential action")
+	}
+	return nil
+}
+
+func validSecretSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validateCustomerOutcome(operation CustomerCredentialOperation, outcome CustomerCredentialOutcome) error {
+	if outcome.Operation != operation {
+		return errors.New("credential store: outcome operation does not match the request")
+	}
+	switch outcome.Status {
+	case CustomerCredentialOutcomeApplied:
+		if !validCustomerCredentialHandle(outcome.CredentialHandle) {
+			return errors.New("credential store: applied outcome has an invalid handle")
+		}
+		expectedRevision := int64(1)
+		if operation.Action != CustomerCredentialActionCreate {
+			expectedRevision = operation.ExpectedRevision + 1
+			if outcome.CredentialHandle != operation.CredentialHandle {
+				return errors.New("credential store: applied outcome changed the requested handle")
+			}
+		}
+		if outcome.Revision != expectedRevision {
+			return errors.New("credential store: applied outcome has an invalid revision")
+		}
+	case CustomerCredentialOutcomeConflict:
+		if outcome.CredentialHandle != "" || outcome.Revision != 0 {
+			return errors.New("credential store: conflict outcome exposes a credential reference")
+		}
+	default:
+		return errors.New("credential store: outcome has an invalid status")
 	}
 	return nil
 }
