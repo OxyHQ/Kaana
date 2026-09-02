@@ -63,6 +63,12 @@ const HeaderRequestID = "X-Oxy-Request-Id"
 // primitive.
 const DefaultMaxEnvelopeBytes int64 = 16 << 20
 
+// MaxDeploymentDescriptorQueryIDs bounds one signed identity attestation. The
+// edge sends every route it may authorize in one request, but an authenticated
+// caller must not be able to turn that operator surface into an unbounded
+// allocation or full-catalogue substitute.
+const MaxDeploymentDescriptorQueryIDs = 64
+
 // Server serves the Oxy-facing surface.
 type Server struct {
 	executor         *kaana.Executor
@@ -329,8 +335,9 @@ var (
 
 // handleDeployments exposes only the fields Oxy signs in an authorized route.
 // A signed {} body returns the complete snapshot projection. A signed body with
-// exactly one deploymentId performs an exact opaque-id lookup and still returns
-// a list, of length one. It never resolves a name, provider or position.
+// one deploymentId, or a bounded deploymentIds array, performs exact opaque-id
+// lookup. The batch is atomic: one absent id refuses the whole response. It
+// never resolves a name, provider or position.
 func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	// Set before authentication so neither a success nor a typed refusal can be
 	// retained after the signature that authorized it has expired.
@@ -351,7 +358,7 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.writeRejection(w, http.StatusBadRequest, contract.NewError(
 			newLocalRequestID(), contract.CodeInvalidRequest,
-			"the deployment descriptor query must be {} or contain one exact deploymentId",
+			"the deployment descriptor query must be {}, contain one exact deploymentId, or contain a bounded deploymentIds array",
 		))
 		return
 	}
@@ -369,8 +376,8 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 		))
 		return
 	}
-	if query.DeploymentID != nil {
-		selected, err := selectExactDeploymentDescriptor(descriptors, *query.DeploymentID)
+	if query.DeploymentIDs != nil {
+		selected, err := selectExactDeploymentDescriptors(descriptors, query.DeploymentIDs)
 		switch {
 		case errors.Is(err, errDeploymentDescriptorNotFound):
 			s.writeRejection(w, http.StatusNotFound, contract.NewError(
@@ -406,13 +413,16 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 }
 
 type deploymentDescriptorQuery struct {
-	DeploymentID *contract.DeploymentID
+	// nil means the explicit {} operator list. A non-nil slice is one exact
+	// selector or a bounded batch; the parser refuses an empty batch.
+	DeploymentIDs []contract.DeploymentID
 }
 
-// parseDeploymentDescriptorQuery accepts exactly two wire shapes:
+// parseDeploymentDescriptorQuery accepts exactly three wire shapes:
 //
 //	{}
 //	{"deploymentId":"<opaque exact id>"}
+//	{"deploymentIds":["<opaque exact id>", "..."]}
 //
 // A struct plus DisallowUnknownFields would still accept a duplicate JSON key.
 // Token-level parsing makes duplicates, null, trailing JSON and unknown fields
@@ -429,36 +439,69 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 
 	query := deploymentDescriptorQuery{}
 	seenDeploymentID := false
+	seenDeploymentIDs := false
 	for decoder.More() {
 		keyToken, err := decoder.Token()
 		if err != nil {
 			return deploymentDescriptorQuery{}, fmt.Errorf("reading field name: %w", err)
 		}
 		key, ok := keyToken.(string)
-		if !ok || key != "deploymentId" {
+		if !ok || (key != "deploymentId" && key != "deploymentIds") {
 			return deploymentDescriptorQuery{}, errors.New("the query contains an unknown field")
 		}
-		if seenDeploymentID {
-			return deploymentDescriptorQuery{}, errors.New("deploymentId appears more than once")
-		}
-		seenDeploymentID = true
 
 		var raw json.RawMessage
 		if err := decoder.Decode(&raw); err != nil {
-			return deploymentDescriptorQuery{}, fmt.Errorf("reading deploymentId: %w", err)
+			return deploymentDescriptorQuery{}, fmt.Errorf("reading %s: %w", key, err)
 		}
 		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return deploymentDescriptorQuery{}, errors.New("deploymentId is null")
+			return deploymentDescriptorQuery{}, fmt.Errorf("%s is null", key)
 		}
-		var value string
-		if err := json.Unmarshal(raw, &value); err != nil {
-			return deploymentDescriptorQuery{}, errors.New("deploymentId is not a string")
+
+		switch key {
+		case "deploymentId":
+			if seenDeploymentID {
+				return deploymentDescriptorQuery{}, errors.New("deploymentId appears more than once")
+			}
+			seenDeploymentID = true
+			var value string
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return deploymentDescriptorQuery{}, errors.New("deploymentId is not a string")
+			}
+			if err := validateDeploymentDescriptorID(value); err != nil {
+				return deploymentDescriptorQuery{}, err
+			}
+			query.DeploymentIDs = []contract.DeploymentID{contract.DeploymentID(value)}
+		case "deploymentIds":
+			if seenDeploymentIDs {
+				return deploymentDescriptorQuery{}, errors.New("deploymentIds appears more than once")
+			}
+			seenDeploymentIDs = true
+			var values []string
+			if err := json.Unmarshal(raw, &values); err != nil {
+				return deploymentDescriptorQuery{}, errors.New("deploymentIds is not an array of strings")
+			}
+			if len(values) == 0 || len(values) > MaxDeploymentDescriptorQueryIDs {
+				return deploymentDescriptorQuery{}, fmt.Errorf(
+					"deploymentIds is outside 1..%d entries", MaxDeploymentDescriptorQueryIDs)
+			}
+			seen := make(map[contract.DeploymentID]struct{}, len(values))
+			query.DeploymentIDs = make([]contract.DeploymentID, 0, len(values))
+			for _, value := range values {
+				if err := validateDeploymentDescriptorID(value); err != nil {
+					return deploymentDescriptorQuery{}, err
+				}
+				deploymentID := contract.DeploymentID(value)
+				if _, duplicate := seen[deploymentID]; duplicate {
+					return deploymentDescriptorQuery{}, errors.New("deploymentIds contains a duplicate exact id")
+				}
+				seen[deploymentID] = struct{}{}
+				query.DeploymentIDs = append(query.DeploymentIDs, deploymentID)
+			}
 		}
-		if len(value) == 0 || len(value) > 128 {
-			return deploymentDescriptorQuery{}, errors.New("deploymentId is outside 1..128 characters")
-		}
-		deploymentID := contract.DeploymentID(value)
-		query.DeploymentID = &deploymentID
+	}
+	if seenDeploymentID && seenDeploymentIDs {
+		return deploymentDescriptorQuery{}, errors.New("deploymentId and deploymentIds cannot be combined")
 	}
 
 	closing, err := decoder.Token()
@@ -475,6 +518,13 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 		return deploymentDescriptorQuery{}, errors.New("the query has trailing JSON")
 	}
 	return query, nil
+}
+
+func validateDeploymentDescriptorID(value string) error {
+	if len(value) == 0 || len(value) > 128 {
+		return errors.New("deployment id is outside 1..128 characters")
+	}
+	return nil
 }
 
 func validateUniqueDeploymentDescriptors(descriptors []inventory.DeploymentDescriptor) error {
@@ -509,6 +559,33 @@ func selectExactDeploymentDescriptor(
 	default:
 		return nil, errDeploymentDescriptorAmbiguous
 	}
+}
+
+// selectExactDeploymentDescriptors returns only the requested exact ids and
+// refuses the entire batch if any is absent. Global descriptor uniqueness is
+// validated before this function is called; it checks again through the count
+// equality so a later caller cannot accidentally accept a partial projection.
+func selectExactDeploymentDescriptors(
+	descriptors []inventory.DeploymentDescriptor,
+	deploymentIDs []contract.DeploymentID,
+) ([]inventory.DeploymentDescriptor, error) {
+	requested := make(map[contract.DeploymentID]struct{}, len(deploymentIDs))
+	for _, deploymentID := range deploymentIDs {
+		if _, duplicate := requested[deploymentID]; duplicate {
+			return nil, errDeploymentDescriptorAmbiguous
+		}
+		requested[deploymentID] = struct{}{}
+	}
+	selected := make([]inventory.DeploymentDescriptor, 0, len(deploymentIDs))
+	for _, descriptor := range descriptors {
+		if _, wanted := requested[descriptor.DeploymentID]; wanted {
+			selected = append(selected, descriptor)
+		}
+	}
+	if len(selected) != len(requested) {
+		return nil, errDeploymentDescriptorNotFound
+	}
+	return selected, nil
 }
 
 // handleModels answers what this snapshot serves, under the names a caller can
