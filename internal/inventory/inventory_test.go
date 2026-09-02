@@ -1,6 +1,7 @@
 package inventory_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -259,6 +260,19 @@ func TestParseRefusesWhatResolutionWouldHaveToGuessAbout(t *testing.T) {
 			expect:   "no deployments",
 		},
 		{
+			name:     "an empty deployment id",
+			document: issued(now, `{"deploymentId":"","provider":"openai","modelReference":"openai/gpt-5@r","upstreamModelId":"gpt-5"}`),
+			expect:   "between 1 and 128 characters",
+		},
+		{
+			name: "a deployment id longer than 128 characters",
+			document: issued(now, fmt.Sprintf(
+				`{"deploymentId":%q,"provider":"openai","modelReference":"openai/gpt-5@r","upstreamModelId":"gpt-5"}`,
+				strings.Repeat("d", 129),
+			)),
+			expect: "between 1 and 128 characters",
+		},
+		{
 			name: "a deployment that does not pin a revision",
 			// It would silently serve whatever the provider's alias points at
 			// today, and change meaning without any change here.
@@ -328,6 +342,21 @@ func TestParseRefusesWhatResolutionWouldHaveToGuessAbout(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsA128CharacterDeploymentID(t *testing.T) {
+	deploymentID := strings.Repeat("d", 128)
+	parsed, err := inventory.Parse(issued(time.Now(), fmt.Sprintf(
+		`{"deploymentId":%q,"provider":"openai","modelReference":"openai/gpt-5@r","upstreamModelId":"gpt-5","regions":[]}`,
+		deploymentID,
+	)), time.Hour)
+	if err != nil {
+		t.Fatalf("a 128-character deployment id was refused: %v", err)
+	}
+	descriptors := parsed.DeploymentDescriptors()
+	if len(descriptors) != 1 || string(descriptors[0].DeploymentID) != deploymentID {
+		t.Fatalf("the accepted boundary id changed: %+v", descriptors)
+	}
+}
+
 func TestAnExplicitEmptyRegionListMeansNoRegionalAttestation(t *testing.T) {
 	now := time.Now()
 	parsed, err := inventory.Parse(issued(now,
@@ -377,6 +406,36 @@ func TestProvidersListsEveryRoutableProvider(t *testing.T) {
 	}
 	if len(parsed.Deployments()) != 2 {
 		t.Errorf("Deployments returned %d endpoints, expected 2", len(parsed.Deployments()))
+	}
+}
+
+func TestDeploymentDescriptorsAreSortedAndOmitUpstreamModelConfiguration(t *testing.T) {
+	parsed := parse(t, issued(time.Now(), `
+	  {"deploymentId":"dep_z","provider":"together","modelReference":"meta/llama@r","upstreamModelId":"private-z","regions":[]},
+	  {"deploymentId":"dep_a","provider":"openai","modelReference":"openai/gpt-5@r","upstreamModelId":"private-a","regions":["us-east-1"]}`))
+
+	descriptors := parsed.DeploymentDescriptors()
+	if len(descriptors) != 2 {
+		t.Fatalf("DeploymentDescriptors returned %d entries", len(descriptors))
+	}
+	if descriptors[0].DeploymentID != "dep_a" || descriptors[1].DeploymentID != "dep_z" {
+		t.Fatalf("DeploymentDescriptors are not sorted by exact id: %+v", descriptors)
+	}
+	if descriptors[0].ModelReference != "openai/gpt-5@r" || descriptors[0].Provider != "openai" {
+		t.Errorf("the first descriptor changed route identity: %+v", descriptors[0])
+	}
+	if descriptors[1].Regions == nil || len(descriptors[1].Regions) != 0 {
+		t.Errorf("an unattested region set is not an explicit empty array: %#v", descriptors[1].Regions)
+	}
+
+	encoded, err := json.Marshal(descriptors)
+	if err != nil {
+		t.Fatalf("encoding descriptors: %v", err)
+	}
+	for _, forbidden := range []string{"upstreamModelId", "private-a", "private-z"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Errorf("the descriptor projection exposed %q: %s", forbidden, encoded)
+		}
 	}
 }
 

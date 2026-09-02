@@ -1,19 +1,23 @@
 // Package httpapi is Kaana's Oxy-facing surface.
 //
-// It has exactly three routes and no customer-facing one. Kaana is not on the
+// It has exactly five routes and no customer-facing one. Kaana is not on the
 // public internet's path to a customer: the Oxy edge authenticates, attributes,
 // authorizes and reserves, then forwards a signed envelope here.
 //
-//	POST /internal/v1/inference   signed envelope in, normalized event stream out
-//	GET  /internal/v1/health      signed, the customer-safe provider projection
-//	GET  /livez                   unsigned liveness, carrying no provider detail
+//	POST /internal/v1/inference     signed envelope in, normalized event stream out
+//	GET  /internal/v1/health        signed, the customer-safe provider projection
+//	GET  /internal/v1/models        signed, the model catalogue Oxy may publish
+//	POST /internal/v1/deployments/query signed, exact operator-safe route identities
+//	GET  /livez                     unsigned liveness, carrying no provider detail
 //
-// # Where HTTP status codes stop
+// # Where inference HTTP status codes stop
 //
-// A status code answers exactly one question: was this a well-formed envelope
-// from the Oxy edge? Once the answer is yes, the response is 200 and an event
-// stream, and every outcome after that — including a refusal — arrives as the
-// stream's terminal error event.
+// On POST /internal/v1/inference a status code answers exactly one question: was
+// this a well-formed envelope from the Oxy edge? Once the answer is yes, the
+// response is 200 and an event stream, and every outcome after that — including
+// a refusal — arrives as the stream's terminal error event. The signed operator
+// surfaces use ordinary statuses for malformed or absent lookups because no
+// inference stream has begun.
 //
 // The alternative, choosing a status from the failure, cannot be made to work:
 // the decision would have to be taken before the first byte of a stream that
@@ -23,6 +27,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/json"
@@ -122,6 +127,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/inference", s.handleInference)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
+	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
 	mux.HandleFunc("GET /livez", s.handleLive)
 	return mux
 }
@@ -305,6 +311,204 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Exact deployment identities                                                */
+/* -------------------------------------------------------------------------- */
+
+type deploymentDescriptorsResponse struct {
+	SnapshotID  string                           `json:"snapshotId"`
+	Deployments []inventory.DeploymentDescriptor `json:"deployments"`
+}
+
+var (
+	errDeploymentDescriptorNotFound  = errors.New("deployment descriptor not found")
+	errDeploymentDescriptorAmbiguous = errors.New("deployment descriptor identity is ambiguous")
+)
+
+// handleDeployments exposes only the fields Oxy signs in an authorized route.
+// A signed {} body returns the complete snapshot projection. A signed body with
+// exactly one deploymentId performs an exact opaque-id lookup and still returns
+// a list, of length one. It never resolves a name, provider or position.
+func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
+	// Set before authentication so neither a success nor a typed refusal can be
+	// retained after the signature that authorized it has expired.
+	w.Header().Set("Cache-Control", "no-store")
+	body, failure := s.readSignedBody(w, r)
+	if failure != nil {
+		s.writeRejection(w, http.StatusUnauthorized, failure)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(
+			newLocalRequestID(), contract.CodeInvalidRequest,
+			"deployment descriptor parameters belong in the signed JSON body",
+		))
+		return
+	}
+	query, err := parseDeploymentDescriptorQuery(body)
+	if err != nil {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(
+			newLocalRequestID(), contract.CodeInvalidRequest,
+			"the deployment descriptor query must be {} or contain one exact deploymentId",
+		))
+		return
+	}
+
+	current := s.inventory.Current()
+	descriptors := current.DeploymentDescriptors()
+	if err := validateUniqueDeploymentDescriptors(descriptors); err != nil {
+		// Inventory loading already refuses duplicate ids. Keep the read surface's
+		// own gate so a future loader regression cannot publish an ambiguous list.
+		s.logger.Error("the serving snapshot contains an ambiguous deployment identity",
+			"snapshotId", current.SnapshotID())
+		s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(
+			newLocalRequestID(), contract.CodeServiceUnavailable,
+			"the deployment identity is ambiguous in the serving snapshot",
+		))
+		return
+	}
+	if query.DeploymentID != nil {
+		selected, err := selectExactDeploymentDescriptor(descriptors, *query.DeploymentID)
+		switch {
+		case errors.Is(err, errDeploymentDescriptorNotFound):
+			s.writeRejection(w, http.StatusNotFound, contract.NewError(
+				newLocalRequestID(),
+				contract.CodeNoRouteAvailable,
+				"no deployment has that exact deploymentId in the serving snapshot",
+			))
+			return
+		case errors.Is(err, errDeploymentDescriptorAmbiguous):
+			// Avoid logging the signed body: an authenticated caller can still put
+			// credential-shaped text in it.
+			s.logger.Error("the serving snapshot contains an ambiguous deployment identity",
+				"snapshotId", current.SnapshotID())
+			s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(
+				newLocalRequestID(),
+				contract.CodeServiceUnavailable,
+				"the deployment identity is ambiguous in the serving snapshot",
+			))
+			return
+		case err != nil:
+			s.writeRejection(w, http.StatusInternalServerError, contract.NewError(
+				newLocalRequestID(), contract.CodeInternalError, "the deployment lookup failed"))
+			return
+		default:
+			descriptors = selected
+		}
+	}
+
+	writeJSON(w, http.StatusOK, deploymentDescriptorsResponse{
+		SnapshotID:  current.SnapshotID(),
+		Deployments: descriptors,
+	})
+}
+
+type deploymentDescriptorQuery struct {
+	DeploymentID *contract.DeploymentID
+}
+
+// parseDeploymentDescriptorQuery accepts exactly two wire shapes:
+//
+//	{}
+//	{"deploymentId":"<opaque exact id>"}
+//
+// A struct plus DisallowUnknownFields would still accept a duplicate JSON key.
+// Token-level parsing makes duplicates, null, trailing JSON and unknown fields
+// explicit refusals rather than values encoding/json quietly normalizes.
+func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	opening, err := decoder.Token()
+	if err != nil {
+		return deploymentDescriptorQuery{}, fmt.Errorf("reading object start: %w", err)
+	}
+	if delimiter, ok := opening.(json.Delim); !ok || delimiter != '{' {
+		return deploymentDescriptorQuery{}, errors.New("the query is not a JSON object")
+	}
+
+	query := deploymentDescriptorQuery{}
+	seenDeploymentID := false
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return deploymentDescriptorQuery{}, fmt.Errorf("reading field name: %w", err)
+		}
+		key, ok := keyToken.(string)
+		if !ok || key != "deploymentId" {
+			return deploymentDescriptorQuery{}, errors.New("the query contains an unknown field")
+		}
+		if seenDeploymentID {
+			return deploymentDescriptorQuery{}, errors.New("deploymentId appears more than once")
+		}
+		seenDeploymentID = true
+
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return deploymentDescriptorQuery{}, fmt.Errorf("reading deploymentId: %w", err)
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return deploymentDescriptorQuery{}, errors.New("deploymentId is null")
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return deploymentDescriptorQuery{}, errors.New("deploymentId is not a string")
+		}
+		if len(value) == 0 || len(value) > 128 {
+			return deploymentDescriptorQuery{}, errors.New("deploymentId is outside 1..128 characters")
+		}
+		deploymentID := contract.DeploymentID(value)
+		query.DeploymentID = &deploymentID
+	}
+
+	closing, err := decoder.Token()
+	if err != nil {
+		return deploymentDescriptorQuery{}, fmt.Errorf("reading object end: %w", err)
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
+		return deploymentDescriptorQuery{}, errors.New("the query object does not close")
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return deploymentDescriptorQuery{}, fmt.Errorf("reading trailing JSON: %w", err)
+		}
+		return deploymentDescriptorQuery{}, errors.New("the query has trailing JSON")
+	}
+	return query, nil
+}
+
+func validateUniqueDeploymentDescriptors(descriptors []inventory.DeploymentDescriptor) error {
+	seen := make(map[contract.DeploymentID]struct{}, len(descriptors))
+	for _, descriptor := range descriptors {
+		if _, duplicate := seen[descriptor.DeploymentID]; duplicate {
+			return errDeploymentDescriptorAmbiguous
+		}
+		seen[descriptor.DeploymentID] = struct{}{}
+	}
+	return nil
+}
+
+// selectExactDeploymentDescriptor is a second identity gate behind inventory
+// loading. The loader refuses duplicate deployment ids today; this function
+// makes the operator lookup remain fail-closed if that invariant ever changes.
+func selectExactDeploymentDescriptor(
+	descriptors []inventory.DeploymentDescriptor,
+	deploymentID contract.DeploymentID,
+) ([]inventory.DeploymentDescriptor, error) {
+	matches := make([]inventory.DeploymentDescriptor, 0, 1)
+	for _, descriptor := range descriptors {
+		if descriptor.DeploymentID == deploymentID {
+			matches = append(matches, descriptor)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, errDeploymentDescriptorNotFound
+	case 1:
+		return matches, nil
+	default:
+		return nil, errDeploymentDescriptorAmbiguous
+	}
 }
 
 // handleModels answers what this snapshot serves, under the names a caller can
