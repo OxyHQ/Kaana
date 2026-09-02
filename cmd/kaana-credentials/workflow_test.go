@@ -86,6 +86,9 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"aws ecs run-task",
 		"aws ecs wait tasks-stopped",
 		"credential-admin-operations.json",
+		"AUDIT_ACTOR: github-actions:OxyHQ/Kaana:${{ github.run_id }}",
+		"^github-actions:OxyHQ/Kaana:[0-9]+$",
+		`environment: [{name: "KAANA_CREDENTIAL_ACTOR", value: $audit_actor}]`,
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("credential workflow lost required boundary %q", required)
