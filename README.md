@@ -20,6 +20,13 @@ A request names a **model**, not a vendor. Kaana decides which provider serves
 it, translates the request for that provider's API, streams the answer back,
 cancels it when the caller goes away, and reports what was consumed.
 
+Oxy authorizes one ordered list of exact Kaana `deploymentId` values. It ranks
+policy-qualified routes by explicit profile priority, then score descending,
+using exact ID code units only to break an equal-score tie. Provider/model names,
+insertion order and database order never select a route. Kaana verifies every
+signed identity against one inventory snapshot and executes the list exactly as
+received; it does not recompute the control-plane ranking.
+
 ## Checked-in reference inventory
 
 `configs/inventory.json` is a measured reference snapshot, produced by reading
@@ -135,7 +142,7 @@ configs/model-attribution.json  who RELEASED each model — the publisher's only
 | | |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | the boundary with Oxy, the Oxy-facing surface, and what is deliberately out of scope |
-| [`docs/identity-and-routing.md`](docs/identity-and-routing.md) | the Kaana/Alia boundary, canonical domain, clean-cut identity migration and product request paths |
+| [`docs/identity-and-routing.md`](docs/identity-and-routing.md) | the Kaana/Alia boundary, canonical domain, exact deployment selection and product request paths |
 | [`docs/routing.md`](docs/routing.md) | cancellation, same-model failover, circuit breakers and health scoring |
 | [`docs/key-pools.md`](docs/key-pools.md) | several providers and a pool of keys for each; what a failure says about a KEY |
 | [`docs/inventory.md`](docs/inventory.md) | the deployment snapshot, how it is published, and what staleness costs |

@@ -33,6 +33,37 @@ Every model invocation is authorized at the Oxy edge. Kaana accepts only the
 signed Oxy envelope; it is never a public credential issuer or a shortcut around
 Oxy authorization.
 
+## Exact deployment identity and order
+
+`deploymentId` is the opaque identity of one exact Kaana deployment. It is never
+derived from a provider slug, model name, display name, row position or database
+order. Oxy resolves it from Kaana's signed descriptor surface and copies it into
+the signed `authorizedRoutes` entry together with the exact revision-pinned model
+reference, provider and complete region set.
+
+Oxy performs the control-plane selection after all policy filters:
+
+1. explicit routing-profile candidate `priority` first;
+2. reviewed score descending within that priority;
+3. exact `deploymentId` code units only as the equal-score tie-break.
+
+Names, locale collation, insertion order and database return order never
+participate. Kaana receives the already ordered authorized list, resolves every
+ID against one inventory snapshot and attempts that exact order. Its runtime
+health projection and breaker state may make an authorized attempt unavailable;
+they never re-rank or authorize another destination.
+
+Oxy fails closed before reservation and before calling Kaana if any otherwise
+eligible deployment lacks an exact ID, price version or required score; if score
+evidence is stale or belongs to another price version; or if the exact ID is
+duplicated or collides with more than one approved mapping. Kaana independently
+fails closed if the signed provider, model reference or region set does not match
+the inventory entry for that ID.
+
+An empty `regions` set means no execution/residency region is attested. It is not
+an alias for global availability. Oxy excludes that deployment whenever the
+effective policy has an allowed-region or denied-region control.
+
 ## Product request paths
 
 ```text
