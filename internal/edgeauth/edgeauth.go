@@ -63,9 +63,15 @@ const (
 
 const signaturePrefix = "v1="
 
-// domainSeparator keeps a signature minted for another Oxy purpose from being
-// replayable as an inference envelope.
-const domainSeparator = "oxy-kaana-envelope:v1"
+const (
+	// inferenceDomainSeparator keeps a signature minted for another Oxy purpose
+	// from being replayable as an inference envelope.
+	inferenceDomainSeparator = "oxy-kaana-envelope:v1"
+	// credentialControlDomainSeparator also separates BYOK mutation authority
+	// from inference authority if an operator accidentally deploys the same key
+	// pair to both tasks.
+	credentialControlDomainSeparator = "oxy-kaana-credential-control:v1"
+)
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
 //
@@ -81,6 +87,7 @@ type Verifier struct {
 	keys    map[string]ed25519.PublicKey
 	maxSkew time.Duration
 	now     func() time.Time
+	domain  string
 }
 
 // ErrUnauthorized is returned for every verification failure.
@@ -95,6 +102,18 @@ var ErrUnauthorized = errors.New("edgeauth: the request is not a signed Oxy edge
 // no keys rejects everything, which looks exactly like a misconfigured deploy
 // and would be discovered as a total outage.
 func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, inferenceDomainSeparator)
+}
+
+// NewCredentialControlVerifier builds the separate BYOK-mutation verifier.
+// Its signatures cannot authorize inference, and inference signatures cannot
+// authorize a credential mutation, even if a key pair is misconfigured in both
+// public-key sets.
+func NewCredentialControlVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, credentialControlDomainSeparator)
+}
+
+func newVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration, domain string) (*Verifier, error) {
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("edgeauth: no edge public keys are configured, so no envelope could ever be accepted")
 	}
@@ -109,7 +128,7 @@ func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Ver
 	if maxSkew <= 0 {
 		maxSkew = DefaultMaxSkew
 	}
-	return &Verifier{keys: keys, maxSkew: maxSkew, now: time.Now}, nil
+	return &Verifier{keys: keys, maxSkew: maxSkew, now: time.Now, domain: domain}, nil
 }
 
 // Verify checks the signature over body. The caller must pass the EXACT bytes
@@ -142,7 +161,7 @@ func (v *Verifier) Verify(header http.Header, body []byte) error {
 		return fmt.Errorf("%w: malformed signature", ErrUnauthorized)
 	}
 
-	if !ed25519.Verify(key, SigningInput(keyID, milliseconds, body), signature) {
+	if !ed25519.Verify(key, signingInput(v.domain, keyID, milliseconds, body), signature) {
 		return fmt.Errorf("%w: signature does not verify", ErrUnauthorized)
 	}
 	return nil
@@ -154,9 +173,19 @@ func (v *Verifier) Verify(header http.Header, body []byte) error {
 // reads this function cannot get the framing subtly wrong, and Kaana's own
 // tests sign with it rather than with a second copy that could drift.
 func SigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(inferenceDomainSeparator, keyID, timestampMillis, body)
+}
+
+// CredentialControlSigningInput is the exact, separately domain-bound input
+// Oxy signs for a customer provider credential mutation.
+func CredentialControlSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(credentialControlDomainSeparator, keyID, timestampMillis, body)
+}
+
+func signingInput(domain, keyID string, timestampMillis int64, body []byte) []byte {
 	digest := sha256.Sum256(body)
 	return []byte(strings.Join([]string{
-		domainSeparator,
+		domain,
 		keyID,
 		strconv.FormatInt(timestampMillis, 10),
 		hex.EncodeToString(digest[:]),

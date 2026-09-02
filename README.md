@@ -51,11 +51,12 @@ with three places to get it, and a request that names it is served or refused â€
 
 Kaana the product has accounts, plans, balances and a console. **None of that is
 in this repository, on purpose.** This is the *data plane*: it executes what has
-already been authorized and reports what it measured. Accounts, customer/API
-credentials, customer balances and the billing ledger live in Oxy, which is the
-single control plane ([ADR 0005][adr0005], [ADR 0006][adr0006]). Upstream
-provider keys are different: Kaana owns them as KMS ciphertext in its PostgreSQL
-credential store and never receives them through environment variables.
+already been authorized and reports what it measured. Accounts, Oxy login/API
+credentials, provider-connection metadata, customer balances and the billing
+ledger live in Oxy, which is the single control plane ([ADR 0005][adr0005],
+[ADR 0006][adr0006]). Upstream provider keys are different: Kaana owns every one
+as KMS ciphertext in its PostgreSQL credential store, including customer BYOK,
+and never receives one through environment variables.
 
 So the split is:
 
@@ -64,6 +65,7 @@ So the split is:
 | request normalization, provider adapters | accounts, organizations, projects |
 | routing **execution**, failover, streaming, cancellation | authorization, scope checks, spend reservation |
 | model deployments, provider health, circuit breakers | plans, balances, the billing ledger, the console |
+| KMS-encrypted provider-secret custody | provider-connection metadata and policy |
 | technical metering and upstream provider cost | what a customer is charged |
 
 **Kaana measures units and never prices them.** There is no money type in
@@ -121,7 +123,9 @@ The full contract, including what each failure mode looks like, is in
 cmd/kaana/                      the binary: env config, wiring, graceful drain
 cmd/kaana-publisher/            re-issues the inventory snapshot on a cadence
 cmd/kaana-credentials/          migrate and administer encrypted provider keys
+cmd/kaana-credential-control/   signed customer-BYOK create/rotate/revoke task
 internal/contract/              Go types for @oxyhq/contracts' inference module
+internal/credentialcontrol/     mutation-only BYOK HTTP boundary
 internal/credentialstore/       PostgreSQL ciphertext store and KMS boundary
 internal/edgeauth/              Ed25519 verification of the Oxy edge's signature
 internal/httpapi/               the Oxy-facing HTTP surface
@@ -145,6 +149,7 @@ configs/model-attribution.json  who RELEASED each model â€” the publisher's only
 | [`docs/identity-and-routing.md`](docs/identity-and-routing.md) | the Kaana/Alia boundary, canonical domain, exact deployment selection and product request paths |
 | [`docs/routing.md`](docs/routing.md) | cancellation, same-model failover, circuit breakers and health scoring |
 | [`docs/key-pools.md`](docs/key-pools.md) | several providers and a pool of keys for each; what a failure says about a KEY |
+| [`docs/customer-provider-credentials.md`](docs/customer-provider-credentials.md) | customer BYOK custody, exact handles, task split and rollout contract |
 | [`docs/inventory.md`](docs/inventory.md) | the deployment snapshot, how it is published, and what staleness costs |
 | [`docs/adapters.md`](docs/adapters.md) | the adapter interface, the two ported adapters, the conformance harness |
 | [`docs/provider-onboarding.md`](docs/provider-onboarding.md) | verified endpoints, catalog semantics and rollout gates for new providers |

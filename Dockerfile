@@ -95,6 +95,12 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/kaana-credentials ./cmd/kaana-credentials
 
+# Customer BYOK mutations run as a separate task. Its database role may call
+# only the customer mutation functions and its KMS role gets Encrypt, never
+# Decrypt. The inference task holds the inverse authority.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-credential-control ./cmd/kaana-credential-control
+
 # The mount point for the configuration snapshot, created here because the
 # runtime stage has no shell to mkdir with. A volume mounted over it brings its
 # own ownership and shadows this directory entirely, so the chown governs only
@@ -122,6 +128,7 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c
 COPY --from=build /out/kaana /usr/local/bin/kaana
 COPY --from=build /out/kaana-publisher /usr/local/bin/kaana-publisher
 COPY --from=build /out/kaana-credentials /usr/local/bin/kaana-credentials
+COPY --from=build /out/kaana-credential-control /usr/local/bin/kaana-credential-control
 COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
 COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem

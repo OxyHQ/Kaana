@@ -12,8 +12,15 @@ import (
 )
 
 const (
-	contextProvider = "kaana:provider"
-	contextKeyID    = "kaana:key-id"
+	contextProvider             = "kaana:provider"
+	contextKeyID                = "kaana:key-id"
+	contextOwnerAccountID       = "kaana:owner-account-id"
+	contextConnectionID         = "kaana:connection-id"
+	contextEnvironment          = "kaana:environment"
+	contextCredentialHandle     = "kaana:credential-handle"
+	contextCredentialRevision   = "kaana:credential-revision"
+	contextCredentialClass      = "kaana:credential-class"
+	customerCredentialClassBYOK = "customer_byok"
 )
 
 type kmsClient interface {
@@ -91,9 +98,64 @@ func (c *KMSCipher) Decrypt(ctx context.Context, scope Scope, ciphertext []byte,
 	return output.Plaintext, nil
 }
 
+// EncryptCustomer binds a BYOK secret to the complete exact identity Oxy
+// authorized, plus Kaana's opaque handle and monotonic revision. A ciphertext
+// copied to another owner, connection, provider, environment, handle, or older
+// revision is therefore not decryptable there.
+func (c *KMSCipher) EncryptCustomer(ctx context.Context, scope CustomerCredentialScope, plaintext []byte) ([]byte, string, error) {
+	output, err := c.client.Encrypt(ctx, &kms.EncryptInput{
+		KeyId:               &c.keyARN,
+		Plaintext:           plaintext,
+		EncryptionAlgorithm: types.EncryptionAlgorithmSpecSymmetricDefault,
+		EncryptionContext:   customerEncryptionContext(scope),
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if len(output.CiphertextBlob) == 0 || output.KeyId == nil || *output.KeyId == "" {
+		return nil, "", errors.New("KMS returned incomplete ciphertext metadata")
+	}
+	if *output.KeyId != c.keyARN {
+		return nil, "", fmt.Errorf("KMS encrypted with %q, expected %q", *output.KeyId, c.keyARN)
+	}
+	return output.CiphertextBlob, *output.KeyId, nil
+}
+
+// DecryptCustomer refuses a row naming another KMS key before asking AWS.
+func (c *KMSCipher) DecryptCustomer(ctx context.Context, scope CustomerCredentialScope, ciphertext []byte, storedKeyARN string) ([]byte, error) {
+	if storedKeyARN != c.keyARN {
+		return nil, fmt.Errorf("row names KMS key %q, expected %q", storedKeyARN, c.keyARN)
+	}
+	output, err := c.client.Decrypt(ctx, &kms.DecryptInput{
+		CiphertextBlob:      ciphertext,
+		KeyId:               &c.keyARN,
+		EncryptionAlgorithm: types.EncryptionAlgorithmSpecSymmetricDefault,
+		EncryptionContext:   customerEncryptionContext(scope),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if output.KeyId == nil || *output.KeyId != c.keyARN {
+		return nil, errors.New("KMS decrypted with an unexpected key")
+	}
+	return output.Plaintext, nil
+}
+
 func encryptionContext(scope Scope) map[string]string {
 	return map[string]string{
 		contextProvider: string(scope.Provider),
 		contextKeyID:    scope.KeyID,
+	}
+}
+
+func customerEncryptionContext(scope CustomerCredentialScope) map[string]string {
+	return map[string]string{
+		contextCredentialClass:    customerCredentialClassBYOK,
+		contextProvider:           string(scope.Provider),
+		contextOwnerAccountID:     scope.OwnerAccountID,
+		contextConnectionID:       scope.ConnectionID,
+		contextEnvironment:        string(scope.Environment),
+		contextCredentialHandle:   scope.CredentialHandle,
+		contextCredentialRevision: fmt.Sprintf("%d", scope.Revision),
 	}
 }

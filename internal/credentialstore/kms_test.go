@@ -2,8 +2,10 @@ package credentialstore
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 )
 
@@ -66,5 +68,45 @@ func TestKMSRefusesARowFromAnotherConfiguredKey(t *testing.T) {
 	}
 	if client.decryptInput != nil {
 		t.Fatal("KMS was called before the stored key ARN was refused")
+	}
+}
+
+func TestCustomerKMSContextBindsEveryExactIdentityMember(t *testing.T) {
+	client := &fakeKMSClient{}
+	cipher, err := NewKMSCipher(client, kmsTestKeyARN)
+	if err != nil {
+		t.Fatalf("NewKMSCipher: %v", err)
+	}
+	scope := CustomerCredentialScope{
+		CustomerCredentialIdentity: CustomerCredentialIdentity{
+			Provider:       "anthropic",
+			OwnerAccountID: "acc_customer_01",
+			ConnectionID:   "conn_customer_01",
+			Environment:    contract.EnvironmentProduction,
+		},
+		CredentialHandle: fixedCustomerHandle,
+		Revision:         7,
+	}
+	ciphertext, keyARN, err := cipher.EncryptCustomer(context.Background(), scope, []byte("plaintext"))
+	if err != nil {
+		t.Fatalf("EncryptCustomer: %v", err)
+	}
+	expected := map[string]string{
+		contextCredentialClass:    customerCredentialClassBYOK,
+		contextProvider:           "anthropic",
+		contextOwnerAccountID:     "acc_customer_01",
+		contextConnectionID:       "conn_customer_01",
+		contextEnvironment:        "production",
+		contextCredentialHandle:   fixedCustomerHandle,
+		contextCredentialRevision: "7",
+	}
+	if !reflect.DeepEqual(client.encryptInput.EncryptionContext, expected) {
+		t.Fatalf("encrypt context = %#v, expected %#v", client.encryptInput.EncryptionContext, expected)
+	}
+	if _, err := cipher.DecryptCustomer(context.Background(), scope, ciphertext, keyARN); err != nil {
+		t.Fatalf("DecryptCustomer: %v", err)
+	}
+	if !reflect.DeepEqual(client.decryptInput.EncryptionContext, expected) {
+		t.Fatalf("decrypt context = %#v, expected %#v", client.decryptInput.EncryptionContext, expected)
 	}
 }

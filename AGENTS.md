@@ -12,19 +12,21 @@ Kaana is the inference **data plane**. Oxy is the single control plane
 
 **Kaana owns:** request normalization · provider adapters · routing *execution*
 · streaming · cancellation · model deployments · provider health and circuit
-breakers · technical metering · upstream provider cost.
+breakers · technical metering · upstream provider cost · encrypted custody of
+every upstream provider secret, including customer BYOK.
 
 **Kaana must never own:** accounts · organizations · projects · members ·
-applications · credentials · customer balances · a billing ledger · a customer
-console.
+applications · Oxy login/application credentials · provider-connection policy
+or metadata · customer balances · a billing ledger · a customer console.
 
 - **An Oxy id is an immutable opaque string.** Kaana never parses it, joins it
   against a local entity, or updates it. A table whose *primary* key is an Oxy id
   is a copy of an Oxy entity and is forbidden. A column holding one, written once
   at request time and never updated, is the intended shape.
 - **Kaana authorizes nothing about a customer.** Scope checks, account access,
-  credential status and spend reservation are resolved at the Oxy edge; the
-  envelope is an already-authorized instruction. Re-deriving any of it
+  provider-connection eligibility and spend reservation are resolved at the Oxy
+  edge; the envelope is an already-authorized instruction. Kaana enforces only
+  the exact active ciphertext handle and identity Oxy signed. Re-deriving policy
   reintroduces the replication lag that makes revocation unsafe. The one
   exception is refusing an envelope that carries no `inference:invoke` — that is
   a malformed instruction from the edge, not a customer decision.
@@ -154,6 +156,21 @@ holds the logic; `internal/awssig` is the signer.
   tracked file. The one-time `import-ssm` command may read a legacy SecureString
   directly through the AWS SDK; delete that source after verification.
   `DATABASE_URL` is a database credential, not a provider key.
+- **Customer BYOK is a provider key and follows the same custody rule.** Oxy
+  stores provider-connection metadata and one opaque Kaana handle, never a
+  Vault/SSM/Secrets Manager locator. Kaana stores KMS ciphertext under its own
+  handle and the immutable Oxy identity `provider + ownerAccountId +
+  connectionId + environment`; those opaque ids never become local account or
+  connection entities.
+- **BYOK mutation and resolution are inverse authorities.** The signed
+  credential-control task gets database mutation functions plus `kms:Encrypt`
+  and no decrypt; the inference task gets one exact resolver plus `kms:Decrypt`
+  and no encrypt. No HTTP endpoint, list operation, or control-plane response
+  may return plaintext.
+- **Rotation and revocation require the exact handle and expected revision.** A
+  replay, stale writer, mismatched identity, absent handle or revoked row fails
+  closed. KMS context also binds the Kaana handle and revision, so restoring an
+  older ciphertext cannot silently roll a credential back.
 - **PostgreSQL stores KMS ciphertext only.** KMS encryption context binds every
   ciphertext to `provider + keyId`; moving the bytes to another row must make
   decryption fail. The serving task gets `kms:Decrypt`, never `kms:Encrypt`.
