@@ -24,6 +24,20 @@ the cut, and settles as `cancelled`. A partial stream is a settlement case, so
 an adapter that returned nothing on cancellation would make an exact refund
 impossible.
 
+## Control-plane selection, data-plane execution
+
+Oxy selects only after applying customer policy. An explicit routing-profile
+priority comes first, the reviewed score is descending within that priority,
+and exact `deploymentId` code-unit comparison is the sole deterministic
+equal-score tie-break. Provider name, model name, display name, insertion order
+and database order never select a route.
+
+Identity, price and score evidence are Oxy control-plane inputs. If any otherwise
+eligible route has a missing exact ID, price or score; a stale score; a score for
+another price version; or an ID duplicate/collision, Oxy refuses the whole set
+before reserving spend and before calling Kaana. Kaana receives no score or
+`optimiseFor` value and does not second-guess that decision.
+
 ## Authorized failover
 
 Oxy sends `authorizedRoutes` in preference order after applying the customer's

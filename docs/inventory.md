@@ -75,7 +75,10 @@ It never exposes `upstreamModelId`, endpoints or credential state. `regions: []`
 is meaningful: no upstream execution/residency region is attested, and Kaana's
 AWS region must not be substituted. Entries are sorted by `deploymentId` only
 to make the projection stable for operators; array order is not routing
-priority and no lookup selects by position, model name or provider.
+priority and no lookup selects by position, model name or provider. This
+presentation sort is separate from Oxy's request selection: profile priority,
+then score descending, then exact ID code units solely as an equal-score
+tie-break. The descriptor endpoint supplies identity evidence, not route quality.
 
 Every response sets `Cache-Control: no-store`, including a `401`. A missing or
 invalid signature is `401`; an invalid signed body is `400`; an absent exact id
