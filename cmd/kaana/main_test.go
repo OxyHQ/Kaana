@@ -138,6 +138,15 @@ func TestTheProviderConfigurationRefusesWhatItCannotResolve(t *testing.T) {
 			"KAANA_PROVIDERS":                          "unknown-provider",
 			"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
 		},
+		"the OpenRouter origin under a compatibility alias": {
+			"KAANA_PROVIDERS": "custom-compatible",
+			"KAANA_PROVIDER_CUSTOM_COMPATIBLE_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+			"KAANA_PROVIDER_CUSTOM_COMPATIBLE_BASE_URL": "https://OPENROUTER.AI.:443/api/./v1/",
+		},
+		"the OpenRouter slug pointed at another provider": {
+			"KAANA_PROVIDERS":                    "openrouter",
+			"KAANA_PROVIDER_OPENROUTER_BASE_URL": "https://api.groq.com/openai/v1",
+		},
 		"a provider credential hidden in the base URL path": {
 			"KAANA_PROVIDERS":                          "unknown-provider",
 			"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": providerconfig.ProtocolOpenAICompatible,

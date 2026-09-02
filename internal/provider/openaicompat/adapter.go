@@ -2,12 +2,13 @@
 //
 // It is a port of Alia's provider adapters
 // (`packages/api/src/internal/providers/lib/providers/`), and specifically of
-// the `openai` one. That choice is not arbitrary: seven of Alia's adapters —
-// openai, together, xai, cerebras, hyperbolic, digitalocean and openrouter —
-// are byte-identical apart from a base URL and the word in their error string,
-// because they all speak this one protocol. Porting the protocol rather than a
-// provider is what makes the next six a configuration line and a conformance
-// registration instead of six more files.
+// the `openai` one. That choice is not arbitrary: openai, together, xai,
+// cerebras, hyperbolic, digitalocean and openrouter all speak this one
+// protocol. Porting the protocol rather than a provider makes each one a
+// configuration and a conformance registration instead of a second adapter.
+// Provider-specific wire policy still belongs here: Kaana's mandatory privacy
+// and parameter-support preferences for OpenRouter are added by Translate and
+// are never exposed as caller or operator configuration.
 //
 // What the port deliberately does NOT preserve from Alia:
 //
@@ -39,6 +40,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // Config describes one provider that speaks this protocol.
@@ -49,9 +51,10 @@ type Config struct {
 	BaseURL string
 	// Declarations are Kaana's own credentials for this provider, in the order
 	// they were declared, each with what the operator says it costs. The
-	// secrets are read from the process environment, never from a request,
-	// never from a file in this repository, and never written to a log, an
-	// error or a usage record.
+	// secrets are decrypted from Kaana's PostgreSQL credential store at runtime,
+	// never read from a request or provider-key environment variable, never
+	// written to a file in this repository, and never written to a log, an error
+	// or a usage record.
 	//
 	// It is a list because one provider account's capacity is not the same
 	// thing as one provider's capacity: when the account behind a key has
@@ -85,6 +88,9 @@ func New(config Config) (*Adapter, error) {
 	}
 	if config.BaseURL == "" {
 		return nil, fmt.Errorf("openaicompat: %s has no base URL", config.Provider)
+	}
+	if err := providerconfig.ValidateEndpointIdentity(config.Provider, config.BaseURL); err != nil {
+		return nil, fmt.Errorf("openaicompat: %s: %w", config.Provider, err)
 	}
 	// The quota-header mapping comes from this package's own table rather than
 	// from the caller: which header means "credits remaining" is knowledge
@@ -191,6 +197,16 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		PresencePenalty:  request.Sampling.PresencePenalty,
 		Seed:             request.Sampling.Seed,
 		Stop:             request.Sampling.StopSequences,
+	}
+	if a.config.Provider == "openrouter" {
+		// These are Kaana's non-negotiable OpenRouter controls, not caller or
+		// operator preferences. Keeping them out of Config and the normalized
+		// contract leaves no merge path on which a weaker value could win.
+		body.Provider = &openRouterProviderPolicy{
+			ZDR:               true,
+			DataCollection:    "deny",
+			RequireParameters: true,
+		}
 	}
 	if request.Stream {
 		body.StreamOptions = &streamOptions{IncludeUsage: true}

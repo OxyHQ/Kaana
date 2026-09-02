@@ -14,6 +14,9 @@ type chatRequest struct {
 	Messages      []chatMessage  `json:"messages"`
 	Stream        bool           `json:"stream"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	// Provider is OpenRouter's provider-routing object. Translate supplies it
+	// only for the exact OpenRouter adapter; it is not caller or operator input.
+	Provider *openRouterProviderPolicy `json:"provider,omitempty"`
 
 	MaxTokens        *int     `json:"max_tokens,omitempty"`
 	Temperature      *float64 `json:"temperature,omitempty"`
@@ -26,6 +29,16 @@ type chatRequest struct {
 	Tools          []chatTool      `json:"tools,omitempty"`
 	ToolChoice     any             `json:"tool_choice,omitempty"`
 	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+}
+
+// openRouterProviderPolicy is Kaana's non-negotiable policy for every request
+// sent through OpenRouter. It is a concrete wire type rather than an arbitrary
+// map so no future passthrough can silently add a weaker spelling or omit one
+// of the controls.
+type openRouterProviderPolicy struct {
+	ZDR               bool   `json:"zdr"`
+	DataCollection    string `json:"data_collection"`
+	RequireParameters bool   `json:"require_parameters"`
 }
 
 // streamOptions is what makes a streamed request report usage at all.
