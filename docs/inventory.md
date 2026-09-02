@@ -44,6 +44,45 @@ one.
 unpinned references are still being resolved, and the last reload failure with
 no filesystem path in it.
 
+## Signed exact deployment descriptors
+
+`POST /internal/v1/deployments/query` is the operator surface Oxy uses to turn
+an opaque Kaana deployment id into the exact route identity it must sign. The
+request body is part of the existing Oxy-to-Kaana Ed25519 signature. There are
+only two accepted JSON bodies:
+
+List the serving snapshot:
+
+```json
+{}
+```
+
+Look up one exact identity:
+
+```json
+{"deploymentId":"dep_exact"}
+```
+
+The first lists the serving snapshot; the second compares the decoded opaque id
+for exact equality and returns a list of length one. `null`, unknown or extra
+fields, duplicate keys, malformed or trailing JSON, an empty body, and URL
+query parameters are refused. Moving the id from one value to another therefore
+invalidates the signature rather than changing an unsigned selector.
+
+The response contains `snapshotId` and a `deployments` array whose entries have
+only `deploymentId`, revision-pinned `modelReference`, `provider`, and `regions`.
+It never exposes `upstreamModelId`, endpoints or credential state. `regions: []`
+is meaningful: no upstream execution/residency region is attested, and Kaana's
+AWS region must not be substituted. Entries are sorted by `deploymentId` only
+to make the projection stable for operators; array order is not routing
+priority and no lookup selects by position, model name or provider.
+
+Every response sets `Cache-Control: no-store`, including a `401`. A missing or
+invalid signature is `401`; an invalid signed body is `400`; an absent exact id
+is `404 no_route_available`; and any duplicate deployment identity is a
+fail-closed `503 service_unavailable`. Inventory loading already rejects
+duplicates, and the HTTP projection checks uniqueness again independently.
+
 ## Publishing the inventory
 
 `cmd/kaana-publisher` is the publisher the section above describes a requirement

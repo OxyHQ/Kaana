@@ -87,6 +87,21 @@ type Endpoint struct {
 	Regions         []contract.Region
 }
 
+// DeploymentDescriptor is the operator-safe identity Oxy needs to construct
+// one exact authorized route. It deliberately omits UpstreamModelID: that name
+// is an adapter implementation detail, not part of the identity Oxy signs, and
+// exposing it would make the operator surface a copy of provider configuration.
+//
+// Regions is always an explicit array. An empty array means no upstream region
+// is attested; it must never be rewritten to the AWS region Kaana happens to run
+// in.
+type DeploymentDescriptor struct {
+	DeploymentID   contract.DeploymentID   `json:"deploymentId"`
+	ModelReference contract.ModelReference `json:"modelReference"`
+	Provider       contract.ProviderSlug   `json:"provider"`
+	Regions        []contract.Region       `json:"regions"`
+}
+
 // RouteSet is every endpoint serving ONE model reference, in the order the
 // inventory declared them.
 type RouteSet struct {
@@ -237,8 +252,8 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 
 	for _, deployment := range parsed.Deployments {
 		switch {
-		case deployment.DeploymentID == "":
-			return nil, fmt.Errorf("inventory: a deployment has no id")
+		case len(deployment.DeploymentID) == 0 || len(deployment.DeploymentID) > 128:
+			return nil, fmt.Errorf("inventory: deploymentId must contain between 1 and 128 characters")
 		case !deployment.Provider.Valid():
 			return nil, fmt.Errorf("inventory: %s has provider %q, which is not a provider slug", deployment.DeploymentID, deployment.Provider)
 		case !deployment.ModelReference.Valid():
@@ -344,6 +359,32 @@ func (i *Inventory) Deployments() []Endpoint {
 	}
 	sort.Slice(endpoints, func(a, b int) bool { return endpoints[a].DeploymentID < endpoints[b].DeploymentID })
 	return endpoints
+}
+
+// DeploymentDescriptors lists the exact identities declared by this snapshot,
+// sorted by deployment id for a stable operator projection.
+//
+// Unlike Deployments, this does not collapse entries through a map. Load
+// refuses duplicate deployment ids, but retaining every entry here lets the
+// HTTP lookup independently fail closed if that invariant ever regresses.
+func (i *Inventory) DeploymentDescriptors() []DeploymentDescriptor {
+	descriptors := make([]DeploymentDescriptor, 0)
+	for _, set := range i.byReference {
+		for _, endpoint := range set.endpoints {
+			regions := make([]contract.Region, len(endpoint.Regions))
+			copy(regions, endpoint.Regions)
+			descriptors = append(descriptors, DeploymentDescriptor{
+				DeploymentID:   endpoint.DeploymentID,
+				ModelReference: set.reference,
+				Provider:       endpoint.Provider,
+				Regions:        regions,
+			})
+		}
+	}
+	sort.Slice(descriptors, func(a, b int) bool {
+		return descriptors[a].DeploymentID < descriptors[b].DeploymentID
+	})
+	return descriptors
 }
 
 // CatalogueEntry is one model line this snapshot serves, under the name a

@@ -198,7 +198,7 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 		"issuedAt":%q,
 		"deployments":[{
 			"deploymentId":"dep_stub","provider":"stub",
-			"modelReference":"stub/model@2026-05-01","upstreamModelId":"model",
+			"modelReference":"stub/model@2026-05-01","upstreamModelId":"provider-private-route-name",
 			"regions":["test-region"],"current":true}]}`, contract.NewTimestamp(time.Now()))
 	if err := os.WriteFile(path, []byte(inventoryJSON), 0o600); err != nil {
 		t.Fatalf("writing the inventory: %v", err)
@@ -834,6 +834,252 @@ func TestHealthRequiresASignatureAndLivezDoesNot(t *testing.T) {
 	// The unauthenticated route must not describe providers or routes.
 	if string(payload) == "" || jsonHasKey(t, payload, "providers") {
 		t.Errorf("the unauthenticated liveness route exposes provider detail: %s", payload)
+	}
+}
+
+// The descriptor surface exists for one purpose: turn an exact opaque
+// deployment id into the other three fields Oxy must sign. It is not another
+// catalogue and not a projection of provider configuration.
+func TestDeploymentDescriptorsAreSignedExactAndContainOnlyRouteIdentity(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{})
+
+	unsigned := harness.postDeploymentQuery(t, []byte(`{}`), false)
+	unsignedBody, readErr := io.ReadAll(unsigned.Body)
+	_ = unsigned.Body.Close()
+	if readErr != nil {
+		t.Fatalf("reading the unsigned refusal: %v", readErr)
+	}
+	if unsigned.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("the unsigned descriptor surface was answered %d", unsigned.StatusCode)
+	}
+	if unsigned.Header.Get("Cache-Control") != "no-store" {
+		t.Errorf("the unsigned refusal may be cached: Cache-Control=%q", unsigned.Header.Get("Cache-Control"))
+	}
+	if strings.Contains(string(unsignedBody), "dep_stub") || strings.Contains(string(unsignedBody), "snap_stub") {
+		t.Errorf("an unsigned request learned deployment identity: %s", unsignedBody)
+	}
+
+	response := harness.postDeploymentQuery(t, []byte(`{"deploymentId":"dep_stub"}`), true)
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil {
+		t.Fatalf("reading the descriptor response: %v", readErr)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("the signed descriptor lookup was answered %d: %s", response.StatusCode, body)
+	}
+	if response.Header.Get("Cache-Control") != "no-store" {
+		t.Errorf("the operator descriptor may be cached: Cache-Control=%q", response.Header.Get("Cache-Control"))
+	}
+
+	var projection map[string]json.RawMessage
+	if err := json.Unmarshal(body, &projection); err != nil {
+		t.Fatalf("the descriptor response does not decode: %v", err)
+	}
+	if len(projection) != 2 || projection["snapshotId"] == nil || projection["deployments"] == nil {
+		t.Fatalf("the descriptor response has fields other than snapshotId and deployments: %s", body)
+	}
+	var snapshotID string
+	if err := json.Unmarshal(projection["snapshotId"], &snapshotID); err != nil {
+		t.Fatalf("snapshotId does not decode: %v", err)
+	}
+	if snapshotID != "snap_stub" {
+		t.Errorf("the descriptor response names snapshot %q", snapshotID)
+	}
+
+	var deployments []map[string]json.RawMessage
+	if err := json.Unmarshal(projection["deployments"], &deployments); err != nil {
+		t.Fatalf("deployments do not decode: %v", err)
+	}
+	if len(deployments) != 1 {
+		t.Fatalf("the exact lookup returned %d deployments", len(deployments))
+	}
+	descriptor := deployments[0]
+	for _, field := range []string{"deploymentId", "modelReference", "provider", "regions"} {
+		if descriptor[field] == nil {
+			t.Errorf("the exact descriptor omits %s: %s", field, body)
+		}
+	}
+	if len(descriptor) != 4 {
+		t.Errorf("the exact descriptor exposes fields beyond signed route identity: %s", body)
+	}
+
+	var exact struct {
+		DeploymentID   string   `json:"deploymentId"`
+		ModelReference string   `json:"modelReference"`
+		Provider       string   `json:"provider"`
+		Regions        []string `json:"regions"`
+	}
+	if err := json.Unmarshal(mustFirstRaw(t, projection["deployments"]), &exact); err != nil {
+		t.Fatalf("the exact descriptor does not decode: %v", err)
+	}
+	if exact.DeploymentID != "dep_stub" || exact.ModelReference != "stub/model@2026-05-01" || exact.Provider != "stub" {
+		t.Errorf("the exact descriptor changed identity: %+v", exact)
+	}
+	if len(exact.Regions) != 1 || exact.Regions[0] != "test-region" {
+		t.Errorf("the exact descriptor reports regions %v", exact.Regions)
+	}
+
+	served := string(body)
+	for _, forbidden := range []string{
+		"upstreamModelId",
+		"provider-private-route-name",
+		"credential",
+		"apiKey",
+		"prompt",
+		"payload",
+	} {
+		if strings.Contains(served, forbidden) {
+			t.Errorf("the descriptor surface exposes %q: %s", forbidden, served)
+		}
+	}
+}
+
+func TestDeploymentDescriptorListNamesTheServingSnapshot(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{})
+	response := harness.postDeploymentQuery(t, []byte(`{}`), true)
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("the descriptor list was answered %d: %s", response.StatusCode, body)
+	}
+	var projection struct {
+		SnapshotID  string `json:"snapshotId"`
+		Deployments []struct {
+			DeploymentID string `json:"deploymentId"`
+		} `json:"deployments"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&projection); err != nil {
+		t.Fatalf("decoding the descriptor list: %v", err)
+	}
+	if projection.SnapshotID != "snap_stub" {
+		t.Errorf("the descriptor list names snapshot %q", projection.SnapshotID)
+	}
+	if len(projection.Deployments) != 1 || projection.Deployments[0].DeploymentID != "dep_stub" {
+		t.Errorf("the descriptor list is not the serving snapshot's exact identity: %+v", projection.Deployments)
+	}
+}
+
+func (h *harness) postDeploymentQuery(t *testing.T, body []byte, signed bool) *http.Response {
+	t.Helper()
+	request, err := http.NewRequest(
+		http.MethodPost,
+		h.server.URL+"/internal/v1/deployments/query",
+		readerOf(body),
+	)
+	if err != nil {
+		t.Fatalf("building the deployment descriptor request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if signed {
+		h.sign(request, body)
+	}
+	response, err := h.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("requesting deployment descriptors: %v", err)
+	}
+	return response
+}
+
+func mustFirstRaw(t *testing.T, encoded []byte) json.RawMessage {
+	t.Helper()
+	var values []json.RawMessage
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		t.Fatalf("decoding JSON array: %v", err)
+	}
+	if len(values) == 0 {
+		t.Fatal("the JSON array is empty")
+	}
+	return values[0]
+}
+
+func TestDeploymentDescriptorLookupDoesNotGuess(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{})
+
+	for _, test := range []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantCode   contract.ErrorCode
+	}{
+		{name: "a prefix is not an identity", body: `{"deploymentId":"dep_stu"}`, wantStatus: http.StatusNotFound, wantCode: contract.CodeNoRouteAvailable},
+		{name: "an absent id is refused", body: `{"deploymentId":"dep_absent"}`, wantStatus: http.StatusNotFound, wantCode: contract.CodeNoRouteAvailable},
+		{name: "a null id is invalid", body: `{"deploymentId":null}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "an empty id is invalid", body: `{"deploymentId":""}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "an unknown field is invalid", body: `{"deploymentID":"dep_stub"}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "an extra field is invalid", body: `{"deploymentId":"dep_stub","foo":"bar"}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "a duplicate key is invalid", body: `{"deploymentId":"dep_stub","deploymentId":"dep_absent"}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "trailing JSON is invalid", body: `{"deploymentId":"dep_stub"}{}`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "malformed JSON is invalid", body: `{"deploymentId":`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "an empty body is invalid", body: ``, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+		{name: "a non-object is invalid", body: `[]`, wantStatus: http.StatusBadRequest, wantCode: contract.CodeInvalidRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := harness.postDeploymentQuery(t, []byte(test.body), true)
+			body, readErr := io.ReadAll(response.Body)
+			_ = response.Body.Close()
+			if readErr != nil {
+				t.Fatalf("reading the lookup refusal: %v", readErr)
+			}
+			if response.StatusCode != test.wantStatus {
+				t.Fatalf("lookup was answered %d, want %d: %s", response.StatusCode, test.wantStatus, body)
+			}
+			var failure contract.Error
+			if err := json.Unmarshal(body, &failure); err != nil {
+				t.Fatalf("the lookup refusal does not decode: %v", err)
+			}
+			if failure.Code != test.wantCode {
+				t.Errorf("the lookup was refused as %q, want %q: %s", failure.Code, test.wantCode, body)
+			}
+		})
+	}
+}
+
+func TestDeploymentDescriptorIDIsCoveredByTheSignature(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{})
+	signedBody := []byte(`{"deploymentId":"dep_stub"}`)
+	sentBody := []byte(`{"deploymentId":"dep_other"}`)
+	request, err := http.NewRequest(
+		http.MethodPost,
+		harness.server.URL+"/internal/v1/deployments/query",
+		readerOf(sentBody),
+	)
+	if err != nil {
+		t.Fatalf("building the modified request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	harness.sign(request, signedBody)
+	response, err := harness.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("sending the modified request: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusUnauthorized {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("a deployment id changed after signing was answered %d: %s", response.StatusCode, body)
+	}
+}
+
+func TestDeploymentDescriptorRejectsUnsignedURLParameters(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{})
+	body := []byte(`{}`)
+	request, err := http.NewRequest(
+		http.MethodPost,
+		harness.server.URL+"/internal/v1/deployments/query?deploymentId=dep_stub",
+		readerOf(body),
+	)
+	if err != nil {
+		t.Fatalf("building the request with URL parameters: %v", err)
+	}
+	harness.sign(request, body)
+	response, err := harness.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("sending the request with URL parameters: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("unsigned URL parameters were answered %d: %s", response.StatusCode, body)
 	}
 }
 
