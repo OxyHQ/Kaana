@@ -237,12 +237,14 @@ var notApplicable = map[string]string{
 	"routingPolicyScopeSchema":    "policy: policy scoping is an Oxy control-plane concern",
 	"routingFallbackPolicySchema": "policy: fallback controls arrive only inside a snapshot Kaana is not sent",
 
-	// BYOK. Out of scope for this PR and named as such in the README.
-	"providerConnectionSchema":           "byok: out of scope for the first PR",
-	"providerConnectionScopeSchema":      "byok: out of scope for the first PR",
-	"providerConnectionStatusSchema":     "byok: out of scope for the first PR",
-	"providerConnectionValidationSchema": "byok: out of scope for the first PR",
-	"providerSecretReferenceSchema":      "byok: out of scope for the first PR",
+	// Oxy owns provider-connection metadata and Kaana owns only ciphertext plus
+	// an opaque handle. The whole Console/control-plane record is never exchanged
+	// with this data plane; an exact handle binding belongs on an authorized route.
+	"providerConnectionSchema":           "byok metadata: owned and rendered by Oxy, not exchanged with Kaana",
+	"providerConnectionScopeSchema":      "byok metadata: Oxy resolves scope before signing an exact route",
+	"providerConnectionStatusSchema":     "byok metadata: Oxy resolves eligibility before signing an exact route",
+	"providerConnectionValidationSchema": "byok metadata: Oxy validates and retains the result",
+	"providerSecretReferenceSchema":      "byok custody: superseded by an opaque Kaana handle; never sent to Kaana",
 
 	// Account billing. Balances, invoices, payment providers and auto-recharge
 	// are the control plane's by definition: AGENTS.md forbids a customer

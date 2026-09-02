@@ -81,10 +81,23 @@ environment transport for a provider credential.
 
 ## Credential database
 
-`provider_credentials` is the only durable home for an upstream key. The row
-contains provider/key identity, KMS ciphertext, KMS key ARN, pool order, class,
-optional budget metadata and lifecycle state. PostgreSQL never receives
-plaintext.
+`provider_credentials` is the only durable home for a platform-operated
+upstream key. The row contains provider/key identity, KMS ciphertext, KMS key
+ARN, pool order, class, optional budget metadata and lifecycle state.
+PostgreSQL never receives plaintext.
+
+Customer BYOK keys live beside the platform pools in
+`customer_provider_credentials`, never in Oxy, Vault, SSM, Secrets Manager or
+environment. Their KMS context binds `provider + ownerAccountId + connectionId
++ environment + credentialHandle + revision`. See
+`customer-provider-credentials.md`; that task split is separate from the
+operator pool commands below.
+
+The credential-control task requires a verified-TLS `DATABASE_URL` for its
+dedicated database login, `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN`, and
+`KAANA_CREDENTIAL_CONTROL_PUBLIC_KEYS`. Its optional
+`KAANA_CREDENTIAL_CONTROL_ADDR` defaults to `:8081`. It must not inherit a
+provider key, the inference signing-key set, or KMS decrypt permission.
 
 The KMS encryption context is:
 
@@ -275,11 +288,13 @@ because the two binaries ship in one image.
 
 ## Container and deployment
 
-The image contains three static binaries:
+The image contains four static binaries:
 
 - `/usr/local/bin/kaana` serves inference;
 - `/usr/local/bin/kaana-publisher` publishes inventory;
 - `/usr/local/bin/kaana-credentials` is for one-shot administration.
+- `/usr/local/bin/kaana-credential-control` accepts signed customer-BYOK
+  create/rotate/revoke mutations under an encrypt-only task role.
 
 It runs distroless as uid 65532 with no shell or package manager. CI pushes one
 digest and updates serving and publisher from that same digest. Provider keys

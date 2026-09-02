@@ -51,6 +51,41 @@ func TestAGenuineEnvelopeVerifies(t *testing.T) {
 	}
 }
 
+func TestCredentialControlAndInferenceSignaturesAreNotInterchangeable(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	keys := map[string]ed25519.PublicKey{keyID: public}
+	inference, err := edgeauth.NewVerifier(keys, time.Minute)
+	if err != nil {
+		t.Fatalf("building inference verifier: %v", err)
+	}
+	control, err := edgeauth.NewCredentialControlVerifier(keys, time.Minute)
+	if err != nil {
+		t.Fatalf("building credential-control verifier: %v", err)
+	}
+	body := []byte(`{"schemaVersion":1,"action":"revoke"}`)
+	milliseconds := time.Now().UnixMilli()
+
+	controlHeader := http.Header{}
+	controlHeader.Set(edgeauth.HeaderKeyID, keyID)
+	controlHeader.Set(edgeauth.HeaderTimestamp, strconv.FormatInt(milliseconds, 10))
+	controlHeader.Set(edgeauth.HeaderSignature, "v1="+base64.StdEncoding.EncodeToString(
+		ed25519.Sign(private, edgeauth.CredentialControlSigningInput(keyID, milliseconds, body))))
+	if err := control.Verify(controlHeader, body); err != nil {
+		t.Fatalf("control signature did not verify for control: %v", err)
+	}
+	if err := inference.Verify(controlHeader, body); !errors.Is(err, edgeauth.ErrUnauthorized) {
+		t.Fatalf("control signature verified as inference: %v", err)
+	}
+
+	inferenceHeader := newSignedRequest(t, private, keyID, time.UnixMilli(milliseconds), body, nil)
+	if err := control.Verify(inferenceHeader, body); !errors.Is(err, edgeauth.ErrUnauthorized) {
+		t.Fatalf("inference signature verified as credential control: %v", err)
+	}
+}
+
 func TestForgeryIsRejected(t *testing.T) {
 	body := []byte(`{"schemaVersion":1,"attribution":{"principal":{"billing":{"accountId":"acc_victim"}}}}`)
 

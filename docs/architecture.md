@@ -7,10 +7,10 @@ How Kaana splits between this data plane and Oxy's control plane, and what is de
 Kaana owns request normalization, provider adapters, routing **execution**,
 streaming, cancellation, model deployments, provider health and technical
 metering. Kaana never owns accounts, organizations, projects, members,
-applications, customer/API credentials, balances, a billing ledger or a
-customer console. Upstream provider credentials are Kaana-owned operational
-secrets and live only as KMS ciphertext in PostgreSQL; they are not customer
-credentials and never arrive in the signed request. Kaana stores Oxy identifiers
+applications, Oxy login/API credentials, provider-connection policy or
+metadata, balances, a billing ledger or a customer console. Upstream provider
+credentials are Kaana-owned secrets and live only as KMS ciphertext in
+PostgreSQL, whether Oxy or a BYOK customer pays the provider. Kaana stores Oxy identifiers
 as **immutable, opaque strings** and never as records it
 may create, edit or delete. Authorization, attribution, scope checks and spend
 reservation all happen **in Oxy, before a request reaches Kaana** — Kaana does
@@ -60,9 +60,12 @@ absent, and the code refuses rather than pretending.
   actually billed is a finance process with no home in a data plane.
 - **Oxy-hosted open-weight serving (vLLM/SGLang) and any GPU scheduler.** The
   epic says not to block the first API-only launch on a scheduler.
-- **BYOK.** The provider-connection shapes are recorded not-applicable. The key
-  pools are KAANA's own credentials with each provider; a customer's are an Oxy
-  concept and stay one.
+- **BYOK policy and metadata.** Oxy owns provider-connection status, scope,
+  validation and customer authorization. Kaana owns only encrypted secret
+  custody under an opaque handle. The current inference envelope has no field
+  for that handle, so customer-BYOK execution remains fail-closed until the
+  published contract adds an exact signed binding; the mutation/storage side is
+  specified in `customer-provider-credentials.md` and exposes no read route.
 - **An official quota API or authenticated usage endpoint.** It would sit above
   the response-header mapping in the preference order and is not implemented:
   every provider spells one differently, none can be exercised from a repository
