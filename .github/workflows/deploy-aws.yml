@@ -37,6 +37,7 @@ on:
       - 'go.sum'
       - 'Dockerfile'
       - '.dockerignore'
+      - '.github/credential-admin-operations.json'
       - '.github/workflows/deploy-aws.yml'
   workflow_dispatch:
     inputs:
@@ -160,6 +161,15 @@ jobs:
           # common path exactly as it was: if the publisher's rollout fails,
           # this job fails after Kaana is already serving the new image rather
           # than instead of deploying it.
+          DISCOVERY_CREDENTIALS=$(jq -ce '
+            .discoveryCredentialIds |
+            if (keys == ["cerebras", "groq", "openrouter", "xai"]) and
+               all(.[]; test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+            then .
+            else error("the publisher discovery credential map is not the exact reviewed four-ID set")
+            end
+          ' .github/credential-admin-operations.json)
+
           deploy_one() {
             service="$1"
             family="$2"
@@ -188,14 +198,44 @@ jobs:
             fi
 
             # Everything except the image comes from the family's current
-            # revision — Terraform's shape, carried forward. The dropped keys
-            # are the ones describe-task-definition adds and
-            # register-task-definition refuses.
-            printf '%s' "$BASE" | jq --arg c "$container" --arg img "$IMAGE" '
-              del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
-                  .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
-              | .containerDefinitions |= map(if .name == $c then .image = $img else . end)
-            ' > "/tmp/task-definition-$service.json"
+            # revision — Terraform's shape, carried forward. The publisher is
+            # the one deliberate exception during this cutover: its four exact
+            # discovery credential IDs are replaced from the same reviewed
+            # manifest that owns the rekey destinations. Serving gets no such
+            # mutation. The dropped keys are the ones describe-task-definition
+            # adds and register-task-definition refuses.
+            if [ "$service" = "$PUBLISHER_SERVICE" ]; then
+              printf '%s' "$BASE" | jq \
+                --arg c "$container" --arg img "$IMAGE" \
+                --argjson ids "$DISCOVERY_CREDENTIALS" '
+                del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                    .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+                | .containerDefinitions |= map(
+                    if .name == $c then
+                      .image = $img
+                      | .environment = (
+                          ((.environment // []) | map(select(
+                            .name != "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID" and
+                            .name != "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID" and
+                            .name != "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID" and
+                            .name != "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID"
+                          ))) + [
+                            {name: "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID", value: $ids.cerebras},
+                            {name: "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID", value: $ids.groq},
+                            {name: "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID", value: $ids.openrouter},
+                            {name: "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID", value: $ids.xai}
+                          ]
+                        )
+                    else . end
+                  )
+              ' > "/tmp/task-definition-$service.json"
+            else
+              printf '%s' "$BASE" | jq --arg c "$container" --arg img "$IMAGE" '
+                del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                    .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+                | .containerDefinitions |= map(if .name == $c then .image = $img else . end)
+              ' > "/tmp/task-definition-$service.json"
+            fi
 
             ARN=$(aws ecs register-task-definition --cli-input-json "file:///tmp/task-definition-$service.json" \
               --query 'taskDefinition.taskDefinitionArn' --output text)
@@ -204,11 +244,31 @@ jobs:
             # Read the field back. A register that silently kept the old image
             # would otherwise be indistinguishable from a successful one right
             # up until someone asked what version was live.
-            REGISTERED=$(aws ecs describe-task-definition --task-definition "$ARN" \
+            REGISTERED_IMAGE=$(aws ecs describe-task-definition --task-definition "$ARN" \
               --query "taskDefinition.containerDefinitions[?name=='$container'].image | [0]" --output text)
-            if [ "$REGISTERED" != "$IMAGE" ]; then
-              echo "::error::$ARN names image '$REGISTERED', expected '$IMAGE'"
+            if [ "$REGISTERED_IMAGE" != "$IMAGE" ]; then
+              echo "::error::$ARN names image '$REGISTERED_IMAGE', expected '$IMAGE'"
               return 1
+            fi
+            if [ "$service" = "$PUBLISHER_SERVICE" ]; then
+              REGISTERED_ENVIRONMENT=$(aws ecs describe-task-definition --task-definition "$ARN" \
+                --query "taskDefinition.containerDefinitions[?name=='$container'].environment | [0]" --output json)
+              REGISTERED_DISCOVERY=$(printf '%s' "$REGISTERED_ENVIRONMENT" | jq -c '
+                [.[] | select(.name | test("^KAANA_PROVIDER_[A-Z0-9_]+_DISCOVERY_KEY_ID$"))]
+                | sort_by(.name)
+              ')
+              EXPECTED_DISCOVERY=$(printf '%s' "$DISCOVERY_CREDENTIALS" | jq -c '
+                [
+                  {name: "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID", value: .cerebras},
+                  {name: "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID", value: .groq},
+                  {name: "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID", value: .openrouter},
+                  {name: "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID", value: .xai}
+                ] | sort_by(.name)
+              ')
+              if [ "$REGISTERED_DISCOVERY" != "$EXPECTED_DISCOVERY" ]; then
+                echo "::error::$ARN did not preserve the exact four publisher discovery credential IDs"
+                return 1
+              fi
             fi
 
             # register-task-definition does NOT repoint a service. Naming the

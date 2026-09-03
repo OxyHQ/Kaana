@@ -8,11 +8,11 @@ provider secret leaves KMS/process memory during the operation.
 The executable source of truth for every operation ID and exact source/target
 pair is [`.github/credential-admin-operations.json`](../.github/credential-admin-operations.json).
 The workflow accepts only those complete argument arrays; it has no free-form
-input. The source-release PR deliberately leaves that executable manifest on
-the previous list/import-only image. After `build-only` publishes the reviewed
-main image, one follow-up PR must atomically pin its exact digest and replace
-the old choices with `migrate` plus the operation set below. Until that PR is
-merged, none of these new commands is executable in GitHub Actions.
+input. The manifest pins the immutable image produced from main commit
+`728cf22b18042e3f8e7e9d68d6fb44a18756d6b4` by build-only run `33715928656`.
+Before every operation, the workflow validates the current task shape, replaces
+only its image with that digest, registers a new revision and compares the full
+normalized readback with the derived document.
 
 ## Canonical IDs
 
@@ -77,16 +77,17 @@ The normal AWS workflow is deliberately gated by the exact repository variable
 is false. The same gate applies to automatic pushes and manual dispatches, and
 manual dispatch additionally requires `refs/heads/main`.
 
-Keep that variable absent or false while this source is merged. Build and push
-the reviewed immutable candidate without updating either ECS service, then use
-that digest for the credential-admin task. Apply migration `0007`; grant that
-short-lived task only `kms:Decrypt` and `kms:Encrypt` on the exact Kaana key;
-run the fixed dedupe/rekey operations below; and read every receipt and final
-row identity back. Update publisher discovery configuration to the exact
-canonical IDs only after those rows exist. Then set the repository variable to
-the literal `true`, read it back, and dispatch the workflow from the exact main
-commit. Setting the variable is not a deployment and never substitutes for the
-subsequent ECS image/task-definition and live provider verification.
+Keep that variable absent or false while this source is merged. Run the fixed
+`migrate` operation first; its workflow promotes and proves the pinned admin
+image before applying migration `0007`. Grant that short-lived task only
+`kms:Decrypt` and `kms:Encrypt` on the exact Kaana key before the comparison and
+rekey operations, run the fixed dedupe/rekey operations below, and read every
+receipt and final row identity back. Update publisher discovery configuration
+to the exact canonical IDs only after those rows exist. Then set the repository
+variable to the literal `true`, read it back, and dispatch the deploy workflow
+from the exact main commit with mode `deploy`. Setting the variable is not a
+deployment and never substitutes for the subsequent ECS image/task-definition
+and live provider verification.
 
 If any prerequisite fails, leave the gate false and the running services
 untouched. Never make a retry possible by weakening the workflow condition.

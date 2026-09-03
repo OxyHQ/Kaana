@@ -55,3 +55,41 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 		}
 	}
 }
+
+func TestPublisherDeployCarriesOnlyTheReviewedDiscoveryCredentialIDs(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../../.github/workflows/deploy-aws.yml")
+	if err != nil {
+		t.Fatalf("reading the AWS deploy workflow: %v", err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{
+		"      - '.github/credential-admin-operations.json'",
+		".discoveryCredentialIds |",
+		`keys == ["cerebras", "groq", "openrouter", "xai"]`,
+		`if [ "$service" = "$PUBLISHER_SERVICE" ]; then`,
+		`--argjson ids "$DISCOVERY_CREDENTIALS"`,
+		"REGISTERED_DISCOVERY=",
+		"EXPECTED_DISCOVERY=",
+		"did not preserve the exact four publisher discovery credential IDs",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("publisher deployment lost required exact-ID boundary %q", required)
+		}
+	}
+	for _, variable := range []string{
+		"KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID",
+		"KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID",
+		"KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID",
+		"KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID",
+	} {
+		if count := strings.Count(workflow, variable); count != 3 {
+			t.Errorf("publisher discovery variable %q occurs %d times, want exact remove/add/readback coverage", variable, count)
+		}
+	}
+	register := strings.Index(workflow, "ARN=$(aws ecs register-task-definition")
+	readback := strings.Index(workflow, "REGISTERED_DISCOVERY=$(")
+	update := strings.Index(workflow, "aws ecs update-service")
+	if register < 0 || readback <= register || update <= readback {
+		t.Fatal("publisher discovery IDs are not registered and read back before the service update")
+	}
+}
