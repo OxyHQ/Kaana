@@ -633,13 +633,14 @@ func TestATamperedBodyIsRejected(t *testing.T) {
 
 func TestAnUnimplementedEnvelopeVersionIsRefusedWhole(t *testing.T) {
 	harness := newHarness(t, &stubAdapter{chunks: 2})
-	body := envelope(t, func(body map[string]any) { body["schemaVersion"] = 3 })
+	unsupportedVersion := contract.RequestEnvelopeVersion + 1
+	body := envelope(t, func(body map[string]any) { body["schemaVersion"] = unsupportedVersion })
 
 	response := harness.post(t, context.Background(), body, true)
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("an envelope declaring version 3 was answered %d", response.StatusCode)
+		t.Fatalf("an envelope declaring version %d was answered %d", unsupportedVersion, response.StatusCode)
 	}
 	var failure contract.Error
 	if err := json.NewDecoder(response.Body).Decode(&failure); err != nil {
