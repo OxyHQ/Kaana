@@ -410,7 +410,9 @@ static catalogue or a later provider-owned discovery source before publication.
 Ollama Cloud remains outside this built-in set. Ollama officially documents its
 remote native API at `https://ollama.com/api` and the OpenAI-compatible surface
 for local Ollama, but does not currently document a remote OpenAI-compatible
-base that Kaana can pin without inference.[^ollama-cloud][^ollama-openai]
+base that Kaana can pin without inference. Its native model list returns a
+content digest beside each model name, but the documented chat request still
+accepts a model name rather than a digest-addressed immutable selector.[^ollama-cloud][^ollama-openai][^ollama-tags][^ollama-openapi]
 
 ## Second direct-provider cohort
 
@@ -452,11 +454,13 @@ account publisher.[^ovh-tools][^ovh-catalogue]
 Hugging Face Inference Providers, Kilo AI Gateway, LLM7 and OpenCode Zen are not
 added as direct built-ins. Their documented surfaces route among downstream
 providers or protocols; moving selectors such as `:fastest`, `:cheapest`,
-`default`, `kilo-auto/*` and mixed-protocol model entries do not meet Kaana's
-single-provider deployment identity. An operator can still declare a reviewed
-HTTPS origin explicitly, but publication needs a router-aware contract first.
-GLHF is also excluded because no current provider-owned wire contract could be
-verified.[^hf-router][^kilo-gateway][^llm7-models][^opencode-zen]
+`default`, `fast`, `pro`, `kilo-auto/*` and mixed-protocol model entries do not
+meet Kaana's single-provider deployment identity. LLM7 also publishes concrete
+model ids, but its provider-owned surface says requests are shuffled across
+providers and its model rows do not bind one exact backend provider to the
+request. An operator can still declare a reviewed HTTPS origin explicitly, but
+publication needs a router-aware contract first. GLHF is also excluded because
+no current provider-owned wire contract could be verified.[^hf-router][^kilo-gateway][^llm7-models][^llm7-gateway][^opencode-zen]
 
 ## 2026-09-03 external radar disposition
 
@@ -483,13 +487,13 @@ The remaining candidates fail closed for concrete, provider-owned reasons:
 | Vercel AI Gateway | Vercel documents automatic provider selection, ordering and fallback, and says provider availability and price can differ for one model.[^vercel-routing] | A model id alone does not fix the serving provider. Adding the gateway as if it were a direct provider would make provider identity and upstream cost depend on a runtime routing decision. |
 | Hugging Face Inference Providers | Hugging Face documents `:fastest`, `:cheapest`, `:preferred` and provider suffixes, with automatic provider selection as the default.[^hf-router] | The default route is deliberately dynamic. A future router-aware contract could carry the selected downstream provider, but today's direct-provider deployment cannot. |
 | Kilo AI Gateway | Kilo documents one endpoint over many providers plus `kilo-auto/*` virtual models whose underlying model can change.[^kilo-gateway] | Both downstream provider and, for auto ids, model identity can move. Neither is an immutable Kaana deployment. |
-| LLM7 | LLM7 documents selector values such as `default`, `small`, `large` and `reasoning`; the selector chooses an underlying model rather than naming fixed weights.[^llm7-models] | The downstream model identity can change behind the same selector, so Kaana cannot publish it as an immutable direct-provider deployment. |
+| LLM7 | LLM7 documents the moving selectors `default`, `fast` and `pro` alongside a live catalogue of concrete model ids. Its own service description says requests are shuffled across providers, while a catalogue row does not identify the exact backend provider that serves a request.[^llm7-models][^llm7-gateway] | Selectors can change the model, and concrete ids still do not bind one downstream provider/cost identity. Neither shape is an immutable direct-provider deployment Kaana can meter and reconcile. |
 | OpenCode Zen | OpenCode describes Zen as an AI gateway and publishes a mixed endpoint table, including Responses-only entries.[^opencode-zen] | Gateway identity is not downstream provider identity, and the mixed wire is not the one shared Chat Completions adapter contract. |
 | Aion Labs | The API reference fixes a Chat Completions wire and publishes prices, but its model list is public rather than an authenticated entitlement list, and Aion's terms define the service as routing requests to upstream AI model providers and third-party hosting infrastructure.[^aion-api][^aion-terms] | The response contract does not expose a stable downstream provider/cost identity that Kaana can bind and reconcile. An Aion-branded model name is not proof of one direct deployment. |
 | Agnes AI | The provider-owned public surface mixes Agnes, OpenAI, Google and other publishers, while no stable provider-owned Chat Completions and model-list contract was found.[^agnes-public] | A marketing catalogue cannot substitute for authenticated wire, lifecycle and billing semantics. |
 | GLHF | No current provider-owned API contract was found that fixes auth, streaming usage, model identity and price. | The endpoint lead alone is insufficient evidence. |
 | AMD Radeon Cloud | The provider-owned Token Factory page is interactive and did not publish a reviewable API schema, authentication contract, model lifecycle or price/quota semantics.[^amd-token-factory] | An endpoint inferred from a portal example is not a deterministic production contract. No AMD slug or model attribution is added. |
-| Ollama Cloud | Ollama documents the remote service at `https://ollama.com/api`, with bearer authentication and the native `/api/chat` and `/api/tags` wire. Its OpenAI-compatibility documentation demonstrates the local `http://localhost:11434/v1` server instead.[^ollama-cloud][^ollama-openai] | Kaana contains only OpenAI Chat Completions and Anthropic Messages adapters. Pointing the OpenAI adapter at an undocumented remote `/v1` path would be guesswork; adding Ollama's native wire requires a separately reviewed adapter. |
+| Ollama Cloud | Ollama documents the remote service at `https://ollama.com/api`, with bearer authentication and the native `/api/chat` and `/api/tags` wire. Its OpenAI-compatibility documentation demonstrates the local `http://localhost:11434/v1` server instead. The native catalogue exposes a content digest, but the chat request documents only a model-name selector and Ollama explicitly retires cloud models over time.[^ollama-cloud][^ollama-openai][^ollama-tags][^ollama-openapi] | Pointing the OpenAI adapter at an undocumented remote `/v1` path would be guesswork. A native adapter alone would still not prove that a previously published model name resolves to the same digest; Kaana needs a provider-supported immutable chat selector before it can publish a pinned reference. |
 | vLLM, MLX, llamafile, local Ollama, LM Studio, llama.cpp and Jan | Their official projects describe operator-run local or self-hosted servers.[^vllm-serve][^mlx-serve][^llamafile][^ollama-openai][^lmstudio-server][^llamacpp-server][^jan-server] | They have no provider-owned global HTTPS identity, account catalogue or price. Kaana's arbitrary explicit HTTPS provider configuration remains the correct escape hatch for a separately operated deployment; none becomes a global built-in. |
 
 Requesty, Vercel, Hugging Face, Kilo, LLM7, OpenCode, Aion Labs and the other
@@ -570,6 +574,8 @@ green:
 [^zai-chat]: [Zhipu Chat Completions API](https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8)
 [^ollama-cloud]: [Ollama Cloud API access](https://docs.ollama.com/cloud)
 [^ollama-openai]: [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility)
+[^ollama-tags]: [Ollama model-list response](https://docs.ollama.com/api/tags)
+[^ollama-openapi]: [Ollama API specification](https://github.com/ollama/ollama/blob/main/docs/openapi.yaml)
 [^nebius-api]: [Nebius Token Factory API introduction](https://docs.tokenfactory.nebius.com/api-reference/introduction)
 [^nebius-models]: [Nebius Token Factory — list models](https://docs.tokenfactory.nebius.com/api-reference/models/list-models)
 [^nebius-flavours]: [Nebius Token Factory model flavours](https://docs.tokenfactory.nebius.com/ai-models-inference/overview)
@@ -582,6 +588,7 @@ green:
 [^hf-router]: [Hugging Face Inference Providers routing](https://huggingface.co/docs/inference-providers/en/index)
 [^kilo-gateway]: [Kilo AI Gateway model routing](https://kilo.ai/docs/gateway/models-and-providers)
 [^llm7-models]: [LLM7 model selectors](https://docs.llm7.io/guides/models)
+[^llm7-gateway]: [LLM7 gateway and provider routing](https://llm7.io/)
 [^opencode-zen]: [OpenCode Zen model gateway](https://opencode.ai/docs/zen)
 [^requesty-router]: [Requesty inference API](https://docs.requesty.ai/api-reference/inference-apis)
 [^requesty-openai]: [Requesty OpenAI integration](https://docs.requesty.ai/frameworks/openai)
