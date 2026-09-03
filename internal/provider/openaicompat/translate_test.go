@@ -89,8 +89,8 @@ func TestTranslateSendsTheUpstreamModelIdAndAsksForUsage(t *testing.T) {
 	if body["model"] != "gpt-5-2026-05-01" {
 		t.Errorf("the upstream request names model %v", body["model"])
 	}
-	// Without this, a streamed request reports no usage at all — which is what
-	// the code this was ported from did.
+	// Without this, a streamed request can report no provider-measured usage at
+	// all and settlement has to fall back to an explicit estimate.
 	options, present := body["stream_options"].(map[string]any)
 	if !present || options["include_usage"] != true {
 		t.Errorf("a streamed request did not ask for usage: %v", body["stream_options"])
@@ -98,9 +98,8 @@ func TestTranslateSendsTheUpstreamModelIdAndAsksForUsage(t *testing.T) {
 }
 
 // TestTranslateSendsNoSamplingDefaults: the contract says an absent sampling
-// parameter means the route's own default. Alia's adapters substituted
-// temperature 0.7 and max_tokens 8192, which silently changed every request
-// nobody configured.
+// parameter means the route's own default. Supplying one here would silently
+// change every request whose caller left it unconfigured.
 func TestTranslateSendsNoSamplingDefaults(t *testing.T) {
 	body := translateToMap(t, requestWith([]contract.Message{{
 		Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("hi")},

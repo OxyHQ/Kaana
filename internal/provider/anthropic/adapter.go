@@ -21,31 +21,13 @@
 //   - The system prompt is hoisted out of the message list, a tool result is a
 //     user message rather than a role, and `max_tokens` is REQUIRED.
 //
-// It is a port of Alia's `anthropic` provider
-// (`packages/api/src/internal/providers/lib/providers/anthropic.ts`), which
-// converted OpenAI-shaped messages into this protocol and then converted the
-// response stream back into OpenAI-shaped chunks. What the port deliberately
-// does NOT preserve:
-//
-//   - Alia's conversion read only `content_block_delta` with a text delta and
-//     `message_stop`. Tool calls, reasoning, stop reasons and the whole of
-//     `usage` were dropped on the floor, so a request that called a tool
-//     produced no tool call downstream and every request reported no usage at
-//     all. On a platform that bills from the usage record that is a billing
-//     hole, not a missing nicety.
-//   - Alia defaulted `max_tokens: 8192` and `temperature: 0.7` when the caller
-//     set neither. This port sends neither: the contract says an absent
-//     sampling parameter means the route's own default, and this protocol makes
-//     `max_tokens` mandatory — so a request that omits `maxOutputTokens` is
-//     REFUSED with the field named rather than silently capped at a number
-//     nobody asked for.
-//   - Alia forced `stream: true` and returned the raw upstream stream to its
-//     caller, with no normalization, no cancellation and no error
-//     classification.
-//
-// No live provider call has been made from this code. There is no Anthropic
-// credential in this repository, in its tests, or in CI; the adapter is
-// exercised against a fake upstream that speaks the real wire format.
+// The adapter preserves text, tool calls, reasoning, stop reasons and usage
+// through Kaana's normalized stream, propagates cancellation and classifies
+// failures on both streamed and non-streamed responses. It sends no sampling
+// default the caller omitted. Because this protocol requires `max_tokens`, a
+// request without `maxOutputTokens` is refused with that field named rather
+// than silently capped. Conformance uses a fake upstream that speaks the real
+// wire format; no provider credential exists in this repository or its tests.
 package anthropic
 
 import (
@@ -74,9 +56,9 @@ type Config struct {
 	// BaseURL is the API root, e.g. https://api.anthropic.com/v1.
 	BaseURL string
 	// Declarations are Kaana's own credentials, in the order they were declared.
-	// They are read from the process environment, never from a request, never
-	// from a file in this repository, and never written to a log, an error or a
-	// usage record.
+	// Their secrets are decrypted from Kaana's PostgreSQL credential store
+	// through KMS at runtime, never read from a request or provider-key
+	// environment variable, and never written to a log, error or usage record.
 	//
 	// It is a list because one provider account's capacity is not the same
 	// thing as one provider's capacity: when the account behind a key has

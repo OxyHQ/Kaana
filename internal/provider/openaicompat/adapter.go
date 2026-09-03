@@ -1,32 +1,18 @@
 // Package openaicompat adapts the OpenAI Chat Completions wire protocol.
 //
-// It is a port of Alia's provider adapters
-// (`packages/api/src/internal/providers/lib/providers/`), and specifically of
-// the `openai` one. That choice is not arbitrary: openai, together, xai,
-// cerebras, hyperbolic, digitalocean, openrouter, Alibaba Model Studio and
-// Cloudflare Workers AI all speak this one protocol. Porting the protocol
-// rather than a provider makes each one a configuration and a conformance
-// registration instead of a second adapter.
+// The implementation is protocol-shaped rather than provider-shaped: OpenAI,
+// Together, xAI, Cerebras, Hyperbolic, DigitalOcean, OpenRouter, Alibaba Model
+// Studio and Cloudflare Workers AI all use it through configuration and
+// conformance registration instead of separate adapters.
 // Provider-specific wire policy still belongs here: Kaana's mandatory privacy
 // and parameter-support preferences for OpenRouter are added by Translate and
 // are never exposed as caller or operator configuration.
 //
-// What the port deliberately does NOT preserve from Alia:
-//
-//   - Alia's `proxy()` returned the upstream's raw `ReadableStream` to its
-//     caller. There was no normalization, no usage, no cancellation and no
-//     error classification — the customer received whatever OpenAI happened to
-//     say. All four are the data plane's job under this contract.
-//   - Alia never sent `stream_options.include_usage`, so a streamed request
-//     reported no usage at all. On a platform that bills from the usage record,
-//     a faithful port of that would be a billing hole.
-//   - Alia defaulted `temperature: 0.7` and `max_tokens: 8192` when the caller
-//     specified none. This port sends neither: the contract says an absent
-//     sampling parameter means the route's own default, and inventing one at
-//     the adapter silently changes every request nobody configured.
-//
-// No live provider call has been made from this code. It is exercised against a
-// fake upstream that speaks the real wire format.
+// The raw upstream stream never crosses Kaana's boundary. This adapter
+// normalizes events and usage, propagates cancellation, classifies provider
+// failures and requests streamed usage. It sends no sampling default the
+// caller omitted: the selected deployment's own default remains authoritative.
+// Conformance uses a fake upstream that speaks the real wire format.
 package openaicompat
 
 import (
@@ -51,7 +37,7 @@ type Config struct {
 	// BaseURL is the provider's API root, e.g. https://api.openai.com/v1.
 	BaseURL string
 	// Declarations are Kaana's own credentials for this provider, in the order
-	// they were declared, each with what the operator says it costs. The
+	// they were declared. The
 	// secrets are decrypted from Kaana's PostgreSQL credential store at runtime,
 	// never read from a request or provider-key environment variable, never
 	// written to a file in this repository, and never written to a log, an error

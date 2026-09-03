@@ -713,7 +713,7 @@ func TestAStaleSnapshotServesPinnedTargetsAndRefusesUnpinnedOnes(t *testing.T) {
 		t.Errorf("refused with %q", result.Failure.Code)
 	}
 	if !result.Failure.Retryable {
-		t.Error("the refusal is non-retryable, but it clears the moment the control plane publishes again")
+		t.Error("the refusal is non-retryable, but it clears the moment the inventory publisher re-issues the snapshot")
 	}
 
 	// The control: the same unpinned request is served from a snapshot inside

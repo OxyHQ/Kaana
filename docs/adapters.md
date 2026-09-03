@@ -1,6 +1,6 @@
 # Provider adapters
 
-The `provider.Adapter` interface, the two ported adapters, and the conformance suite every adapter must pass.
+The `provider.Adapter` interface, the two protocol adapters, and the conformance suite every adapter must pass.
 
 ## The provider adapter interface
 
@@ -39,21 +39,17 @@ content through `Emitter`, which stamps `requestId`, `sequence` and
 `schemaVersion` itself — removing the whole class of bug where one provider's
 events are unattributable or repeat a sequence.
 
-## The ported adapters
+## The protocol adapters
 
-Two protocols are implemented, and the second one exists to test the first one's
-abstraction rather than to add a provider.
+Two protocols are implemented. Their shared conformance suite keeps the adapter
+boundary independent of either provider's wire format.
 
 ### `openaicompat` — OpenAI Chat Completions
 
-A port of Alia's `openai` provider
-(`packages/api/src/internal/providers/lib/providers/openai.ts`).
-
-**Why that one.** Seven of Alia's adapters — openai, together, xai, cerebras,
-hyperbolic, digitalocean, openrouter — speak the OpenAI Chat Completions
-protocol. Porting the *protocol* rather than a provider makes the next six a
-`Config` and a conformance registration. Provider-specific request policy is
-still explicit: every OpenRouter inference request carries exactly
+Kaana's OpenAI Chat Completions implementation is protocol-shaped rather than
+provider-shaped. Every compatible provider is a `Config` and a conformance
+registration, while provider-specific request policy remains explicit. Every
+OpenRouter inference request carries exactly
 `provider: {zdr: true, data_collection: "deny", require_parameters: true}` as
 documented by [OpenRouter's provider-routing API][openrouter-routing]. Kaana
 constructs that typed object internally; it is neither an Oxy contract field nor
@@ -74,12 +70,11 @@ while requiring the non-secret base URL at runtime. Both slugs run the complete
 synthetic conformance suite; provider enablement still requires a scrubbed real
 wire capture, and catalogue support remains a separate gate.
 
-**What the port deliberately changes.** Alia's `proxy()` returned the upstream's
-raw stream to its caller — no normalization, no usage, no cancellation, no error
-classification. It also never sent `stream_options.include_usage`, so **a
-streamed request reported no usage at all**; a faithful port of that would be a
-billing hole. And it substituted `temperature: 0.7` / `max_tokens: 8192` when the
-caller set none, which silently changes every request nobody configured.
+**Protocol invariants.** The raw upstream stream never crosses Kaana's boundary:
+the adapter normalizes events and usage, propagates cancellation and classifies
+provider failures. Streamed requests ask for `stream_options.include_usage`,
+and an absent sampling parameter stays absent so the selected deployment's own
+default applies. The adapter never invents `temperature` or `max_tokens`.
 
 **Missing-usage fallback.** Asking for `stream_options.include_usage` is not a
 guarantee: gateways can strip the terminal usage frame, and non-streamed
@@ -114,12 +109,10 @@ provider's invoice.
 
 ### `anthropic` — the Messages API
 
-A port of Alia's `anthropic` provider
-(`.../providers/anthropic.ts`), and the answer to a question one adapter cannot
-settle: whether `provider.Adapter` describes a provider or describes the first
-one written against it.
+Kaana's Anthropic Messages implementation is the independent protocol case that
+keeps `provider.Adapter` from describing only OpenAI Chat Completions.
 
-**Why that one.** It disagrees with chat completions on every axis the interface
+**Protocol differences.** It disagrees with chat completions on every axis the interface
 names — named SSE events instead of one repeated frame closed by `[DONE]`;
 indexed content **blocks** whose kind is declared once in the event that opens
 them; reasoning as a block type rather than a field; usage split across two
@@ -136,11 +129,10 @@ as `completion_tokens` does. So one of the two normalising subtractions the
 contract's partition needs applies here and **the other must not** — and an
 adapter written by copying the first one would under-report every cached request.
 
-**What the port deliberately changes.** Alia's conversion read only a text delta
-and `message_stop`: tool calls, reasoning, stop reasons and the whole of `usage`
-were dropped, so a request that called a tool produced no tool call downstream
-and every request reported no usage at all. It also defaulted `max_tokens: 8192`
-and `temperature: 0.7`, and forced `stream: true`.
+**Protocol invariants.** The adapter preserves text, tool calls, reasoning, stop
+reasons and usage through Kaana's normalized stream. It handles streamed and
+non-streamed responses, never invents `temperature`, and treats Anthropic's
+required `max_tokens` as an explicit translation requirement.
 
 **What it refuses rather than inventing.** `max_tokens` is required upstream and
 optional in the contract, so a request that omits `maxOutputTokens` is refused
@@ -148,23 +140,23 @@ with the field named. Choosing a ceiling here — or per deployment, which only
 moves the invention into a config file — would truncate an answer the customer
 asked to be unbounded and report success. That is item 14 below.
 
-**No live provider call has been made from this repository.** There are no
-provider credentials here, in the tests, or in CI. Both adapters are exercised
-against a fake upstream that speaks the real wire format, including its habit of
-echoing the request's credential header back inside an error message.
+There are no provider credentials here, in the tests, or in CI. Both adapters
+are exercised against a fake upstream that speaks the real wire format,
+including its habit of echoing the request's credential header back inside an
+error message.
 
-### What the second adapter changed
+### Cross-protocol invariants
 
-The `Adapter` interface itself did not change: `Provider`/`Translate`/`Stream`/
-`Health`, `Call`, `Route` and `Outcome` all held. Three things around it did, and
-each was a gap rather than a preference:
+Both protocol implementations use the same `Provider`/`Translate`/`Stream`/
+`Health`, `Call`, `Route` and `Outcome` boundary. Three surrounding invariants
+are required for that boundary to remain protocol-independent:
 
 - **`Emitter` has nowhere to put provider-opaque block metadata.** A thinking
   block's `signature` is what makes multi-turn tool use with reasoning work, and
   no contract stream event has a field for it. The adapter reads it so it cannot
   be mistaken for output, and drops it. Item 17.
-- **The conformance suite could only be told about one refusal**, which was an
-  accident of the first adapter having exactly one. It now takes a list.
+- **The conformance suite accepts every refusal the protocol needs to express**,
+  as a list rather than a single protocol-shaped special case.
 - **Credential redaction could not be left to the contract's pattern.** It is
   keyed to bearer-token shapes; against `x-api-key: <value>` it matches the
   marker and not the value, so redacting *removes the evidence and keeps the

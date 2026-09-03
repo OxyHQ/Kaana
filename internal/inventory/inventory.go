@@ -155,7 +155,8 @@ func (e ErrNoRoute) Error() string {
 }
 
 // ErrSnapshotTooStale is returned when an UNPINNED reference is resolved
-// against a snapshot the control plane has not re-issued within the horizon.
+// against a snapshot the inventory publisher has not re-issued within the
+// horizon.
 //
 // It is deliberately not ErrNoRoute: the model exists and its deployments are
 // almost certainly still serving. What Kaana has lost is any basis for
@@ -179,9 +180,9 @@ func (i *Inventory) SnapshotID() string { return i.snapshotID }
 
 // Age is how long ago the snapshot was issued.
 //
-// It is measured from the moment the control plane stamped the snapshot — NOT
-// from when Kaana read the file. A file re-read every thirty seconds is not
-// thirty seconds fresh; it is as fresh as whoever last wrote it says it is.
+// It is measured from the moment the inventory publisher stamped the snapshot
+// — NOT from when Kaana read the file. A file re-read every thirty seconds is
+// not thirty seconds fresh; it is as fresh as whoever last wrote it says it is.
 func (i *Inventory) Age(at time.Time) time.Duration { return at.Sub(i.issuedAt) }
 
 // ServesUnpinned reports whether unpinned references still resolve. It is what
@@ -193,7 +194,7 @@ type file struct {
 	// SnapshotID names this configuration. It appears in logs and on the health
 	// surface so two processes can be compared without diffing files.
 	SnapshotID string `json:"snapshotId"`
-	// IssuedAt is when the control plane produced this snapshot.
+	// IssuedAt is when the inventory publisher produced this snapshot.
 	IssuedAt    string       `json:"issuedAt"`
 	Deployments []Deployment `json:"deployments"`
 }
@@ -320,8 +321,8 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 // so nothing about it can have gone stale.
 //
 // An unpinned reference resolves to the model line's current revision, which is
-// the one thing in this file that a control-plane outage can make wrong. Past
-// the staleness horizon it is refused rather than guessed.
+// the one thing in this file that a publishing-pipeline outage can make wrong.
+// Past the staleness horizon it is refused rather than guessed.
 func (i *Inventory) Resolve(reference contract.ModelReference, at time.Time) (RouteSet, error) {
 	if set, found := i.byReference[reference]; found {
 		return set, nil

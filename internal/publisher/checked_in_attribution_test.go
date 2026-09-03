@@ -107,7 +107,7 @@ func TestExternalRadarDoesNotCreateGatewayOrUnverifiedProviderAttribution(t *tes
 	// authenticated and immutable provider catalogue Kaana can publish today.
 	for _, slug := range []contract.ProviderSlug{
 		"amd-radeon", "requesty", "vercel-ai-gateway", "huggingface", "ollama-cloud",
-		"kilo-code", "opencode-zen", "aion-labs", "agnes-ai", "glhf", "ollama",
+		"kilo-code", "llm7", "opencode-zen", "aion-labs", "agnes-ai", "glhf", "ollama",
 	} {
 		if models, attributed := table.byProvider[slug]; attributed {
 			t.Errorf("excluded radar provider %q has %d checked-in model attributions", slug, len(models))
