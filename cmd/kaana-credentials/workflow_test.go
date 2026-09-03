@@ -8,23 +8,30 @@ import (
 	"testing"
 )
 
+type credentialTaskProfile struct {
+	TaskDefinitionFamily    string            `json:"taskDefinitionFamily"`
+	ContainerName           string            `json:"containerName"`
+	TaskRoleARN             string            `json:"taskRoleArn"`
+	ExecutionRoleARN        string            `json:"executionRoleArn"`
+	DatabaseURLParameterARN string            `json:"databaseUrlParameterArn"`
+	SecurityGroupID         string            `json:"securityGroupId"`
+	LogStreamPrefix         string            `json:"logStreamPrefix"`
+	DefaultCommand          []string          `json:"defaultCommand"`
+	Environment             map[string]string `json:"environment"`
+}
+
 type credentialOperationManifest struct {
-	SchemaVersion           int                 `json:"schemaVersion"`
-	AWSRegion               string              `json:"awsRegion"`
-	AccountID               string              `json:"accountId"`
-	Cluster                 string              `json:"cluster"`
-	TaskDefinitionFamily    string              `json:"taskDefinitionFamily"`
-	ContainerName           string              `json:"containerName"`
-	Image                   string              `json:"image"`
-	SourceCommit            string              `json:"sourceCommit"`
-	TaskRoleARN             string              `json:"taskRoleArn"`
-	ExecutionRoleARN        string              `json:"executionRoleArn"`
-	DatabaseURLParameterARN string              `json:"databaseUrlParameterArn"`
-	KMSKeyARN               string              `json:"kmsKeyArn"`
-	SubnetIDs               []string            `json:"subnetIds"`
-	SecurityGroupID         string              `json:"securityGroupId"`
-	DiscoveryCredentialIDs  map[string]string   `json:"discoveryCredentialIds"`
-	Operations              map[string][]string `json:"operations"`
+	SchemaVersion          int                              `json:"schemaVersion"`
+	AWSRegion              string                           `json:"awsRegion"`
+	AccountID              string                           `json:"accountId"`
+	Cluster                string                           `json:"cluster"`
+	Image                  string                           `json:"image"`
+	SourceCommit           string                           `json:"sourceCommit"`
+	SubnetIDs              []string                         `json:"subnetIds"`
+	TaskProfiles           map[string]credentialTaskProfile `json:"taskProfiles"`
+	OperationTaskProfiles  map[string]string                `json:"operationTaskProfiles"`
+	DiscoveryCredentialIDs map[string]string                `json:"discoveryCredentialIds"`
+	Operations             map[string][]string              `json:"operations"`
 }
 
 func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
@@ -158,20 +165,48 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	}
 
 	expectedIdentity := credentialOperationManifest{
-		SchemaVersion:           1,
-		AWSRegion:               "us-west-2",
-		AccountID:               "237343248947",
-		Cluster:                 "oxy-cluster",
-		TaskDefinitionFamily:    "oxy-kaana-credential-admin",
-		ContainerName:           "kaana-credential-admin",
-		Image:                   "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:e9536dff531f3581754b7b24eee30532a6dfce7b544ec6e8e80268e7c6021ada",
-		SourceCommit:            "728cf22b18042e3f8e7e9d68d6fb44a18756d6b4",
-		TaskRoleARN:             "arn:aws:iam::237343248947:role/oxy-kaana-credential-admin",
-		ExecutionRoleARN:        "arn:aws:iam::237343248947:role/oxy-kaana-credential-admin-execution",
-		DatabaseURLParameterARN: "arn:aws:ssm:us-west-2:237343248947:parameter/oxy/kaana/CREDENTIAL_ADMIN_DATABASE_URL",
-		KMSKeyARN:               "arn:aws:kms:us-west-2:237343248947:key/d4ca87d9-f773-4409-8ae7-e96d7f3438c5",
-		SubnetIDs:               []string{"subnet-08f5cc132b3cab15c", "subnet-0bfb367f29d1fd375"},
-		SecurityGroupID:         "sg-0a4e4450d15996cdf",
+		SchemaVersion: 2,
+		AWSRegion:     "us-west-2",
+		AccountID:     "237343248947",
+		Cluster:       "oxy-cluster",
+		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:e9536dff531f3581754b7b24eee30532a6dfce7b544ec6e8e80268e7c6021ada",
+		SourceCommit:  "728cf22b18042e3f8e7e9d68d6fb44a18756d6b4",
+		SubnetIDs:     []string{"subnet-08f5cc132b3cab15c", "subnet-0bfb367f29d1fd375"},
+		TaskProfiles: map[string]credentialTaskProfile{
+			"admin": {
+				TaskDefinitionFamily:    "oxy-kaana-credential-admin",
+				ContainerName:           "kaana-credential-admin",
+				TaskRoleARN:             "arn:aws:iam::237343248947:role/oxy-kaana-credential-admin",
+				ExecutionRoleARN:        "arn:aws:iam::237343248947:role/oxy-kaana-credential-admin-execution",
+				DatabaseURLParameterARN: "arn:aws:ssm:us-west-2:237343248947:parameter/oxy/kaana/CREDENTIAL_ADMIN_DATABASE_URL",
+				SecurityGroupID:         "sg-0a4e4450d15996cdf",
+				LogStreamPrefix:         "kaana-credential-admin",
+				DefaultCommand:          []string{"list"},
+				Environment: map[string]string{
+					"AWS_REGION":                             "us-west-2",
+					"KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN": "arn:aws:kms:us-west-2:237343248947:key/d4ca87d9-f773-4409-8ae7-e96d7f3438c5",
+				},
+			},
+			"migrator": {
+				TaskDefinitionFamily:    "oxy-kaana-credential-migrator",
+				ContainerName:           "kaana-credential-migrator",
+				TaskRoleARN:             "arn:aws:iam::237343248947:role/oxy-kaana-credential-migrator",
+				ExecutionRoleARN:        "arn:aws:iam::237343248947:role/oxy-kaana-credential-migrator-execution",
+				DatabaseURLParameterARN: "arn:aws:ssm:us-west-2:237343248947:parameter/oxy/kaana/MIGRATOR_DATABASE_URL",
+				SecurityGroupID:         "sg-0f39701eba3c972de",
+				LogStreamPrefix:         "kaana-credential-migrator",
+				DefaultCommand:          []string{"migrate"},
+				Environment:             map[string]string{},
+			},
+		},
+		OperationTaskProfiles: map[string]string{
+			"list": "admin", "migrate": "migrator",
+			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
+			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
+			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
+			"rekey-elevenlabs-primary": "admin", "rekey-groq-secondary-if-different": "admin",
+			"rekey-openrouter-secondary-if-different": "admin", "rekey-xai-secondary-if-different": "admin",
+		},
 		DiscoveryCredentialIDs: map[string]string{
 			"cerebras":   "43405cea-a7d1-49c2-ba73-5a84536d3abf",
 			"groq":       "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1",
@@ -216,12 +251,15 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		`--image-ids "imageDigest=$digest"`,
 		`--image-ids "imageTag=$source_commit"`,
 		"aws ecs register-task-definition",
-		"file:///tmp/credential-admin-task-definition.json",
+		"file:///tmp/credential-operation-task-definition.json",
 		`item["image"] = config["image"]`,
 		"if task != expected:",
 		"the registered task definition differs from the derived image-only revision",
-		"credential-admin image digest did not survive registration",
+		"credential operation image digest did not survive registration",
 		"credential-admin-operations.json",
+		`.taskProfiles[.operationTaskProfiles[$operation]]`,
+		`((.operations | keys | sort) == (.operationTaskProfiles | keys | sort))`,
+		`stream="$log_stream_prefix/$container/$task_id"`,
 		"AUDIT_ACTOR: github-actions:OxyHQ/Kaana:${{ github.run_id }}",
 		"^github-actions:OxyHQ/Kaana:[0-9]+$",
 		`environment: [{name: "KAANA_CREDENTIAL_ACTOR", value: $audit_actor}]`,

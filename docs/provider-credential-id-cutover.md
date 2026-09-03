@@ -10,9 +10,12 @@ pair is [`.github/credential-admin-operations.json`](../.github/credential-admin
 The workflow accepts only those complete argument arrays; it has no free-form
 input. The manifest pins the immutable image produced from main commit
 `728cf22b18042e3f8e7e9d68d6fb44a18756d6b4` by build-only run `33715928656`.
-Before every operation, the workflow validates the current task shape, replaces
-only its image with that digest, registers a new revision and compares the full
-normalized readback with the derived document.
+Before every operation, the workflow selects the task profile named explicitly
+for that operation, validates its current shape, replaces only its image with
+that digest, registers a new revision and compares the full normalized readback
+with the derived document. `migrate` alone selects the DDL-capable migrator
+profile and `/oxy/kaana/MIGRATOR_DATABASE_URL`; every list, comparison and rekey
+selects the credential-admin profile and its separate database principal.
 
 ## Canonical IDs
 
@@ -78,8 +81,9 @@ is false. The same gate applies to automatic pushes and manual dispatches, and
 manual dispatch additionally requires `refs/heads/main`.
 
 Keep that variable absent or false while this source is merged. Run the fixed
-`migrate` operation first; its workflow promotes and proves the pinned admin
-image before applying migration `0007`. Grant that short-lived task only
+`migrate` operation first; its workflow promotes and proves the pinned migrator
+task, dedicated execution role and DDL database principal before applying
+migration `0007`. Grant the separate short-lived admin task only
 `kms:Decrypt` and `kms:Encrypt` on the exact Kaana key before the comparison and
 rekey operations, run the fixed dedupe/rekey operations below, and read every
 receipt and final row identity back. Update publisher discovery configuration
