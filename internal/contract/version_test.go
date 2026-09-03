@@ -7,15 +7,10 @@ func TestRequestEnvelopeVersionTransitionIsExact(t *testing.T) {
 		t.Fatal("the legacy and current request-envelope versions are indistinguishable")
 	}
 
-	for _, version := range []int{LegacyRequestEnvelopeVersion, RequestEnvelopeVersion} {
-		if !SupportsRequestEnvelopeVersion(version) {
-			t.Errorf("declared request-envelope version %d is not supported", version)
-		}
-	}
-
-	for _, version := range []int{0, RequestEnvelopeVersion + 1} {
-		if SupportsRequestEnvelopeVersion(version) {
-			t.Errorf("undeclared request-envelope version %d is supported", version)
+	for version := -1; version <= RequestEnvelopeVersion+3; version++ {
+		want := version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion
+		if got := SupportsRequestEnvelopeVersion(version); got != want {
+			t.Errorf("SupportsRequestEnvelopeVersion(%d) = %t, want %t", version, got, want)
 		}
 	}
 }
