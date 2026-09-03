@@ -8,7 +8,11 @@ provider secret leaves KMS/process memory during the operation.
 The executable source of truth for every operation ID and exact source/target
 pair is [`.github/credential-admin-operations.json`](../.github/credential-admin-operations.json).
 The workflow accepts only those complete argument arrays; it has no free-form
-input.
+input. The source-release PR deliberately leaves that executable manifest on
+the previous list/import-only image. After `build-only` publishes the reviewed
+main image, one follow-up PR must atomically pin its exact digest and replace
+the old choices with `migrate` plus the operation set below. Until that PR is
+merged, none of these new commands is executable in GitHub Actions.
 
 ## Canonical IDs
 

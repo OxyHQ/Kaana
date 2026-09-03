@@ -332,13 +332,13 @@ func TestCredentialValidationRequiresItsOwnSignatureDomainAndExactClosedTask(t *
 	body := []byte(`{"schemaVersion":1,"operationId":"op_exact","applicationId":"app_exact","provider":"stub","ownerAccountId":"acc_exact","connectionId":"conn_exact","environment":"production","credentialHandle":"kcred_abcdefghijklmnopqrstuvwxyz","credentialRevision":7,"deploymentId":"dep_stub"}`)
 
 	wrongDomain := h.postValidation(t, body, false)
-	defer wrongDomain.Body.Close()
+	defer func() { _ = wrongDomain.Body.Close() }()
 	if wrongDomain.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("inference-domain signature status = %d", wrongDomain.StatusCode)
 	}
 
 	response := h.postValidation(t, body, true)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusAccepted || response.Header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("validation status/cache = %d/%q", response.StatusCode, response.Header.Get("Cache-Control"))
 	}
@@ -354,7 +354,7 @@ func TestCredentialValidationRequiresItsOwnSignatureDomainAndExactClosedTask(t *
 
 	duplicate := []byte(`{"schemaVersion":1,"operationId":"op_exact","operationId":"op_rebound","applicationId":"app_exact","provider":"stub","ownerAccountId":"acc_exact","connectionId":"conn_exact","environment":"production","credentialHandle":"kcred_abcdefghijklmnopqrstuvwxyz","credentialRevision":7,"deploymentId":"dep_stub"}`)
 	rejected := h.postValidation(t, duplicate, true)
-	defer rejected.Body.Close()
+	defer func() { _ = rejected.Body.Close() }()
 	if rejected.StatusCode != http.StatusBadRequest {
 		t.Fatalf("duplicate selector status = %d", rejected.StatusCode)
 	}
