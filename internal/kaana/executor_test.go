@@ -1197,17 +1197,19 @@ func TestPartialProviderEstimateKeepsExactInputAndAddsDeliveredOutput(t *testing
 		if err := out.Delta(0, contract.ChannelOutputText, "a delivered answer fragment"); err != nil {
 			return provider.Outcome{}, err
 		}
-		return provider.Outcome{
-				Units: []contract.UsageQuantity{
-					{Unit: contract.UnitRequests, Quantity: 1},
-					{Unit: contract.UnitInputTokens, Quantity: 37},
-					{Unit: contract.UnitOutputTokens, Quantity: 0},
-				},
-				UsageSource: contract.UsageEstimated,
-			}, provider.ErrUpstream{
-				Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
-				Detail: "the provider stopped after partial output",
-			}
+		outcome := provider.Outcome{
+			Units: []contract.UsageQuantity{
+				{Unit: contract.UnitRequests, Quantity: 1},
+				{Unit: contract.UnitInputTokens, Quantity: 37},
+				{Unit: contract.UnitOutputTokens, Quantity: 0},
+			},
+			UsageSource: contract.UsageEstimated,
+		}
+		failure := provider.ErrUpstream{
+			Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
+			Detail: "the provider stopped after partial output",
+		}
+		return outcome, failure
 	}}
 
 	_, result := execute(t, adapter, baseRequest())
