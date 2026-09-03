@@ -23,6 +23,7 @@ type credentialOperationManifest struct {
 	KMSKeyARN               string              `json:"kmsKeyArn"`
 	SubnetIDs               []string            `json:"subnetIds"`
 	SecurityGroupID         string              `json:"securityGroupId"`
+	DiscoveryCredentialIDs  map[string]string   `json:"discoveryCredentialIds"`
 	Operations              map[string][]string `json:"operations"`
 }
 
@@ -171,6 +172,12 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		KMSKeyARN:               "arn:aws:kms:us-west-2:237343248947:key/d4ca87d9-f773-4409-8ae7-e96d7f3438c5",
 		SubnetIDs:               []string{"subnet-08f5cc132b3cab15c", "subnet-0bfb367f29d1fd375"},
 		SecurityGroupID:         "sg-0a4e4450d15996cdf",
+		DiscoveryCredentialIDs: map[string]string{
+			"cerebras":   "43405cea-a7d1-49c2-ba73-5a84536d3abf",
+			"groq":       "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1",
+			"openrouter": "b8090dce-82f2-4077-9fc1-fd831a53ca27",
+			"xai":        "1d72d527-81ca-41e5-9644-2d81a4b126ec",
+		},
 	}
 	manifest.Operations = nil
 	if !reflect.DeepEqual(manifest, expectedIdentity) {
