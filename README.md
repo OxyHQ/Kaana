@@ -21,6 +21,11 @@ Alia performs that orchestration and invokes Kaana through the same Oxy edge.
 Kaana never becomes the agent runtime merely because an agent eventually uses
 a model.
 
+```text
+app one-shot AI -> Oxy inference edge -> Kaana -> upstream provider
+app agent/chat  -> Alia -> Oxy inference edge -> Kaana -> upstream provider
+```
+
 A request names a **model** or an exact opaque Oxy routing-profile ID, never a
 vendor or profile name. Oxy authorizes and orders the exact provider
 deployments; Kaana attempts only that signed order, translates each attempt for
@@ -35,6 +40,11 @@ using exact ID code units only to break an equal-score tie. Provider/model names
 insertion order and database order never select a route. Kaana verifies every
 signed identity against one inventory snapshot and executes the list exactly as
 received; it does not recompute the control-plane ranking.
+
+Do not confuse the two opaque identity layers: `deploymentId` selects one exact
+authorized deployment, while `(provider, keyId)` selects one exact encrypted
+credential row. Neither is derived from a display name, insertion order,
+database order or the first enabled row.
 
 ## Checked-in reference inventory
 
