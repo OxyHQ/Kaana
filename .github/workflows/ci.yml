@@ -24,8 +24,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: The rate-limit reconciler is read-only in check mode
-        run: python3 .github/scripts/cloudflare_rate_limit_test.py
+      - name: Cloudflare reconcilers fail closed
+        run: |
+          python3 .github/scripts/cloudflare_rate_limit_test.py
+          python3 .github/scripts/cloudflare_dns_test.py
 
   go:
     name: build, vet, lint, test

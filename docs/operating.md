@@ -373,11 +373,15 @@ probe comes from outside the container.
 
 The Cloudflare DNS workflow never retires the legacy `api.kaana.ai` name by
 default. Retirement requires `action=apply`,
-`retire_legacy_api_dns=true`, and the expected dedicated `alb_dns`. In that
-mode it re-reads the exact proxied apex CNAME, requires
-`https://kaana.ai/livez` to identify a healthy Kaana response, then deletes
-only the single exact legacy record id and verifies its absence. A missing,
-ambiguous or drifted prerequisite refuses the deletion.
+`retire_legacy_api_dns=true`, the expected dedicated `alb_dns`, and
+`legacy_api_target=oxy-alb-648111691.us-west-2.elb.amazonaws.com` exactly. In
+that mode it re-reads the exact proxied apex CNAME, requires
+`https://kaana.ai/livez` to identify a healthy Kaana response, then requires
+exactly one DNS-only `CNAME` named `api.kaana.ai` whose content byte-matches
+that reviewed old shared Oxy ALB target. Only that record id is deleted, and
+its absence is read back. Whitespace, a missing or duplicate record, another
+record type, a proxied record, another target, or any drifted prerequisite
+refuses the deletion before a mutation.
 
 The edge public key belongs in plain environment. Kaana can verify with it and
 cannot sign an envelope it would accept. The signing private key stays in Oxy.

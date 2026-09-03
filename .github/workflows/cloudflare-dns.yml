@@ -9,7 +9,8 @@
 # creates missing records only. A conflicting record is reported and left
 # untouched; replacing DNS is never an implicit side effect. The sole deletion
 # is the legacy api.kaana.ai name, behind an explicit default-off input and only
-# after the exact apex ALB record and public Kaana liveness are re-verified.
+# after the exact apex ALB record, public Kaana liveness and the old DNS-only
+# shared-ALB CNAME are re-verified.
 name: Cloudflare DNS
 
 on:
@@ -34,10 +35,14 @@ on:
         type: string
         required: false
       retire_legacy_api_dns:
-        description: 'With apply, delete api.kaana.ai only after apex and livez verification.'
+        description: 'With apply, delete the exact reviewed api.kaana.ai CNAME.'
         type: boolean
         default: false
         required: true
+      legacy_api_target:
+        description: 'Old shared Oxy ALB target. Required byte-exact for retirement.'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -47,179 +52,27 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test the reconciler and workflow mutation guard
+        run: python3 .github/scripts/cloudflare_dns_test.py
+
       - name: Reconcile
         env:
-          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ACTION: ${{ inputs.action }}
           VAL_NAME: ${{ inputs.validation_name }}
           VAL_VALUE: ${{ inputs.validation_value }}
           ALB_DNS: ${{ inputs.alb_dns }}
           RETIRE_LEGACY_API_DNS: ${{ inputs.retire_legacy_api_dns }}
+          LEGACY_API_TARGET: ${{ inputs.legacy_api_target }}
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-
-          token = os.environ["CF_TOKEN"].strip()
-          if not token:
-              sys.exit("CLOUDFLARE_API_TOKEN is empty")
-
-          apply = os.environ["ACTION"] == "apply"
-          retire_legacy = os.environ.get("RETIRE_LEGACY_API_DNS", "false").lower() == "true"
-          validation_name = os.environ.get("VAL_NAME", "").strip().rstrip(".").lower()
-          validation_value = os.environ.get("VAL_VALUE", "").strip().rstrip(".").lower()
-          alb_dns = os.environ.get("ALB_DNS", "").strip().rstrip(".").lower()
-          if retire_legacy and not apply:
-              sys.exit("retire_legacy_api_dns requires action=apply")
-          if retire_legacy and not alb_dns:
-              sys.exit("retire_legacy_api_dns requires the expected dedicated alb_dns")
-
-          wanted = []
-          if validation_name or validation_value:
-              if not validation_name or not validation_value:
-                  sys.exit("validation_name and validation_value must be supplied together")
-              if not validation_name.endswith(".kaana.ai"):
-                  sys.exit("validation_name is outside kaana.ai")
-              if not validation_value.endswith(".acm-validations.aws"):
-                  sys.exit("validation_value is not an ACM validation target")
-              wanted.append((validation_name, validation_value, False))
-
-          if alb_dns:
-              if not alb_dns.endswith(".us-west-2.elb.amazonaws.com"):
-                  sys.exit("alb_dns is not a us-west-2 ELB hostname")
-              wanted.append(("kaana.ai", alb_dns, True))
-
-          if not wanted:
-              sys.exit("nothing to do")
-
-          def api(method, path, body=None):
-              request = urllib.request.Request(
-                  f"https://api.cloudflare.com/client/v4{path}",
-                  method=method,
-                  data=json.dumps(body).encode() if body is not None else None,
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Content-Type": "application/json",
-                  },
-              )
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      return json.load(response)
-              except urllib.error.HTTPError as error:
-                  detail = json.load(error)
-                  print(f"HTTP {error.code}: {detail.get('errors')}")
-                  return detail
-
-          zones = api("GET", "/zones?" + urllib.parse.urlencode({"name": "kaana.ai"}))
-          rows = zones.get("result") or []
-          if not zones.get("success") or len(rows) != 1:
-              sys.exit(f"cannot resolve the kaana.ai zone: {zones.get('errors')}")
-          zone_id = rows[0]["id"]
-
-          failed = False
-          for name, value, proxied in wanted:
-              query = urllib.parse.urlencode({"name": name, "type": "CNAME"})
-              found = api("GET", f"/zones/{zone_id}/dns_records?{query}")
-              existing = found.get("result") or []
-
-              exact = [
-                  record for record in existing
-                  if record["content"].rstrip(".").lower() == value
-                  and bool(record.get("proxied")) == proxied
-              ]
-              if len(exact) == 1 and len(existing) == 1:
-                  print(f"OK {name} -> {value} proxied={proxied}")
-                  continue
-              if existing:
-                  print(
-                      f"CONFLICT {name}: "
-                      f"{[(r['content'], r.get('proxied')) for r in existing]}"
-                  )
-                  failed = True
-                  continue
-              if not apply:
-                  print(f"MISSING {name} -> {value} proxied={proxied}")
-                  continue
-
-              created = api("POST", f"/zones/{zone_id}/dns_records", {
-                  "type": "CNAME",
-                  "name": name,
-                  "content": value,
-                  "ttl": 120,
-                  "proxied": proxied,
-              })
-              if not created.get("success"):
-                  print(f"FAILED {name}: {created.get('errors')}")
-                  failed = True
-                  continue
-              print(f"CREATED {name} -> {value} proxied={proxied}")
-
-              verify = api("GET", f"/zones/{zone_id}/dns_records?{query}")
-              verified = [
-                  record for record in (verify.get("result") or [])
-                  if record["content"].rstrip(".").lower() == value
-                  and bool(record.get("proxied")) == proxied
-              ]
-              if len(verified) != 1:
-                  print(f"FAILED read-back for {name}")
-                  failed = True
-
-          if failed:
-              sys.exit(1)
-
-          if retire_legacy:
-              # Re-read the apex after all reconciliation. The legacy name is
-              # not touched unless the exact proxied CNAME still targets the
-              # operator-supplied dedicated Kaana ALB.
-              apex_query = urllib.parse.urlencode({"name": "kaana.ai", "type": "CNAME"})
-              apex = api("GET", f"/zones/{zone_id}/dns_records?{apex_query}")
-              apex_records = apex.get("result") or []
-              apex_exact = [
-                  record for record in apex_records
-                  if record["content"].rstrip(".").lower() == alb_dns
-                  and bool(record.get("proxied"))
-              ]
-              if not apex.get("success") or len(apex_records) != 1 or len(apex_exact) != 1:
-                  sys.exit("refusing legacy DNS retirement: apex is not the exact proxied dedicated ALB record")
-
-              live_request = urllib.request.Request(
-                  "https://kaana.ai/livez",
-                  headers={"Accept": "application/json", "User-Agent": "kaana-dns-retirement/1"},
-              )
-              try:
-                  with urllib.request.urlopen(live_request, timeout=30) as response:
-                      if response.status != 200:
-                          sys.exit(f"refusing legacy DNS retirement: apex livez returned {response.status}")
-                      live = json.load(response)
-              except (urllib.error.URLError, json.JSONDecodeError) as error:
-                  sys.exit(f"refusing legacy DNS retirement: apex livez failed: {error}")
-              if live.get("status") != "ok" or not live.get("contractVersion"):
-                  sys.exit("refusing legacy DNS retirement: apex livez response is not Kaana")
-
-              legacy_query = urllib.parse.urlencode({"name": "api.kaana.ai"})
-              legacy = api("GET", f"/zones/{zone_id}/dns_records?{legacy_query}")
-              legacy_records = legacy.get("result") or []
-              if not legacy.get("success"):
-                  sys.exit("refusing legacy DNS retirement: cannot read the exact legacy name")
-              if len(legacy_records) == 0:
-                  print("OK api.kaana.ai is already absent")
-              elif len(legacy_records) != 1:
-                  sys.exit("refusing legacy DNS retirement: the exact legacy name is ambiguous")
-              else:
-                  record_id = legacy_records[0].get("id")
-                  if not record_id:
-                      sys.exit("refusing legacy DNS retirement: the exact legacy record has no id")
-                  deleted = api("DELETE", f"/zones/{zone_id}/dns_records/{record_id}")
-                  if not deleted.get("success"):
-                      sys.exit(f"FAILED deleting api.kaana.ai: {deleted.get('errors')}")
-                  verify_legacy = api("GET", f"/zones/{zone_id}/dns_records?{legacy_query}")
-                  if not verify_legacy.get("success") or (verify_legacy.get("result") or []):
-                      sys.exit("FAILED read-back after deleting api.kaana.ai")
-                  print("DELETED api.kaana.ai after exact apex and livez verification")
-
-          sys.exit(0)
-          PY
+          python3 .github/scripts/cloudflare_dns.py \
+            --action "$ACTION" \
+            --validation-name "$VAL_NAME" \
+            --validation-value "$VAL_VALUE" \
+            --alb-dns "$ALB_DNS" \
+            --retire-legacy-api-dns "$RETIRE_LEGACY_API_DNS" \
+            --legacy-api-target "$LEGACY_API_TARGET"
