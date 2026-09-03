@@ -43,10 +43,9 @@ type openRouterProviderPolicy struct {
 
 // streamOptions is what makes a streamed request report usage at all.
 //
-// Alia's adapters never sent it, which is why the code this is ported from
-// produced no usage for any streamed request. On a platform where the stream IS
-// the product and the usage record is what a customer is charged from, that is
-// not a missing nicety.
+// Kaana always requests it because a streamed answer without usage still has
+// to settle. Providers may omit it, in which case the executor marks its
+// deterministic fallback as estimated rather than inventing a reported count.
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }

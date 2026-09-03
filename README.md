@@ -129,8 +129,9 @@ Twenty-four providers carry a built-in protocol and global API root: `openai`, `
 `digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
 `ovhcloud`. `alibaba` and `cloudflare` also carry reviewed protocol and endpoint
 identity, but require `BASE_URL` because their official origins contain a
-workspace/region or account id. Hugging Face and Kilo remain explicit because
-they are provider routers, not direct inference providers. **Any other slug is servable by
+workspace/region or account id. Hugging Face, Kilo and LLM7 remain explicit
+because they are provider routers or moving selectors, not direct immutable
+inference providers. **Any other slug is servable by
 declaring protocol and HTTPS root — no Go change.** Discovery and publication
 remain separate gates: Alibaba has native authenticated catalogue ingestion,
 while Cloudflare is serving-only until its model-search response has a stable,
@@ -156,7 +157,7 @@ internal/httpapi/               the Oxy-facing HTTP surface
 internal/inventory/             which providers serve which model, and staleness
 internal/kaana/                 the executor: routing, failover, framing, usage
 internal/provider/              the Adapter interface, key pools, error vocabulary
-  openaicompat/ anthropic/      the two ported adapters
+  openaicompat/ anthropic/      the two protocol adapters
   conformance/                  the suite every adapter must pass
 internal/providercost/          upstream cost; never a customer amount
 internal/rotation/              per-deployment circuit breakers and health scoring
@@ -176,7 +177,7 @@ configs/model-attribution.json  who RELEASED each model — the publisher's only
 | [`docs/customer-provider-credentials.md`](docs/customer-provider-credentials.md) | customer BYOK custody, exact handles, task split and rollout contract |
 | [`docs/provider-credential-id-cutover.md`](docs/provider-credential-id-cutover.md) | atomic removal of historical platform-key names and exact duplicate handling |
 | [`docs/inventory.md`](docs/inventory.md) | the deployment snapshot, how it is published, and what staleness costs |
-| [`docs/adapters.md`](docs/adapters.md) | the adapter interface, the two ported adapters, the conformance harness |
+| [`docs/adapters.md`](docs/adapters.md) | the adapter interface, the two protocol adapters, the conformance harness |
 | [`docs/provider-onboarding.md`](docs/provider-onboarding.md) | verified endpoints, catalog semantics and rollout gates for new providers |
 | [`docs/operating.md`](docs/operating.md) | running it, and what a deployment must supply |
 | [`docs/cost.md`](docs/cost.md) | upstream provider cost, and why it is not a customer amount |

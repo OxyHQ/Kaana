@@ -4,8 +4,8 @@ Which providers serve which model reference, how that snapshot is published, and
 
 ## Configuration snapshots
 
-Kaana's configuration arrives as a file the control plane publishes. If that
-pipeline stops, the data plane must not stop serving — and must not start
+Kaana's routing configuration arrives as a file its dedicated inventory
+publisher writes. If that pipeline stops, the serving data plane must not stop — and must not start
 pretending it knows things it no longer knows. Those are two requirements, and
 `inventory.Store` keeps them apart.
 
@@ -37,8 +37,7 @@ stopped running leaves a perfectly readable file on disk, and re-reading it
 every thirty seconds would report it fresh forever. So the snapshot must be
 **re-issued on a cadence shorter than the horizon even when nothing has
 changed**. An unchanged snapshot with an old `issuedAt` is indistinguishable,
-from here, from a control plane that has stopped publishing, and is treated as
-one.
+from here, from an inventory publisher that has stopped, and is treated as one.
 
 `GET /internal/v1/health` reports the snapshot id, its age, the horizon, whether
 unpinned references are still being resolved, and the last reload failure with

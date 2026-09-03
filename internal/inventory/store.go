@@ -11,14 +11,15 @@ import (
 )
 
 // Store holds the inventory snapshot the data plane is currently serving from,
-// and is what lets Kaana keep serving while the control plane is unreachable.
+// and is what lets Kaana keep serving while the publishing pipeline is
+// unreachable.
 //
 // # What a snapshot is for
 //
-// Kaana's configuration arrives as a file the control plane publishes. If that
-// pipeline stops — Oxy is down, a deploy is stuck, the file is truncated
-// mid-write — the process must not stop serving, and it must not start
-// pretending it knows things it no longer knows. Those are two different
+// Kaana's routing configuration arrives as a file its dedicated inventory
+// publisher writes. If that pipeline stops — a task or deploy is stuck, or the
+// file is truncated mid-write — the process must not stop serving, and it must
+// not start pretending it knows things it no longer knows. Those are two different
 // requirements and this type keeps them apart:
 //
 //   - A reload that fails leaves the last good snapshot in place, whole. A
@@ -37,7 +38,7 @@ import (
 // forever. The consequence is that the publisher MUST re-issue the snapshot on
 // a cadence shorter than the horizon even when nothing has changed. An
 // unchanged snapshot with an old issuedAt is indistinguishable, from here, from
-// a control plane that has stopped publishing — and it is treated as one.
+// an inventory publisher that has stopped — and it is treated as one.
 type Store struct {
 	path   string
 	maxAge time.Duration
@@ -55,7 +56,7 @@ type Store struct {
 
 // Config wires a Store.
 type Config struct {
-	// Path is the inventory file the control plane publishes to.
+	// Path is the inventory file the dedicated publisher writes.
 	Path string
 	// MaxSnapshotAge is the staleness horizon. Zero uses DefaultMaxSnapshotAge.
 	MaxSnapshotAge time.Duration
@@ -111,7 +112,7 @@ func (s *Store) Current() *Inventory {
 //
 // A failed reload is reported to the caller AND retained, but it never disturbs
 // what is being served: the previous snapshot stays installed in full. This is
-// the whole behaviour under a control-plane outage, and it is why the swap
+// the whole behaviour under a publishing-pipeline outage, and it is why the swap
 // happens after the parse rather than during it.
 func (s *Store) Reload() error {
 	raw, err := os.ReadFile(s.path)

@@ -82,7 +82,7 @@ func TestExternalRadarDoesNotPromoteGatewaysOrOperatorRuntimesToBuiltIns(t *test
 	// reviewed HTTPS endpoint and protocol instead of inheriting a guessed one.
 	excluded := []contract.ProviderSlug{
 		"amd-radeon", "requesty", "vercel-ai-gateway", "huggingface", "ollama-cloud",
-		"kilo-code", "opencode-zen", "aion-labs", "agnes-ai", "glhf", "vllm", "mlx",
+		"kilo-code", "llm7", "opencode-zen", "aion-labs", "agnes-ai", "glhf", "vllm", "mlx",
 		"llamafile", "ollama", "lm-studio", "llama-cpp", "jan",
 	}
 	for _, slug := range excluded {

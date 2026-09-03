@@ -24,13 +24,13 @@ const (
 	fakeSecondAPIKey = "kaana-conformance-fake-credential-0001"
 )
 
-// TestOpenAICompatConformance runs the whole provider suite against the ported
-// adapter.
+// TestOpenAICompatConformance runs the whole provider suite against the
+// OpenAI-compatible adapter.
 func TestOpenAICompatConformance(t *testing.T) {
 	conformance.Run(t, subject("openai"))
 }
 
-// TestOneProtocolServesSeveralProviders is the claim the port is built on: all
+// TestOneProtocolServesSeveralProviders is the shared-protocol invariant: all
 // of these providers speak the same response and error protocol, so serving one
 // of them must remain a Config, not a rewrite.
 //

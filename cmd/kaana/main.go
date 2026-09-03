@@ -124,10 +124,11 @@ func run(logger *slog.Logger) error {
 	// A snapshot naming a provider this process does not serve is a
 	// degradation, not a reason to stop.
 	//
-	// The inventory is published by the control plane and the adapter set is
-	// fixed at deploy time, so the two move on different clocks: a provider can
-	// appear in a snapshot before the deploy that gives this build its
-	// credential. Refusing to start there would take routing for every
+	// The inventory is written by Kaana's dedicated publisher, while the serving
+	// task loads its provider configuration independently. The two move on
+	// different clocks, so a provider can appear in a snapshot before the
+	// serving configuration catches up. Refusing to start there would take
+	// routing for every
 	// SUPPORTED provider down over one unsupported one, and it would do it on
 	// the next task replacement rather than when the snapshot changed — the
 	// reload path already treats the same condition as a warning, so the two
