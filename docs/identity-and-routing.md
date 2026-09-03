@@ -67,8 +67,8 @@ effective policy has an allowed-region or denied-region control.
 ## Product request paths
 
 ```text
-one-shot AI feature  -> Oxy inference edge -> Kaana -> upstream provider
-agent/chat feature   -> Alia -> Oxy inference edge -> Kaana -> upstream provider
+app one-shot AI -> Oxy inference edge -> Kaana -> upstream provider
+app agent/chat  -> Alia -> Oxy inference edge -> Kaana -> upstream provider
 ```
 
 Use the first path when the product owns a bounded operation such as translate,
@@ -109,6 +109,11 @@ An upstream provider key has one durable home: Kaana's PostgreSQL
 encryption context to `provider + keyId`. Provider plaintext never belongs in an
 environment variable, GitHub secret, task definition, inventory, command-line
 argument or tracked file.
+
+Credential identity is separate from routing identity. Oxy signs an exact
+`deploymentId`; Kaana resolves that deployment's exact `(provider, keyId)` row.
+It never substitutes a provider display name, pool position, insertion order or
+the first enabled credential for either ID.
 
 `DATABASE_URL` is the database connection credential and is not an upstream
 provider key. Non-secret provider protocol and base-URL configuration may stay

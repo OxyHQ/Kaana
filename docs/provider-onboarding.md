@@ -355,13 +355,12 @@ The other warnings remain exclusions:
 - xAI's Imagine ids belong to image- or asynchronous video-generation APIs,
   not the text stream Kaana currently normalizes.[^xai-image-models][^xai-video]
 
-## Existing Alia provider surface migrated into Kaana
+## Additional compatible provider surfaces
 
-The old in-process Alia provider tree also named Google Gemini, Together,
-Cohere, Fireworks, Hyperbolic and DigitalOcean. Their official compatibility
-origins are now built into Kaana, so moving those credentials into Kaana's
-encrypted PostgreSQL store does not require carrying an endpoint in Alia or in
-a secret environment variable.[^google-openai][^together-openai][^cohere-openai][^fireworks-openai][^hyperbolic-openai][^digitalocean-openai]
+Google Gemini, Together, Cohere, Fireworks, Hyperbolic and DigitalOcean publish
+official compatibility origins that are built into Kaana. Their provider
+credentials belong only in Kaana's encrypted PostgreSQL store; neither Alia nor
+a product environment carries an endpoint secret or provider key.[^google-openai][^together-openai][^cohere-openai][^fireworks-openai][^hyperbolic-openai][^digitalocean-openai]
 
 This is serving configuration, not automatic publication:
 
