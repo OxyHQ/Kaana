@@ -1,7 +1,6 @@
 package credentialstore
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 const (
@@ -71,10 +71,55 @@ type CustomerCredentialScope struct {
 	Revision         int64
 }
 
-// CustomerCredentialOperation is the complete replay identity of a BYOK
-// mutation. Create has no requested handle or revision; rotate and revoke have
-// both. Create and rotate also carry a one-way secret fingerprint. OperationID
-// is supplied by Oxy and treated as one exact opaque string.
+// CustomerCredentialValidationOperation binds one bootstrap probe to one Oxy
+// application, one exact credential generation, and one exact Kaana
+// deployment. It contains no request payload or user-facing response.
+type CustomerCredentialValidationOperation struct {
+	OperationID   string
+	ApplicationID string
+	CustomerCredentialScope
+	DeploymentID contract.DeploymentID
+}
+
+// CustomerCredentialValidationState is the durable lifecycle/result of a
+// bootstrap probe. Inconclusive never changes Oxy's credential verdict.
+type CustomerCredentialValidationState string
+
+const (
+	CustomerCredentialValidationPending      CustomerCredentialValidationState = "pending"
+	CustomerCredentialValidationExecute      CustomerCredentialValidationState = "execute"
+	CustomerCredentialValidationValid        CustomerCredentialValidationState = "valid"
+	CustomerCredentialValidationInvalid      CustomerCredentialValidationState = "invalid"
+	CustomerCredentialValidationInconclusive CustomerCredentialValidationState = "inconclusive"
+	CustomerCredentialValidationConflict     CustomerCredentialValidationState = "conflict"
+)
+
+// CustomerCredentialValidationFailure is deliberately closed and carries no
+// provider error text.
+type CustomerCredentialValidationFailure string
+
+const (
+	CustomerCredentialValidationUnauthorized CustomerCredentialValidationFailure = "unauthorized"
+	CustomerCredentialValidationForbidden    CustomerCredentialValidationFailure = "forbidden"
+	CustomerCredentialValidationNotFound     CustomerCredentialValidationFailure = "not_found"
+	CustomerCredentialValidationRateLimited  CustomerCredentialValidationFailure = "rate_limited"
+	CustomerCredentialValidationNetwork      CustomerCredentialValidationFailure = "network"
+	CustomerCredentialValidationUnknown      CustomerCredentialValidationFailure = "unknown"
+)
+
+// CustomerCredentialValidationOutcome is the non-secret durable answer.
+type CustomerCredentialValidationOutcome struct {
+	Operation       CustomerCredentialValidationOperation
+	State           CustomerCredentialValidationState
+	FailureCode     CustomerCredentialValidationFailure
+	LeaseGeneration int64
+}
+
+// CustomerCredentialOperation is Kaana's complete INTERNAL replay identity of
+// a BYOK mutation. Create has no requested handle or revision; rotate and
+// revoke have both. Create and rotate also carry a one-way secret digest so
+// Kaana can reject an operation id replayed with different secret bytes. The
+// digest never belongs to an Oxy outcome request or response.
 type CustomerCredentialOperation struct {
 	OperationID string
 	Action      CustomerCredentialAction
@@ -82,6 +127,20 @@ type CustomerCredentialOperation struct {
 	CredentialHandle string
 	ExpectedRevision int64
 	SecretSHA256     string
+}
+
+// CustomerCredentialOutcomeQuery is the complete non-secret operation
+// selector Oxy repeats while recovering a lost mutation response. Kaana
+// deliberately does not require or expose its internal secret digest here:
+// recovery may resend the secret to the mutation endpoint, where the original
+// operation id is checked against the internal digest, but an outcome read is
+// metadata-only.
+type CustomerCredentialOutcomeQuery struct {
+	OperationID string
+	Action      CustomerCredentialAction
+	CustomerCredentialIdentity
+	CredentialHandle string
+	ExpectedRevision int64
 }
 
 // CustomerCredentialOutcome is an immutable terminal operation result. The
@@ -110,7 +169,7 @@ type CustomerRepository interface {
 	CreateCustomer(context.Context, CustomerCredentialOperation, EncryptedCustomerCredential, string) (CustomerCredentialOutcome, error)
 	RotateCustomer(context.Context, CustomerCredentialOperation, EncryptedCustomerCredential, string) (CustomerCredentialOutcome, error)
 	RevokeCustomer(context.Context, CustomerCredentialOperation, string) (CustomerCredentialOutcome, error)
-	GetCustomerOutcome(context.Context, CustomerCredentialOperation) (CustomerCredentialOutcome, error)
+	GetCustomerOutcome(context.Context, CustomerCredentialOutcomeQuery) (CustomerCredentialOutcome, error)
 	GetActiveCustomer(context.Context, CustomerCredentialScope) (EncryptedCustomerCredential, error)
 }
 
@@ -279,15 +338,15 @@ func (w *CustomerWriter) Revoke(ctx context.Context, operationID string, scope C
 
 // Outcome reads one terminal result only when the operation id, action,
 // complete immutable identity, handle and expected revision all match exactly.
-func (w *CustomerWriter) Outcome(ctx context.Context, operation CustomerCredentialOperation) (CustomerCredentialOutcome, error) {
-	if err := validateCustomerOperation(operation); err != nil {
+func (w *CustomerWriter) Outcome(ctx context.Context, query CustomerCredentialOutcomeQuery) (CustomerCredentialOutcome, error) {
+	if err := validateCustomerOutcomeQuery(query); err != nil {
 		return CustomerCredentialOutcome{}, invalidCustomerCredential(err)
 	}
-	outcome, err := w.repository.GetCustomerOutcome(ctx, operation)
+	outcome, err := w.repository.GetCustomerOutcome(ctx, query)
 	if err != nil {
 		return CustomerCredentialOutcome{}, err
 	}
-	if err := validateCustomerOutcome(operation, outcome); err != nil {
+	if err := validateCustomerOutcomeQueryResult(query, outcome); err != nil {
 		return CustomerCredentialOutcome{}, err
 	}
 	return outcome, nil
@@ -326,7 +385,7 @@ func (r *CustomerResolver) ResolveForInference(ctx context.Context, scope Custom
 		return nil, ErrCustomerCredentialUnavailable
 	}
 	plaintext, err := r.decryptor.DecryptCustomer(ctx, scope, row.Ciphertext, row.KMSKeyARN)
-	if err != nil || len(bytes.TrimSpace(plaintext)) == 0 {
+	if err != nil || provider.ValidateCustomerCredential(plaintext) != nil {
 		clear(plaintext)
 		return nil, ErrCustomerCredentialUnavailable
 	}
@@ -431,6 +490,35 @@ func validateCustomerOperation(operation CustomerCredentialOperation) error {
 	return nil
 }
 
+func validateCustomerOutcomeQuery(query CustomerCredentialOutcomeQuery) error {
+	if err := validateOpaqueCustomerID("operation id", query.OperationID, 128); err != nil {
+		return err
+	}
+	if err := validateCustomerIdentity(query.CustomerCredentialIdentity); err != nil {
+		return err
+	}
+	switch query.Action {
+	case CustomerCredentialActionCreate:
+		if query.CredentialHandle != "" || query.ExpectedRevision != 0 {
+			return errors.New("credential store: create outcome query carries a credential reference")
+		}
+	case CustomerCredentialActionRotate, CustomerCredentialActionRevoke:
+		if err := validateCustomerScope(CustomerCredentialScope{
+			CustomerCredentialIdentity: query.CustomerCredentialIdentity,
+			CredentialHandle:           query.CredentialHandle,
+			Revision:                   query.ExpectedRevision,
+		}); err != nil {
+			return err
+		}
+		if query.ExpectedRevision >= maxSafeJSONInteger {
+			return errors.New("credential store: customer credential revision cannot be advanced safely")
+		}
+	default:
+		return errors.New("credential store: invalid customer credential action")
+	}
+	return nil
+}
+
 func validSecretSHA256(value string) bool {
 	if len(value) != sha256.Size*2 {
 		return false
@@ -456,6 +544,40 @@ func validateCustomerOutcome(operation CustomerCredentialOperation, outcome Cust
 		if operation.Action != CustomerCredentialActionCreate {
 			expectedRevision = operation.ExpectedRevision + 1
 			if outcome.CredentialHandle != operation.CredentialHandle {
+				return errors.New("credential store: applied outcome changed the requested handle")
+			}
+		}
+		if outcome.Revision != expectedRevision {
+			return errors.New("credential store: applied outcome has an invalid revision")
+		}
+	case CustomerCredentialOutcomeConflict:
+		if outcome.CredentialHandle != "" || outcome.Revision != 0 {
+			return errors.New("credential store: conflict outcome exposes a credential reference")
+		}
+	default:
+		return errors.New("credential store: outcome has an invalid status")
+	}
+	return nil
+}
+
+func validateCustomerOutcomeQueryResult(query CustomerCredentialOutcomeQuery, outcome CustomerCredentialOutcome) error {
+	operation := outcome.Operation
+	if operation.OperationID != query.OperationID ||
+		operation.Action != query.Action ||
+		operation.CustomerCredentialIdentity != query.CustomerCredentialIdentity ||
+		operation.CredentialHandle != query.CredentialHandle ||
+		operation.ExpectedRevision != query.ExpectedRevision {
+		return errors.New("credential store: outcome operation does not match the query")
+	}
+	switch outcome.Status {
+	case CustomerCredentialOutcomeApplied:
+		if !validCustomerCredentialHandle(outcome.CredentialHandle) {
+			return errors.New("credential store: applied outcome has an invalid handle")
+		}
+		expectedRevision := int64(1)
+		if query.Action != CustomerCredentialActionCreate {
+			expectedRevision = query.ExpectedRevision + 1
+			if outcome.CredentialHandle != query.CredentialHandle {
 				return errors.New("credential store: applied outcome changed the requested handle")
 			}
 		}
@@ -500,8 +622,8 @@ func validCustomerCredentialHandle(handle string) bool {
 }
 
 func validateCustomerSecret(secret []byte) error {
-	if len(secret) == 0 || len(secret) > 4096 || len(bytes.TrimSpace(secret)) == 0 || bytes.ContainsAny(secret, "\r\n") {
-		return errors.New("credential store: provider credential must be one non-empty line of at most 4096 bytes")
+	if err := provider.ValidateCustomerCredential(secret); err != nil {
+		return errors.New("credential store: provider credential must be 1 to 4096 visible ASCII bytes")
 	}
 	return nil
 }

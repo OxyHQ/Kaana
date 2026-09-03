@@ -1,13 +1,14 @@
 package contract
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
 func validAuthorizedRouteRequest() Request {
-	profile := RoutingProfileSlug("kaana-v1")
+	profileID := RoutingProfileID("rpf_01JQZEXACT")
 	text := "hello"
 	authorized := true
 	return Request{
@@ -22,7 +23,7 @@ func validAuthorizedRouteRequest() Request {
 			},
 			RequestID: "req_test",
 		},
-		Target:   RoutingTarget{Kind: TargetRoutingProfile, RoutingProfile: &profile},
+		Target:   RoutingTarget{Kind: TargetRoutingProfileID, RoutingProfileID: &profileID},
 		Modality: ModalityText,
 		Input: Input{
 			Format: InputMessages,
@@ -55,6 +56,65 @@ func validAuthorizedRouteRequest() Request {
 				AuthorizedByPolicy: &authorized,
 			},
 		},
+	}
+}
+
+func TestRequestEnvelopeVersionTransitionIsNarrow(t *testing.T) {
+	legacy := validAuthorizedRouteRequest()
+	legacy.SchemaVersion = LegacyRequestEnvelopeVersion
+	reference := ModelReference("stub/model@2026-05-01")
+	legacy.Target = RoutingTarget{Kind: TargetModel, ModelReference: &reference}
+	legacy.AuthorizedRoutes = legacy.AuthorizedRoutes[:1]
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("the transitional direct-model envelope was refused: %v", err)
+	}
+
+	legacy.Target = RoutingTarget{Kind: TargetRoutingProfileID, RoutingProfileID: pointerTo(RoutingProfileID("rpf_exact"))}
+	if err := legacy.Validate(); err == nil || !strings.Contains(err.Error(), "accepts only a direct model target") {
+		t.Fatalf("legacy exact-profile target refusal = %v", err)
+	}
+
+	var retiredSlug Request
+	encoded := []byte(`{"schemaVersion":1,"target":{"kind":"routing_profile","routingProfile":"auto"}}`)
+	if err := json.Unmarshal(encoded, &retiredSlug); err != nil {
+		if !strings.Contains(err.Error(), "routingProfile is retired") {
+			t.Fatalf("the retired v1 slug decode refusal = %v", err)
+		}
+	} else if err := retiredSlug.Validate(); err == nil {
+		t.Fatal("the retired v1 slug target was accepted")
+	}
+
+	var smuggledSlug Request
+	smuggled := []byte(`{"schemaVersion":1,"target":{"kind":"model","modelReference":"stub/model","routingProfile":"auto"}}`)
+	if err := json.Unmarshal(smuggled, &smuggledSlug); err == nil || !strings.Contains(err.Error(), "routingProfile is retired") {
+		t.Fatalf("the slug smuggled beside a direct model produced %v", err)
+	}
+
+	current := validAuthorizedRouteRequest()
+	if err := current.Validate(); err != nil {
+		t.Fatalf("the v2 exact-profile target was refused: %v", err)
+	}
+}
+
+func TestRoutingProfileIDIsAnExactOpaquePrimaryKey(t *testing.T) {
+	request := validAuthorizedRouteRequest()
+	for name, profileID := range map[string]RoutingProfileID{
+		"empty":    "",
+		"too long": RoutingProfileID(strings.Repeat("x", 129)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := request
+			request.Target.RoutingProfileID = &profileID
+			if err := request.Validate(); err == nil {
+				t.Fatal("the invalid exact routing-profile id was accepted")
+			}
+		})
+	}
+
+	exact := RoutingProfileID("  Case-Sensitive/opaque:id  ")
+	request.Target.RoutingProfileID = &exact
+	if err := request.Validate(); err != nil {
+		t.Fatalf("an opaque id was parsed as a slug instead of preserved exactly: %v", err)
 	}
 }
 
@@ -192,6 +252,65 @@ func TestAuthorizedRouteAcceptsAnExplicitEmptyUnattestedRegionSet(t *testing.T) 
 	request.AuthorizedRoutes[0].Regions = []Region{}
 	if err := request.Validate(); err != nil {
 		t.Fatalf("an explicit empty unattested region set was refused: %v", err)
+	}
+}
+
+func TestAuthorizedRouteCustomerCredentialBindingIsExact(t *testing.T) {
+	request := validAuthorizedRouteRequest()
+	request.AuthorizedRoutes[0].CustomerProviderCredential = &CustomerProviderCredential{
+		CredentialHandle:   "kcred_abcdefghijklmnopqrstuvwxyz",
+		CredentialRevision: 7,
+		OwnerAccountID:     "acc_customer",
+		ConnectionID:       "pcx_exact",
+		Environment:        EnvironmentProduction,
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("the exact customer credential binding was refused: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*CustomerProviderCredential)
+	}{
+		{"handle prefix", func(binding *CustomerProviderCredential) {
+			binding.CredentialHandle = "secret_abcdefghijklmnopqrstuvwxyz"
+		}},
+		{"handle alphabet", func(binding *CustomerProviderCredential) {
+			binding.CredentialHandle = "kcred_abcdefghijklmnopqrstuvwxy1"
+		}},
+		{"zero revision", func(binding *CustomerProviderCredential) { binding.CredentialRevision = 0 }},
+		{"unsafe revision", func(binding *CustomerProviderCredential) { binding.CredentialRevision = 1 << 53 }},
+		{"empty owner", func(binding *CustomerProviderCredential) { binding.OwnerAccountID = "" }},
+		{"long connection", func(binding *CustomerProviderCredential) { binding.ConnectionID = strings.Repeat("x", 129) }},
+		{"unknown environment", func(binding *CustomerProviderCredential) { binding.Environment = "live" }},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			malformed := request
+			binding := *request.AuthorizedRoutes[0].CustomerProviderCredential
+			testCase.mutate(&binding)
+			malformed.AuthorizedRoutes = append([]AuthorizedRoute(nil), request.AuthorizedRoutes...)
+			malformed.AuthorizedRoutes[0].CustomerProviderCredential = &binding
+			if err := malformed.Validate(); err == nil || !strings.Contains(err.Error(), "customerProviderCredential") {
+				t.Fatalf("the malformed binding was reported as %v", err)
+			}
+		})
+	}
+}
+
+func TestAuthorizedRouteRejectsAnExplicitNullCustomerCredentialOnTheWire(t *testing.T) {
+	encoded := []byte(`{
+		"substitution":"same_model",
+		"deploymentId":"dep_primary",
+		"modelReference":"stub/model@2026-05-01",
+		"provider":"stub",
+		"regions":[],
+		"customerProviderCredential":null
+	}`)
+
+	var route AuthorizedRoute
+	if err := json.Unmarshal(encoded, &route); err == nil || !strings.Contains(err.Error(), "customerProviderCredential") {
+		t.Fatalf("the explicit null customer binding was reported as %v", err)
 	}
 }
 

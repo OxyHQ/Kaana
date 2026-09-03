@@ -5,12 +5,12 @@
     "": {
       "name": "@oxyhq/kaana-contract-tools",
       "dependencies": {
-        "@oxyhq/contracts": "0.35.0",
+        "@oxyhq/contracts": "0.40.0",
       },
     },
   },
   "packages": {
-    "@oxyhq/contracts": ["@oxyhq/contracts@0.35.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-sJqTioXpr5bWcoh/UxpgiItC3ZGpQocaZYXwZDYYe9VoylmlWFTeIeZo00My1SQkzC8pStIA6kCXtr2VlQJtkA=="],
+    "@oxyhq/contracts": ["@oxyhq/contracts@0.40.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-bSkittZ4VcEb9sE07W7+aLrqMysje+bd6aIKvRNmhcOuCFwW/qx+i2HOgOQy48MR/3bEXHoc4jYvyDXGDaYtDw=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
   }

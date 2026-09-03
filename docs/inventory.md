@@ -188,14 +188,16 @@ is what it replaces and nothing around it moves.
 Everything `cmd/kaana` reads about non-secret provider configuration, this reads
 too through `internal/providerconfig`, so the two commands cannot disagree about
 where a provider lives. Both load their pools from the same PostgreSQL/KMS
-store. The publisher uses one key because listing models is one authenticated
-catalogue question even when the provider paginates its answer; rotating a pool
-would spend several accounts on that one question. Serving owns rotation.
+store. The publisher uses one exact key id because listing models is one
+authenticated catalogue question even when the provider paginates its answer;
+rotating or selecting the first pool row would silently change authority.
+Serving owns pool order and rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `KAANA_PROVIDERS` | yes | serving superset; the publisher refuses a discovery slug absent here |
 | `KAANA_DISCOVERY_PROVIDERS` | yes | the slugs to ask; an ordered discoverable subsequence of serving's `KAANA_PROVIDERS` |
+| `KAANA_PROVIDER_<SLUG>_DISCOVERY_KEY_ID` | for every discovery slug | exact enabled PostgreSQL key id used for discovery; absent ids fail closed and never fall back to pool order |
 | `DATABASE_URL` | yes | TLS URL for Kaana's encrypted credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected symmetric KMS key ARN |
 | `KAANA_PROVIDER_<SLUG>_REGIONS` | no | verified upstream execution/residency regions; absence is an unattested empty set, eligible only when Oxy's effective policy has no regional control |
@@ -205,10 +207,8 @@ would spend several accounts on that one question. Serving owns rotation.
 | `KAANA_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `KAANA_INVENTORY_MAX_AGE` |
 | `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/kaana-publisher/model-attribution.json`, baked into the image |
 
-`KAANA_PROVIDERS` remains a compatibility fallback for publisher task
-definitions created before the split. New deployments must set both variables;
-publisher startup refuses any discovery slug absent from the serving set or
-ordered differently. Thus
+Publisher startup requires both variables and refuses any discovery slug absent
+from the serving set or ordered differently. Thus
 adding a serving-only provider cannot make discovery fail, and discovery cannot
 publish a provider the serving task would reject as unroutable.
 

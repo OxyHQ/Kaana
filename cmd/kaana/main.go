@@ -20,10 +20,12 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/credentialvalidation"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/httpapi"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
@@ -75,16 +77,20 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	validationVerifier, err := edgeauth.NewCredentialValidationVerifier(keys, durationFromEnv("KAANA_EDGE_MAX_SKEW", edgeauth.DefaultMaxSkew))
+	if err != nil {
+		return err
+	}
 
 	providerConfigs, err := parseProviders(os.Getenv)
 	if err != nil {
 		return err
 	}
 	credentialContext, cancelCredentialLoad := context.WithTimeout(context.Background(), 45*time.Second)
-	credentialStore, credentialDatabase, err := credentialstore.Open(
+	credentialStore, customerCredentialResolver, credentialDatabase, err := credentialstore.OpenRuntime(
 		credentialContext,
 		strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		strings.TrimSpace(os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")),
+		os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"),
 	)
 	if err != nil {
 		cancelCredentialLoad()
@@ -139,25 +145,60 @@ func run(logger *slog.Logger) error {
 		MaxCooldown:      durationFromEnv("KAANA_BREAKER_MAX_COOLDOWN", 0),
 		SuccessesToClose: intFromEnv("KAANA_BREAKER_SUCCESSES_TO_CLOSE", 0),
 	}, nil)
+	validationReporter, err := oxyvalidation.New(oxyvalidation.Config{
+		BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+		APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
+		APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+		Environment: contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
+		Logger:      logger,
+		QueueSize:   intFromEnv("KAANA_OXY_VALIDATION_QUEUE_SIZE", 256),
+		Timeout:     durationFromEnv("KAANA_OXY_VALIDATION_TIMEOUT", 5*time.Second),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if closeErr := validationReporter.Close(closeContext); closeErr != nil {
+			logger.Error("customer credential validation reporter did not drain", "errorType", "validation_shutdown")
+		}
+	}()
+	probeTimeout, err := strictPositiveDurationFromEnv("KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT", 20*time.Second)
+	if err != nil {
+		return err
+	}
+	credentialValidator, err := credentialvalidation.New(credentialvalidation.Config{
+		Repository: credentialDatabase, Resolver: customerCredentialResolver,
+		Inventory: inventoryStore, Providers: registry, Reporter: validationReporter,
+		ProbeTimeout: probeTimeout,
+	})
+	if err != nil {
+		return err
+	}
 
 	executor, err := kaana.NewExecutor(kaana.Config{
-		Inventory: inventoryStore,
-		Providers: registry,
-		Rotation:  rotationRegistry,
-		Costs:     costs,
+		Inventory:           inventoryStore,
+		Providers:           registry,
+		Rotation:            rotationRegistry,
+		Costs:               costs,
+		CustomerCredentials: customerCredentialResolver,
+		ValidationReporter:  validationReporter,
 	})
 	if err != nil {
 		return err
 	}
 
 	server, err := httpapi.New(httpapi.Config{
-		Executor:         executor,
-		Verifier:         verifier,
-		Registry:         registry,
-		Inventory:        inventoryStore,
-		Rotation:         rotationRegistry,
-		Logger:           logger,
-		MaxEnvelopeBytes: int64FromEnv("KAANA_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
+		Executor:            executor,
+		Verifier:            verifier,
+		ValidationVerifier:  validationVerifier,
+		CredentialValidator: credentialValidator,
+		Registry:            registry,
+		Inventory:           inventoryStore,
+		Rotation:            rotationRegistry,
+		Logger:              logger,
+		MaxEnvelopeBytes:    int64FromEnv("KAANA_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
 	})
 	if err != nil {
 		return err
@@ -213,6 +254,13 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+func envOr(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func reloadCredentialPools(
@@ -563,6 +611,21 @@ func durationFromEnv(name string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+// strictPositiveDurationFromEnv is for settings whose explicit misconfiguration
+// changes a safety boundary. Unlike the operational tuning helper above, a bad
+// value is refused instead of silently becoming the default.
+func strictPositiveDurationFromEnv(name string, fallback time.Duration) (time.Duration, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration", name)
+	}
+	return parsed, nil
 }
 
 func int64FromEnv(name string, fallback int64) int64 {

@@ -9,6 +9,11 @@ upstream providers and models — the same idea as OpenRouter, operated by Oxy f
 Oxy and external customers. Its one canonical data-plane origin is
 [`https://kaana.ai`](https://kaana.ai).
 
+This boundary owns every former generic inference-service implementation and
+every provider alias that used to sit inside Alia. It does not rename Alia:
+Alia remains the agent runtime, while Kaana owns provider execution and secret
+custody.
+
 Apps do not all call Kaana in the same way. A one-shot product feature such as
 translation or summarization goes through the Oxy inference edge to Kaana. A
 conversation that needs memory, tools, approvals or an agent goes to **Alia**;
@@ -16,9 +21,13 @@ Alia performs that orchestration and invokes Kaana through the same Oxy edge.
 Kaana never becomes the agent runtime merely because an agent eventually uses
 a model.
 
-A request names a **model**, not a vendor. Kaana decides which provider serves
-it, translates the request for that provider's API, streams the answer back,
-cancels it when the caller goes away, and reports what was consumed.
+A request names a **model** or an exact opaque Oxy routing-profile ID, never a
+vendor or profile name. Oxy authorizes and orders the exact provider
+deployments; Kaana attempts only that signed order, translates each attempt for
+the selected provider API, streams the answer back, cancels it when the caller
+goes away, and reports what was consumed. During the coordinated contract
+rollout, envelope v1 is accepted only for direct model targets; its historical
+routing-profile slug is refused.
 
 Oxy authorizes one ordered list of exact Kaana `deploymentId` values. It ranks
 policy-qualified routes by explicit profile priority, then score descending,
@@ -74,6 +83,15 @@ change would put an Oxy-owned concept here, the change is wrong, not the
 boundary — `AGENTS.md` has the rules a reviewer applies, and
 `docs/architecture.md` the reasoning.
 
+Customer BYOK support in source is not a production enablement claim. Oxy source
+now binds only an exact `ready + active + valid` generation to a signed route
+and carries a separate platform-fee price version through settlement. BYOK must
+remain ungrantable until the exact fee amount/version is approved, published and
+associated, Oxy migration `0069` and matching Oxy/Kaana images are deployed, the
+IAM/SSM and live-request gates pass, and a dedicated authenticated bootstrap for
+new `pending_validation + unvalidated` generations exists. Normal inference is
+not that bootstrap.
+
 ## Quick start
 
 ```bash
@@ -81,9 +99,9 @@ go build ./...
 go test ./...
 ```
 
-Running it needs five things and refuses to start without them. There is no
-unauthenticated mode, not even locally: a bypass that exists is a bypass that
-ships.
+Running it needs seven core settings and refuses to start without them. There
+is no unauthenticated mode, not even locally: a bypass that exists is a bypass
+that ships.
 
 | Variable | Meaning |
 |---|---|
@@ -92,6 +110,8 @@ ships.
 | `KAANA_PROVIDERS` | the provider slugs this process serves, e.g. `cerebras,groq,xai,openrouter` |
 | `DATABASE_URL` | TLS PostgreSQL connection for Kaana's credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | ARN of the symmetric KMS key that encrypts provider credentials; not secret |
+| `KAANA_OXY_SERVICE_API_KEY` | public id of Kaana's dedicated Oxy service credential; not a provider key |
+| `KAANA_OXY_SERVICE_API_SECRET` | secret half of that narrowly scoped Oxy service credential; not a provider key |
 
 Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 
@@ -99,6 +119,7 @@ Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 |---|---|---|
 | `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
 | `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown or account-scoped slug | the provider's non-secret API root |
+| `KAANA_PROVIDER_<SLUG>_DISCOVERY_KEY_ID` | in the publisher for every discovery slug | exact non-secret PostgreSQL key id used for catalogue discovery; never a provider key |
 | `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
 | `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT accounts; only then does a throttle rotate |
 
@@ -153,6 +174,7 @@ configs/model-attribution.json  who RELEASED each model — the publisher's only
 | [`docs/routing.md`](docs/routing.md) | cancellation, same-model failover, circuit breakers and health scoring |
 | [`docs/key-pools.md`](docs/key-pools.md) | several providers and a pool of keys for each; what a failure says about a KEY |
 | [`docs/customer-provider-credentials.md`](docs/customer-provider-credentials.md) | customer BYOK custody, exact handles, task split and rollout contract |
+| [`docs/provider-credential-id-cutover.md`](docs/provider-credential-id-cutover.md) | atomic removal of historical platform-key names and exact duplicate handling |
 | [`docs/inventory.md`](docs/inventory.md) | the deployment snapshot, how it is published, and what staleness costs |
 | [`docs/adapters.md`](docs/adapters.md) | the adapter interface, the two ported adapters, the conformance harness |
 | [`docs/provider-onboarding.md`](docs/provider-onboarding.md) | verified endpoints, catalog semantics and rollout gates for new providers |

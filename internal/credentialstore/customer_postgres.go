@@ -7,6 +7,61 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ClaimCustomerValidation atomically creates or reclaims one exact bootstrap
+// operation. A replay with any selector changed returns conflict; a live lease
+// returns pending; a terminal result is replayed without another provider call.
+func (p *Postgres) ClaimCustomerValidation(ctx context.Context, operation CustomerCredentialValidationOperation) (CustomerCredentialValidationOutcome, error) {
+	var state CustomerCredentialValidationState
+	var failure *CustomerCredentialValidationFailure
+	var leaseGeneration *int64
+	err := p.pool.QueryRow(ctx, `SELECT outcome_state, outcome_failure_code, outcome_lease_generation
+		FROM kaana_claim_customer_provider_credential_validation($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		operation.OperationID, operation.ApplicationID, operation.Provider,
+		operation.OwnerAccountID, operation.ConnectionID, operation.Environment,
+		operation.CredentialHandle, operation.Revision, operation.DeploymentID,
+	).Scan(&state, &failure, &leaseGeneration)
+	if err != nil {
+		return CustomerCredentialValidationOutcome{}, err
+	}
+	outcome := CustomerCredentialValidationOutcome{Operation: operation, State: state}
+	if failure != nil {
+		outcome.FailureCode = *failure
+	}
+	if leaseGeneration != nil {
+		outcome.LeaseGeneration = *leaseGeneration
+	}
+	return outcome, nil
+}
+
+// CompleteCustomerValidation commits the first terminal result for an exact
+// claimed operation. A late competing worker cannot overwrite it.
+func (p *Postgres) CompleteCustomerValidation(ctx context.Context, outcome CustomerCredentialValidationOutcome) error {
+	var completed bool
+	err := p.pool.QueryRow(ctx, `SELECT kaana_complete_customer_provider_credential_validation(
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		outcome.Operation.OperationID, outcome.Operation.ApplicationID,
+		outcome.Operation.Provider, outcome.Operation.OwnerAccountID,
+		outcome.Operation.ConnectionID, outcome.Operation.Environment,
+		outcome.Operation.CredentialHandle, outcome.Operation.Revision,
+		outcome.Operation.DeploymentID, outcome.LeaseGeneration, outcome.State,
+		nullableValidationFailure(outcome.FailureCode),
+	).Scan(&completed)
+	if err != nil {
+		return err
+	}
+	if !completed {
+		return errors.New("credential store: validation operation no longer owns its exact lease or outcome")
+	}
+	return nil
+}
+
+func nullableValidationFailure(failure CustomerCredentialValidationFailure) any {
+	if failure == "" {
+		return nil
+	}
+	return failure
+}
+
 // CreateCustomer atomically reserves an exact operation id, creates its
 // ciphertext row, and records the terminal result. A repeated exact operation
 // returns the original result; every other reuse or existing identity conflicts.
@@ -40,13 +95,17 @@ func (p *Postgres) RevokeCustomer(ctx context.Context, operation CustomerCredent
 
 // GetCustomerOutcome returns a terminal result only for one exact operation
 // request. A mismatched field is indistinguishable from an absent operation.
-func (p *Postgres) GetCustomerOutcome(ctx context.Context, operation CustomerCredentialOperation) (CustomerCredentialOutcome, error) {
+func (p *Postgres) GetCustomerOutcome(ctx context.Context, query CustomerCredentialOutcomeQuery) (CustomerCredentialOutcome, error) {
 	row := p.pool.QueryRow(ctx, `SELECT outcome_status, resolved_handle, resolved_revision
-		FROM kaana_get_customer_provider_credential_outcome($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		operation.OperationID, operation.Action, operation.Provider,
-		operation.OwnerAccountID, operation.ConnectionID, operation.Environment,
-		nullableCredentialHandle(operation), nullableExpectedRevision(operation),
-		nullableSecretSHA256(operation))
+		FROM kaana_get_customer_provider_credential_outcome($1, $2, $3, $4, $5, $6, $7, $8)`,
+		query.OperationID, query.Action, query.Provider,
+		query.OwnerAccountID, query.ConnectionID, query.Environment,
+		nullableOutcomeCredentialHandle(query), nullableOutcomeExpectedRevision(query))
+	operation := CustomerCredentialOperation{
+		OperationID: query.OperationID, Action: query.Action,
+		CustomerCredentialIdentity: query.CustomerCredentialIdentity,
+		CredentialHandle:           query.CredentialHandle, ExpectedRevision: query.ExpectedRevision,
+	}
 	outcome, err := scanCustomerOutcome(operation, false, row.Scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CustomerCredentialOutcome{}, ErrCustomerCredentialOutcomeUnavailable
@@ -82,25 +141,18 @@ func scanCustomerOutcome(operation CustomerCredentialOperation, includeReplay bo
 	return outcome, nil
 }
 
-func nullableCredentialHandle(operation CustomerCredentialOperation) any {
-	if operation.Action == CustomerCredentialActionCreate {
+func nullableOutcomeCredentialHandle(query CustomerCredentialOutcomeQuery) any {
+	if query.Action == CustomerCredentialActionCreate {
 		return nil
 	}
-	return operation.CredentialHandle
+	return query.CredentialHandle
 }
 
-func nullableExpectedRevision(operation CustomerCredentialOperation) any {
-	if operation.Action == CustomerCredentialActionCreate {
+func nullableOutcomeExpectedRevision(query CustomerCredentialOutcomeQuery) any {
+	if query.Action == CustomerCredentialActionCreate {
 		return nil
 	}
-	return operation.ExpectedRevision
-}
-
-func nullableSecretSHA256(operation CustomerCredentialOperation) any {
-	if operation.Action == CustomerCredentialActionRevoke {
-		return nil
-	}
-	return operation.SecretSHA256
+	return query.ExpectedRevision
 }
 
 // GetActiveCustomer selects ciphertext through the exact SECURITY DEFINER

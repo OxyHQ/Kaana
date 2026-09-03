@@ -12,8 +12,11 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/customerlimit"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
@@ -35,6 +38,9 @@ type scriptedAdapter struct {
 	stream func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error)
 	// translate, when set, replaces the pass-through translation.
 	translate func(request *contract.Request, route provider.Route) (*provider.Call, error)
+	// credentials observes the request-scoped override before the scripted
+	// stream runs. nil is the platform-pool path.
+	credentials func(*provider.KeyPool)
 
 	mutex sync.Mutex
 	calls int
@@ -54,11 +60,49 @@ func (s *scriptedAdapter) Translate(request *contract.Request, route provider.Ro
 	return &provider.Call{Route: route, Stream: request.Stream}, nil
 }
 
-func (s *scriptedAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+func (s *scriptedAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	s.mutex.Lock()
 	s.calls++
 	s.mutex.Unlock()
+	if s.credentials != nil {
+		s.credentials(credentials)
+	}
 	return s.stream(ctx, call, out)
+}
+
+type scriptedCustomerResolver struct {
+	want      credentialstore.CustomerCredentialScope
+	plaintext []byte
+	err       error
+	calls     int
+}
+
+type recordingValidationReporter struct {
+	mutex    sync.Mutex
+	verdicts []oxyvalidation.Verdict
+}
+
+func (r *recordingValidationReporter) Submit(verdict oxyvalidation.Verdict) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.verdicts = append(r.verdicts, verdict)
+}
+
+func (r *recordingValidationReporter) all() []oxyvalidation.Verdict {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return append([]oxyvalidation.Verdict(nil), r.verdicts...)
+}
+
+func (r *scriptedCustomerResolver) ResolveForInference(_ context.Context, scope credentialstore.CustomerCredentialScope) ([]byte, error) {
+	r.calls++
+	if scope != r.want {
+		return nil, fmt.Errorf("unexpected customer credential scope: %+v", scope)
+	}
+	if r.err != nil {
+		return nil, r.err
+	}
+	return append([]byte(nil), r.plaintext...), nil
 }
 
 func (s *scriptedAdapter) Health(context.Context) provider.Health {
@@ -83,12 +127,15 @@ func (s *scriptedAdapter) attempts() int {
 // re-reading one, and a test that bypassed it would exercise a wiring nothing
 // runs.
 type harness struct {
-	deployments string
-	adapters    []provider.Adapter
-	rotation    *rotation.Registry
-	costs       *providercost.Cards
-	issuedAt    time.Time
-	now         func() time.Time
+	deployments         string
+	adapters            []provider.Adapter
+	rotation            *rotation.Registry
+	costs               *providercost.Cards
+	customerCredentials kaana.CustomerCredentialResolver
+	validationReporter  oxyvalidation.Submitter
+	customerLimits      *customerlimit.Registry
+	issuedAt            time.Time
+	now                 func() time.Time
 	// routes are the exact destinations Oxy authorized for tests that exercise
 	// failover. nil exercises the additive contract's no-list default.
 	routes []contract.AuthorizedRoute
@@ -126,11 +173,14 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		rotationRegistry = rotation.NewRegistry(rotation.Policy{}, h.now)
 	}
 	executor, err := kaana.NewExecutor(kaana.Config{
-		Inventory: store,
-		Providers: registry,
-		Rotation:  rotationRegistry,
-		Costs:     h.costs,
-		Now:       h.now,
+		Inventory:           store,
+		Providers:           registry,
+		Rotation:            rotationRegistry,
+		Costs:               h.costs,
+		CustomerCredentials: h.customerCredentials,
+		ValidationReporter:  h.validationReporter,
+		CustomerLimits:      h.customerLimits,
+		Now:                 h.now,
 	})
 	if err != nil {
 		t.Fatalf("building the executor: %v", err)
@@ -217,8 +267,8 @@ func happyAdapter() *scriptedAdapter {
 // signed list can give Kaana a destination; inventory is never a substitute.
 func TestARoutingProfileWithoutAuthorizedRoutesIsRefusedWithTheFieldNamed(t *testing.T) {
 	request := baseRequest()
-	profile := contract.RoutingProfileSlug("auto")
-	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfile, RoutingProfile: &profile}
+	profileID := contract.RoutingProfileID("rpf_exact")
+	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfileID, RoutingProfileID: &profileID}
 
 	events, result := execute(t, happyAdapter(), request)
 
@@ -239,6 +289,377 @@ func TestARoutingProfileWithoutAuthorizedRoutesIsRefusedWithTheFieldNamed(t *tes
 	}
 }
 
+func TestExecutorTransitionAcceptsV1OnlyForADirectModel(t *testing.T) {
+	direct := baseRequest()
+	direct.SchemaVersion = contract.LegacyRequestEnvelopeVersion
+	adapter := happyAdapter()
+	events, result := execute(t, adapter, direct)
+	if result.Failure != nil {
+		t.Fatalf("the transitional direct-model envelope was refused: %v", result.Failure)
+	}
+	if adapter.attempts() != 1 || len(events) == 0 {
+		t.Fatalf("the transitional direct model made %d attempts and %d events", adapter.attempts(), len(events))
+	}
+
+	profile := baseRequest()
+	profile.SchemaVersion = contract.LegacyRequestEnvelopeVersion
+	profileID := contract.RoutingProfileID("rpf_exact")
+	profile.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfileID, RoutingProfileID: &profileID}
+	profile.AuthorizedRoutes = []contract.AuthorizedRoute{{
+		Substitution:   contract.SubstitutionSameModel,
+		DeploymentID:   "dep_test",
+		ModelReference: "stub/model@2026-05-01",
+		Provider:       "stub",
+		Regions:        []contract.Region{"test-region"},
+	}}
+	blocked := happyAdapter()
+	_, refused := execute(t, blocked, profile)
+	if refused.Failure == nil || refused.Failure.Code != contract.CodeInvalidRequest {
+		t.Fatalf("the v1 profile target refusal = %+v", refused.Failure)
+	}
+	if blocked.attempts() != 0 {
+		t.Fatalf("the v1 profile target reached the adapter %d times", blocked.attempts())
+	}
+}
+
+func TestCustomerCredentialBindingResolvesExactlyAndNeverUsesThePlatformPool(t *testing.T) {
+	request := baseRequest()
+	binding := &contract.CustomerProviderCredential{
+		CredentialHandle:   "kcred_abcdefghijklmnopqrstuvwxyz",
+		CredentialRevision: 4,
+		OwnerAccountID:     "acc_customer",
+		ConnectionID:       "pcx_exact",
+		Environment:        contract.EnvironmentProduction,
+	}
+	request.AuthorizedRoutes = []contract.AuthorizedRoute{{
+		Substitution:               contract.SubstitutionSameModel,
+		DeploymentID:               "dep_test",
+		ModelReference:             "stub/model@2026-05-01",
+		Provider:                   "stub",
+		Regions:                    []contract.Region{"test-region"},
+		CustomerProviderCredential: binding,
+	}}
+	wantScope := credentialstore.CustomerCredentialScope{
+		CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+			Provider: "stub", OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact",
+			Environment: contract.EnvironmentProduction,
+		},
+		CredentialHandle: string(binding.CredentialHandle),
+		Revision:         binding.CredentialRevision,
+	}
+	const customerSecret = "customer-secret-never-log"
+	resolver := &scriptedCustomerResolver{want: wantScope, plaintext: []byte(customerSecret)}
+	reporter := &recordingValidationReporter{}
+	adapter := happyAdapter()
+	var requestPool *provider.KeyPool
+	adapter.credentials = func(pool *provider.KeyPool) {
+		requestPool = pool
+		if pool == nil {
+			t.Fatal("the route fell back to the platform credential pool")
+		}
+		key, ok := pool.Begin().Next(time.Now())
+		if !ok || key.Secret() != customerSecret || !key.CustomerOwned() {
+			t.Fatalf("the upstream pool received key=%q customerOwned=%v leased=%v", key.Secret(), key.CustomerOwned(), ok)
+		}
+	}
+
+	_, result := harness{
+		deployments:         oneDeployment,
+		adapters:            []provider.Adapter{adapter},
+		customerCredentials: resolver,
+		validationReporter:  reporter,
+	}.run(t, request)
+	if result.Failure != nil || resolver.calls != 1 || adapter.attempts() != 1 {
+		t.Fatalf("the exact BYOK route produced result=%+v resolverCalls=%d attempts=%d", result.Failure, resolver.calls, adapter.attempts())
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || !result.UpstreamCost.Attempts[0].AttemptUsage.ProviderBilledCustomer || len(result.UpstreamCost.Totals) != 0 {
+		t.Fatalf("the BYOK provider expense was misattributed: %+v", result.UpstreamCost)
+	}
+	if requestPool == nil {
+		t.Fatal("the adapter did not receive a request-scoped customer pool")
+	}
+	if _, ok := requestPool.Begin().Next(time.Now()); ok {
+		t.Fatal("the decrypted customer credential remained reachable after execution")
+	}
+	wantVerdict := oxyvalidation.Verdict{
+		ConnectionID: binding.ConnectionID, CredentialHandle: string(binding.CredentialHandle),
+		CredentialRevision: binding.CredentialRevision, Environment: binding.Environment,
+		State: oxyvalidation.StateValid,
+	}
+	if verdicts := reporter.all(); len(verdicts) != 1 || verdicts[0] != wantVerdict {
+		t.Fatalf("validation verdicts = %#v, expected %#v", verdicts, wantVerdict)
+	}
+}
+
+func TestCustomerCredentialPoolIsDestroyedWhenAdapterPanics(t *testing.T) {
+	request := baseRequest()
+	binding, scope := customerBinding("stub")
+	request.AuthorizedRoutes = []contract.AuthorizedRoute{{
+		Substitution: contract.SubstitutionSameModel, DeploymentID: "dep_test",
+		ModelReference: "stub/model@2026-05-01", Provider: "stub",
+		Regions: []contract.Region{"test-region"}, CustomerProviderCredential: binding,
+	}}
+	resolver := &scriptedCustomerResolver{want: scope, plaintext: []byte("customer-secret")}
+	var requestPool *provider.KeyPool
+	adapter := &scriptedAdapter{
+		credentials: func(pool *provider.KeyPool) { requestPool = pool },
+		stream: func(context.Context, *provider.Call, provider.Emitter) (provider.Outcome, error) {
+			panic("scripted adapter panic")
+		},
+	}
+	executor := harness{
+		deployments: oneDeployment, adapters: []provider.Adapter{adapter}, customerCredentials: resolver,
+	}.build(t)
+
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		executor.Execute(context.Background(), request, func(contract.StreamEvent) error { return nil })
+	}()
+	if recovered == nil {
+		t.Fatal("the scripted adapter did not panic, so cleanup was not exercised")
+	}
+	if requestPool == nil {
+		t.Fatal("the panicking adapter did not receive a request-scoped pool")
+	}
+	if requestPool.Configured() {
+		t.Fatal("the decrypted customer credential remained configured after adapter panic")
+	}
+	if _, ok := requestPool.Begin().Next(time.Now()); ok {
+		t.Fatal("the decrypted customer credential remained leasable after adapter panic")
+	}
+}
+
+func TestUnavailableCustomerCredentialFailsClosedBeforeTheUpstream(t *testing.T) {
+	request := baseRequest()
+	binding := &contract.CustomerProviderCredential{
+		CredentialHandle: "kcred_abcdefghijklmnopqrstuvwxyz", CredentialRevision: 1,
+		OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+	}
+	request.AuthorizedRoutes = []contract.AuthorizedRoute{{
+		Substitution: contract.SubstitutionSameModel, DeploymentID: "dep_test",
+		ModelReference: "stub/model@2026-05-01", Provider: "stub",
+		Regions: []contract.Region{"test-region"}, CustomerProviderCredential: binding,
+	}}
+	resolver := &scriptedCustomerResolver{
+		want: credentialstore.CustomerCredentialScope{
+			CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+				Provider: "stub", OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+			}, CredentialHandle: string(binding.CredentialHandle), Revision: 1,
+		},
+		err: credentialstore.ErrCustomerCredentialUnavailable,
+	}
+	adapter := happyAdapter()
+	_, result := harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}, customerCredentials: resolver}.run(t, request)
+	if result.Failure == nil || result.Failure.Code != contract.CodeBYOKCredentialInvalid {
+		t.Fatalf("the unavailable BYOK generation produced %+v", result.Failure)
+	}
+	if adapter.attempts() != 0 || result.Report != nil || len(result.UpstreamCost.Attempts) != 0 {
+		t.Fatalf("the failed binding reached an upstream or settlement: attempts=%d result=%+v", adapter.attempts(), result)
+	}
+}
+
+func TestMalformedStoredCustomerCredentialFailsBeforeTransportOrBreaker(t *testing.T) {
+	request := baseRequest()
+	binding := &contract.CustomerProviderCredential{
+		CredentialHandle: "kcred_abcdefghijklmnopqrstuvwxyz", CredentialRevision: 1,
+		OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+	}
+	request.AuthorizedRoutes = []contract.AuthorizedRoute{{
+		Substitution: contract.SubstitutionSameModel, DeploymentID: "dep_test",
+		ModelReference: "stub/model@2026-05-01", Provider: "stub", Regions: []contract.Region{"test-region"},
+		CustomerProviderCredential: binding,
+	}}
+	resolver := &scriptedCustomerResolver{
+		want: credentialstore.CustomerCredentialScope{
+			CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+				Provider: "stub", OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+			}, CredentialHandle: string(binding.CredentialHandle), Revision: binding.CredentialRevision,
+		},
+		plaintext: []byte{'v', 'a', 'l', 'i', 'd', 0, 'x'},
+	}
+	adapter := happyAdapter()
+	breakers := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 1}, nil)
+	_, result := harness{
+		deployments: oneDeployment, adapters: []provider.Adapter{adapter},
+		rotation: breakers, customerCredentials: resolver,
+	}.run(t, request)
+	if result.Failure == nil || result.Failure.Code != contract.CodeBYOKCredentialInvalid {
+		t.Fatalf("the malformed stored customer credential produced %+v", result.Failure)
+	}
+	if adapter.attempts() != 0 || result.Report != nil || len(result.UpstreamCost.Attempts) != 0 {
+		t.Fatalf("the malformed stored credential reached transport or settlement: attempts=%d result=%+v", adapter.attempts(), result)
+	}
+	health := breakers.Project([]contract.DeploymentID{"dep_test"})[0]
+	if health.ConsecutiveFailures != 0 || health.State != rotation.StateClosed {
+		t.Fatalf("the malformed customer credential damaged the shared breaker: %+v", health)
+	}
+}
+
+func TestCustomerCredentialRefusalDoesNotTripTheSharedBreakerOrFailOver(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		providerCode contract.ErrorCode
+		wantInvalid  bool
+	}{
+		{name: "authentication", providerCode: contract.CodeProviderCredentialInvalid, wantInvalid: true},
+		{name: "billing", providerCode: contract.CodeProviderBillingRefused, wantInvalid: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			request := routingProfileRequest()
+			binding := &contract.CustomerProviderCredential{
+				CredentialHandle: "kcred_abcdefghijklmnopqrstuvwxyz", CredentialRevision: 3,
+				OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+			}
+			request.AuthorizedRoutes[0].CustomerProviderCredential = binding
+			resolver := &scriptedCustomerResolver{
+				want: credentialstore.CustomerCredentialScope{
+					CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+						Provider: "stub", OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+					}, CredentialHandle: string(binding.CredentialHandle), Revision: binding.CredentialRevision,
+				},
+				plaintext: []byte("customer-secret"),
+			}
+			primary := failingAdapter("stub", provider.ErrCustomerCredential{Code: testCase.providerCode}, nil)
+			backup := succeedingAdapter("backup", 1)
+			breakers := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 1}, nil)
+			reporter := &recordingValidationReporter{}
+			_, result := harness{
+				deployments: routingProfileDeployments, adapters: []provider.Adapter{primary, backup},
+				rotation: breakers, customerCredentials: resolver, validationReporter: reporter,
+			}.run(t, request)
+			if result.Failure == nil || result.Failure.Code != contract.CodeBYOKCredentialInvalid {
+				t.Fatalf("the customer refusal produced %+v", result.Failure)
+			}
+			if primary.attempts() != 1 || backup.attempts() != 0 {
+				t.Fatalf("the customer refusal attempted primary=%d backup=%d", primary.attempts(), backup.attempts())
+			}
+			health := breakers.Project([]contract.DeploymentID{"dep_a"})[0]
+			if health.ConsecutiveFailures != 0 || health.State != rotation.StateClosed {
+				t.Fatalf("the customer refusal damaged the shared deployment breaker: %+v", health)
+			}
+			verdicts := reporter.all()
+			if !testCase.wantInvalid {
+				if len(verdicts) != 0 {
+					t.Fatalf("billing refusal incorrectly disabled a revalidatable key: %#v", verdicts)
+				}
+				return
+			}
+			wantVerdict := oxyvalidation.Verdict{
+				ConnectionID: binding.ConnectionID, CredentialHandle: string(binding.CredentialHandle),
+				CredentialRevision: binding.CredentialRevision, Environment: binding.Environment,
+				State: oxyvalidation.StateInvalid, FailureCode: oxyvalidation.FailureUnauthorized,
+			}
+			if len(verdicts) != 1 || verdicts[0] != wantVerdict {
+				t.Fatalf("customer authentication validation verdicts = %#v", verdicts)
+			}
+		})
+	}
+}
+
+func TestCustomerCredentialThrottleDoesNotTripTheSharedBreakerOrFailOver(t *testing.T) {
+	request := routingProfileRequest()
+	binding, scope := customerBinding("stub")
+	request.AuthorizedRoutes[0].CustomerProviderCredential = binding
+	resolver := &scriptedCustomerResolver{want: scope, plaintext: []byte("customer-secret")}
+	pool, err := provider.NewCustomerKeyPool("stub", []byte("customer-secret"))
+	if err != nil {
+		t.Fatalf("building the customer pool: %v", err)
+	}
+	key, leased := pool.Begin().Next(time.Now())
+	if !leased {
+		t.Fatal("the customer pool leased no credential")
+	}
+	throttle := provider.CustomerCredentialFailure(key, provider.ErrUpstream{
+		Code: contract.CodeRateLimited, Category: contract.UpstreamRateLimit,
+		Detail: "the customer provider account is throttled", RetryAfterMs: 1700,
+	})
+	primary := failingAdapter("stub", throttle, nil)
+	backup := succeedingAdapter("backup", 1)
+	breakers := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 1}, nil)
+	reporter := &recordingValidationReporter{}
+
+	executor := harness{
+		deployments: routingProfileDeployments, adapters: []provider.Adapter{primary, backup},
+		rotation: breakers, customerCredentials: resolver, validationReporter: reporter,
+	}.build(t)
+	_, result := runOn(executor, request)
+	if result.Failure == nil || result.Failure.Code != contract.CodeRateLimited || result.Failure.RetryAfterMs == nil || *result.Failure.RetryAfterMs != 1700 {
+		t.Fatalf("the customer throttle produced %+v", result.Failure)
+	}
+	if primary.attempts() != 1 || backup.attempts() != 0 {
+		t.Fatalf("the customer throttle attempted primary=%d backup=%d", primary.attempts(), backup.attempts())
+	}
+	health := breakers.Project([]contract.DeploymentID{"dep_a"})[0]
+	if health.ConsecutiveFailures != 0 || health.State != rotation.StateClosed {
+		t.Fatalf("the customer throttle damaged the shared deployment breaker: %+v", health)
+	}
+	_, blocked := runOn(executor, request)
+	if blocked.Failure == nil || blocked.Failure.Code != contract.CodeRateLimited || blocked.Failure.RetryAfterMs == nil || *blocked.Failure.RetryAfterMs <= 0 {
+		t.Fatalf("the exact credential throttle was not retained: %+v", blocked.Failure)
+	}
+	if primary.attempts() != 1 || resolver.calls != 1 || backup.attempts() != 0 {
+		t.Fatalf("the throttled credential reached resolver/upstream again: primary=%d resolver=%d backup=%d", primary.attempts(), resolver.calls, backup.attempts())
+	}
+	if verdicts := reporter.all(); len(verdicts) != 0 {
+		t.Fatalf("a transient throttle produced disabling validation: %#v", verdicts)
+	}
+}
+
+func TestPlatformAndCustomerCredentialBreakerLanesCannotInterfere(t *testing.T) {
+	breakers := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 1, Cooldown: time.Hour}, nil)
+	resolver := &scriptedCustomerResolver{plaintext: []byte("customer-secret")}
+	adapter := &scriptedAdapter{slug: "stub"}
+	adapter.stream = func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		if call.Route.CustomerProviderCredential == nil {
+			return provider.Outcome{}, provider.ErrUpstream{
+				Code: contract.CodeProviderCredentialInvalid, Category: contract.UpstreamAuthentication,
+				Detail: "the platform credential is refused",
+			}
+		}
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		return provider.Outcome{
+			Units:        []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}},
+			UsageSource:  contract.UsageProviderReported,
+			FinishReason: contract.FinishStop,
+		}, nil
+	}
+	executor := harness{
+		deployments: oneDeployment, adapters: []provider.Adapter{adapter},
+		rotation: breakers, customerCredentials: resolver,
+	}.build(t)
+
+	_, platformResult := runOn(executor, baseRequest())
+	if platformResult.Failure == nil || platformResult.Failure.Code != contract.CodeProviderCredentialInvalid {
+		t.Fatalf("the platform credential control request produced %+v", platformResult.Failure)
+	}
+	healthAfterPlatformFailure := breakers.Project([]contract.DeploymentID{"dep_test"})[0]
+	if healthAfterPlatformFailure.State != rotation.StateOpen || healthAfterPlatformFailure.ConsecutiveFailures != 1 {
+		t.Fatalf("the platform credential did not open its own breaker: %+v", healthAfterPlatformFailure)
+	}
+
+	byokRequest := baseRequest()
+	binding, scope := customerBinding("stub")
+	binding.CredentialRevision = 1
+	scope.Revision = 1
+	resolver.want = scope
+	byokRequest.AuthorizedRoutes = []contract.AuthorizedRoute{{
+		Substitution: contract.SubstitutionSameModel, DeploymentID: "dep_test",
+		ModelReference: "stub/model@2026-05-01", Provider: "stub", Regions: []contract.Region{"test-region"},
+		CustomerProviderCredential: binding,
+	}}
+	_, byokResult := runOn(executor, byokRequest)
+	if byokResult.Failure != nil {
+		t.Fatalf("the open platform breaker blocked healthy BYOK: %+v", byokResult.Failure)
+	}
+	healthAfterBYOKSuccess := breakers.Project([]contract.DeploymentID{"dep_test"})[0]
+	if healthAfterBYOKSuccess.State != rotation.StateOpen || healthAfterBYOKSuccess.ConsecutiveFailures != 1 {
+		t.Fatalf("the BYOK success rehabilitated the platform breaker: %+v", healthAfterBYOKSuccess)
+	}
+}
+
 const routingProfileDeployments = `
   {"deploymentId":"dep_a","provider":"stub","modelReference":"stub/model@2026-05-01",
    "upstreamModelId":"model-a","regions":["r1"],"current":true},
@@ -249,9 +670,9 @@ const routingProfileDeployments = `
 
 func routingProfileRequest() *contract.Request {
 	request := baseRequest()
-	profile := contract.RoutingProfileSlug("kaana-v1")
+	profileID := contract.RoutingProfileID("rpf_exact")
 	authorized := true
-	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfile, RoutingProfile: &profile}
+	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfileID, RoutingProfileID: &profileID}
 	request.AuthorizedRoutes = []contract.AuthorizedRoute{
 		{
 			Substitution:   contract.SubstitutionSameModel,
@@ -641,24 +1062,178 @@ func TestASuccessfulRequestProducesASettleableReport(t *testing.T) {
 	}
 }
 
-// TestAnAdapterThatMeasuresNothingStillSaysHowItKnows: an estimate that is
-// indistinguishable from a provider's own count is one nobody can reconcile.
-func TestAnAdapterThatMeasuresNothingStillSaysHowItKnows(t *testing.T) {
+// TestAnAdapterThatReportsNothingGetsAnEstimatedCompletedReport covers the
+// report-v2 rule without turning a provider's otherwise valid answer into an
+// internal error. The estimate comes from the normalized request and emitted
+// output, never from a price.
+func TestAnAdapterThatReportsNothingGetsAnEstimatedCompletedReport(t *testing.T) {
 	adapter := &scriptedAdapter{stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 			return provider.Outcome{}, err
 		}
+		if err := out.Delta(0, contract.ChannelOutputText, "answer"); err != nil {
+			return provider.Outcome{}, err
+		}
 		return provider.Outcome{FinishReason: contract.FinishStop}, nil
+	}}
+	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
+		{"unit":"requests","amountPerUnit":100},
+		{"unit":"input_tokens","amountPerUnit":10},
+		{"unit":"output_tokens","amountPerUnit":20}
+	]}]}`))
+	if err != nil {
+		t.Fatalf("building fallback rate-card fixture: %v", err)
+	}
+
+	events, result := (harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}, costs: cards}).run(t, baseRequest())
+
+	if result.Failure != nil {
+		t.Fatalf("provider completion failed because usage was absent: %+v", result.Failure)
+	}
+	if result.Report == nil {
+		t.Fatal("provider completion has no estimated usage report")
+	}
+	if result.Report.Outcome != contract.OutcomeCompleted || result.Report.UsageSource != contract.UsageEstimated {
+		t.Fatalf("estimated completion report = %+v", result.Report)
+	}
+	reported := make(map[contract.UsageUnit]int, len(result.Report.Units))
+	for _, quantity := range result.Report.Units {
+		reported[quantity.Unit] = quantity.Quantity
+	}
+	if reported[contract.UnitRequests] != 1 || reported[contract.UnitInputTokens] <= 0 || reported[contract.UnitOutputTokens] <= 0 {
+		t.Fatalf("estimated units = %v", result.Report.Units)
+	}
+	if len(events) < 2 || events[len(events)-2].EventType() != contract.EventUsage || events[len(events)-1].EventType() != contract.EventDone {
+		t.Fatalf("estimated usage must immediately precede done; got %d events", len(events))
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || len(result.UpstreamCost.Totals) != 1 {
+		t.Fatalf("estimated units did not reach upstream-cost accounting: %+v", result.UpstreamCost)
+	}
+	wantCost := int64(100 + reported[contract.UnitInputTokens]*10 + reported[contract.UnitOutputTokens]*20)
+	if got := result.UpstreamCost.Totals[0].Amount; got != wantCost {
+		t.Fatalf("estimated upstream cost = %d, expected %d from the existing test rate card", got, wantCost)
+	}
+}
+
+func TestBrokenSinkKeepsEstimatedPartialUsageWithoutAnotherWrite(t *testing.T) {
+	adapter := &scriptedAdapter{stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		if err := out.Delta(0, contract.ChannelOutputText, "delivered"); err != nil {
+			return provider.Outcome{}, err
+		}
+		if err := out.Delta(0, contract.ChannelOutputText, "not delivered"); err != nil {
+			return provider.Outcome{}, err
+		}
+		return provider.Outcome{FinishReason: contract.FinishStop}, nil
+	}}
+	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
+		{"unit":"requests","amountPerUnit":100},
+		{"unit":"input_tokens","amountPerUnit":10},
+		{"unit":"output_tokens","amountPerUnit":20}
+	]}]}`))
+	if err != nil {
+		t.Fatalf("building sink-failure rate-card fixture: %v", err)
+	}
+	executor := (harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}, costs: cards}).build(t)
+
+	var deltaWrites, usageWrites int
+	result := executor.Execute(context.Background(), baseRequest(), func(event contract.StreamEvent) error {
+		switch event.EventType() {
+		case contract.EventDelta:
+			deltaWrites++
+			if deltaWrites == 2 {
+				return kaana.ErrClientGone
+			}
+		case contract.EventUsage:
+			usageWrites++
+		}
+		return nil
+	})
+
+	if result.Report == nil || result.Report.Outcome != contract.OutcomeCancelled || result.Report.UsageSource != contract.UsageEstimated {
+		t.Fatalf("broken-sink settlement = report=%+v failure=%+v", result.Report, result.Failure)
+	}
+	reported := make(map[contract.UsageUnit]int, len(result.Report.Units))
+	for _, quantity := range result.Report.Units {
+		reported[quantity.Unit] = quantity.Quantity
+	}
+	if reported[contract.UnitRequests] != 1 || reported[contract.UnitOutputTokens] <= 0 {
+		t.Fatalf("partial estimated units = %v", result.Report.Units)
+	}
+	if usageWrites != 0 {
+		t.Fatalf("executor attempted %d usage writes after the sink failed", usageWrites)
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || len(result.UpstreamCost.Attempts[0].Units) == 0 {
+		t.Fatalf("partial estimate did not reach provider-cost accounting: %+v", result.UpstreamCost)
+	}
+}
+
+func TestPreOutputFailureDoesNotEstimateFromInputAlone(t *testing.T) {
+	adapter := &scriptedAdapter{stream: func(_ context.Context, _ *provider.Call, _ provider.Emitter) (provider.Outcome, error) {
+		return provider.Outcome{}, provider.ErrUpstream{
+			Code: contract.CodeRateLimited, Category: contract.UpstreamRateLimit, Detail: "pre-output refusal",
+		}
 	}}
 
 	_, result := execute(t, adapter, baseRequest())
+	if result.Report == nil || result.Report.Outcome != contract.OutcomeFailed {
+		t.Fatalf("pre-output failure report = %+v", result.Report)
+	}
+	if len(result.Report.Units) != 0 {
+		t.Fatalf("pre-output failure was estimated from input alone: %v", result.Report.Units)
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || len(result.UpstreamCost.Attempts[0].Units) != 0 {
+		t.Fatalf("pre-output failure reached cost units: %+v", result.UpstreamCost)
+	}
+}
 
-	if result.Report == nil {
-		t.Fatal("no report was produced")
+func TestPartialProviderEstimateKeepsExactInputAndAddsDeliveredOutput(t *testing.T) {
+	adapter := &scriptedAdapter{stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		if err := out.Delta(0, contract.ChannelOutputText, "a delivered answer fragment"); err != nil {
+			return provider.Outcome{}, err
+		}
+		outcome := provider.Outcome{
+			Units: []contract.UsageQuantity{
+				{Unit: contract.UnitRequests, Quantity: 1},
+				{Unit: contract.UnitInputTokens, Quantity: 37},
+				{Unit: contract.UnitOutputTokens, Quantity: 0},
+			},
+			UsageSource: contract.UsageEstimated,
+		}
+		failure := provider.ErrUpstream{
+			Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
+			Detail: "the provider stopped after partial output",
+		}
+		return outcome, failure
+	}}
+
+	_, result := execute(t, adapter, baseRequest())
+	if result.Report == nil || result.Report.Outcome != contract.OutcomePartial || result.Report.UsageSource != contract.UsageEstimated {
+		t.Fatalf("partial provider estimate = report=%+v failure=%+v", result.Report, result.Failure)
 	}
-	if result.Report.UsageSource != contract.UsageEstimated {
-		t.Errorf("a report with no measurement claims source %q", result.Report.UsageSource)
+	quantities := usageQuantitiesByUnit(result.Report.Units)
+	if quantities[contract.UnitInputTokens] != 37 {
+		t.Fatalf("provider input count was replaced by fallback: %v", result.Report.Units)
 	}
+	if quantities[contract.UnitOutputTokens] <= 0 {
+		t.Fatalf("delivered output was absent from partial settlement: %v", result.Report.Units)
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || usageQuantitiesByUnit(result.UpstreamCost.Attempts[0].Units)[contract.UnitOutputTokens] <= 0 {
+		t.Fatalf("delivered output was absent from provider-cost reconciliation: %+v", result.UpstreamCost)
+	}
+}
+
+func usageQuantitiesByUnit(units []contract.UsageQuantity) map[contract.UsageUnit]int {
+	quantities := make(map[contract.UsageUnit]int, len(units))
+	for _, quantity := range units {
+		quantities[quantity.Unit] = quantity.Quantity
+	}
+	return quantities
 }
 
 // TestAReportTheContractWouldRejectIsNotReturnedAsIfItWereFine: an invalid

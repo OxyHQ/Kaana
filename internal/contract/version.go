@@ -23,16 +23,41 @@ package contract
 // Asserted against the published package's INFERENCE_CONTRACT_VERSION by
 // contract_test.go, so bumping the pinned package without revisiting this
 // constant fails the build.
-const ContractVersion = "1.4.0"
+const ContractVersion = "2.0.0"
 
-// SchemaVersion is the per-shape version every whole-message shape in this
-// contract currently carries. Each shape declares it as a literal, so a
-// producer running ahead of a consumer fails at the parse instead of being
-// reinterpreted.
+// SchemaVersion is the per-shape version of the unchanged error and non-usage
+// stream-event shapes. Each whole wire shape owns its version: the contract-set
+// major can move without rewriting an unchanged message, and a shape that did
+// change declares its own constant below.
 const SchemaVersion = 1
 
-// RequestEnvelopeVersion is the schemaVersion of the Oxy→Kaana request envelope
-// this build implements. An envelope carrying any other value is refused whole,
-// before any field of it is read: a partially understood envelope is how a
-// routing or spend constraint gets silently dropped.
-const RequestEnvelopeVersion = 1
+// LegacyRequestEnvelopeVersion is the one transitional request shape this
+// build accepts. It is restricted to a direct model target; the retired
+// routing-profile slug arm is never interpreted by Kaana.
+const LegacyRequestEnvelopeVersion = 1
+
+// RequestEnvelopeVersion is the current Oxy→Kaana request-envelope version.
+// Version 2 replaces a routing-profile slug with its exact opaque PostgreSQL
+// identity. The versions are declared, never inferred from target fields.
+const RequestEnvelopeVersion = 2
+
+// SupportsRequestEnvelopeVersion reports the deliberately narrow transition
+// window. Callers must still validate the version-specific target rules before
+// interpreting the rest of the envelope.
+func SupportsRequestEnvelopeVersion(version int) bool {
+	return version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion
+}
+
+// UsageReportSchemaVersion is the normalized usage-report schema this build
+// emits. Version 2 requires the exact deployment id.
+const UsageReportSchemaVersion = 2
+
+// StreamUsageEventSchemaVersion is the usage progress-event schema this build
+// emits. Version 2 likewise names the exact deployment whose adapter measured
+// the units.
+const StreamUsageEventSchemaVersion = 2
+
+// CredentialControlSchemaVersion is shared by the signed customer-credential
+// mutation and outcome shapes. ProviderConnection's schemaVersion 2 belongs to
+// Oxy metadata and does not change this Kaana wire boundary.
+const CredentialControlSchemaVersion = 1

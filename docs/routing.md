@@ -49,16 +49,20 @@ exactly. Empty equals empty and means no regional attestation; Oxy excludes such
 a route whenever the effective policy has an allow-list or deny-list of regions.
 
 For a concrete model, every accepted entry serves the primary's exact pinned
-revision; a cross-model entry is refused. For a routing profile, the first entry
-is the primary and later entries may cross model lines only when the contract's
-literal `authorizedByPolicy: true` is present. Same-reference failover emits a
+revision; a cross-model entry is refused. For an exact `routing_profile_id`
+target, the first entry is the primary and later entries may cross model lines
+only when the contract's literal `authorizedByPolicy: true` is present. Kaana
+does not resolve the profile ID or derive candidates from a name: the signed
+route list is its entire executable meaning. Same-reference failover emits a
 deployment-scoped `route_switch`; a cross-model failover emits a model-scoped
 switch naming the primary line, origin and destination.
 
 An absent list grants nothing. A concrete target resolves to the inventory's
 declared primary and nowhere else, preserving compatibility with envelopes from
-before the optional field existed. A routing-profile target names no concrete
-destination and is therefore refused without a list. An empty list is malformed.
+before the optional field existed. An exact routing-profile-ID target names no
+concrete destination and is therefore refused without a list. An empty list is
+malformed. During the rollout, schema v1 is accepted only for the direct-model
+case; its former routing-profile slug arm is refused rather than resolved.
 
 **A switch is only possible while nothing has been streamed.** Once output has
 reached the customer, retrying elsewhere would deliver the beginning of one

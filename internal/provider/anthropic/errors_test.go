@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -158,6 +159,59 @@ func TestARefusedPlatformCredentialDoesNotBlameTheCustomerAndIsNotRetried(t *tes
 	}
 	if !strings.Contains(failure.Detail, "platform") {
 		t.Errorf("the detail does not say whose credential was refused: %q", failure.Detail)
+	}
+}
+
+func TestCustomerCredentialFailuresNeverBecomeSharedDeploymentFailures(t *testing.T) {
+	adapter := newTestAdapter(t)
+	pool, err := provider.NewCustomerKeyPool(Slug, []byte("customer-anthropic-secret"))
+	if err != nil {
+		t.Fatalf("building the customer pool: %v", err)
+	}
+	key, leased := pool.Begin().Next(time.Now())
+	if !leased {
+		t.Fatal("the customer pool leased no credential")
+	}
+
+	for _, testCase := range []struct {
+		name              string
+		kind              string
+		status            int
+		isolatedRateLimit bool
+	}{
+		{"authentication", errorAuthentication, http.StatusUnauthorized, false},
+		{"billing", errorBilling, http.StatusPaymentRequired, false},
+		{"rate limit", errorRateLimit, http.StatusTooManyRequests, true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := &http.Response{StatusCode: testCase.status, Header: http.Header{}, Body: errorBodyOf(testCase.kind)}
+			for phase, failure := range map[string]error{
+				"before response body": adapter.Refuse(response, key),
+				"inside stream":        adapter.midStreamFailure(errorDetail{Type: testCase.kind, Message: "refused customer-anthropic-secret"}, key),
+			} {
+				if testCase.isolatedRateLimit {
+					var isolated provider.ErrCustomerUpstream
+					if !errors.As(failure, &isolated) {
+						t.Errorf("%s customer throttle was reported as %T: %v", phase, failure, failure)
+					}
+					var upstream provider.ErrUpstream
+					if !errors.As(failure, &upstream) || upstream.Code != contract.CodeRateLimited {
+						t.Errorf("%s customer throttle lost its rate-limit code: %+v", phase, upstream)
+					}
+					if provider.DeploymentAttributable(failure) {
+						t.Errorf("%s customer throttle can damage the shared deployment breaker", phase)
+					}
+				} else {
+					var customerFailure provider.ErrCustomerCredential
+					if !errors.As(failure, &customerFailure) {
+						t.Errorf("%s %s was reported as %T: %v", phase, testCase.kind, failure, failure)
+					}
+				}
+				if strings.Contains(failure.Error(), "customer-anthropic-secret") {
+					t.Errorf("%s leaked the customer credential", phase)
+				}
+			}
+		})
 	}
 }
 

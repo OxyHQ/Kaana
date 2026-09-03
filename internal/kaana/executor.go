@@ -27,7 +27,10 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/customerlimit"
 	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
@@ -35,11 +38,21 @@ import (
 
 // Executor turns an envelope into a stream and a usage report.
 type Executor struct {
-	inventory *inventory.Store
-	registry  *provider.Registry
-	rotation  *rotation.Registry
-	costs     *providercost.Cards
-	now       func() time.Time
+	inventory           *inventory.Store
+	registry            *provider.Registry
+	rotation            *rotation.Registry
+	costs               *providercost.Cards
+	customerCredentials CustomerCredentialResolver
+	validationReporter  oxyvalidation.Submitter
+	customerLimits      *customerlimit.Registry
+	now                 func() time.Time
+}
+
+// CustomerCredentialResolver is the inference-only authority to resolve the
+// exact non-secret binding Oxy signed into a route. Production supplies
+// credentialstore.CustomerResolver; the interface keeps tests free of AWS.
+type CustomerCredentialResolver interface {
+	ResolveForInference(context.Context, credentialstore.CustomerCredentialScope) ([]byte, error)
 }
 
 // Config wires an Executor.
@@ -57,6 +70,18 @@ type Config struct {
 	// Costs prices upstream attempts. Optional — absent means cost is not
 	// measured, and every measurement says so rather than reporting zero.
 	Costs *providercost.Cards
+	// CustomerCredentials resolves a BYOK binding into a request-scoped key.
+	// It is optional only because platform-funded routes do not use it; a route
+	// carrying a binding fails closed when this authority is absent.
+	CustomerCredentials CustomerCredentialResolver
+	// ValidationReporter records safe, closed-vocabulary upstream verdicts on
+	// the exact Oxy connection generation. It is optional for platform-only
+	// routes; BYOK execution remains available if reporting is temporarily
+	// degraded because the reporter queues independently from the stream.
+	ValidationReporter oxyvalidation.Submitter
+	// CustomerLimits isolates throttle and refusal state to the exact customer
+	// credential generation. Nil builds the production default registry.
+	CustomerLimits *customerlimit.Registry
 	// Now is the clock, injectable for tests.
 	Now func() time.Time
 }
@@ -75,12 +100,19 @@ func NewExecutor(config Config) (*Executor, error) {
 	if now == nil {
 		now = time.Now
 	}
+	customerLimits := config.CustomerLimits
+	if customerLimits == nil {
+		customerLimits = customerlimit.NewRegistry(now)
+	}
 	return &Executor{
-		inventory: config.Inventory,
-		registry:  config.Providers,
-		rotation:  config.Rotation,
-		costs:     config.Costs,
-		now:       now,
+		inventory:           config.Inventory,
+		registry:            config.Providers,
+		rotation:            config.Rotation,
+		costs:               config.Costs,
+		customerCredentials: config.CustomerCredentials,
+		validationReporter:  config.ValidationReporter,
+		customerLimits:      customerLimits,
+		now:                 now,
 	}, nil
 }
 
@@ -140,12 +172,12 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 
 	candidates, failure := e.resolve(request, startedAt)
 	if failure != nil {
-		emit := newEmitter(sink, requestID, generationID, startedAt)
+		emit := newEmitter(sink, request, generationID, startedAt)
 		_ = emit.finishWithError(failure)
 		return Result{Failure: failure}
 	}
 
-	emit := newEmitter(sink, requestID, generationID, startedAt)
+	emit := newEmitter(sink, request, generationID, startedAt)
 	var (
 		usage    []providercost.AttemptUsage
 		switches int
@@ -162,7 +194,30 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 
 	for _, authorized := range candidates {
 		route := authorized.route
-		permit, admitted := e.rotation.Admit(route.DeploymentID)
+		var customerPermit *customerlimit.Permit
+		if route.CustomerProviderCredential != nil {
+			var refusal customerlimit.Refusal
+			customerPermit, refusal = e.customerLimits.Admit(customerCredentialScope(route))
+			if customerPermit == nil {
+				failure := customerCredentialRefusal(requestID, refusal)
+				if abandoned != nil {
+					return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, nil, failure)
+				}
+				_ = emit.finishWithError(failure)
+				return Result{Failure: failure}
+			}
+		}
+		// The shared deployment breaker describes Kaana's PLATFORM credential
+		// lane. A customer BYOK route neither reads nor writes it: otherwise a
+		// broken platform key blocks a healthy customer key before resolution,
+		// while a BYOK success can reset or close the platform lane's breaker.
+		// A nil permit is an intentional no-op permit; Permit's outcome methods
+		// are nil-safe, so every path below keeps one reporting discipline.
+		var permit *rotation.Permit
+		admitted := true
+		if route.CustomerProviderCredential == nil {
+			permit, admitted = e.rotation.Admit(route.DeploymentID)
+		}
 		if !admitted {
 			// The breaker is doing its job. This is route SELECTION, not a
 			// route switch: nothing was attempted here.
@@ -177,6 +232,7 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 			// snapshot changed under a running process — a configuration fault,
 			// which says nothing about whether the provider is healthy.
 			permit.NotAttributable()
+			customerPermit.NotAttributable()
 			skipped = append(skipped, route.DeploymentID)
 			continue
 		}
@@ -202,6 +258,36 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 			continue
 		}
 
+		if abandoned != nil && emit.started {
+			// The previous attempt already started the customer-visible stream.
+			// Nothing can replace it now, so do not translate or decrypt a candidate
+			// that cannot be attempted.
+			permit.NotAttributable()
+			customerPermit.NotAttributable()
+			last = abandoned
+			abandoned = nil
+			break
+		}
+
+		call, err := adapter.Translate(request, route)
+		if err != nil {
+			// A refusal to translate is about the REQUEST, and it is terminal.
+			// Trying another deployment would make what a request means depend
+			// on which route happened to be healthy, so an identical envelope
+			// would be refused now and served in five minutes.
+			permit.NotAttributable()
+			customerPermit.NotAttributable()
+			failure := translationFailure(requestID, err)
+			if abandoned != nil {
+				// A previous upstream attempt may already have consumed billable
+				// provider work. Settle that attempt while returning the preflight
+				// failure; candidate route metadata must not replace what really ran.
+				return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, nil, failure)
+			}
+			_ = emit.finishWithError(failure)
+			return Result{Failure: failure}
+		}
+
 		if abandoned != nil {
 			err := emit.routeSwitch(
 				switchReason(abandoned.err),
@@ -215,40 +301,51 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 				// Output has already reached the customer, so this request
 				// cannot move. The abandoned attempt is the one that settles.
 				permit.NotAttributable()
+				customerPermit.NotAttributable()
 				last = abandoned
 				abandoned = nil
 			case err != nil:
 				permit.NotAttributable()
-				return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, err)
+				customerPermit.NotAttributable()
+				return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, err, nil)
 			}
 			if abandoned == nil {
 				break
 			}
+			// The sink has accepted the route switch. Count it now even if the
+			// candidate's encrypted credential subsequently proves unavailable;
+			// settlement must agree with the event sequence the customer received.
 			switches++
-			abandoned = nil
 		}
 
-		call, err := adapter.Translate(request, route)
-		if err != nil {
-			// A refusal to translate is about the REQUEST, and it is terminal.
-			// Trying another deployment would make what a request means depend
-			// on which route happened to be healthy, so an identical envelope
-			// would be refused now and served in five minutes.
+		credentials, credentialFailure := e.credentialsForRoute(ctx, requestID, route)
+		if credentialFailure != nil {
 			permit.NotAttributable()
-			failure := translationFailure(requestID, err)
-			_ = emit.finishWithError(failure)
-			return Result{Failure: failure}
+			customerPermit.NotAttributable()
+			if abandoned != nil {
+				return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, nil, credentialFailure)
+			}
+			_ = emit.finishWithError(credentialFailure)
+			return Result{Failure: credentialFailure}
 		}
+		// Keep the replaced attempt reachable until every pre-upstream step has
+		// succeeded so a BYOK resolution failure still settles work the previous
+		// provider may have billed.
+		abandoned = nil
 
-		emit.serving(route.Provider)
-		outcome, streamErr := adapter.Stream(ctx, call, emit)
+		emit.serving(route.Provider, route.DeploymentID)
+		providerBilledCustomer := credentials != nil
+		outcome, streamErr := streamAttempt(ctx, adapter, call, emit, credentials)
+		reportCustomerLimitOutcome(customerPermit, streamErr)
+		e.reportCustomerCredentialValidation(route, streamErr)
 		usage = append(usage, providercost.AttemptUsage{
-			DeploymentID: route.DeploymentID,
-			Provider:     route.Provider,
-			KeyID:        outcome.KeyID,
-			KeyClass:     string(outcome.KeyClass),
-			Served:       streamErr == nil,
-			Units:        outcome.Units,
+			DeploymentID:           route.DeploymentID,
+			Provider:               route.Provider,
+			KeyID:                  outcome.KeyID,
+			KeyClass:               string(outcome.KeyClass),
+			ProviderBilledCustomer: providerBilledCustomer,
+			Served:                 streamErr == nil,
+			Units:                  outcome.Units,
 		})
 		last = &attempt{
 			route:     route,
@@ -286,12 +383,12 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 
 	switch {
 	case last != nil:
-		return e.settle(request, generationID, last, usage, switches, startedAt, emit, nil)
+		return e.settle(request, generationID, last, usage, switches, startedAt, emit, nil, nil)
 	case abandoned != nil:
 		// The last attempt failed and there was nowhere left to go. The customer
 		// is told about that failure, not about a route switch that never
 		// happened.
-		return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, nil)
+		return e.settle(request, generationID, abandoned, usage, switches, startedAt, emit, nil, nil)
 	}
 
 	// Every candidate was refused before it was attempted. Nothing ran, so
@@ -300,6 +397,105 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 	refusal := e.everyRouteOutOfRotation(requestID, len(candidates), skipped, startedAt)
 	_ = emit.finishWithError(refusal)
 	return Result{Failure: refusal}
+}
+
+// streamAttempt confines a request-scoped customer credential pool to exactly
+// one adapter call. Keeping the defer outside Execute's failover loop avoids
+// retaining a decrypted pool until the whole request finishes, while still
+// releasing it if an adapter returns early or panics.
+func streamAttempt(
+	ctx context.Context,
+	adapter provider.Adapter,
+	call *provider.Call,
+	emit provider.Emitter,
+	credentials *provider.KeyPool,
+) (provider.Outcome, error) {
+	if credentials != nil {
+		defer credentials.Destroy()
+	}
+	return adapter.Stream(ctx, call, emit, credentials)
+}
+
+func reportCustomerLimitOutcome(permit *customerlimit.Permit, streamErr error) {
+	if permit == nil {
+		return
+	}
+	if streamErr == nil {
+		permit.Succeeded()
+		return
+	}
+	var credentialFailure provider.ErrCustomerCredential
+	if errors.As(streamErr, &credentialFailure) {
+		permit.Rejected()
+		return
+	}
+	var customerUpstream provider.ErrCustomerUpstream
+	if errors.As(streamErr, &customerUpstream) && customerUpstream.Failure.Code == contract.CodeRateLimited {
+		permit.Throttled(time.Duration(customerUpstream.Failure.RetryAfterMs) * time.Millisecond)
+		return
+	}
+	permit.NotAttributable()
+}
+
+func customerCredentialScope(route provider.Route) credentialstore.CustomerCredentialScope {
+	binding := route.CustomerProviderCredential
+	return credentialstore.CustomerCredentialScope{
+		CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+			Provider: route.Provider, OwnerAccountID: string(binding.OwnerAccountID),
+			ConnectionID: binding.ConnectionID, Environment: binding.Environment,
+		},
+		CredentialHandle: string(binding.CredentialHandle), Revision: binding.CredentialRevision,
+	}
+}
+
+func customerCredentialRefusal(requestID contract.RequestID, refusal customerlimit.Refusal) *contract.Error {
+	if refusal.Reason == customerlimit.ReasonThrottled {
+		failure := contract.NewError(requestID, contract.CodeRateLimited,
+			"the customer provider credential is temporarily rate limited").
+			WithUpstream(contract.UpstreamRateLimit, nil)
+		if refusal.RetryAfter > 0 {
+			milliseconds := int(refusal.RetryAfter.Milliseconds())
+			if milliseconds == 0 {
+				milliseconds = 1
+			}
+			failure = failure.WithRetryAfter(milliseconds)
+		}
+		return failure
+	}
+	return contract.NewError(requestID, contract.CodeBYOKCredentialInvalid,
+		"the customer provider credential is unavailable")
+}
+
+func (e *Executor) reportCustomerCredentialValidation(route provider.Route, streamErr error) {
+	binding := route.CustomerProviderCredential
+	if binding == nil || e.validationReporter == nil {
+		return
+	}
+	verdict := oxyvalidation.Verdict{
+		ConnectionID:       binding.ConnectionID,
+		CredentialHandle:   string(binding.CredentialHandle),
+		CredentialRevision: binding.CredentialRevision,
+		Environment:        binding.Environment,
+	}
+	if streamErr == nil {
+		verdict.State = oxyvalidation.StateValid
+		e.validationReporter.Submit(verdict)
+		return
+	}
+	var credentialFailure provider.ErrCustomerCredential
+	if !errors.As(streamErr, &credentialFailure) {
+		return
+	}
+	// A provider authentication refusal proves that this key generation is
+	// invalid. A billing refusal proves only that the upstream account cannot
+	// pay now; disabling the connection would incorrectly require a key
+	// rotation after the customer tops up the same account.
+	if credentialFailure.Code != contract.CodeProviderCredentialInvalid {
+		return
+	}
+	verdict.State = oxyvalidation.StateInvalid
+	verdict.FailureCode = oxyvalidation.FailureUnauthorized
+	e.validationReporter.Submit(verdict)
 }
 
 // settle builds and validates the usage report, emits the terminal event, and
@@ -313,13 +509,33 @@ func (e *Executor) settle(
 	startedAt time.Time,
 	emit *emitter,
 	sinkErr error,
+	terminalFailure *contract.Error,
 ) Result {
 	requestID := request.Attribution.RequestID
 	completedAt := e.now()
+	completed := last.err == nil && sinkErr == nil && terminalFailure == nil
+	needsEstimate := emit.started && (completed || emit.hasDeliveredOutput()) &&
+		(len(last.outcome.Units) == 0 || last.outcome.UsageSource == contract.UsageEstimated)
+	if needsEstimate {
+		last.outcome.Units = emit.estimate.supplement(last.outcome.Units)
+		last.outcome.UsageSource = contract.UsageEstimated
+		if len(usage) > 0 {
+			usage[len(usage)-1].Units = append([]contract.UsageQuantity(nil), last.outcome.Units...)
+		}
+		// Provider adapters emit exact usage as soon as it arrives. Only the
+		// missing-usage path reaches this point. A live sink receives the
+		// reconstructed progress event before the terminal event; a broken sink
+		// still gets a settleable report and operator cost without a futile write.
+		if !emit.sinkFailed && sinkErr == nil {
+			if err := emit.Usage(last.outcome.Units, last.outcome.UsageSource); err != nil {
+				sinkErr = err
+			}
+		}
+	}
 	cost := e.costs.MeasureRequest(requestID, usage)
 
 	report := &contract.UsageReport{
-		SchemaVersion: contract.SchemaVersion,
+		SchemaVersion: contract.UsageReportSchemaVersion,
 		RequestID:     requestID,
 		GenerationID:  generationID,
 		Attribution:   withGeneration(request.Attribution, generationID),
@@ -331,7 +547,7 @@ func (e *Executor) settle(
 		UsageSource:            last.outcome.UsageSource,
 		ResolvedModelReference: last.route.ModelReference,
 		ServingProvider:        last.route.Provider,
-		DeploymentID:           &last.route.DeploymentID,
+		DeploymentID:           last.route.DeploymentID,
 		RouteSwitches:          switches,
 		StartedAt:              contract.NewTimestamp(startedAt),
 		CompletedAt:            contract.NewTimestamp(completedAt),
@@ -349,33 +565,52 @@ func (e *Executor) settle(
 	}
 
 	switch {
+	case sinkErr != nil || terminalFailure != nil:
+		report.Outcome = outcomeFor(last)
+	case last.err == nil && !emit.started:
+		report.Outcome = contract.OutcomeFailed
+	case last.err == nil:
+		report.Outcome = contract.OutcomeCompleted
+	case last.cancelled:
+		report.Outcome = contract.OutcomeCancelled
+	default:
+		report.Outcome = outcomeFor(last)
+	}
+	if err := report.Validate(); err != nil {
+		failure := contract.NewError(report.RequestID, contract.CodeInternalError,
+			fmt.Sprintf("the usage report for this request is not settleable: %v", err))
+		if sinkErr == nil && !last.cancelled {
+			_ = emit.finishWithError(failure)
+		}
+		return Result{Failure: failure, UpstreamCost: cost}
+	}
+
+	switch {
 	case sinkErr != nil:
 		// The stream could not be delivered. Whatever the upstream did still
 		// happened and is still owed, so the report is built and only the
 		// terminal event is lost.
-		report.Outcome = outcomeFor(last)
+	case terminalFailure != nil:
+		emitErr := emit.finishWithError(terminalFailure)
+		return e.finalize(report, terminalFailure, emitErr, cost)
 	case last.err == nil && !emit.started:
 		// An adapter that returns success without ever emitting a start event
 		// has produced a stream the contract cannot describe. Reporting it as
 		// completed would hand settlement a receipt for output nobody saw.
-		report.Outcome = contract.OutcomeFailed
 		failure := contract.NewError(requestID, contract.CodeInternalError,
 			fmt.Sprintf("the %s adapter completed without starting a stream", last.route.Provider))
 		_ = emit.finishWithError(failure)
 		return e.finalize(report, failure, nil, cost)
 	case last.err == nil:
-		report.Outcome = contract.OutcomeCompleted
 		if err := emit.finishWithDone(finishReasonOr(last.outcome.FinishReason, contract.FinishStop), completedAt); err != nil {
 			return e.finalize(report, nil, err, cost)
 		}
 	case last.cancelled:
-		report.Outcome = contract.OutcomeCancelled
 		// The stream is not written to again: the client that cancelled is not
 		// listening, and a cancelled request whose events kept flowing would be
 		// indistinguishable from one that completed.
 		return e.finalize(report, contract.NewError(requestID, contract.CodeCancelled, "the client cancelled the request"), nil, cost)
 	default:
-		report.Outcome = outcomeFor(last)
 		failure := upstreamFailure(requestID, last.route.Provider, last.err)
 		emitErr := emit.finishWithError(failure)
 		return e.finalize(report, failure, emitErr, cost)
@@ -454,7 +689,7 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 		return e.resolveAuthorizedRoutes(request, at)
 	}
 
-	if request.Target.Kind == contract.TargetRoutingProfile {
+	if request.Target.Kind == contract.TargetRoutingProfileID {
 		return nil, contract.NewError(requestID, contract.CodeInvalidRequest,
 			"a routing-profile target requires the ordered authorizedRoutes list resolved by Oxy",
 		).WithParam("authorizedRoutes")
@@ -546,6 +781,7 @@ func (e *Executor) resolveAuthorizedRoutes(request *contract.Request, at time.Ti
 				fmt.Sprintf("model line %q appears with both %q and %q; one execution cannot switch revisions silently", line, revision, resolved.ModelReference))
 		}
 		resolvedRevisions[line] = resolved.ModelReference
+		resolved.CustomerProviderCredential = authorized.CustomerProviderCredential
 		candidates = append(candidates, candidate{route: *resolved})
 	}
 	return candidates, nil
@@ -591,7 +827,9 @@ func (e *Executor) everyRouteOutOfRotation(
 // credential means.
 func sharesTheRefusedCredential(abandoned *attempt, candidate provider.Route) bool {
 	return provider.CredentialVerdictFor(abandoned.err) == provider.CredentialRejected &&
-		abandoned.route.Provider == candidate.Provider
+		abandoned.route.Provider == candidate.Provider &&
+		abandoned.route.CustomerProviderCredential == nil &&
+		candidate.CustomerProviderCredential == nil
 }
 
 // switchReason maps a failure to the contract's reason for the route switch the
@@ -680,6 +918,11 @@ func translationFailure(requestID contract.RequestID, err error) *contract.Error
 // provider error, which is non-retryable by the contract's rule that a failure
 // nobody can classify is not safe to retry.
 func upstreamFailure(requestID contract.RequestID, slug contract.ProviderSlug, err error) *contract.Error {
+	var customerCredential provider.ErrCustomerCredential
+	if errors.As(err, &customerCredential) {
+		return contract.NewError(requestID, contract.CodeBYOKCredentialInvalid,
+			"the customer provider credential is unavailable")
+	}
 	var upstream provider.ErrUpstream
 	if errors.As(err, &upstream) {
 		failure := contract.NewError(requestID, upstream.Code, upstream.Detail)
@@ -695,4 +938,39 @@ func upstreamFailure(requestID contract.RequestID, slug contract.ProviderSlug, e
 	}
 	return contract.NewError(requestID, contract.CodeProviderError, err.Error()).
 		WithUpstream(contract.UpstreamUnknown, &contract.ProviderErrorPassthrough{Provider: slug})
+}
+
+// credentialsForRoute resolves exactly one signed BYOK generation after the
+// request and route have passed pure validation, inventory resolution, breaker
+// admission, provider translation and any preceding route-switch write. It
+// never falls back to the adapter's
+// platform pool: a missing, stale, revoked or undecryptable generation is the
+// customer's actionable credential failure and no upstream call is made.
+func (e *Executor) credentialsForRoute(
+	ctx context.Context,
+	requestID contract.RequestID,
+	route provider.Route,
+) (*provider.KeyPool, *contract.Error) {
+	binding := route.CustomerProviderCredential
+	if binding == nil {
+		return nil, nil
+	}
+	failure := func() (*provider.KeyPool, *contract.Error) {
+		return nil, contract.NewError(requestID, contract.CodeBYOKCredentialInvalid,
+			"the customer provider credential is unavailable")
+	}
+	if e.customerCredentials == nil {
+		return failure()
+	}
+	plaintext, err := e.customerCredentials.ResolveForInference(ctx, customerCredentialScope(route))
+	if err != nil {
+		clear(plaintext)
+		return failure()
+	}
+	pool, err := provider.NewCustomerKeyPool(route.Provider, plaintext)
+	clear(plaintext)
+	if err != nil {
+		return failure()
+	}
+	return pool, nil
 }

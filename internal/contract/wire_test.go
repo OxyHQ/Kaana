@@ -113,13 +113,26 @@ func TestAPopulatedReportIsEncodedWhole(t *testing.T) {
 	}
 }
 
+func TestCompletedReportCannotClaimNoMeasuredUsage(t *testing.T) {
+	report := failedReportWithNothingMeasured()
+	report.Outcome = OutcomeCompleted
+	if err := report.Validate(); err == nil || !strings.Contains(err.Error(), "at least one usage unit") {
+		t.Fatalf("completed empty report validation = %v", err)
+	}
+
+	report.Units = []UsageQuantity{{Unit: UnitRequests, Quantity: 1}}
+	if err := report.Validate(); err != nil {
+		t.Fatalf("completed measured report validation = %v", err)
+	}
+}
+
 // failedReportWithNothingMeasured is the report the executor builds when a
 // provider refuses before producing anything — a 402 from an account with no
 // balance, measured in production. `Units` is deliberately left at its zero
 // value: assigning an empty slice here would test the fixture, not the encoder.
 func failedReportWithNothingMeasured() UsageReport {
 	return UsageReport{
-		SchemaVersion:          SchemaVersion,
+		SchemaVersion:          UsageReportSchemaVersion,
 		RequestID:              "req_01JQZABCDEF",
 		GenerationID:           pointerTo(GenerationID("gen_01JQZABCDEF")),
 		Attribution:            sampleAttribution(),
@@ -127,7 +140,7 @@ func failedReportWithNothingMeasured() UsageReport {
 		UsageSource:            UsageEstimated,
 		ResolvedModelReference: "openai/gpt-5@2026-05-01",
 		ServingProvider:        "openai",
-		DeploymentID:           pointerTo(DeploymentID("dep_openai_gpt5_use1")),
+		DeploymentID:           DeploymentID("dep_openai_gpt5_use1"),
 		RouteSwitches:          0,
 		StartedAt:              "2026-08-16T09:41:00.000Z",
 		CompletedAt:            "2026-08-16T09:41:02.500Z",

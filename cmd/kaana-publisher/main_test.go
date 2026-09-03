@@ -11,7 +11,15 @@ import (
 )
 
 func environmentFrom(values map[string]string) func(string) string {
-	return func(name string) string { return values[name] }
+	return func(name string) string {
+		if value, present := values[name]; present {
+			return value
+		}
+		if strings.HasSuffix(name, "_DISCOVERY_KEY_ID") {
+			return "test-discovery"
+		}
+		return ""
+	}
 }
 
 // TestProviderParsingCarriesNoCredential verifies the environment contract is
@@ -19,6 +27,7 @@ func environmentFrom(values map[string]string) func(string) string {
 func TestProviderParsingCarriesNoCredential(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
 		"KAANA_PROVIDERS":                 "cerebras,openrouter",
+		"KAANA_DISCOVERY_PROVIDERS":       "cerebras,openrouter",
 		"KAANA_PROVIDER_CEREBRAS_REGIONS": "us-east-1,us-west-2",
 	}))
 	if err != nil {
@@ -42,6 +51,7 @@ func TestProviderRegionDeclarationsAreValidatedAsSets(t *testing.T) {
 	for _, value := range []string{"Not Valid", "us-east-1,us-east-1", ","} {
 		if _, err := parsePublishableProviders(environmentFrom(map[string]string{
 			"KAANA_PROVIDERS":                 "cerebras",
+			"KAANA_DISCOVERY_PROVIDERS":       "cerebras",
 			"KAANA_PROVIDER_CEREBRAS_REGIONS": value,
 		})); err == nil {
 			t.Errorf("region declaration %q was accepted", value)
@@ -53,6 +63,11 @@ func TestProviderRegionDeclarationsAreValidatedAsSets(t *testing.T) {
 func TestTheProviderListIsRequired(t *testing.T) {
 	if _, err := parsePublishableProviders(environmentFrom(nil)); err == nil {
 		t.Fatal("an absent discovery provider set was accepted")
+	}
+	if _, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS": "cerebras",
+	})); err == nil {
+		t.Fatal("KAANA_PROVIDERS was accepted as a publisher discovery fallback")
 	}
 }
 
@@ -104,7 +119,8 @@ func TestDiscoveryProviderSetMustBeAnOrderedSubsetOfServing(t *testing.T) {
 // loser would silently be asked with the winner's address and credential.
 func TestTwoSlugsFoldingOntoOneVariableAreRefused(t *testing.T) {
 	_, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS": "open-router,open.router",
+		"KAANA_PROVIDERS":           "open-router,open.router",
+		"KAANA_DISCOVERY_PROVIDERS": "open-router,open.router",
 	}))
 	if err == nil {
 		t.Fatal("two slugs folding onto one environment prefix were accepted")
@@ -119,7 +135,8 @@ func TestTwoSlugsFoldingOntoOneVariableAreRefused(t *testing.T) {
 // is the checked-in file this command exists to replace.
 func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 	_, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS": "anthropic",
+		"KAANA_PROVIDERS":           "anthropic",
+		"KAANA_DISCOVERY_PROVIDERS": "anthropic",
 	}))
 	if err == nil {
 		t.Fatal("a provider with no readable model list was accepted for discovery")
@@ -131,6 +148,7 @@ func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {
 	if _, err := parsePublishableProviders(environmentFrom(map[string]string{
 		"KAANA_PROVIDERS":                          "unknown-provider",
+		"KAANA_DISCOVERY_PROVIDERS":                "unknown-provider",
 		"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": "openai_compatible",
 	})); err == nil {
 		t.Fatal("an unknown slug with no base URL was accepted")
@@ -139,6 +157,7 @@ func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {
 	// The control: given the address, the same slug is publishable.
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
 		"KAANA_PROVIDERS":                          "unknown-provider",
+		"KAANA_DISCOVERY_PROVIDERS":                "unknown-provider",
 		"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": "openai_compatible",
 		"KAANA_PROVIDER_UNKNOWN_PROVIDER_BASE_URL": "https://api.example.invalid/v1",
 	}))
@@ -153,6 +172,7 @@ func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {
 func TestPublisherRefusesACredentialHiddenInTheBaseURL(t *testing.T) {
 	_, err := parsePublishableProviders(environmentFrom(map[string]string{
 		"KAANA_PROVIDERS":                          "unknown-provider",
+		"KAANA_DISCOVERY_PROVIDERS":                "unknown-provider",
 		"KAANA_PROVIDER_UNKNOWN_PROVIDER_PROTOCOL": "openai_compatible",
 		"KAANA_PROVIDER_UNKNOWN_PROVIDER_BASE_URL": "https://sk-abcdefghijkl.api.example.invalid/v1",
 	}))
@@ -164,12 +184,14 @@ func TestPublisherRefusesACredentialHiddenInTheBaseURL(t *testing.T) {
 func TestPublisherCannotPublishOpenRouterUnderAnotherEndpointIdentity(t *testing.T) {
 	for name, environment := range map[string]map[string]string{
 		"OpenRouter origin under an alias": {
-			"KAANA_PROVIDERS": "custom-compatible",
+			"KAANA_PROVIDERS":                           "custom-compatible",
+			"KAANA_DISCOVERY_PROVIDERS":                 "custom-compatible",
 			"KAANA_PROVIDER_CUSTOM_COMPATIBLE_PROTOCOL": "openai_compatible",
 			"KAANA_PROVIDER_CUSTOM_COMPATIBLE_BASE_URL": "https://www.openrouter.ai/api/v1",
 		},
 		"OpenRouter slug on another origin": {
 			"KAANA_PROVIDERS":                    "openrouter",
+			"KAANA_DISCOVERY_PROVIDERS":          "openrouter",
 			"KAANA_PROVIDER_OPENROUTER_BASE_URL": "https://api.groq.com/openai/v1",
 		},
 	} {
@@ -184,6 +206,7 @@ func TestPublisherCannotPublishOpenRouterUnderAnotherEndpointIdentity(t *testing
 func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
 		"KAANA_PROVIDERS":                 "mistral,siliconflow,nebius,nscale,alibaba",
+		"KAANA_DISCOVERY_PROVIDERS":       "mistral,siliconflow,nebius,nscale,alibaba",
 		"KAANA_PROVIDER_ALIBABA_BASE_URL": "https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
 	}))
 	if err != nil {
@@ -199,7 +222,9 @@ func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 		t.Fatalf("Alibaba discovery profile = %q", providers[4].Discovery)
 	}
 	for _, slug := range []string{"ai21", "chutes", "ovhcloud", "cloudflare"} {
-		if _, err := parsePublishableProviders(environmentFrom(map[string]string{"KAANA_PROVIDERS": slug})); err == nil {
+		if _, err := parsePublishableProviders(environmentFrom(map[string]string{
+			"KAANA_PROVIDERS": slug, "KAANA_DISCOVERY_PROVIDERS": slug,
+		})); err == nil {
 			t.Fatalf("%s was accepted for an account model-list contract Kaana has not verified", slug)
 		}
 	}
@@ -209,7 +234,8 @@ func TestKnownProviderDiscoveryProfilesAreCarried(t *testing.T) {
 // actually consulted, so `cmd/kaana` and this command reach one address.
 func TestKnownProvidersResolveWithoutAnAddress(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS": "cerebras",
+		"KAANA_PROVIDERS":           "cerebras",
+		"KAANA_DISCOVERY_PROVIDERS": "cerebras",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -222,12 +248,14 @@ func TestKnownProvidersResolveWithoutAnAddress(t *testing.T) {
 	}
 }
 
-// TestOnlyTheFirstKeyOfAPoolIsUsed: the serving process owns rotation. Spending
-// a second key on a question whose failure means "ask again later" would retire
-// credentials against a call that is not a customer request.
-func TestOnlyTheFirstKeyOfAPoolIsUsed(t *testing.T) {
+// TestOnlyTheExactDiscoveryKeyIsUsed: the serving process owns pool order and
+// rotation. Publisher authority is the explicit PostgreSQL key id, not the
+// first row returned today.
+func TestOnlyTheExactDiscoveryKeyIsUsed(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS": "cerebras",
+		"KAANA_PROVIDERS":                          "cerebras",
+		"KAANA_DISCOVERY_PROVIDERS":                "cerebras",
+		"KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID": "second",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -241,8 +269,33 @@ func TestOnlyTheFirstKeyOfAPoolIsUsed(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("attaching credentials: %v", err)
 	}
-	if providers[0].APIKey != "first" {
-		t.Errorf("the publisher took %q from the pool, want the first key", providers[0].APIKey)
+	if providers[0].APIKey != "second" {
+		t.Errorf("the publisher took %q from the pool, want the exact key id", providers[0].APIKey)
+	}
+}
+
+func TestDiscoveryCredentialHasNoPositionOrNameFallback(t *testing.T) {
+	values := map[string]string{
+		"KAANA_PROVIDERS":           "cerebras",
+		"KAANA_DISCOVERY_PROVIDERS": "cerebras",
+	}
+	getExact := func(name string) string { return values[name] }
+	if _, err := parsePublishableProviders(getExact); err == nil {
+		t.Fatal("publisher accepted no exact discovery key id")
+	}
+
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":                          "cerebras",
+		"KAANA_DISCOVERY_PROVIDERS":                "cerebras",
+		"KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID": "missing",
+	}))
+	if err != nil {
+		t.Fatalf("parsing exact key: %v", err)
+	}
+	if err := attachDiscoveryCredentials(providers, map[contract.ProviderSlug][]provider.KeyDeclaration{
+		"cerebras": {{KeyID: "first", Secret: "first"}},
+	}); err == nil {
+		t.Fatal("publisher fell back from an absent exact id to the first credential")
 	}
 }
 

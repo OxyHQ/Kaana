@@ -39,13 +39,13 @@ func TestWriteWireFixtures(t *testing.T) {
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
 	// reason the not-applicable list is exact.
-	// 13 wire shapes plus the 6 credential-text strings the published schema
-	// must ACCEPT; 6 controls plus the 6 it must REJECT.
-	if len(valid) != 19 {
-		t.Fatalf("expected 19 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// 21 wire variants plus the 6 credential-text strings the published schema
+	// must ACCEPT; 12 controls plus the 6 it must REJECT.
+	if len(valid) != 27 {
+		t.Fatalf("expected 27 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 17 {
-		t.Fatalf("expected 17 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 18 {
+		t.Fatalf("expected 18 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	writeFixtures(t, filepath.Join(fixtureDir, "valid"), valid)
@@ -197,6 +197,13 @@ func validFixtures(t *testing.T) []fixture {
 			ModelReference: "openai/gpt-5@2026-05-01",
 			Provider:       "openai",
 			Regions:        []Region{"us-east-1"},
+			CustomerProviderCredential: &CustomerProviderCredential{
+				CredentialHandle:   "kcred_abcdefghijklmnopqrstuvwxyz",
+				CredentialRevision: 7,
+				OwnerAccountID:     "acc_01JQZ",
+				ConnectionID:       "conn_01JQZ",
+				Environment:        EnvironmentProduction,
+			},
 		}},
 	}
 	if err := request.Validate(); err != nil {
@@ -204,7 +211,7 @@ func validFixtures(t *testing.T) []fixture {
 	}
 
 	textTarget := request
-	textTarget.Target = RoutingTarget{Kind: TargetRoutingProfile, RoutingProfile: pointerTo(RoutingProfileSlug("auto"))}
+	textTarget.Target = RoutingTarget{Kind: TargetRoutingProfileID, RoutingProfileID: pointerTo(RoutingProfileID("rpf_01JQZEXACT"))}
 	textTarget.Input = Input{Format: InputText, Text: pointerTo("embed me")}
 	textTarget.Modality = ModalityEmbedding
 	textTarget.ToolChoice = &ToolChoice{Mode: pointerTo(ToolChoiceAuto)}
@@ -213,7 +220,7 @@ func validFixtures(t *testing.T) []fixture {
 	batch.Input = Input{Format: InputTextBatch, Texts: []string{"a", "b"}}
 
 	usageReport := UsageReport{
-		SchemaVersion:          SchemaVersion,
+		SchemaVersion:          UsageReportSchemaVersion,
 		RequestID:              attribution.RequestID,
 		GenerationID:           attribution.GenerationID,
 		Attribution:            attribution,
@@ -222,7 +229,7 @@ func validFixtures(t *testing.T) []fixture {
 		UsageSource:            UsageProviderReported,
 		ResolvedModelReference: "openai/gpt-5@2026-05-01",
 		ServingProvider:        "openai",
-		DeploymentID:           pointerTo(DeploymentID("dep_openai_gpt5_use1")),
+		DeploymentID:           DeploymentID("dep_openai_gpt5_use1"),
 		RouteSwitches:          0,
 		StartedAt:              started,
 		CompletedAt:            completed,
@@ -242,7 +249,7 @@ func validFixtures(t *testing.T) []fixture {
 	// worth writing: ranging over a nil slice is legal Go, so the gap between
 	// "valid to Kaana" and "parseable by Oxy" is only visible on the wire.
 	failedReport := UsageReport{
-		SchemaVersion:          SchemaVersion,
+		SchemaVersion:          UsageReportSchemaVersion,
 		RequestID:              attribution.RequestID,
 		GenerationID:           attribution.GenerationID,
 		Attribution:            attribution,
@@ -250,7 +257,7 @@ func validFixtures(t *testing.T) []fixture {
 		UsageSource:            UsageEstimated,
 		ResolvedModelReference: "openai/gpt-5@2026-05-01",
 		ServingProvider:        "openai",
-		DeploymentID:           pointerTo(DeploymentID("dep_openai_gpt5_use1")),
+		DeploymentID:           DeploymentID("dep_openai_gpt5_use1"),
 		RouteSwitches:          0,
 		StartedAt:              started,
 		CompletedAt:            completed,
@@ -270,10 +277,18 @@ func validFixtures(t *testing.T) []fixture {
 			Code:     pointerTo("overloaded"),
 			Message:  pointerTo("slow down"),
 		})
+	secret := KaanaCredentialSecret("customer-provider-secret")
+	credentialIdentity := KaanaCredentialIdentity{
+		Provider:       "openai",
+		OwnerAccountID: "acc_01JQZ",
+		ConnectionID:   "conn_01JQZ",
+		Environment:    EnvironmentProduction,
+	}
+	credentialHandle := KaanaCredentialHandle("kcred_abcdefghijklmnopqrstuvwxyz")
 
 	return []fixture{
 		{Schema: "inferenceRequestSchema", Case: "messages-with-every-optional-field", Value: request},
-		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile", Value: textTarget},
+		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile-id", Value: textTarget},
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
 		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
 		{Schema: "normalizedUsageReportSchema", Case: "failed-with-nothing-measured", Value: failedReport},
@@ -292,8 +307,9 @@ func validFixtures(t *testing.T) []fixture {
 			ToolCallID: "call_1", Name: pointerTo("lookup"), ArgumentsDelta: pointerTo(`{"q":`), Complete: false,
 		}},
 		{Schema: "inferenceStreamEventSchema", Case: "usage", Value: &StreamUsageEvent{
-			SchemaVersion: SchemaVersion, Type: EventUsage, RequestID: attribution.RequestID, Seq: 3,
-			Units: []UsageQuantity{{Unit: UnitOutputTokens, Quantity: 204}}, UsageSource: UsageProviderReported,
+			SchemaVersion: StreamUsageEventSchemaVersion, Type: EventUsage, RequestID: attribution.RequestID, Seq: 3,
+			DeploymentID: "dep_openai_gpt5_use1",
+			Units:        []UsageQuantity{{Unit: UnitOutputTokens, Quantity: 204}}, UsageSource: UsageProviderReported,
 		}},
 		{Schema: "inferenceStreamEventSchema", Case: "route-switch-deployment", Value: &StreamRouteSwitchEvent{
 			SchemaVersion: SchemaVersion, Type: EventRouteSwitch, RequestID: attribution.RequestID, Seq: 4,
@@ -312,6 +328,53 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceStreamEventSchema", Case: "done", Value: &StreamDoneEvent{
 			SchemaVersion: SchemaVersion, Type: EventDone, RequestID: attribution.RequestID, Seq: 6,
 			GenerationID: attribution.GenerationID, FinishReason: FinishStop, CompletedAt: completed,
+		}},
+		{Schema: "kaanaCredentialMutationSchema", Case: "create", Value: KaanaCredentialCreateMutation{
+			SchemaVersion: CredentialControlSchemaVersion, Action: KaanaCredentialCreate,
+			OperationID: "operation_create_01", OperationActor: "user:acc_01JQZ",
+			Provider: credentialIdentity.Provider, OwnerAccountID: credentialIdentity.OwnerAccountID,
+			ConnectionID: credentialIdentity.ConnectionID, Environment: credentialIdentity.Environment,
+			SecretBase64: secret,
+		}},
+		{Schema: "kaanaCredentialMutationSchema", Case: "rotate", Value: KaanaCredentialRotateMutation{
+			SchemaVersion: CredentialControlSchemaVersion, Action: KaanaCredentialRotate,
+			OperationID: "operation_rotate_01", OperationActor: "user:acc_01JQZ",
+			Provider: credentialIdentity.Provider, OwnerAccountID: credentialIdentity.OwnerAccountID,
+			ConnectionID: credentialIdentity.ConnectionID, Environment: credentialIdentity.Environment,
+			CredentialHandle: credentialHandle, ExpectedRevision: 7, SecretBase64: secret,
+		}},
+		{Schema: "kaanaCredentialMutationSchema", Case: "revoke", Value: KaanaCredentialRevokeMutation{
+			SchemaVersion: CredentialControlSchemaVersion, Action: KaanaCredentialRevoke,
+			OperationID: "operation_revoke_01", OperationActor: "user:acc_01JQZ",
+			Provider: credentialIdentity.Provider, OwnerAccountID: credentialIdentity.OwnerAccountID,
+			ConnectionID: credentialIdentity.ConnectionID, Environment: credentialIdentity.Environment,
+			CredentialHandle: credentialHandle, ExpectedRevision: 7,
+		}},
+		{Schema: "kaanaCredentialOutcomeRequestSchema", Case: "create", Value: KaanaCredentialCreateOutcomeRequest{
+			SchemaVersion: CredentialControlSchemaVersion, Action: KaanaCredentialCreate,
+			OperationID: "operation_create_01", Provider: credentialIdentity.Provider,
+			OwnerAccountID: credentialIdentity.OwnerAccountID, ConnectionID: credentialIdentity.ConnectionID,
+			Environment: credentialIdentity.Environment,
+		}},
+		{Schema: "kaanaCredentialOutcomeRequestSchema", Case: "rotate", Value: KaanaCredentialRotateOutcomeRequest{
+			SchemaVersion: CredentialControlSchemaVersion, Action: KaanaCredentialRotate,
+			OperationID: "operation_rotate_01", Provider: credentialIdentity.Provider,
+			OwnerAccountID: credentialIdentity.OwnerAccountID, ConnectionID: credentialIdentity.ConnectionID,
+			Environment: credentialIdentity.Environment, CredentialHandle: credentialHandle, ExpectedRevision: 7,
+		}},
+		{Schema: "kaanaCredentialOutcomeRequestSchema", Case: "revoke", Value: KaanaCredentialRevokeOutcomeRequest{
+			SchemaVersion: CredentialControlSchemaVersion, Action: KaanaCredentialRevoke,
+			OperationID: "operation_revoke_01", Provider: credentialIdentity.Provider,
+			OwnerAccountID: credentialIdentity.OwnerAccountID, ConnectionID: credentialIdentity.ConnectionID,
+			Environment: credentialIdentity.Environment, CredentialHandle: credentialHandle, ExpectedRevision: 7,
+		}},
+		{Schema: "kaanaCredentialOutcomeSchema", Case: "applied", Value: KaanaCredentialAppliedOutcome{
+			SchemaVersion: CredentialControlSchemaVersion, OperationID: "operation_rotate_01",
+			Action: KaanaCredentialRotate, Status: "applied", CredentialHandle: credentialHandle, Revision: 8,
+		}},
+		{Schema: "kaanaCredentialOutcomeSchema", Case: "conflict", Value: KaanaCredentialConflictOutcome{
+			SchemaVersion: CredentialControlSchemaVersion, OperationID: "operation_rotate_conflict_01",
+			Action: KaanaCredentialRotate, Status: "conflict",
 		}},
 	}
 }
@@ -460,14 +523,14 @@ func invalidFixtures() []fixture {
 			Schema: "normalizedUsageReportSchema",
 			Case:   "one-unit-reported-twice",
 			Value: map[string]any{
-				"schemaVersion": 1, "requestId": "req_01JQZABCDEF", "attribution": attribution,
+				"schemaVersion": 2, "requestId": "req_01JQZABCDEF", "attribution": attribution,
 				"outcome": "completed",
 				"units": []map[string]any{
 					{"unit": "input_tokens", "quantity": 1},
 					{"unit": "input_tokens", "quantity": 2},
 				},
 				"usageSource": "provider_reported", "resolvedModelReference": "openai/gpt-5@2026-05-01",
-				"servingProvider": "openai", "routeSwitches": 0,
+				"servingProvider": "openai", "deploymentId": "dep_openai_gpt5_use1", "routeSwitches": 0,
 				"startedAt": started, "completedAt": started,
 			},
 		},
@@ -475,11 +538,22 @@ func invalidFixtures() []fixture {
 			Schema: "normalizedUsageReportSchema",
 			Case:   "completed-before-started",
 			Value: map[string]any{
-				"schemaVersion": 1, "requestId": "req_01JQZABCDEF", "attribution": attribution,
+				"schemaVersion": 2, "requestId": "req_01JQZABCDEF", "attribution": attribution,
 				"outcome": "completed", "units": []map[string]any{{"unit": "input_tokens", "quantity": 1}},
 				"usageSource": "provider_reported", "resolvedModelReference": "openai/gpt-5@2026-05-01",
-				"servingProvider": "openai", "routeSwitches": 0,
+				"servingProvider": "openai", "deploymentId": "dep_openai_gpt5_use1", "routeSwitches": 0,
 				"startedAt": "2026-08-16T09:41:02.500Z", "completedAt": "2026-08-16T09:41:00.000Z",
+			},
+		},
+		{
+			Schema: "normalizedUsageReportSchema",
+			Case:   "completed-without-measured-usage",
+			Value: map[string]any{
+				"schemaVersion": 2, "requestId": "req_01JQZABCDEF", "attribution": attribution,
+				"outcome": "completed", "units": []any{}, "usageSource": "estimated",
+				"resolvedModelReference": "openai/gpt-5@2026-05-01", "servingProvider": "openai",
+				"deploymentId": "dep_openai_gpt5_use1", "routeSwitches": 0,
+				"startedAt": started, "completedAt": started,
 			},
 		},
 		{

@@ -39,6 +39,15 @@ on:
       - '.dockerignore'
       - '.github/workflows/deploy-aws.yml'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Build the immutable image only, or deploy it after every cutover gate passes
+        type: choice
+        required: true
+        default: build-only
+        options:
+          - build-only
+          - deploy
 
 permissions:
   id-token: write
@@ -74,8 +83,10 @@ env:
 
 jobs:
   deploy:
-    # workflow_dispatch can be run against arbitrary refs; only deploys from the
-    # protected main branch may assume the AWS deploy role.
+    # workflow_dispatch can be run against arbitrary refs; only main may assume
+    # the AWS role or publish an image. Building is deliberately independent of
+    # deployment so the exact reviewed main image can be pinned into the
+    # credential-admin manifest before any serving task is restarted.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
     steps:
@@ -116,6 +127,13 @@ jobs:
           echo "pushed $IMG@$DIGEST"
 
       - name: Deploy to ECS (skipped until a service exists)
+        # A main push builds an immutable candidate even while the cutover gate
+        # is false. ECS changes require both the literal repository gate and an
+        # automatic push or an explicit manual `deploy`; `build-only` can never
+        # reach this step. A missing repository variable is not "true".
+        if: >-
+          vars.KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE == 'true' &&
+          (github.event_name == 'push' || inputs.mode == 'deploy')
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |

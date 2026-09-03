@@ -361,6 +361,30 @@ func (i *Inventory) Deployments() []Endpoint {
 	return endpoints
 }
 
+// Deployment resolves one exact opaque deployment id to its route identity.
+// It never selects by provider, model name, order or health. Duplicate ids are
+// already refused while loading; the independent ambiguity check keeps this
+// bootstrap boundary fail-closed if that invariant ever regresses.
+func (i *Inventory) Deployment(id contract.DeploymentID) (provider.Route, error) {
+	var matched *provider.Route
+	for _, set := range i.byReference {
+		for _, route := range set.Candidates() {
+			if route.DeploymentID != id {
+				continue
+			}
+			if matched != nil {
+				return provider.Route{}, fmt.Errorf("inventory: deployment id %q is ambiguous", id)
+			}
+			copyRoute := route
+			matched = &copyRoute
+		}
+	}
+	if matched == nil {
+		return provider.Route{}, fmt.Errorf("inventory: deployment id %q is not present", id)
+	}
+	return *matched, nil
+}
+
 // DeploymentDescriptors lists the exact identities declared by this snapshot,
 // sorted by deployment id for a stable operator projection.
 //

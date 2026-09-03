@@ -28,6 +28,15 @@ var migration0003 string
 //go:embed migrations/0004_customer_credential_operation_outcomes.sql
 var migration0004 string
 
+//go:embed migrations/0005_customer_credential_outcome_without_digest.sql
+var migration0005 string
+
+//go:embed migrations/0006_customer_credential_validations.sql
+var migration0006 string
+
+//go:embed migrations/0007_provider_credential_id_operations.sql
+var migration0007 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool *pgxpool.Pool
@@ -111,6 +120,9 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 		{version: "0002", body: migration0002},
 		{version: "0003", body: migration0003},
 		{version: "0004", body: migration0004},
+		{version: "0005", body: migration0005},
+		{version: "0006", body: migration0006},
+		{version: "0007", body: migration0007},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -170,8 +182,8 @@ func (p *Postgres) ListEnabled(ctx context.Context, providers []contract.Provide
 	rows, err := p.pool.Query(ctx, `
 		SELECT provider_slug, key_id, encrypted_secret, kms_key_arn,
 		       key_class, budget_usd::double precision, position
-		FROM provider_credentials
-		WHERE enabled = TRUE AND provider_slug = ANY($1::text[])
+		FROM active_provider_credentials
+		WHERE provider_slug = ANY($1::text[])
 		ORDER BY provider_slug, position, key_id`, names)
 	if err != nil {
 		return nil, err

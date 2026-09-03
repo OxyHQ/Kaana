@@ -92,14 +92,23 @@ func (r *recordingCustomerRepository) RevokeCustomer(_ context.Context, operatio
 	}, nil
 }
 
-func (r *recordingCustomerRepository) GetCustomerOutcome(_ context.Context, operation CustomerCredentialOperation) (CustomerCredentialOutcome, error) {
+func (r *recordingCustomerRepository) GetCustomerOutcome(_ context.Context, query CustomerCredentialOutcomeQuery) (CustomerCredentialOutcome, error) {
 	if r.outcomeErr != nil {
 		return CustomerCredentialOutcome{}, r.outcomeErr
 	}
-	if r.outcome.Operation != operation {
+	if customerOutcomeQueryFor(r.outcome.Operation) != query {
 		return CustomerCredentialOutcome{}, ErrCustomerCredentialOutcomeUnavailable
 	}
 	return r.outcome, nil
+}
+
+func customerOutcomeQueryFor(operation CustomerCredentialOperation) CustomerCredentialOutcomeQuery {
+	return CustomerCredentialOutcomeQuery{
+		OperationID: operation.OperationID, Action: operation.Action,
+		CustomerCredentialIdentity: operation.CustomerCredentialIdentity,
+		CredentialHandle:           operation.CredentialHandle,
+		ExpectedRevision:           operation.ExpectedRevision,
+	}
 }
 
 func (r *recordingCustomerRepository) GetActiveCustomer(_ context.Context, scope CustomerCredentialScope) (EncryptedCustomerCredential, error) {
@@ -304,33 +313,35 @@ func TestCustomerOutcomeFailsClosedOnWrongIdentityAndMalformedOperationID(t *tes
 		CredentialHandle: fixedCustomerHandle, Revision: 5,
 	}}
 	writer := newFixedCustomerWriter(t, repository, &recordingCustomerCipher{})
-	for name, mutate := range map[string]func(*CustomerCredentialOperation){
-		"operation id": func(value *CustomerCredentialOperation) { value.OperationID = "operation_other" },
-		"action": func(value *CustomerCredentialOperation) {
+	query := customerOutcomeQueryFor(operation)
+	for name, mutate := range map[string]func(*CustomerCredentialOutcomeQuery){
+		"operation id": func(value *CustomerCredentialOutcomeQuery) { value.OperationID = "operation_other" },
+		"action": func(value *CustomerCredentialOutcomeQuery) {
 			value.Action = CustomerCredentialActionRevoke
-			value.SecretSHA256 = ""
 		},
-		"provider":    func(value *CustomerCredentialOperation) { value.Provider = "openai" },
-		"owner":       func(value *CustomerCredentialOperation) { value.OwnerAccountID = "acc_other" },
-		"connection":  func(value *CustomerCredentialOperation) { value.ConnectionID = "conn_other" },
-		"environment": func(value *CustomerCredentialOperation) { value.Environment = contract.EnvironmentStaging },
-		"handle":      func(value *CustomerCredentialOperation) { value.CredentialHandle = "kcred_22222222222222222222222222" },
-		"revision":    func(value *CustomerCredentialOperation) { value.ExpectedRevision++ },
+		"provider":    func(value *CustomerCredentialOutcomeQuery) { value.Provider = "openai" },
+		"owner":       func(value *CustomerCredentialOutcomeQuery) { value.OwnerAccountID = "acc_other" },
+		"connection":  func(value *CustomerCredentialOutcomeQuery) { value.ConnectionID = "conn_other" },
+		"environment": func(value *CustomerCredentialOutcomeQuery) { value.Environment = contract.EnvironmentStaging },
+		"handle": func(value *CustomerCredentialOutcomeQuery) {
+			value.CredentialHandle = "kcred_22222222222222222222222222"
+		},
+		"revision": func(value *CustomerCredentialOutcomeQuery) { value.ExpectedRevision++ },
 	} {
 		t.Run(name, func(t *testing.T) {
-			wrong := operation
+			wrong := query
 			mutate(&wrong)
 			if _, err := writer.Outcome(context.Background(), wrong); !errors.Is(err, ErrCustomerCredentialOutcomeUnavailable) {
 				t.Fatalf("wrong operation outcome error = %v", err)
 			}
 		})
 	}
-	malformed := operation
+	malformed := query
 	malformed.OperationID = strings.Repeat("a", 129)
 	if _, err := writer.Outcome(context.Background(), malformed); !errors.Is(err, ErrCustomerCredentialInvalid) {
 		t.Fatalf("oversized operation id error = %v", err)
 	}
-	unsafeRevision := operation
+	unsafeRevision := query
 	unsafeRevision.ExpectedRevision = maxSafeJSONInteger
 	if _, err := writer.Outcome(context.Background(), unsafeRevision); !errors.Is(err, ErrCustomerCredentialInvalid) {
 		t.Fatalf("non-advanceable revision error = %v", err)
@@ -351,7 +362,7 @@ func TestCustomerOutcomeTreatsCorruptRepositoryResultAsInternalFailure(t *testin
 		CredentialHandle: fixedCustomerHandle, Revision: 99,
 	}}
 	writer := newFixedCustomerWriter(t, repository, &recordingCustomerCipher{})
-	if _, err := writer.Outcome(context.Background(), operation); err == nil || errors.Is(err, ErrCustomerCredentialOutcomeUnavailable) {
+	if _, err := writer.Outcome(context.Background(), customerOutcomeQueryFor(operation)); err == nil || errors.Is(err, ErrCustomerCredentialOutcomeUnavailable) {
 		t.Fatalf("corrupt outcome error = %v", err)
 	}
 }
@@ -362,8 +373,12 @@ func TestCustomerMutationPayloadLimitsAreExact(t *testing.T) {
 		t.Fatalf("4096-byte secret was refused: %v", err)
 	}
 	for name, secret := range map[string][]byte{
-		"4097 bytes": []byte(strings.Repeat("a", 4097)),
-		"multiline":  []byte("first\nsecond"),
+		"4097 bytes":        []byte(strings.Repeat("a", 4097)),
+		"multiline":         []byte("first\nsecond"),
+		"NUL control byte":  {'v', 'a', 'l', 'i', 'd', 0, 'x'},
+		"tab control byte":  []byte("valid\tvalue"),
+		"surrounding space": []byte(" customer-secret "),
+		"non-ASCII":         []byte("credencial-ñ"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := writer.Create(context.Background(), "operation_secret_invalid", customerTestIdentity, secret, "user:owner"); !errors.Is(err, ErrCustomerCredentialInvalid) {
@@ -373,31 +388,26 @@ func TestCustomerMutationPayloadLimitsAreExact(t *testing.T) {
 	}
 }
 
-func TestCustomerOutcomeFingerprintIsActionDiscriminated(t *testing.T) {
+func TestCustomerOutcomeQueryIsActionDiscriminatedWithoutSecretMaterial(t *testing.T) {
 	writer := newFixedCustomerWriter(t, &recordingCustomerRepository{}, &recordingCustomerCipher{})
-	create := CustomerCredentialOperation{
-		OperationID:                "operation_create_fingerprint",
+	create := CustomerCredentialOutcomeQuery{
+		OperationID:                "operation_create_outcome",
 		Action:                     CustomerCredentialActionCreate,
 		CustomerCredentialIdentity: customerTestIdentity,
 	}
-	if _, err := writer.Outcome(context.Background(), create); !errors.Is(err, ErrCustomerCredentialInvalid) {
-		t.Fatalf("create without fingerprint error = %v", err)
+	if _, err := writer.Outcome(context.Background(), create); !errors.Is(err, ErrCustomerCredentialOutcomeUnavailable) {
+		t.Fatalf("valid create outcome query error = %v", err)
 	}
-	rotate := operationForScope("operation_rotate_fingerprint", CustomerCredentialActionRotate, CustomerCredentialScope{
+	rotate := CustomerCredentialOutcomeQuery{
+		OperationID: "operation_rotate_outcome", Action: CustomerCredentialActionRotate,
 		CustomerCredentialIdentity: customerTestIdentity,
-		CredentialHandle:           fixedCustomerHandle,
-		Revision:                   1,
-	})
+		CredentialHandle:           fixedCustomerHandle, ExpectedRevision: 1,
+	}
+	if _, err := writer.Outcome(context.Background(), rotate); !errors.Is(err, ErrCustomerCredentialOutcomeUnavailable) {
+		t.Fatalf("valid rotate outcome query error = %v", err)
+	}
+	rotate.CredentialHandle = ""
 	if _, err := writer.Outcome(context.Background(), rotate); !errors.Is(err, ErrCustomerCredentialInvalid) {
-		t.Fatalf("rotate without fingerprint error = %v", err)
-	}
-	revoke := operationForScope("operation_revoke_fingerprint", CustomerCredentialActionRevoke, CustomerCredentialScope{
-		CustomerCredentialIdentity: customerTestIdentity,
-		CredentialHandle:           fixedCustomerHandle,
-		Revision:                   1,
-	})
-	revoke.SecretSHA256 = strings.Repeat("a", 64)
-	if _, err := writer.Outcome(context.Background(), revoke); !errors.Is(err, ErrCustomerCredentialInvalid) {
-		t.Fatalf("revoke with fingerprint error = %v", err)
+		t.Fatalf("rotate without handle error = %v", err)
 	}
 }

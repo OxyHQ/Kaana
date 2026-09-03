@@ -76,7 +76,7 @@ func totalChunksFor(scenario conformance.Scenario) int {
 		return 6
 	case conformance.ScenarioToolCalls:
 		return 3
-	case conformance.ScenarioMidStreamError:
+	case conformance.ScenarioMidStreamError, conformance.ScenarioTruncatedStream:
 		return 2
 	default:
 		return 0
@@ -136,7 +136,10 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("request rejected: headers were {Authorization: %s}", authorization))
 		return
 	case conformance.ScenarioNonStreaming:
-		f.writeCompletion(w)
+		f.writeCompletion(w, true)
+		return
+	case conformance.ScenarioNonStreamingNoUsage:
+		f.writeCompletion(w, false)
 		return
 	}
 
@@ -151,15 +154,19 @@ func writeUpstreamError(w http.ResponseWriter, status int, kind, message string)
 	})
 }
 
-func (f *fakeUpstream) writeCompletion(w http.ResponseWriter) {
+func (f *fakeUpstream) writeCompletion(w http.ResponseWriter, includeUsage bool) {
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{
-		"id":"chatcmpl-fake",
-		"choices":[{"index":0,"message":{"role":"assistant","content":"a complete answer"},"finish_reason":"stop"}],
+	usage := ""
+	if includeUsage {
+		usage = `,
 		"usage":{"prompt_tokens":11,"completion_tokens":5,
 		         "prompt_tokens_details":{"cached_tokens":3},
-		         "completion_tokens_details":{"reasoning_tokens":2}}
-	}`))
+		         "completion_tokens_details":{"reasoning_tokens":2}}`
+	}
+	_, _ = fmt.Fprintf(w, `{
+		"id":"chatcmpl-fake",
+		"choices":[{"index":0,"message":{"role":"assistant","content":"a complete answer"},"finish_reason":"stop"}]%s
+	}`, usage)
 }
 
 func (f *fakeUpstream) writeStream(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +211,11 @@ func (f *fakeUpstream) writeStream(w http.ResponseWriter, r *http.Request) {
 		// error object where a chunk belongs.
 		_, _ = fmt.Fprint(w, `data: {"error":{"message":"the engine is currently overloaded","type":"server_error","code":null}}`+"\n\n")
 		flusher.Flush()
+		return
+	}
+	if f.scenario == conformance.ScenarioTruncatedStream {
+		// Close before the finish chunk and [DONE]. A normal HTTP EOF cannot
+		// certify that the model answer was complete.
 		return
 	}
 

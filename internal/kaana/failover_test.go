@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/customerlimit"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
@@ -108,6 +110,21 @@ func eventsOfType(events []contract.StreamEvent, kind contract.StreamEventType) 
 	return matched
 }
 
+func customerBinding(providerSlug contract.ProviderSlug) (*contract.CustomerProviderCredential, credentialstore.CustomerCredentialScope) {
+	binding := &contract.CustomerProviderCredential{
+		CredentialHandle: "kcred_abcdefghijklmnopqrstuvwxyz", CredentialRevision: 2,
+		OwnerAccountID: "acc_customer", ConnectionID: "pcx_exact", Environment: contract.EnvironmentProduction,
+	}
+	return binding, credentialstore.CustomerCredentialScope{
+		CustomerCredentialIdentity: credentialstore.CustomerCredentialIdentity{
+			Provider: providerSlug, OwnerAccountID: string(binding.OwnerAccountID), ConnectionID: binding.ConnectionID,
+			Environment: binding.Environment,
+		},
+		CredentialHandle: string(binding.CredentialHandle),
+		Revision:         binding.CredentialRevision,
+	}
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Default deny without signed routes                                        */
 /* -------------------------------------------------------------------------- */
@@ -200,7 +217,7 @@ func TestAFailedDeploymentFailsOverToAnotherServingTheSameRevision(t *testing.T)
 	if result.Report.ServingProvider != "backup" {
 		t.Errorf("the report attributes the work to %q", result.Report.ServingProvider)
 	}
-	if result.Report.DeploymentID == nil || *result.Report.DeploymentID != "dep_b" {
+	if result.Report.DeploymentID != "dep_b" {
 		t.Errorf("the report names deployment %v", result.Report.DeploymentID)
 	}
 
@@ -283,6 +300,10 @@ func TestConcreteSameModelFailoverNeverCrossesToADifferentModel(t *testing.T) {
 // another. The emitter refuses the switch, which is what makes this a property
 // of the code rather than of the executor remembering to check.
 func TestFailoverStopsOnceOutputHasBeenEmitted(t *testing.T) {
+	request := authorizedRequest()
+	binding, scope := customerBinding("backup")
+	request.AuthorizedRoutes[1].CustomerProviderCredential = binding
+	resolver := &scriptedCustomerResolver{want: scope, plaintext: []byte("must-not-be-resolved")}
 	primary := &scriptedAdapter{slug: "stub", stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 			return provider.Outcome{}, err
@@ -298,12 +319,16 @@ func TestFailoverStopsOnceOutputHasBeenEmitted(t *testing.T) {
 	secondary := succeedingAdapter("backup", 99)
 
 	events, result := harness{
-		deployments: twoDeploymentsOfOneRevision,
-		adapters:    []provider.Adapter{primary, secondary},
-	}.run(t, authorizedRequest())
+		deployments:         twoDeploymentsOfOneRevision,
+		adapters:            []provider.Adapter{primary, secondary},
+		customerCredentials: resolver,
+	}.run(t, request)
 
 	if secondary.attempts() != 0 {
 		t.Error("the request was retried elsewhere after output had already reached the customer")
+	}
+	if resolver.calls != 0 {
+		t.Fatalf("the unusable post-start fallback decrypted its customer credential %d times", resolver.calls)
 	}
 	if len(eventsOfType(events, contract.EventRouteSwitch)) != 0 {
 		t.Error("a route switch was emitted after output had begun")
@@ -316,6 +341,36 @@ func TestFailoverStopsOnceOutputHasBeenEmitted(t *testing.T) {
 	}
 	if last := events[len(events)-1]; last.EventType() != contract.EventError {
 		t.Errorf("the stream ends with %q", last.EventType())
+	}
+}
+
+func TestRouteSwitchSinkFailureDoesNotResolveCustomerCredential(t *testing.T) {
+	request := authorizedRequest()
+	binding, scope := customerBinding("backup")
+	request.AuthorizedRoutes[1].CustomerProviderCredential = binding
+	resolver := &scriptedCustomerResolver{want: scope, plaintext: []byte("must-not-be-resolved")}
+	primary := failingAdapter("stub", overloaded("stub"), nil)
+	secondary := succeedingAdapter("backup", 1)
+	executor := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary}, customerCredentials: resolver,
+	}.build(t)
+
+	result := executor.Execute(context.Background(), request, func(event contract.StreamEvent) error {
+		if event.EventType() == contract.EventRouteSwitch {
+			return kaana.ErrClientGone
+		}
+		return nil
+	})
+
+	if resolver.calls != 0 || secondary.attempts() != 0 {
+		t.Fatalf("failed route-switch write reached customer credential/upstream: resolver=%d backup=%d", resolver.calls, secondary.attempts())
+	}
+	if result.Report == nil || result.Report.DeploymentID != "dep_a" || result.Report.RouteSwitches != 0 {
+		t.Fatalf("the failed switch did not settle only the attempted primary: %+v", result.Report)
+	}
+	if result.Failure == nil || result.Failure.Code != contract.CodeCancelled {
+		t.Fatalf("the failed stream delivery produced %+v", result.Failure)
 	}
 }
 
@@ -497,7 +552,7 @@ func TestNoSwitchIsAnnouncedToADeploymentThatIsNeverTried(t *testing.T) {
 	if result.Report.RouteSwitches != 0 {
 		t.Errorf("the report counts %d route switches", result.Report.RouteSwitches)
 	}
-	if result.Report.DeploymentID == nil || *result.Report.DeploymentID != "dep_a" {
+	if result.Report.DeploymentID != "dep_a" {
 		t.Errorf("the report names deployment %v; the attempt that ran was dep_a", result.Report.DeploymentID)
 	}
 }
@@ -744,5 +799,132 @@ func TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider(t *t
 	}
 	if crossProvider.Failure != nil {
 		t.Errorf("the cross-provider failover still failed: %v", crossProvider.Failure)
+	}
+}
+
+func TestFailoverResolvesCustomerCredentialOnlyAfterAnnouncingTheSwitch(t *testing.T) {
+	request := authorizedRequest()
+	binding, scope := customerBinding("backup")
+	request.AuthorizedRoutes[1].CustomerProviderCredential = binding
+	resolver := &scriptedCustomerResolver{want: scope, err: credentialstore.ErrCustomerCredentialUnavailable}
+	primaryUnits := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+	primary := failingAdapter("stub", overloaded("stub"), primaryUnits)
+	backup := succeedingAdapter("backup", 1)
+	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]}]}`))
+	if err != nil {
+		t.Fatalf("building the primary cost card: %v", err)
+	}
+
+	events, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, backup}, costs: cards, customerCredentials: resolver,
+	}.run(t, request)
+	if result.Failure == nil || result.Failure.Code != contract.CodeBYOKCredentialInvalid {
+		t.Fatalf("the stale fallback binding produced %+v", result.Failure)
+	}
+	if primary.attempts() != 1 || backup.attempts() != 0 || resolver.calls != 1 {
+		t.Fatalf("preflight attempts primary=%d backup=%d resolver=%d", primary.attempts(), backup.attempts(), resolver.calls)
+	}
+	if switches := eventsOfType(events, contract.EventRouteSwitch); len(switches) != 1 {
+		t.Fatalf("the accepted switch was announced %d times before BYOK resolution", len(switches))
+	}
+	if result.Report == nil || result.Report.DeploymentID != "dep_a" || result.Report.RouteSwitches != 1 {
+		t.Fatalf("the report replaced the upstream that actually ran: %+v", result.Report)
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || len(result.UpstreamCost.Totals) != 1 || result.UpstreamCost.Totals[0].Amount != 100 {
+		t.Fatalf("the failed primary's provider cost was discarded: %+v", result.UpstreamCost)
+	}
+}
+
+func TestFailoverSettlesThePrimaryWhenCustomerCredentialCooldownBlocksTheFallback(t *testing.T) {
+	request := authorizedRequest()
+	binding, scope := customerBinding("backup")
+	request.AuthorizedRoutes[1].CustomerProviderCredential = binding
+
+	limits := customerlimit.NewRegistry(nil)
+	permit, refusal := limits.Admit(scope)
+	if permit == nil || refusal.Reason != customerlimit.ReasonNone {
+		t.Fatalf("seeding customer credential limit got permit=%v refusal=%+v", permit, refusal)
+	}
+	permit.Throttled(time.Hour)
+
+	resolver := &scriptedCustomerResolver{want: scope, plaintext: []byte("must-not-be-resolved")}
+	reporter := &recordingValidationReporter{}
+	primaryUnits := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+	primary := failingAdapter("stub", overloaded("stub"), primaryUnits)
+	backup := succeedingAdapter("backup", 1)
+	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]}]}`))
+	if err != nil {
+		t.Fatalf("building the primary cost card: %v", err)
+	}
+
+	events, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, backup}, costs: cards,
+		customerCredentials: resolver, validationReporter: reporter, customerLimits: limits,
+	}.run(t, request)
+	if result.Failure == nil || result.Failure.Code != contract.CodeRateLimited || result.Failure.RetryAfterMs == nil || *result.Failure.RetryAfterMs <= 0 {
+		t.Fatalf("the customer cooldown produced %+v", result.Failure)
+	}
+	if primary.attempts() != 1 || backup.attempts() != 0 || resolver.calls != 0 {
+		t.Fatalf("cooldown attempts primary=%d backup=%d resolver=%d", primary.attempts(), backup.attempts(), resolver.calls)
+	}
+	if switches := eventsOfType(events, contract.EventRouteSwitch); len(switches) != 0 {
+		t.Fatalf("a switch to a blocked BYOK route was announced %d times", len(switches))
+	}
+	if result.Report == nil || result.Report.DeploymentID != "dep_a" || result.Report.RouteSwitches != 0 {
+		t.Fatalf("the report replaced the upstream that actually ran: %+v", result.Report)
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || len(result.UpstreamCost.Totals) != 1 || result.UpstreamCost.Totals[0].Amount != 100 {
+		t.Fatalf("the failed primary's provider cost was discarded: %+v", result.UpstreamCost)
+	}
+	if verdicts := reporter.all(); len(verdicts) != 0 {
+		t.Fatalf("an untried customer credential produced validation verdicts: %#v", verdicts)
+	}
+}
+
+func TestPlatformCredentialRefusalCanFailOverToCustomerCredentialOnTheSameProvider(t *testing.T) {
+	request := sameProviderAuthorizedRequest()
+	binding, scope := customerBinding("stub")
+	request.AuthorizedRoutes[1].CustomerProviderCredential = binding
+	resolver := &scriptedCustomerResolver{want: scope, plaintext: []byte("customer-key")}
+	var customerPools int
+	adapter := &scriptedAdapter{
+		slug: "stub",
+		credentials: func(pool *provider.KeyPool) {
+			if pool != nil {
+				customerPools++
+			}
+		},
+		stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+			if call.Route.DeploymentID == "dep_a" {
+				return provider.Outcome{}, credentialRefused("stub")
+			}
+			if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+				return provider.Outcome{}, err
+			}
+			if err := out.Delta(0, contract.ChannelOutputText, "customer route"); err != nil {
+				return provider.Outcome{}, err
+			}
+			units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+			return provider.Outcome{Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
+		},
+	}
+
+	events, result := harness{
+		deployments: twoDeploymentsOfOneProvider,
+		adapters:    []provider.Adapter{adapter}, customerCredentials: resolver,
+	}.run(t, request)
+	if result.Failure != nil {
+		t.Fatalf("the exact customer credential did not recover the request: %v", result.Failure)
+	}
+	if adapter.attempts() != 2 || customerPools != 1 || resolver.calls != 1 {
+		t.Fatalf("attempts=%d customerPools=%d resolver=%d", adapter.attempts(), customerPools, resolver.calls)
+	}
+	if switches := eventsOfType(events, contract.EventRouteSwitch); len(switches) != 1 {
+		t.Fatalf("the real platform→customer failover emitted %d switches", len(switches))
+	}
+	if result.Report == nil || result.Report.DeploymentID != "dep_b" {
+		t.Fatalf("the customer route did not settle: %+v", result.Report)
 	}
 }

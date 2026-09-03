@@ -77,7 +77,7 @@ func (s *stubAdapter) Translate(request *contract.Request, route provider.Route)
 	return &provider.Call{Route: route, Method: http.MethodPost, URL: "stub://call", Stream: request.Stream}, nil
 }
 
-func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, _ *provider.KeyPool) (provider.Outcome, error) {
 	if s.fail != nil {
 		// Nothing started and nothing was measured, so the outcome is its zero
 		// value — including a nil unit slice, which is the point.
@@ -130,6 +130,19 @@ type harness struct {
 	keyID   string
 	private ed25519.PrivateKey
 	logs    *lockedBuffer
+}
+
+type stubCredentialValidator struct{}
+
+func (stubCredentialValidator) Validate(_ context.Context, task contract.KaanaCredentialValidationTask) (contract.KaanaCredentialValidationOutcome, error) {
+	return contract.KaanaCredentialValidationOutcome{
+		SchemaVersion: task.SchemaVersion, OperationID: task.OperationID,
+		ApplicationID: task.ApplicationID, Provider: task.Provider,
+		OwnerAccountID: task.OwnerAccountID, ConnectionID: task.ConnectionID,
+		Environment: task.Environment, CredentialHandle: task.CredentialHandle,
+		CredentialRevision: task.CredentialRevision, DeploymentID: task.DeploymentID,
+		State: contract.KaanaCredentialValidationPending,
+	}, nil
 }
 
 // lockedBuffer collects the operator log so a test can assert what was written
@@ -203,6 +216,10 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 	if err != nil {
 		t.Fatalf("building the verifier: %v", err)
 	}
+	validationVerifier, err := edgeauth.NewCredentialValidationVerifier(map[string]ed25519.PublicKey{keyID: public}, time.Minute)
+	if err != nil {
+		t.Fatalf("building the credential-validation verifier: %v", err)
+	}
 	path := filepath.Join(t.TempDir(), "inventory.json")
 	inventoryJSON, err := json.Marshal(map[string]any{
 		"snapshotId":  "snap_stub",
@@ -237,12 +254,14 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 		t.Fatalf("building the executor: %v", err)
 	}
 	api, err := httpapi.New(httpapi.Config{
-		Executor:  executor,
-		Verifier:  verifier,
-		Registry:  registry,
-		Inventory: store,
-		Rotation:  rotationRegistry,
-		Logger:    logger,
+		Executor:            executor,
+		Verifier:            verifier,
+		ValidationVerifier:  validationVerifier,
+		CredentialValidator: stubCredentialValidator{},
+		Registry:            registry,
+		Inventory:           store,
+		Rotation:            rotationRegistry,
+		Logger:              logger,
 	})
 	if err != nil {
 		t.Fatalf("building the server: %v", err)
@@ -264,6 +283,33 @@ func (h *harness) sign(request *http.Request, body []byte) {
 	request.Header.Set(edgeauth.HeaderSignature, "v1="+base64.StdEncoding.EncodeToString(signature))
 }
 
+func (h *harness) signValidation(request *http.Request, body []byte) {
+	milliseconds := time.Now().UnixMilli()
+	signature := ed25519.Sign(h.private, edgeauth.CredentialValidationSigningInput(h.keyID, milliseconds, body))
+	request.Header.Set(edgeauth.HeaderKeyID, h.keyID)
+	request.Header.Set(edgeauth.HeaderTimestamp, strconv.FormatInt(milliseconds, 10))
+	request.Header.Set(edgeauth.HeaderSignature, "v1="+base64.StdEncoding.EncodeToString(signature))
+}
+
+func (h *harness) postValidation(t *testing.T, body []byte, validationDomain bool) *http.Response {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodPost, h.server.URL+"/internal/v1/customer-provider-credentials/validations", readerOf(body))
+	if err != nil {
+		t.Fatalf("building validation request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if validationDomain {
+		h.signValidation(request, body)
+	} else {
+		h.sign(request, body)
+	}
+	response, err := h.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("posting validation: %v", err)
+	}
+	return response
+}
+
 func (h *harness) post(t *testing.T, ctx context.Context, body []byte, sign bool) *http.Response {
 	t.Helper()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/internal/v1/inference", readerOf(body))
@@ -279,6 +325,39 @@ func (h *harness) post(t *testing.T, ctx context.Context, body []byte, sign bool
 		t.Fatalf("sending the request: %v", err)
 	}
 	return response
+}
+
+func TestCredentialValidationRequiresItsOwnSignatureDomainAndExactClosedTask(t *testing.T) {
+	h := newHarness(t, &stubAdapter{})
+	body := []byte(`{"schemaVersion":1,"operationId":"op_exact","applicationId":"app_exact","provider":"stub","ownerAccountId":"acc_exact","connectionId":"conn_exact","environment":"production","credentialHandle":"kcred_abcdefghijklmnopqrstuvwxyz","credentialRevision":7,"deploymentId":"dep_stub"}`)
+
+	wrongDomain := h.postValidation(t, body, false)
+	defer func() { _ = wrongDomain.Body.Close() }()
+	if wrongDomain.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("inference-domain signature status = %d", wrongDomain.StatusCode)
+	}
+
+	response := h.postValidation(t, body, true)
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusAccepted || response.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("validation status/cache = %d/%q", response.StatusCode, response.Header.Get("Cache-Control"))
+	}
+	var outcome contract.KaanaCredentialValidationOutcome
+	if err := json.NewDecoder(response.Body).Decode(&outcome); err != nil {
+		t.Fatalf("decoding outcome: %v", err)
+	}
+	if outcome.OperationID != "op_exact" || outcome.ApplicationID != "app_exact" ||
+		outcome.ConnectionID != "conn_exact" || outcome.DeploymentID != "dep_stub" ||
+		outcome.State != "pending" {
+		t.Fatalf("exact validation outcome = %+v", outcome)
+	}
+
+	duplicate := []byte(`{"schemaVersion":1,"operationId":"op_exact","operationId":"op_rebound","applicationId":"app_exact","provider":"stub","ownerAccountId":"acc_exact","connectionId":"conn_exact","environment":"production","credentialHandle":"kcred_abcdefghijklmnopqrstuvwxyz","credentialRevision":7,"deploymentId":"dep_stub"}`)
+	rejected := h.postValidation(t, duplicate, true)
+	defer func() { _ = rejected.Body.Close() }()
+	if rejected.StatusCode != http.StatusBadRequest {
+		t.Fatalf("duplicate selector status = %d", rejected.StatusCode)
+	}
 }
 
 func readerOf(body []byte) io.Reader { return &sliceReader{body: body} }
@@ -300,7 +379,7 @@ func (r *sliceReader) Read(p []byte) (int, error) {
 func envelope(t *testing.T, mutate func(map[string]any)) []byte {
 	t.Helper()
 	body := map[string]any{
-		"schemaVersion": 1,
+		"schemaVersion": contract.RequestEnvelopeVersion,
 		"attribution": map[string]any{
 			"principal": map[string]any{
 				"billing":         map[string]any{"accountId": "acc_test"},
@@ -429,6 +508,100 @@ func TestASignedEnvelopeIsServedAndAnUnsignedOneIsNot(t *testing.T) {
 	})
 }
 
+func TestEnvelopeVersionTransitionAcceptsOnlyLegacyDirectModels(t *testing.T) {
+	t.Run("v1 direct model is served", func(t *testing.T) {
+		harness := newHarness(t, &stubAdapter{chunks: 1})
+		body := envelope(t, func(body map[string]any) {
+			body["schemaVersion"] = contract.LegacyRequestEnvelopeVersion
+		})
+		response := harness.post(t, context.Background(), body, true)
+		defer func() { _ = response.Body.Close() }()
+		if response.StatusCode != http.StatusOK {
+			payload, _ := io.ReadAll(response.Body)
+			t.Fatalf("a transitional direct-model envelope was answered %d: %s", response.StatusCode, payload)
+		}
+		_ = readFrames(t, response.Body)
+		if _, _, calls := harness.adapter.snapshot(); calls != 1 {
+			t.Fatalf("the transitional direct model reached the adapter %d times", calls)
+		}
+	})
+
+	for name, target := range map[string]map[string]any{
+		"v1 routing-profile slug arm": {"kind": "routing_profile", "routingProfile": "auto"},
+		"v1 slug beside direct model": {"kind": "model", "modelReference": "stub/model@2026-05-01", "routingProfile": "auto"},
+	} {
+		t.Run(name+" is refused before execution", func(t *testing.T) {
+			harness := newHarness(t, &stubAdapter{chunks: 1})
+			body := envelope(t, func(body map[string]any) {
+				body["schemaVersion"] = contract.LegacyRequestEnvelopeVersion
+				body["target"] = target
+			})
+			response := harness.post(t, context.Background(), body, true)
+			defer func() { _ = response.Body.Close() }()
+			if response.StatusCode != http.StatusBadRequest {
+				payload, _ := io.ReadAll(response.Body)
+				t.Fatalf("the retired routing-profile slug was answered %d: %s", response.StatusCode, payload)
+			}
+			if _, _, calls := harness.adapter.snapshot(); calls != 0 {
+				t.Fatalf("the retired routing-profile slug reached the adapter %d times", calls)
+			}
+		})
+	}
+}
+
+func TestV2ExactRoutingProfileExecutesOnlyItsSignedDeploymentIDs(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{chunks: 1})
+	body := envelope(t, func(body map[string]any) {
+		body["target"] = map[string]any{"kind": "routing_profile_id", "routingProfileId": "rpf_exact"}
+		body["authorizedRoutes"] = []map[string]any{{
+			"substitution": "same_model", "deploymentId": "dep_stub",
+			"modelReference": "stub/model@2026-05-01", "provider": "stub",
+			"regions": []string{"test-region"},
+		}}
+	})
+	response := harness.post(t, context.Background(), body, true)
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("the exact routing-profile target was answered %d: %s", response.StatusCode, payload)
+	}
+	_ = readFrames(t, response.Body)
+	if _, _, calls := harness.adapter.snapshot(); calls != 1 {
+		t.Fatalf("the exact authorized deployment was called %d times", calls)
+	}
+}
+
+func TestASignedExplicitNullCustomerCredentialNeverReachesAPlatformPool(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{chunks: 2})
+	body := envelope(t, func(body map[string]any) {
+		body["authorizedRoutes"] = []map[string]any{{
+			"substitution":               "same_model",
+			"deploymentId":               "dep_stub",
+			"modelReference":             "stub/model@2026-05-01",
+			"provider":                   "stub",
+			"regions":                    []string{"test-region"},
+			"customerProviderCredential": nil,
+		}}
+	})
+
+	response := harness.post(t, context.Background(), body, true)
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusBadRequest {
+		payload, _ := io.ReadAll(response.Body)
+		t.Fatalf("the explicit null customer binding was answered %d: %s", response.StatusCode, payload)
+	}
+	if _, _, calls := harness.adapter.snapshot(); calls != 0 {
+		t.Fatalf("the explicit null customer binding reached the adapter %d times", calls)
+	}
+	var failure contract.Error
+	if err := json.NewDecoder(response.Body).Decode(&failure); err != nil {
+		t.Fatalf("the explicit null rejection does not decode: %v", err)
+	}
+	if failure.Code != contract.CodeInvalidRequest {
+		t.Fatalf("the explicit null customer binding was refused with %q", failure.Code)
+	}
+}
+
 func TestATamperedBodyIsRejected(t *testing.T) {
 	harness := newHarness(t, &stubAdapter{chunks: 2})
 	signed := envelope(t, nil)
@@ -460,13 +633,13 @@ func TestATamperedBodyIsRejected(t *testing.T) {
 
 func TestAnUnimplementedEnvelopeVersionIsRefusedWhole(t *testing.T) {
 	harness := newHarness(t, &stubAdapter{chunks: 2})
-	body := envelope(t, func(body map[string]any) { body["schemaVersion"] = 2 })
+	body := envelope(t, func(body map[string]any) { body["schemaVersion"] = 3 })
 
 	response := harness.post(t, context.Background(), body, true)
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("an envelope declaring version 2 was answered %d", response.StatusCode)
+		t.Fatalf("an envelope declaring version 3 was answered %d", response.StatusCode)
 	}
 	var failure contract.Error
 	if err := json.NewDecoder(response.Body).Decode(&failure); err != nil {

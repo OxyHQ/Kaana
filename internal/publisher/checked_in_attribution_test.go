@@ -95,6 +95,26 @@ func TestCheckedInAttributionCanStillRefuse(t *testing.T) {
 	}
 }
 
+func TestExternalRadarDoesNotCreateGatewayOrUnverifiedProviderAttribution(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+
+	// A model exposed by a gateway can still appear under an already reviewed
+	// direct provider, so this assertion is intentionally about provider blocks,
+	// not substrings in model ids. None of these candidates has a direct,
+	// authenticated and immutable provider catalogue Kaana can publish today.
+	for _, slug := range []contract.ProviderSlug{
+		"amd-radeon", "requesty", "vercel-ai-gateway", "huggingface", "ollama-cloud",
+		"kilo-code", "opencode-zen", "aion-labs", "agnes-ai", "glhf", "ollama",
+	} {
+		if models, attributed := table.byProvider[slug]; attributed {
+			t.Errorf("excluded radar provider %q has %d checked-in model attributions", slug, len(models))
+		}
+	}
+}
+
 func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 	table, err := LoadAttribution("../../configs/model-attribution.json")
 	if err != nil {

@@ -81,6 +81,37 @@ streamed request reported no usage at all**; a faithful port of that would be a
 billing hole. And it substituted `temperature: 0.7` / `max_tokens: 8192` when the
 caller set none, which silently changes every request nobody configured.
 
+**Missing-usage fallback.** Asking for `stream_options.include_usage` is not a
+guarantee: gateways can strip the terminal usage frame, and non-streamed
+responses can omit the object too. A successful answer is therefore never
+turned into `internal_error` only because the provider supplied no counters.
+The executor emits and settles a deterministic `usageSource: "estimated"`
+fallback derived from the normalized request and the output events that were
+actually delivered. It always counts the upstream request; it estimates ASCII
+text at four characters per token and non-ASCII text at one code point per
+token, keeps visible and reasoning output disjoint, and counts tool JSON without
+retaining prompt or completion text. Provider-reported units always win when
+present. This creates units, not prices: Oxy remains the only
+customer-pricing authority and existing Kaana rate cards remain the only source
+of operator-side upstream rates.
+
+The same rule covers a stream that delivered output and then failed or was
+cancelled: successfully accepted delta/reasoning/tool-call events prove partial
+work and produce estimated units for the report and provider-cost record. A
+failure before the first accepted output stays unitless instead of charging from
+the input merely because it was present. Once a sink has returned an error,
+Kaana still builds that report but does not attempt a fallback usage write to a
+destination already known to be broken.
+
+The fallback is intentionally explicit about its limits. It cannot reconstruct
+a model's exact tokenizer, cached-token attribution, image tokenization, or
+audio/video duration from transport bytes. Inline base64 is excluded from text
+estimation (counting it would price encoding size as model input), and the
+fallback does not map an input image onto the ambiguous output-oriented
+`images` unit. Multimedia dimensions therefore need provider usage. Settlement
+can distinguish and later reconcile an estimate instead of mistaking it for the
+provider's invoice.
+
 ### `anthropic` — the Messages API
 
 A port of Alia's `anthropic` provider

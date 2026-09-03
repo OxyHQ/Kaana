@@ -44,9 +44,10 @@ type (
 	ModelID string
 	// ModelReference is `<publisher>/<model>` or `<publisher>/<model>@<revision>`.
 	ModelReference ModelID
-	// RoutingProfileSlug names a strategy for choosing among routes. It can
-	// never be written in the shape of a model id.
-	RoutingProfileSlug string
+	// RoutingProfileID is an immutable opaque Oxy PostgreSQL identity. Kaana
+	// neither parses it nor resolves it; the signed authorized routes are the
+	// complete executable meaning of a profile target.
+	RoutingProfileID string
 	// ProviderSlug identifies who runs the weights for a route.
 	ProviderSlug string
 	// DeploymentID names one concrete servable route. Opaque to customers.
@@ -62,11 +63,10 @@ type (
 // contract_test.go asserts each source string equals the published schema's, so
 // a grammar change upstream is a failing test rather than a silent divergence.
 var (
-	modelReferencePattern     = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:@[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$`)
-	modelIDPattern            = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
-	providerSlugPattern       = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
-	routingProfileSlugPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
-	regionPattern             = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+	modelReferencePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:@[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?)?$`)
+	modelIDPattern        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+	providerSlugPattern   = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+	regionPattern         = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
 )
 
 // Valid reports whether the reference is a well-formed model reference.
@@ -97,10 +97,9 @@ func (p ProviderSlug) Valid() bool {
 	return len(p) > 0 && len(p) <= 64 && providerSlugPattern.MatchString(string(p))
 }
 
-// Valid reports whether the slug is a well-formed routing-profile slug.
-func (s RoutingProfileSlug) Valid() bool {
-	return len(s) > 0 && len(s) <= 64 && routingProfileSlugPattern.MatchString(string(s))
-}
+// Valid reports only the published opaque-string bounds. No trim, case fold,
+// UUID guess or slug grammar may change an Oxy primary key's exact bytes.
+func (id RoutingProfileID) Valid() bool { return len(id) > 0 && len(id) <= 128 }
 
 // Valid reports whether the region is a well-formed region identifier.
 func (r Region) Valid() bool {

@@ -3,6 +3,7 @@ package contract
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -203,17 +204,44 @@ type ResponseFormat struct {
 type RoutingTargetKind string
 
 const (
-	TargetModel          RoutingTargetKind = "model"
-	TargetRoutingProfile RoutingTargetKind = "routing_profile"
+	TargetModel            RoutingTargetKind = "model"
+	TargetRoutingProfileID RoutingTargetKind = "routing_profile_id"
 )
 
-var routingTargetKindValues = []RoutingTargetKind{TargetModel, TargetRoutingProfile}
+var routingTargetKindValues = []RoutingTargetKind{TargetModel, TargetRoutingProfileID}
 
 // RoutingTarget is what the request asks to be served.
 type RoutingTarget struct {
-	Kind           RoutingTargetKind   `json:"kind"`
-	ModelReference *ModelReference     `json:"modelReference,omitempty"`
-	RoutingProfile *RoutingProfileSlug `json:"routingProfile,omitempty"`
+	Kind             RoutingTargetKind `json:"kind"`
+	ModelReference   *ModelReference   `json:"modelReference,omitempty"`
+	RoutingProfileID *RoutingProfileID `json:"routingProfileId,omitempty"`
+}
+
+// UnmarshalJSON refuses the retired slug field wherever it is smuggled. Other
+// unknown fields remain additive under the envelope decoding rule, but
+// routingProfile is not unknown: it was the v1 authority this transition is
+// explicitly removing and Kaana must never reinterpret it as an opaque id.
+func (t *RoutingTarget) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, present := fields["routingProfile"]; present {
+		return errors.New("contract: target.routingProfile is retired; Oxy must send an exact routingProfileId in envelope v2")
+	}
+	for _, field := range []string{"modelReference", "routingProfileId"} {
+		if raw, present := fields[field]; present && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("contract: target.%s must be omitted or a string", field)
+		}
+	}
+
+	type wire RoutingTarget
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*t = RoutingTarget(decoded)
+	return nil
 }
 
 // RoutingPolicyReference records which policy, at which of the customer's own
@@ -247,12 +275,48 @@ var routeSubstitutionValues = []RouteSubstitution{SubstitutionSameModel, Substit
 // control. Cross-model entries can be constructed only with the literal
 // authorizedByPolicy=true.
 type AuthorizedRoute struct {
-	Substitution       RouteSubstitution `json:"substitution"`
-	DeploymentID       DeploymentID      `json:"deploymentId"`
-	ModelReference     ModelReference    `json:"modelReference"`
-	Provider           ProviderSlug      `json:"provider"`
-	Regions            []Region          `json:"regions"`
-	AuthorizedByPolicy *bool             `json:"authorizedByPolicy,omitempty"`
+	Substitution               RouteSubstitution           `json:"substitution"`
+	DeploymentID               DeploymentID                `json:"deploymentId"`
+	ModelReference             ModelReference              `json:"modelReference"`
+	Provider                   ProviderSlug                `json:"provider"`
+	Regions                    []Region                    `json:"regions"`
+	AuthorizedByPolicy         *bool                       `json:"authorizedByPolicy,omitempty"`
+	CustomerProviderCredential *CustomerProviderCredential `json:"customerProviderCredential,omitempty"`
+}
+
+// UnmarshalJSON preserves the contract's distinction between an absent
+// customerProviderCredential and an explicit null. encoding/json normally
+// turns both into a nil pointer, which would silently select Kaana's platform
+// pool for a route that the signed edge attempted to mark as customer BYOK.
+// Unknown fields remain additive, as they are for the rest of the envelope.
+func (r *AuthorizedRoute) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, present := fields["customerProviderCredential"]; present && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("customerProviderCredential must be omitted or an object")
+	}
+
+	type wire AuthorizedRoute
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = AuthorizedRoute(decoded)
+	return nil
+}
+
+// CustomerProviderCredential is the exact, non-secret BYOK generation Oxy
+// authorized for one route. The handle is Kaana-owned and opaque; every other
+// field is part of the KMS encryption context and therefore cannot be swapped
+// without making the ciphertext undecryptable.
+type CustomerProviderCredential struct {
+	CredentialHandle   KaanaCredentialHandle `json:"credentialHandle"`
+	CredentialRevision int64                 `json:"credentialRevision"`
+	OwnerAccountID     AccountID             `json:"ownerAccountId"`
+	ConnectionID       string                `json:"connectionId"`
+	Environment        Environment           `json:"environment"`
 }
 
 // ClientRequestMetadata is what the edge records about the CALL, as opposed to
@@ -296,8 +360,11 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
-	if r.SchemaVersion != RequestEnvelopeVersion {
-		return fmt.Errorf("contract: envelope schemaVersion %d is not implemented by this build (expected %d)", r.SchemaVersion, RequestEnvelopeVersion)
+	if !SupportsRequestEnvelopeVersion(r.SchemaVersion) {
+		return fmt.Errorf("contract: envelope schemaVersion %d is not implemented by this build (accepted %d and %d)", r.SchemaVersion, LegacyRequestEnvelopeVersion, RequestEnvelopeVersion)
+	}
+	if r.SchemaVersion == LegacyRequestEnvelopeVersion && r.Target.Kind != TargetModel {
+		return fmt.Errorf("contract: envelope schemaVersion %d accepts only a direct model target", LegacyRequestEnvelopeVersion)
 	}
 	if r.Attribution.RequestID == "" {
 		return fmt.Errorf("contract: attribution.requestId is required")
@@ -410,6 +477,11 @@ func (r AuthorizedRoute) validate() error {
 			return fmt.Errorf("regions[%d]: %q is not a region", index, region)
 		}
 	}
+	if r.CustomerProviderCredential != nil {
+		if err := r.CustomerProviderCredential.validate(); err != nil {
+			return fmt.Errorf("customerProviderCredential: %w", err)
+		}
+	}
 	switch r.Substitution {
 	case SubstitutionSameModel:
 		if r.AuthorizedByPolicy != nil {
@@ -423,6 +495,29 @@ func (r AuthorizedRoute) validate() error {
 	return nil
 }
 
+func (c CustomerProviderCredential) validate() error {
+	if !validKaanaCredentialHandle(c.CredentialHandle) {
+		return fmt.Errorf("credentialHandle must be kcred_ plus 26 lowercase base32 characters")
+	}
+	if c.CredentialRevision <= 0 || c.CredentialRevision > 1<<53-1 {
+		return fmt.Errorf("credentialRevision must be a positive safe integer")
+	}
+	if len(c.OwnerAccountID) == 0 || len(c.OwnerAccountID) > 64 {
+		return fmt.Errorf("ownerAccountId must contain between 1 and 64 characters")
+	}
+	if len(c.ConnectionID) == 0 || len(c.ConnectionID) > 128 {
+		return fmt.Errorf("connectionId must contain between 1 and 128 characters")
+	}
+	if !isMember(c.Environment, environmentValues) {
+		return fmt.Errorf("%q is not a credential environment", c.Environment)
+	}
+	return nil
+}
+
+func validKaanaCredentialHandle(handle KaanaCredentialHandle) bool {
+	return kaanaCredentialHandlePattern.MatchString(string(handle))
+}
+
 func (t RoutingTarget) validate() error {
 	switch t.Kind {
 	case TargetModel:
@@ -432,15 +527,15 @@ func (t RoutingTarget) validate() error {
 		if !t.ModelReference.Valid() {
 			return fmt.Errorf("contract: %q is not a model reference", *t.ModelReference)
 		}
-		if t.RoutingProfile != nil {
-			return fmt.Errorf("contract: a model target cannot also name a routing profile")
+		if t.RoutingProfileID != nil {
+			return fmt.Errorf("contract: a model target cannot also name a routing profile id")
 		}
-	case TargetRoutingProfile:
-		if t.RoutingProfile == nil {
-			return fmt.Errorf("contract: a routing-profile target must name a profile")
+	case TargetRoutingProfileID:
+		if t.RoutingProfileID == nil {
+			return fmt.Errorf("contract: a routing-profile target must name an exact profile id")
 		}
-		if !t.RoutingProfile.Valid() {
-			return fmt.Errorf("contract: %q is not a routing-profile slug", *t.RoutingProfile)
+		if !t.RoutingProfileID.Valid() {
+			return fmt.Errorf("contract: routingProfileId must contain between 1 and 128 characters")
 		}
 		if t.ModelReference != nil {
 			return fmt.Errorf("contract: a routing-profile target cannot also name a model")

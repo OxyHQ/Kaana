@@ -149,7 +149,8 @@ func (p *Publisher) ReplaceProviders(providers []Provider) error {
 		return errors.New("publisher: credential reload changed the configured provider set")
 	}
 	for index, candidate := range providers {
-		if candidate.Slug != p.providers[index].Slug || candidate.BaseURL != p.providers[index].BaseURL || candidate.Discovery != p.providers[index].Discovery {
+		if candidate.Slug != p.providers[index].Slug || candidate.BaseURL != p.providers[index].BaseURL ||
+			candidate.Discovery != p.providers[index].Discovery || candidate.CredentialKeyID != p.providers[index].CredentialKeyID {
 			return fmt.Errorf("publisher: credential reload changed provider configuration at position %d", index+1)
 		}
 		if candidate.APIKey == "" {

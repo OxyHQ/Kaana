@@ -119,6 +119,9 @@ func CredentialVerdictFor(err error) CredentialVerdict {
 	case contract.CodeProviderCredentialInvalid:
 		return CredentialRejected
 
+	case contract.CodeBYOKCredentialInvalid:
+		return CredentialRequestFault
+
 	case contract.CodeProviderBillingRefused:
 		// The upstream declining to bill the account behind this key IS the
 		// report of zero remaining capacity. It is the strongest exhaustion
@@ -291,21 +294,27 @@ type Key struct {
 	// position rather than any function of the secret, so nothing derived from
 	// a credential is ever written to a log or a health projection.
 	Position int
-	// ID is the operator's name for this key, and is what a log or a health
-	// projection should prefer once a pool holds more than a handful: with
-	// twenty keys, "position 14 retired" identifies nothing an operator can
-	// act on. Like Position it is never derived from the secret.
+	// ID is the key's immutable opaque database identity. A log or health
+	// projection may carry it because it is not secret and lets an operator act
+	// on an exact row without resolving a name or position. It is never derived
+	// from the credential.
 	ID string
 	// Class is what spending on this key costs, as the operator stated it.
 	Class KeyClass
 
-	secret string
+	secret        string
+	customerOwned bool
 }
 
 // Secret is the credential itself. Every call site is an adapter applying
 // authentication at send time, or redacting the exact bytes it sent out of text
 // bound for a customer.
 func (k Key) Secret() string { return k.secret }
+
+// CustomerOwned reports whether the provider bills the customer directly for
+// this key. It is set only by NewCustomerKeyPool; provider configuration cannot
+// turn a platform key into a customer key by metadata.
+func (k Key) CustomerOwned() bool { return k.customerOwned }
 
 // KeyClass is what spending on a key costs, as the operator states it.
 //
@@ -380,6 +389,10 @@ type KeyPool struct {
 	provider contract.ProviderSlug
 	policy   KeyPolicy
 	signals  QuotaHeaders
+	// customerOwned is true only for a request-scoped BYOK pool. It never
+	// appears in the health projection, because the platform pool remains the
+	// adapter's long-lived operational state.
+	customerOwned bool
 
 	mu   sync.Mutex
 	keys []*pooledKey
@@ -403,10 +416,62 @@ type pooledKey struct {
 // credential and be refused), and a duplicate (a copy-paste that looks like two
 // keys, exhausts as one, and halves the pool the first time it is spent).
 func NewKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, policy KeyPolicy, signals QuotaHeaders) (*KeyPool, error) {
+	return newKeyPool(slug, declarations, policy, signals, false)
+}
+
+// NewCustomerKeyPool consumes one decrypted BYOK credential into a
+// request-scoped, single-key pool. The caller must clear the byte slice after
+// this returns; the pool retains only the copy required for the upstream call.
+func NewCustomerKeyPool(slug contract.ProviderSlug, secret []byte) (*KeyPool, error) {
+	if err := ValidateCustomerCredential(secret); err != nil {
+		return nil, err
+	}
+	return newKeyPool(slug, []KeyDeclaration{{
+		KeyID:  "customer-byok",
+		Secret: string(secret),
+	}}, KeyPolicy{}, nil, true)
+}
+
+// Destroy releases the request-scoped copy of a customer credential as soon as
+// the adapter returns. It is deliberately a no-op for platform pools, whose
+// lifetime is the serving process. Go strings cannot be overwritten in place,
+// but dropping every retained reference here bounds the plaintext lifetime to
+// the execution instead of waiting for an arbitrary pool lifetime.
+func (p *KeyPool) Destroy() {
+	if p == nil || !p.customerOwned {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, key := range p.keys {
+		key.secret = ""
+	}
+	p.keys = nil
+}
+
+// ValidateCustomerCredential pins the exact bytes Kaana can carry in an HTTP
+// authentication header without normalization or a local transport refusal.
+// Provider API keys are opaque, but their wire position is not: visible ASCII
+// is the common subset accepted unchanged by Authorization, x-api-key, HTTP/1
+// and HTTP/2. Refusing everything else at custody and again at use prevents a
+// stored control byte from looking like a shared provider outage.
+func ValidateCustomerCredential(secret []byte) error {
+	if len(secret) == 0 || len(secret) > 4096 {
+		return errors.New("provider: a customer credential must contain between 1 and 4096 bytes")
+	}
+	for _, octet := range secret {
+		if octet < 0x21 || octet > 0x7e {
+			return errors.New("provider: a customer credential must contain only visible ASCII bytes")
+		}
+	}
+	return nil
+}
+
+func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, policy KeyPolicy, signals QuotaHeaders, customerOwned bool) (*KeyPool, error) {
 	if policy.Retirement <= 0 {
 		policy.Retirement = DefaultKeyRetirement
 	}
-	pool := &KeyPool{provider: slug, policy: policy, signals: signals}
+	pool := &KeyPool{provider: slug, policy: policy, signals: signals, customerOwned: customerOwned}
 
 	seenSecret := make(map[string]int, len(declarations))
 	seenID := make(map[string]int, len(declarations))
@@ -415,16 +480,16 @@ func NewKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 
 	for index, declaration := range declarations {
 		position := index + 1
-		trimmed := strings.TrimSpace(declaration.Secret)
-		if trimmed == "" {
-			return nil, fmt.Errorf("provider: %s declares an empty credential at position %d", slug, position)
+		secret := declaration.Secret
+		if err := ValidateCustomerCredential([]byte(secret)); err != nil {
+			return nil, fmt.Errorf("provider: %s declares an invalid credential at position %d", slug, position)
 		}
-		if first, duplicate := seenSecret[trimmed]; duplicate {
+		if first, duplicate := seenSecret[secret]; duplicate {
 			// Named by POSITION. The credential itself never enters an error,
 			// including the one that reports it is wrong.
 			return nil, fmt.Errorf("provider: %s declares the same credential at positions %d and %d, which is one key wearing two names", slug, first, position)
 		}
-		seenSecret[trimmed] = position
+		seenSecret[secret] = position
 
 		keyID := strings.TrimSpace(declaration.KeyID)
 		if keyID == "" {
@@ -445,7 +510,7 @@ func NewKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 
 		// Position is the operator's line, not the slot this key ends up in.
 		// Every error above and every message below names what they wrote.
-		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: trimmed}
+		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: secret}
 		if declaration.Class == KeyClassFree {
 			free = append(free, key)
 			continue
@@ -598,7 +663,13 @@ func (a *KeyAttempt) Next(at time.Time) (Key, bool) {
 			continue
 		}
 		a.tried[key.position] = true
-		return Key{Position: key.position, ID: key.keyID, Class: key.class, secret: key.secret}, true
+		return Key{
+			Position:      key.position,
+			ID:            key.keyID,
+			Class:         key.class,
+			secret:        key.secret,
+			customerOwned: a.pool.customerOwned,
+		}, true
 	}
 	return Key{}, false
 }

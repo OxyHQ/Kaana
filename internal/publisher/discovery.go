@@ -23,6 +23,10 @@ import (
 type Provider struct {
 	Slug    contract.ProviderSlug
 	BaseURL string
+	// CredentialKeyID is the exact non-secret PostgreSQL key identity selected
+	// for discovery. It prevents a reordered serving pool from silently changing
+	// which provider account authorizes the published catalogue.
+	CredentialKeyID string
 	// Regions are the upstream execution/residency regions every deployment
 	// discovered through this API root may serve from. Provider model-list APIs
 	// do not report them, so they must come from an explicit operator declaration
