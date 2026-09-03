@@ -35,10 +35,13 @@ import (
 // adapter, because "this key is spent" and "this key is refused" are opposite
 // decisions about a pool and an adapter free to restate them is free to restate
 // them differently.
-func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 
-	response, key, err := provider.Walk(ctx, a.credentials, call, a)
+	if credentials == nil {
+		credentials = a.credentials
+	}
+	response, key, err := provider.Walk(ctx, credentials, call, a)
 	if err != nil {
 		return outcome, err
 	}
@@ -74,8 +77,9 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 	blocks := newBlockTracker()
 	meter := &usageMeter{}
 	decoder := sse.NewDecoder(body)
+	terminated := false
 
-	for {
+	for !terminated {
 		frame, more := decoder.Next()
 		if !more {
 			break
@@ -138,8 +142,10 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			}
 			return measured(outcome, meter), a.midStreamFailure(detail, key)
 
-		case eventMessageStop, eventPing:
-			// message_stop ends the stream; the read loop ends with the body.
+		case eventMessageStop:
+			terminated = true
+
+		case eventPing:
 			// A ping is a keep-alive and carries nothing.
 
 		default:
@@ -158,6 +164,9 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 		// otherwise read as a stream that finished normally — and settle as a
 		// completed one.
 		return measured(outcome, meter), ctx.Err()
+	}
+	if !terminated {
+		return measured(outcome, meter), a.TransportFailure(ctx, io.ErrUnexpectedEOF)
 	}
 
 	outcome = measured(outcome, meter)
@@ -534,7 +543,7 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 			failure.RetryAfterMs = wait
 		}
 	}
-	return failure
+	return provider.CustomerCredentialFailure(key, failure)
 }
 
 // midStreamFailure classifies an `error` event, which arrives after a 200 and
@@ -545,7 +554,7 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 // at all, and a failure nobody classified is retried nowhere and trips no
 // breaker — so an overloaded provider would keep receiving traffic.
 func (a *Adapter) midStreamFailure(detail errorDetail, key provider.Key) error {
-	return a.classify(detail, 0, key)
+	return provider.CustomerCredentialFailure(key, a.classify(detail, 0, key))
 }
 
 // classify maps the provider's own error vocabulary onto the contract's.

@@ -442,6 +442,24 @@ func TestTheReloadPathActuallyWarns(t *testing.T) {
 // the source side to one spelling; this is the test side of the same fact.
 const unroutableMessage = "the installed snapshot routes to providers this build has no adapter for"
 
+func TestSafetyDurationConfigurationFailsClosed(t *testing.T) {
+	const name = "KAANA_TEST_STRICT_DURATION"
+	t.Setenv(name, "")
+	if got, err := strictPositiveDurationFromEnv(name, 20*time.Second); err != nil || got != 20*time.Second {
+		t.Fatalf("absent duration = %s, %v", got, err)
+	}
+	for _, value := range []string{"not-a-duration", "0s", "-1s"} {
+		t.Setenv(name, value)
+		if _, err := strictPositiveDurationFromEnv(name, 20*time.Second); err == nil {
+			t.Errorf("explicit unsafe duration %q was silently defaulted", value)
+		}
+	}
+	t.Setenv(name, "45s")
+	if got, err := strictPositiveDurationFromEnv(name, 20*time.Second); err != nil || got != 45*time.Second {
+		t.Fatalf("valid explicit duration = %s, %v", got, err)
+	}
+}
+
 // newTestRegistry builds a registry holding one adapter for one slug. The
 // adapter needs no credential — an empty key pool is a legal, `unconfigured`
 // adapter, and nothing here ever sends a request.

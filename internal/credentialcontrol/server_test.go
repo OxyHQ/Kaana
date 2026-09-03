@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 )
@@ -77,14 +79,23 @@ func (w *fakeMutationWriter) Revoke(_ context.Context, operationID string, scope
 	return w.outcome, nil
 }
 
-func (w *fakeMutationWriter) Outcome(_ context.Context, operation credentialstore.CustomerCredentialOperation) (credentialstore.CustomerCredentialOutcome, error) {
+func (w *fakeMutationWriter) Outcome(_ context.Context, query credentialstore.CustomerCredentialOutcomeQuery) (credentialstore.CustomerCredentialOutcome, error) {
 	if w.outcomeErr != nil {
 		return credentialstore.CustomerCredentialOutcome{}, w.outcomeErr
 	}
-	if w.outcome.Operation != operation {
+	if outcomeQueryForTest(w.outcome.Operation) != query {
 		return credentialstore.CustomerCredentialOutcome{}, credentialstore.ErrCustomerCredentialOutcomeUnavailable
 	}
 	return w.outcome, nil
+}
+
+func outcomeQueryForTest(operation credentialstore.CustomerCredentialOperation) credentialstore.CustomerCredentialOutcomeQuery {
+	return credentialstore.CustomerCredentialOutcomeQuery{
+		OperationID: operation.OperationID, Action: operation.Action,
+		CustomerCredentialIdentity: operation.CustomerCredentialIdentity,
+		CredentialHandle:           operation.CredentialHandle,
+		ExpectedRevision:           operation.ExpectedRevision,
+	}
 }
 
 func appliedOutcome(operationID string, action credentialstore.CustomerCredentialAction, identity credentialstore.CustomerCredentialIdentity, handle string, expectedRevision int64, secret []byte) credentialstore.CustomerCredentialOutcome {
@@ -188,6 +199,30 @@ func TestSignedCreateAcceptsSecretTransientlyAndReturnsOnlyOpaqueReference(t *te
 	}
 }
 
+func TestSecretValueRequiresCanonicalPaddedBase64(t *testing.T) {
+	var canonical contract.KaanaCredentialSecret
+	if err := json.Unmarshal([]byte(`"YQ=="`), &canonical); err != nil || string(canonical) != "a" {
+		t.Fatalf("canonical base64 decoded to %q with %v", canonical, err)
+	}
+	canonical.Clear()
+
+	for name, encoded := range map[string]string{
+		"non-zero trailing bits": `"YR=="`,
+		"missing padding":        `"YQ"`,
+		"embedded newline":       `"YQ\\n=="`,
+		"extra padding":          `"YQ==="`,
+		"decoded whitespace":     `"IA=="`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var secret contract.KaanaCredentialSecret
+			if err := json.Unmarshal([]byte(encoded), &secret); err == nil {
+				secret.Clear()
+				t.Fatalf("non-canonical base64 %s was accepted", encoded)
+			}
+		})
+	}
+}
+
 func TestUnsignedMutationIsRejectedBeforeTheWriter(t *testing.T) {
 	harness := newControlHarness(t)
 	body := `{"schemaVersion":1,"action":"revoke","operationId":"operation_revoke_01","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","operationActor":"user:owner","credentialHandle":"` + controlTestHandle + `","expectedRevision":1}`
@@ -259,8 +294,7 @@ func TestSignedOutcomeReconcilesLostResponseOnlyForExactIdentity(t *testing.T) {
 	if response := harness.request(t, mutation, true); response.Code != http.StatusOK {
 		t.Fatalf("mutation status/body = %d/%s", response.Code, response.Body.String())
 	}
-	digest := sha256.Sum256([]byte("rotated-secret"))
-	query := `{"schemaVersion":1,"action":"rotate","operationId":"operation_rotate_lost","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","secretSha256":"` + hex.EncodeToString(digest[:]) + `","credentialHandle":"` + controlTestHandle + `","expectedRevision":4}`
+	query := `{"schemaVersion":1,"action":"rotate","operationId":"operation_rotate_lost","provider":"anthropic","ownerAccountId":"acc_customer_01","connectionId":"conn_customer_01","environment":"production","credentialHandle":"` + controlTestHandle + `","expectedRevision":4}`
 	response := harness.requestAt(t, OutcomePath, query, true)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"applied"`) || !strings.Contains(response.Body.String(), `"revision":5`) {
 		t.Fatalf("outcome status/body = %d/%s", response.Code, response.Body.String())
@@ -270,10 +304,10 @@ func TestSignedOutcomeReconcilesLostResponseOnlyForExactIdentity(t *testing.T) {
 	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), controlTestHandle) {
 		t.Fatalf("wrong-identity status/body = %d/%s", response.Code, response.Body.String())
 	}
-	wrongFingerprint := strings.Replace(query, hex.EncodeToString(digest[:]), strings.Repeat("0", 64), 1)
-	response = harness.requestAt(t, OutcomePath, wrongFingerprint, true)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("wrong-fingerprint status/body = %d/%s", response.Code, response.Body.String())
+	legacyFingerprint := strings.Replace(query, `"credentialHandle"`, `"secretSha256":"`+strings.Repeat("0", 64)+`","credentialHandle"`, 1)
+	response = harness.requestAt(t, OutcomePath, legacyFingerprint, true)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("legacy-fingerprint status/body = %d/%s", response.Code, response.Body.String())
 	}
 }
 

@@ -1,6 +1,6 @@
 // Package httpapi is Kaana's Oxy-facing surface.
 //
-// It has exactly five routes and no customer-facing one. Kaana is not on the
+// It has internal signed routes and no customer-facing one. Kaana is not on the
 // public internet's path to a customer: the Oxy edge authenticates, attributes,
 // authorizes and reserves, then forwards a signed envelope here.
 //
@@ -28,6 +28,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/json"
@@ -40,6 +41,8 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/credentialvalidation"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
@@ -63,6 +66,10 @@ const HeaderRequestID = "X-Oxy-Request-Id"
 // primitive.
 const DefaultMaxEnvelopeBytes int64 = 16 << 20
 
+// MaxCredentialValidationBytes bounds the metadata-only bootstrap task. It has
+// no prompt or media and must never inherit the inference envelope's 16 MiB.
+const MaxCredentialValidationBytes int64 = 16 << 10
+
 // MaxDeploymentDescriptorQueryIDs bounds one signed identity attestation. The
 // edge sends every route it may authorize in one request, but an authenticated
 // caller must not be able to turn that operator surface into an unbounded
@@ -71,24 +78,33 @@ const MaxDeploymentDescriptorQueryIDs = 64
 
 // Server serves the Oxy-facing surface.
 type Server struct {
-	executor         *kaana.Executor
-	verifier         *edgeauth.Verifier
-	registry         *provider.Registry
-	inventory        *inventory.Store
-	rotation         *rotation.Registry
-	logger           *slog.Logger
-	maxEnvelopeBytes int64
+	executor            *kaana.Executor
+	verifier            *edgeauth.Verifier
+	validationVerifier  *edgeauth.Verifier
+	credentialValidator CredentialValidator
+	registry            *provider.Registry
+	inventory           *inventory.Store
+	rotation            *rotation.Registry
+	logger              *slog.Logger
+	maxEnvelopeBytes    int64
+}
+
+// CredentialValidator is the separately authenticated bootstrap executor.
+type CredentialValidator interface {
+	Validate(context.Context, contract.KaanaCredentialValidationTask) (contract.KaanaCredentialValidationOutcome, error)
 }
 
 // Config wires a Server. Every field is required; there is no unauthenticated
 // mode, not even for local development, because a bypass that exists is a
 // bypass that ships.
 type Config struct {
-	Executor  *kaana.Executor
-	Verifier  *edgeauth.Verifier
-	Registry  *provider.Registry
-	Inventory *inventory.Store
-	Rotation  *rotation.Registry
+	Executor            *kaana.Executor
+	Verifier            *edgeauth.Verifier
+	ValidationVerifier  *edgeauth.Verifier
+	CredentialValidator CredentialValidator
+	Registry            *provider.Registry
+	Inventory           *inventory.Store
+	Rotation            *rotation.Registry
 	// Logger is optional; nil uses the default logger.
 	Logger           *slog.Logger
 	MaxEnvelopeBytes int64
@@ -101,6 +117,10 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("httpapi: no executor")
 	case config.Verifier == nil:
 		return nil, fmt.Errorf("httpapi: no edge signature verifier")
+	case config.ValidationVerifier == nil:
+		return nil, fmt.Errorf("httpapi: no credential-validation signature verifier")
+	case config.CredentialValidator == nil:
+		return nil, fmt.Errorf("httpapi: no credential validator")
 	case config.Registry == nil:
 		return nil, fmt.Errorf("httpapi: no adapter registry")
 	case config.Inventory == nil:
@@ -117,13 +137,15 @@ func New(config Config) (*Server, error) {
 		limit = DefaultMaxEnvelopeBytes
 	}
 	return &Server{
-		executor:         config.Executor,
-		verifier:         config.Verifier,
-		registry:         config.Registry,
-		inventory:        config.Inventory,
-		rotation:         config.Rotation,
-		logger:           logger,
-		maxEnvelopeBytes: limit,
+		executor:            config.Executor,
+		verifier:            config.Verifier,
+		validationVerifier:  config.ValidationVerifier,
+		credentialValidator: config.CredentialValidator,
+		registry:            config.Registry,
+		inventory:           config.Inventory,
+		rotation:            config.Rotation,
+		logger:              logger,
+		maxEnvelopeBytes:    limit,
 	}, nil
 }
 
@@ -134,8 +156,88 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
+	mux.HandleFunc("POST /internal/v1/customer-provider-credentials/validations", s.handleCredentialValidation)
 	mux.HandleFunc("GET /livez", s.handleLive)
 	return mux
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Quarantined customer-credential validation                               */
+/* -------------------------------------------------------------------------- */
+
+func (s *Server) handleCredentialValidation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.RawQuery != "" {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "credential validation takes no query parameters"))
+		return
+	}
+	body, failure := s.readSignedBodyWith(w, r, s.validationVerifier, MaxCredentialValidationBytes)
+	if failure != nil {
+		s.writeRejection(w, http.StatusUnauthorized, failure)
+		return
+	}
+	var task contract.KaanaCredentialValidationTask
+	if err := decodeCredentialValidationTask(body, &task); err != nil {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "the credential validation task is invalid"))
+		return
+	}
+	outcome, err := s.credentialValidator.Validate(r.Context(), task)
+	switch {
+	case errors.Is(err, credentialvalidation.ErrOperationConflict):
+		s.writeRejection(w, http.StatusConflict, contract.NewError(newLocalRequestID(), contract.CodeIdempotencyConflict, "the validation operation id names another exact task"))
+		return
+	case err != nil:
+		s.logger.Error("customer credential validation could not be processed", "errorType", "credential_validation")
+		s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(newLocalRequestID(), contract.CodeServiceUnavailable, "the credential validation operation is temporarily unavailable"))
+		return
+	}
+	status := http.StatusOK
+	if outcome.State == contract.KaanaCredentialValidationOutcomeState(credentialstore.CustomerCredentialValidationPending) {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, outcome)
+}
+
+func decodeCredentialValidationTask(body []byte, destination *contract.KaanaCredentialValidationTask) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	opening, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delimiter, ok := opening.(json.Delim); !ok || delimiter != '{' {
+		return errors.New("credential validation task is not an object")
+	}
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		fieldToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		field, ok := fieldToken.(string)
+		if !ok {
+			return errors.New("credential validation field name is invalid")
+		}
+		if _, duplicate := seen[field]; duplicate {
+			return errors.New("credential validation task contains a duplicate field")
+		}
+		seen[field] = struct{}{}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return err
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return errors.New("credential validation task has trailing JSON")
+	}
+	strict := json.NewDecoder(bytes.NewReader(body))
+	strict.DisallowUnknownFields()
+	if err := strict.Decode(destination); err != nil {
+		return err
+	}
+	return nil
 }
 
 /* -------------------------------------------------------------------------- */
@@ -153,13 +255,13 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		s.writeRejection(w, http.StatusBadRequest,
 			contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
 		return
-	} else if version != contract.RequestEnvelopeVersion {
+	} else if !contract.SupportsRequestEnvelopeVersion(version) {
 		// Refused whole, before any field of it is read. A partially understood
 		// envelope is how a routing or spend constraint gets silently dropped,
 		// so an unrecognised version is a hard error rather than an optimistic
 		// interpretation.
 		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest,
-			fmt.Sprintf("this build implements envelope schemaVersion %d; the request declares %d", contract.RequestEnvelopeVersion, version)).
+			fmt.Sprintf("this build accepts envelope schemaVersion %d during transition and implements %d; the request declares %d", contract.LegacyRequestEnvelopeVersion, contract.RequestEnvelopeVersion, version)).
 			WithParam("schemaVersion"))
 		return
 	}
@@ -237,10 +339,8 @@ func (s *Server) logResult(requestID contract.RequestID, result kaana.Result, el
 			"usageSource", result.Report.UsageSource,
 			"units", result.Report.Units,
 			"routeSwitches", result.Report.RouteSwitches,
+			"deploymentId", result.Report.DeploymentID,
 		)
-		if result.Report.DeploymentID != nil {
-			attributes = append(attributes, "deploymentId", *result.Report.DeploymentID)
-		}
 		if result.Report.TimeToFirstTokenMs != nil {
 			attributes = append(attributes, "timeToFirstTokenMs", *result.Report.TimeToFirstTokenMs)
 		}
@@ -657,16 +757,20 @@ func (s *Server) handleLive(w http.ResponseWriter, _ *http.Request) {
 // verification and parsing would authenticate something other than what gets
 // executed, which is the classic way a signature check becomes decorative.
 func (s *Server) readSignedBody(w http.ResponseWriter, r *http.Request) ([]byte, *contract.Error) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.maxEnvelopeBytes))
+	return s.readSignedBodyWith(w, r, s.verifier, s.maxEnvelopeBytes)
+}
+
+func (s *Server) readSignedBodyWith(w http.ResponseWriter, r *http.Request, verifier *edgeauth.Verifier, limit int64) ([]byte, *contract.Error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			return nil, contract.NewError(newLocalRequestID(), contract.CodeRequestTooLarge,
-				fmt.Sprintf("the envelope exceeds %d bytes", s.maxEnvelopeBytes))
+				fmt.Sprintf("the envelope exceeds %d bytes", limit))
 		}
 		return nil, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "the envelope could not be read")
 	}
-	if err := s.verifier.Verify(r.Header, body); err != nil {
+	if err := verifier.Verify(r.Header, body); err != nil {
 		// Logged without the headers that failed: an attacker's near-miss
 		// signature is not information worth storing, and the headers are
 		// attacker-controlled text going into a log line.

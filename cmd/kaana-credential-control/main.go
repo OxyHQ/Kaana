@@ -48,7 +48,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer repository.Close()
-	cipher, err := credentialstore.OpenKMSCipher(openContext, strings.TrimSpace(os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")))
+	cipher, err := credentialstore.OpenKMSCipher(openContext, os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
 	if err != nil {
 		return err
 	}

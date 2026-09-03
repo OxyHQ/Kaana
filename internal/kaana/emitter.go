@@ -29,28 +29,35 @@ type emitter struct {
 	// executor fails over, so that the start event names the provider that
 	// actually answered rather than the first one tried.
 	provider      contract.ProviderSlug
+	deployment    contract.DeploymentID
 	sequence      int
 	started       bool
 	terminated    bool
+	sinkFailed    bool
 	firstOutputAt time.Time
 	// admittedAt is when Kaana began executing, NOT when the upstream started
 	// answering. Time to first token measured from the upstream's response
 	// headers would exclude connection and queueing time, which is most of what
 	// the number exists to expose.
 	admittedAt time.Time
+	estimate   *usageEstimate
 }
 
-func newEmitter(sink Sink, requestID contract.RequestID, generationID *contract.GenerationID, admittedAt time.Time) *emitter {
+func newEmitter(sink Sink, request *contract.Request, generationID *contract.GenerationID, admittedAt time.Time) *emitter {
 	return &emitter{
 		sink:         sink,
-		requestID:    requestID,
+		requestID:    request.Attribution.RequestID,
 		generationID: generationID,
 		admittedAt:   admittedAt,
+		estimate:     newUsageEstimate(request),
 	}
 }
 
 // serving names the deployment about to be attempted.
-func (e *emitter) serving(slug contract.ProviderSlug) { e.provider = slug }
+func (e *emitter) serving(slug contract.ProviderSlug, deployment contract.DeploymentID) {
+	e.provider = slug
+	e.deployment = deployment
+}
 
 func (e *emitter) next() int {
 	sequence := e.sequence
@@ -62,7 +69,11 @@ func (e *emitter) send(event contract.StreamEvent) error {
 	if e.terminated {
 		return fmt.Errorf("kaana: %s event follows a terminal event", event.EventType())
 	}
-	return e.sink(event)
+	err := e.sink(event)
+	if err != nil {
+		e.sinkFailed = true
+	}
+	return err
 }
 
 // Start implements provider.Emitter.
@@ -101,7 +112,7 @@ func (e *emitter) Delta(outputIndex int, channel contract.DeltaChannel, text str
 	if e.firstOutputAt.IsZero() && text != "" {
 		e.firstOutputAt = time.Now()
 	}
-	return e.send(&contract.StreamDeltaEvent{
+	err := e.send(&contract.StreamDeltaEvent{
 		SchemaVersion: contract.SchemaVersion,
 		Type:          contract.EventDelta,
 		RequestID:     e.requestID,
@@ -110,6 +121,10 @@ func (e *emitter) Delta(outputIndex int, channel contract.DeltaChannel, text str
 		Channel:       channel,
 		Text:          text,
 	})
+	if err == nil {
+		e.estimate.addDelta(channel, text)
+	}
+	return err
 }
 
 // ToolCall implements provider.Emitter.
@@ -134,8 +149,14 @@ func (e *emitter) ToolCall(call provider.ToolCallDelta) error {
 	if call.ArgumentsDelta != "" {
 		event.ArgumentsDelta = &call.ArgumentsDelta
 	}
-	return e.send(event)
+	err := e.send(event)
+	if err == nil {
+		e.estimate.addToolCall(call.Name, call.ArgumentsDelta)
+	}
+	return err
 }
+
+func (e *emitter) hasDeliveredOutput() bool { return e.estimate.hasDeliveredOutput() }
 
 // Usage implements provider.Emitter.
 func (e *emitter) Usage(units []contract.UsageQuantity, source contract.UsageSource) error {
@@ -149,10 +170,11 @@ func (e *emitter) Usage(units []contract.UsageQuantity, source contract.UsageSou
 		return fmt.Errorf("kaana: a usage event must carry at least one unit")
 	}
 	return e.send(&contract.StreamUsageEvent{
-		SchemaVersion: contract.SchemaVersion,
+		SchemaVersion: contract.StreamUsageEventSchemaVersion,
 		Type:          contract.EventUsage,
 		RequestID:     e.requestID,
 		Seq:           e.next(),
+		DeploymentID:  e.deployment,
 		Units:         units,
 		UsageSource:   source,
 	})

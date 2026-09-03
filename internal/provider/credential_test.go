@@ -193,6 +193,34 @@ func TestAThrottleIsNeverConfusedWithExhaustion(t *testing.T) {
 	}
 }
 
+func TestACustomerThrottleKeepsItsRetrySemanticsButIsNotADeploymentFailure(t *testing.T) {
+	pool, err := NewCustomerKeyPool("test-provider", []byte(firstCredential))
+	if err != nil {
+		t.Fatalf("building the customer pool: %v", err)
+	}
+	key, leased := pool.Begin().Next(time.Now())
+	if !leased {
+		t.Fatal("the customer pool leased no credential")
+	}
+	original := ErrUpstream{
+		Code: contract.CodeRateLimited, Category: contract.UpstreamRateLimit,
+		Detail: "customer account throttled", RetryAfterMs: 2300,
+	}
+	failure := CustomerCredentialFailure(key, original)
+
+	var isolated ErrCustomerUpstream
+	if !errors.As(failure, &isolated) {
+		t.Fatalf("the customer throttle was reported as %T: %v", failure, failure)
+	}
+	var upstream ErrUpstream
+	if !errors.As(failure, &upstream) || upstream.Code != contract.CodeRateLimited || upstream.RetryAfterMs != 2300 {
+		t.Fatalf("the customer throttle lost its retry semantics: %+v", upstream)
+	}
+	if DeploymentAttributable(failure) {
+		t.Fatal("one customer's throttle is attributable to the shared deployment")
+	}
+}
+
 /* -------------------------------------------------------------------------- */
 /*  The pool                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -337,6 +365,18 @@ func TestAPoolRefusesWhatWouldPresentAsWorkingAndBehaveAsBroken(t *testing.T) {
 	// above would pass on a constructor that refuses everything.
 	if _, err := NewKeyPool("test-provider", DeclareKeys([]string{firstCredential, secondCredential}), KeyPolicy{}, nil); err != nil {
 		t.Errorf("two distinct credentials were refused: %v", err)
+	}
+
+	for name, secret := range map[string]string{
+		"leading whitespace":  " " + firstCredential,
+		"trailing whitespace": firstCredential + " ",
+		"control byte":        firstCredential + "\t",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewKeyPool("test-provider", DeclareKeys([]string{secret}), KeyPolicy{}, nil); err == nil {
+				t.Fatal("the pool normalized a provider credential instead of refusing it")
+			}
+		})
 	}
 }
 

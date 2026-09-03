@@ -98,6 +98,7 @@ type StreamUsageEvent struct {
 	Type          StreamEventType `json:"type"`
 	RequestID     RequestID       `json:"requestId"`
 	Seq           int             `json:"sequence"`
+	DeploymentID  DeploymentID    `json:"deploymentId"`
 	Units         []UsageQuantity `json:"units"`
 	UsageSource   UsageSource     `json:"usageSource"`
 }

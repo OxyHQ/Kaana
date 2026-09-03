@@ -3,6 +3,7 @@ package providercost_test
 import (
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,6 +137,31 @@ func TestTwoCurrenciesAreNotAddedTogether(t *testing.T) {
 	}
 	if !record.Complete {
 		t.Error("a fully priced request across two currencies reports incomplete")
+	}
+}
+
+func TestCustomerBYOKUsageIsCompleteButExcludedFromKaanaCostTotals(t *testing.T) {
+	cards := parse(t, twoCards)
+	record := cards.MeasureRequest("req_customer", []providercost.AttemptUsage{{
+		DeploymentID: "dep_a", Provider: "openai", ProviderBilledCustomer: true, Served: true,
+		Units: []contract.UsageQuantity{{Unit: contract.UnitOutputTokens, Quantity: 500}},
+	}})
+	if !record.Complete || len(record.Attempts) != 1 {
+		t.Fatalf("the customer-billed attempt was not completely recorded: %+v", record)
+	}
+	measurement := record.Attempts[0].Measurement
+	if !measurement.ProviderBilledCustomer || measurement.Priced || measurement.Cost.Amount != 0 || len(record.Totals) != 0 {
+		t.Fatalf("the customer's provider bill entered Kaana's expense totals: %+v", record)
+	}
+	logged := map[string]slog.Value{}
+	for _, attribute := range record.LogValue().Group() {
+		logged[attribute.Key] = attribute.Value
+	}
+	if logged["customerBilledAttempts"].Int64() != 1 {
+		t.Fatalf("the operator projection lost the customer-billed attempt: %+v", logged)
+	}
+	if unpriced, ok := logged["unpriced"].Any().([]string); !ok || len(unpriced) != 0 {
+		t.Fatalf("customer BYOK was falsely logged as an unpriced Kaana expense: %#v", logged["unpriced"].Any())
 	}
 }
 

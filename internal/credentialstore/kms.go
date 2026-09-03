@@ -37,7 +37,7 @@ type KMSCipher struct {
 
 // OpenKMSCipher resolves AWS workload credentials and pins the expected key.
 func OpenKMSCipher(ctx context.Context, keyARN string) (*KMSCipher, error) {
-	if strings.TrimSpace(keyARN) == "" {
+	if keyARN == "" || keyARN != strings.TrimSpace(keyARN) {
 		return nil, errors.New("credential store: KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN is required")
 	}
 	config, err := awsconfig.LoadDefaultConfig(ctx)
@@ -52,7 +52,7 @@ func NewKMSCipher(client kmsClient, keyARN string) (*KMSCipher, error) {
 	if client == nil {
 		return nil, errors.New("credential store: KMS client is required")
 	}
-	if strings.TrimSpace(keyARN) == "" {
+	if keyARN == "" || keyARN != strings.TrimSpace(keyARN) {
 		return nil, errors.New("credential store: KMS key ARN is required")
 	}
 	return &KMSCipher{client: client, keyARN: keyARN}, nil
@@ -90,9 +90,16 @@ func (c *KMSCipher) Decrypt(ctx context.Context, scope Scope, ciphertext []byte,
 		EncryptionContext:   encryptionContext(scope),
 	})
 	if err != nil {
+		if output != nil {
+			clear(output.Plaintext)
+		}
 		return nil, err
 	}
+	if output == nil {
+		return nil, errors.New("KMS returned no decryption result")
+	}
 	if output.KeyId == nil || *output.KeyId != c.keyARN {
+		clear(output.Plaintext)
 		return nil, errors.New("KMS decrypted with an unexpected key")
 	}
 	return output.Plaintext, nil
@@ -133,9 +140,16 @@ func (c *KMSCipher) DecryptCustomer(ctx context.Context, scope CustomerCredentia
 		EncryptionContext:   customerEncryptionContext(scope),
 	})
 	if err != nil {
+		if output != nil {
+			clear(output.Plaintext)
+		}
 		return nil, err
 	}
+	if output == nil {
+		return nil, errors.New("KMS returned no customer decryption result")
+	}
 	if output.KeyId == nil || *output.KeyId != c.keyARN {
+		clear(output.Plaintext)
 		return nil, errors.New("KMS decrypted with an unexpected key")
 	}
 	return output.Plaintext, nil

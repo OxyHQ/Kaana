@@ -1,6 +1,7 @@
 package credentialstore
 
 import (
+	"bytes"
 	"context"
 	"reflect"
 	"testing"
@@ -12,8 +13,10 @@ import (
 const kmsTestKeyARN = "arn:aws:kms:us-west-2:123456789012:key/00000000-0000-0000-0000-000000000001"
 
 type fakeKMSClient struct {
-	encryptInput *kms.EncryptInput
-	decryptInput *kms.DecryptInput
+	encryptInput     *kms.EncryptInput
+	decryptInput     *kms.DecryptInput
+	decryptKeyARN    string
+	decryptPlaintext []byte
 }
 
 func (f *fakeKMSClient) Encrypt(_ context.Context, input *kms.EncryptInput, _ ...func(*kms.Options)) (*kms.EncryptOutput, error) {
@@ -25,7 +28,14 @@ func (f *fakeKMSClient) Encrypt(_ context.Context, input *kms.EncryptInput, _ ..
 func (f *fakeKMSClient) Decrypt(_ context.Context, input *kms.DecryptInput, _ ...func(*kms.Options)) (*kms.DecryptOutput, error) {
 	f.decryptInput = input
 	keyARN := kmsTestKeyARN
-	return &kms.DecryptOutput{Plaintext: []byte("plaintext"), KeyId: &keyARN}, nil
+	if f.decryptKeyARN != "" {
+		keyARN = f.decryptKeyARN
+	}
+	plaintext := f.decryptPlaintext
+	if plaintext == nil {
+		plaintext = []byte("plaintext")
+	}
+	return &kms.DecryptOutput{Plaintext: plaintext, KeyId: &keyARN}, nil
 }
 
 func TestKMSContextBindsCiphertextToProviderAndKeyID(t *testing.T) {
@@ -71,6 +81,14 @@ func TestKMSRefusesARowFromAnotherConfiguredKey(t *testing.T) {
 	}
 }
 
+func TestKMSKeyIdentityIsNeverWhitespaceNormalized(t *testing.T) {
+	for _, keyARN := range []string{" " + kmsTestKeyARN, kmsTestKeyARN + " "} {
+		if _, err := NewKMSCipher(&fakeKMSClient{}, keyARN); err == nil {
+			t.Fatalf("KMS key ARN %q was normalized instead of refused", keyARN)
+		}
+	}
+}
+
 func TestCustomerKMSContextBindsEveryExactIdentityMember(t *testing.T) {
 	client := &fakeKMSClient{}
 	cipher, err := NewKMSCipher(client, kmsTestKeyARN)
@@ -108,5 +126,28 @@ func TestCustomerKMSContextBindsEveryExactIdentityMember(t *testing.T) {
 	}
 	if !reflect.DeepEqual(client.decryptInput.EncryptionContext, expected) {
 		t.Fatalf("decrypt context = %#v, expected %#v", client.decryptInput.EncryptionContext, expected)
+	}
+}
+
+func TestKMSClearsCustomerPlaintextReturnedUnderAnUnexpectedKey(t *testing.T) {
+	plaintext := []byte("customer-secret")
+	client := &fakeKMSClient{
+		decryptKeyARN:    "arn:aws:kms:us-west-2:123456789012:key/unexpected",
+		decryptPlaintext: plaintext,
+	}
+	cipher, err := NewKMSCipher(client, kmsTestKeyARN)
+	if err != nil {
+		t.Fatalf("NewKMSCipher: %v", err)
+	}
+	scope := CustomerCredentialScope{
+		CustomerCredentialIdentity: customerTestIdentity,
+		CredentialHandle:           fixedCustomerHandle,
+		Revision:                   1,
+	}
+	if _, err := cipher.DecryptCustomer(context.Background(), scope, []byte("ciphertext"), kmsTestKeyARN); err == nil {
+		t.Fatal("KMS plaintext returned under another key was accepted")
+	}
+	if !bytes.Equal(plaintext, make([]byte, len(plaintext))) {
+		t.Fatal("KMS plaintext survived the unexpected-key error path")
 	}
 }

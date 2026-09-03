@@ -33,10 +33,13 @@ const doneSentinel = "[DONE]"
 // because "this key is spent" and "this key is refused" are opposite decisions
 // about a pool and an adapter free to restate them is free to restate them
 // differently.
-func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 
-	response, key, err := provider.Walk(ctx, a.credentials, call, a)
+	if credentials == nil {
+		credentials = a.credentials
+	}
+	response, key, err := provider.Walk(ctx, credentials, call, a)
 	if err != nil {
 		return outcome, err
 	}
@@ -63,13 +66,18 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 
 	calls := newToolCallAccumulator()
 	decoder := sse.NewDecoder(body)
+	terminated := false
 
-	for {
+	for !terminated {
 		frame, more := decoder.Next()
 		if !more {
 			break
 		}
-		if frame.Data == "" || frame.Data == doneSentinel {
+		if frame.Data == "" {
+			continue
+		}
+		if frame.Data == doneSentinel {
+			terminated = true
 			continue
 		}
 
@@ -118,6 +126,9 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 		// otherwise read as a stream that finished normally — and settle as a
 		// completed one.
 		return outcome, ctx.Err()
+	}
+	if !terminated {
+		return outcome, a.TransportFailure(ctx, io.ErrUnexpectedEOF)
 	}
 
 	if outcome.UsageSource == contract.UsageProviderReported && len(outcome.Units) > 0 {
@@ -515,7 +526,7 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
 		failure.Detail = fmt.Sprintf("%s rejected the request", a.config.Provider)
 	}
-	return failure
+	return provider.CustomerCredentialFailure(key, failure)
 }
 
 // streamFailure classifies an error object that arrived INSIDE the stream,
@@ -539,9 +550,12 @@ func (a *Adapter) streamFailure(reported upstreamError, key provider.Key) error 
 	}
 
 	switch reported.Type {
-	case "insufficient_quota":
+	case "insufficient_quota", "billing_error":
 		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
 		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", a.config.Provider)
+	case "authentication_error", "invalid_api_key", "invalid_api_key_error", "unauthorized":
+		failure.Code, failure.Category = contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication
+		failure.Detail = fmt.Sprintf("%s refused the platform's credential for this route", a.config.Provider)
 	case "rate_limit_exceeded":
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = fmt.Sprintf("%s rate-limited this request part-way through it", a.config.Provider)
@@ -555,7 +569,7 @@ func (a *Adapter) streamFailure(reported upstreamError, key provider.Key) error 
 		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamUnknown
 		failure.Detail = fmt.Sprintf("%s failed part-way through the response and named no reason this build knows", a.config.Provider)
 	}
-	return failure
+	return provider.CustomerCredentialFailure(key, failure)
 }
 
 // safeText renders upstream text for a customer.

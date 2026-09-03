@@ -47,12 +47,17 @@ const (
 	// cancel mid-stream.
 	ScenarioSlowStream Scenario = "slow_stream"
 	// ScenarioNoUsage streams output and never reports usage, which some
-	// providers do and every settlement has to survive.
+	// providers do. The executor must produce an explicitly estimated receipt
+	// from the normalized request and the output it delivered.
 	ScenarioNoUsage Scenario = "no_usage"
 	// ScenarioToolCalls streams a tool call in fragments.
 	ScenarioToolCalls Scenario = "tool_calls"
 	// ScenarioNonStreaming answers with a single complete response.
 	ScenarioNonStreaming Scenario = "non_streaming"
+	// ScenarioNonStreamingNoUsage is the same physical response without the
+	// provider's usage object. It pins the fallback on the adapter's other read
+	// path, where asking for stream_options cannot help.
+	ScenarioNonStreamingNoUsage Scenario = "non_streaming_no_usage"
 	// ScenarioMidStreamError writes some output and then fails, without ever
 	// having sent a failing HTTP status: the status was 200 and the failure
 	// arrived inside the stream. Every streaming protocol has a spelling for
@@ -60,6 +65,10 @@ const (
 	// and an adapter that treats it as the end of a normal stream reports a
 	// request that failed as one that completed.
 	ScenarioMidStreamError Scenario = "mid_stream_error"
+	// ScenarioTruncatedStream writes valid output and then closes the body
+	// without the protocol's terminal marker. A clean transport EOF is not
+	// proof that the provider completed the answer.
+	ScenarioTruncatedStream Scenario = "truncated_stream"
 	// ScenarioRateLimited refuses with a transient rate limit.
 	ScenarioRateLimited Scenario = "rate_limited"
 	// ScenarioQuotaExhausted refuses with an account-level exhaustion of the
@@ -287,6 +296,9 @@ func Run(t *testing.T, subject Subject) {
 		if run.report == nil {
 			t.Fatal("a request that failed part-way produced no usage report, so what the upstream already did cannot be settled")
 		}
+		if len(run.report.Units) == 0 || run.report.UsageSource != contract.UsageEstimated {
+			t.Errorf("mid-stream output without final usage settled as source=%q units=%v", run.report.UsageSource, run.report.Units)
+		}
 		switch run.report.Outcome {
 		case contract.OutcomePartial, contract.OutcomeFailed:
 		default:
@@ -294,13 +306,43 @@ func Run(t *testing.T, subject Subject) {
 		}
 	})
 
-	t.Run("settles a provider that reports no usage as an estimate", func(t *testing.T) {
+	t.Run("refuses a stream that ends without its protocol terminator", func(t *testing.T) {
+		run := execute(t, subject, ScenarioTruncatedStream, streamingRequest(subject), nil)
+		assertWellFramedStream(t, run)
+		failure := assertFailure(t, run)
+		if failure.Code != contract.CodeProviderError {
+			t.Errorf("a truncated stream failed as %q, expected %q", failure.Code, contract.CodeProviderError)
+		}
+		if failure.UpstreamCategory == nil || *failure.UpstreamCategory != contract.UpstreamServerError {
+			t.Errorf("a truncated stream has upstream category %v, expected %q", failure.UpstreamCategory, contract.UpstreamServerError)
+		}
+		if run.report == nil {
+			t.Fatal("a truncated stream produced no usage report")
+		}
+		if run.report.Outcome != contract.OutcomePartial {
+			t.Errorf("a truncated stream with delivered output settled as %q", run.report.Outcome)
+		}
+		if run.report.UsageSource != contract.UsageEstimated || len(run.report.Units) == 0 {
+			t.Errorf("truncated output settled as source=%q units=%v", run.report.UsageSource, run.report.Units)
+		}
+	})
+
+	t.Run("settles a streamed answer whose provider reported no usage", func(t *testing.T) {
 		run := execute(t, subject, ScenarioNoUsage, streamingRequest(subject), nil)
 		assertWellFramedStream(t, run)
+		assertTerminal(t, run, contract.EventDone)
 		assertReport(t, run, contract.OutcomeCompleted)
-		if run.report.UsageSource == contract.UsageProviderReported {
-			t.Error("the upstream reported nothing; the report claims the provider reported it")
-		}
+		assertEstimatedFallback(t, run)
+	})
+
+	t.Run("settles a non-streamed answer whose provider reported no usage", func(t *testing.T) {
+		request := streamingRequest(subject)
+		request.Stream = false
+		run := execute(t, subject, ScenarioNonStreamingNoUsage, request, nil)
+		assertWellFramedStream(t, run)
+		assertTerminal(t, run, contract.EventDone)
+		assertReport(t, run, contract.OutcomeCompleted)
+		assertEstimatedFallback(t, run)
 	})
 
 	t.Run("streams tool calls that a client can reassemble", func(t *testing.T) {
@@ -350,6 +392,15 @@ func Run(t *testing.T, subject Subject) {
 		}
 		if !provider.AttributableCategory(*failure.UpstreamCategory) {
 			t.Errorf("a rate limit was classified %q, which the platform reads as the request's fault: no failover and no breaker would ever see it", *failure.UpstreamCategory)
+		}
+		if run.report == nil {
+			t.Fatal("a pre-output refusal produced no settlement report")
+		}
+		if len(run.report.Units) != 0 {
+			t.Errorf("a pre-output refusal was charged from request input alone: %v", run.report.Units)
+		}
+		if len(run.cost.Attempts) != 1 || len(run.cost.Attempts[0].Units) != 0 {
+			t.Errorf("a pre-output refusal reached provider-cost units: %+v", run.cost.Attempts)
 		}
 	})
 
@@ -578,6 +629,9 @@ func Run(t *testing.T, subject Subject) {
 		}
 		if cancelled.report.Outcome != contract.OutcomeCancelled {
 			t.Errorf("a cancelled request settled as %q", cancelled.report.Outcome)
+		}
+		if len(cancelled.report.Units) == 0 || cancelled.report.UsageSource != contract.UsageEstimated {
+			t.Errorf("delivered output before cancellation settled as source=%q units=%v", cancelled.report.UsageSource, cancelled.report.Units)
 		}
 		for _, event := range cancelled.events {
 			if event.EventType() == contract.EventDone {
@@ -867,6 +921,11 @@ func assertWellFramedStream(t *testing.T, r *run) {
 		switch event.EventType() {
 		case contract.EventStart:
 			starts++
+		case contract.EventUsage:
+			usage, ok := event.(*contract.StreamUsageEvent)
+			if !ok || usage.DeploymentID == "" {
+				t.Errorf("event %d carries no exact deployment id", index)
+			}
 		case contract.EventRouteSwitch:
 			// The conformance inventory declares ONE deployment, so there is
 			// nowhere to switch to. A switch appearing here would mean the
@@ -892,8 +951,12 @@ func assertWellFramedStream(t *testing.T, r *run) {
 		if err := json.Unmarshal(encoded, &generic); err != nil {
 			t.Fatalf("event %d does not decode: %v", index, err)
 		}
-		if generic.SchemaVersion != contract.SchemaVersion {
-			t.Errorf("event %d carries schemaVersion %d, expected %d", index, generic.SchemaVersion, contract.SchemaVersion)
+		expectedSchemaVersion := contract.SchemaVersion
+		if event.EventType() == contract.EventUsage {
+			expectedSchemaVersion = contract.StreamUsageEventSchemaVersion
+		}
+		if generic.SchemaVersion != expectedSchemaVersion {
+			t.Errorf("event %d carries schemaVersion %d, expected %d", index, generic.SchemaVersion, expectedSchemaVersion)
 		}
 		if generic.RequestID == "" {
 			t.Errorf("event %d carries no requestId, so a proxy or a reconnecting client could not attribute it", index)
@@ -961,7 +1024,7 @@ func assertReport(t *testing.T, r *run, expected contract.RequestOutcome) {
 	if r.report.RouteSwitches != 0 {
 		t.Errorf("the report counts %d route switches, and the conformance inventory declares one deployment", r.report.RouteSwitches)
 	}
-	if r.report.DeploymentID == nil || *r.report.DeploymentID == "" {
+	if r.report.DeploymentID == "" {
 		t.Error("the report names no deployment, so a charge cannot be attributed to a route")
 	}
 	started, err := r.report.StartedAt.Time()
@@ -970,6 +1033,29 @@ func assertReport(t *testing.T, r *run, expected contract.RequestOutcome) {
 	}
 	if time.Since(started) > time.Minute {
 		t.Errorf("the report's startedAt is %s old; it is not the instant this request began", time.Since(started))
+	}
+}
+
+func assertEstimatedFallback(t *testing.T, r *run) {
+	t.Helper()
+	if r.report.UsageSource != contract.UsageEstimated {
+		t.Errorf("provider omitted usage; report source is %q", r.report.UsageSource)
+	}
+	quantities := make(map[contract.UsageUnit]int, len(r.report.Units))
+	for _, quantity := range r.report.Units {
+		quantities[quantity.Unit] = quantity.Quantity
+	}
+	if quantities[contract.UnitRequests] != 1 {
+		t.Errorf("estimated fallback reports %d requests, expected 1", quantities[contract.UnitRequests])
+	}
+	if quantities[contract.UnitInputTokens] <= 0 {
+		t.Error("estimated fallback did not derive input tokens from the request")
+	}
+	if quantities[contract.UnitOutputTokens]+quantities[contract.UnitReasoningTokens] <= 0 {
+		t.Error("estimated fallback did not derive output tokens from delivered content")
+	}
+	if !r.sawEvent(contract.EventUsage) {
+		t.Error("estimated fallback reached the report but not the customer stream")
 	}
 }
 
@@ -1051,8 +1137,8 @@ func assertTheKeyThatPaidIsNamed(t *testing.T, subject Subject, r *run) {
 		if attempt.KeyID == "" {
 			t.Errorf("%s served an attempt without naming the key that paid for it", subject.Name)
 		}
-		// The id is the operator's name, never anything derived from the
-		// credential. A pool built from Subject.APIKeys must not leak one here.
+		// The id is an immutable opaque row identity, never anything derived
+		// from the credential. A pool built from Subject.APIKeys must not leak it.
 		for _, secret := range subject.APIKeys {
 			if secret != "" && strings.Contains(attempt.KeyID, secret) {
 				t.Errorf("%s reported a key id containing the credential", subject.Name)

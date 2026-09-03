@@ -188,16 +188,16 @@ out costs one iteration, not a request. It is an ORDER, not a budget. It cannot
 cap spend, and a pool whose free keys are all retired spends money — which is
 the correct outcome and the reason a budget is a separate thing.
 
-`Key.ID` is the operator's name for a key and is what a log or a health
-projection should prefer once a pool holds more than a handful: with twenty
-keys, "position 14 retired" names nothing anyone can act on. `Position` keeps
-meaning the line the operator wrote, not the slot the key sorted into, so every
-error still points at their file.
+`Key.ID` is the immutable opaque identity of one database row and is what a log
+or health projection should use when an operator must act on that exact row.
+It is never a provider/product name and never comes from the secret. `Position`
+is only the explicit pool order copied with the row; it is not identity and no
+admin operation resolves a credential through it.
 
 ## Where the credentials come from
 
 PostgreSQL is the only durable store. Each key is one row carrying its provider,
-operator id, pool position, declared class, optional budget metadata and KMS
+opaque id, pool position, declared class, optional budget metadata and KMS
 ciphertext. The task environment carries no provider secret, and no manifest or
 inventory can carry one.
 
@@ -206,14 +206,18 @@ that swaps ciphertext between rows therefore produces a decryption failure,
 not a credential silently serving under another identity. The configured KMS
 key ARN is also checked against every row before decrypting it.
 
-The serving and publisher roles can select active rows and decrypt with that one
-KMS key. They cannot insert, update, migrate or encrypt. A short-lived operator
+The serving and publisher roles can select only the active-row view and decrypt
+with that one KMS key; disabled historical ciphertext is not visible to their
+database role. They cannot insert, update, migrate or encrypt. A short-lived operator
 task uses `kaana-credentials put`, which accepts plaintext only on stdin,
 encrypts before PostgreSQL sees it and never returns it. Adding a key is a row;
 rotating one is an atomic upsert of the same `(provider, keyId)`.
 
 Pools are loaded at process start in `position` order. A declared provider with
 no active row is a startup refusal: reporting a green adapter that cannot
-authenticate is no longer a supported state. After a credential change, restart
-both serving and publisher tasks so their in-memory pools converge on the same
-database state.
+authenticate is no longer a supported state. Serving and publisher then reload
+the complete database/KMS pool atomically on
+`KAANA_CREDENTIAL_RELOAD_INTERVAL` (default `1m`). A failed reload keeps the
+previous complete generation, so no request observes a pool assembled across
+two credential revisions. A restart is required for provider-set or adapter
+configuration changes, not for an ordinary database credential rotation.

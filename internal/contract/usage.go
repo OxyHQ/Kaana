@@ -23,7 +23,7 @@ type UsageReport struct {
 	UsageSource            UsageSource     `json:"usageSource"`
 	ResolvedModelReference ModelReference  `json:"resolvedModelReference"`
 	ServingProvider        ProviderSlug    `json:"servingProvider"`
-	DeploymentID           *DeploymentID   `json:"deploymentId,omitempty"`
+	DeploymentID           DeploymentID    `json:"deploymentId"`
 	RouteSwitches          int             `json:"routeSwitches"`
 	StartedAt              Timestamp       `json:"startedAt"`
 	CompletedAt            Timestamp       `json:"completedAt"`
@@ -61,8 +61,8 @@ func (r UsageReport) MarshalJSON() ([]byte, error) {
 // runs against, so the failure mode of emitting an invalid one is a request
 // that executed, cost money upstream, and can never be settled or refunded.
 func (r *UsageReport) Validate() error {
-	if r.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("contract: usage report schemaVersion must be %d", SchemaVersion)
+	if r.SchemaVersion != UsageReportSchemaVersion {
+		return fmt.Errorf("contract: usage report schemaVersion must be %d", UsageReportSchemaVersion)
 	}
 	if r.RequestID == "" {
 		return fmt.Errorf("contract: usage report requestId is required")
@@ -79,8 +79,14 @@ func (r *UsageReport) Validate() error {
 	if !r.ServingProvider.Valid() {
 		return fmt.Errorf("contract: %q is not a provider slug", r.ServingProvider)
 	}
+	if len(r.DeploymentID) == 0 || len(r.DeploymentID) > 128 {
+		return fmt.Errorf("contract: deploymentId must contain between 1 and 128 characters")
+	}
 	if r.RouteSwitches < 0 || r.RouteSwitches > 100 {
 		return fmt.Errorf("contract: routeSwitches %d is outside the contract's range", r.RouteSwitches)
+	}
+	if r.Outcome == OutcomeCompleted && len(r.Units) == 0 {
+		return fmt.Errorf("contract: a completed request must report at least one usage unit")
 	}
 	seen := make(map[UsageUnit]struct{}, len(r.Units))
 	for _, quantity := range r.Units {

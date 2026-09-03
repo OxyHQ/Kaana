@@ -51,7 +51,7 @@ import (
 type Adapter interface {
 	Provider() contract.ProviderSlug
 	Translate(request *contract.Request, route Route) (*Call, error)
-	Stream(ctx context.Context, call *Call, out Emitter) (Outcome, error)
+	Stream(ctx context.Context, call *Call, out Emitter, credentials *KeyPool) (Outcome, error)
 	Health(ctx context.Context) Health
 }
 
@@ -69,6 +69,9 @@ type Route struct {
 	ModelReference  contract.ModelReference
 	UpstreamModelID string
 	Regions         []contract.Region
+	// CustomerProviderCredential is the exact non-secret binding Oxy signed for
+	// this route. Nil means the provider call uses Kaana's platform pool.
+	CustomerProviderCredential *contract.CustomerProviderCredential
 }
 
 // Call is a translated, ready-to-send upstream request.

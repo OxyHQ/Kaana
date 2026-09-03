@@ -106,7 +106,7 @@ func totalChunksFor(scenario conformance.Scenario) int {
 		return 6
 	case conformance.ScenarioToolCalls:
 		return 3
-	case conformance.ScenarioMidStreamError:
+	case conformance.ScenarioMidStreamError, conformance.ScenarioTruncatedStream:
 		return 2
 	default:
 		return 0
@@ -186,7 +186,10 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("request rejected: headers were {x-api-key: %s}", apiKey))
 		return
 	case conformance.ScenarioNonStreaming:
-		f.writeMessage(w)
+		f.writeMessage(w, true)
+		return
+	case conformance.ScenarioNonStreamingNoUsage:
+		f.writeMessage(w, false)
 		return
 	}
 
@@ -205,8 +208,12 @@ func writeUpstreamError(w http.ResponseWriter, status int, kind, message string)
 
 // writeMessage is a complete, non-streamed response: one thinking block and one
 // text block, with the whole usage object.
-func (f *fakeUpstream) writeMessage(w http.ResponseWriter) {
+func (f *fakeUpstream) writeMessage(w http.ResponseWriter, includeUsage bool) {
 	w.Header().Set("Content-Type", "application/json")
+	usage := ""
+	if includeUsage {
+		usage = `,"usage":` + f.usageJSON(fakeOutputTokens)
+	}
 	_, _ = fmt.Fprintf(w, `{
 		"id":"msg_fake",
 		"type":"message",
@@ -217,9 +224,8 @@ func (f *fakeUpstream) writeMessage(w http.ResponseWriter) {
 			{"type":"text","text":"a complete answer"}
 		],
 		"stop_reason":"end_turn",
-		"stop_sequence":null,
-		"usage":%s
-	}`, f.usageJSON(fakeOutputTokens))
+		"stop_sequence":null%s
+	}`, usage)
 }
 
 // usageJSON renders the provider's usage object. The output count is a
@@ -272,6 +278,11 @@ func (f *fakeUpstream) writeStream(w http.ResponseWriter, r *http.Request) {
 		// A 200 was already sent and output already streamed, so this failure
 		// has no HTTP status and never will.
 		write("error", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+		return
+	}
+	if f.scenario == conformance.ScenarioTruncatedStream {
+		// Close a syntactically valid SSE response before message_delta and
+		// message_stop. The adapter must not promote transport EOF to success.
 		return
 	}
 

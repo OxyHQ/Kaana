@@ -57,6 +57,54 @@ func (e ErrUpstream) Error() string {
 	return fmt.Sprintf("%s (%s): %s", e.Code, e.Category, e.Detail)
 }
 
+// ErrCustomerCredential is the deliberately non-attributable failure for a
+// BYOK credential that could not be resolved or that the upstream refused.
+// It is not ErrUpstream: the shared deployment and its platform pool are still
+// healthy, so this failure must not open their circuit breaker or fail over to
+// an unbound route.
+type ErrCustomerCredential struct {
+	// Code preserves only Kaana's closed provider failure classification so the
+	// validation callback can distinguish an authentication refusal from a
+	// provider-account billing refusal. It never carries upstream text.
+	Code contract.ErrorCode
+}
+
+func (ErrCustomerCredential) Error() string {
+	return "the customer provider credential is unavailable"
+}
+
+// ErrCustomerUpstream preserves a provider failure the customer can act on,
+// while marking it as isolated to that customer's BYOK account. In
+// particular, a provider throttle on one tenant's key must keep its
+// rate_limited code and Retry-After without opening the shared deployment
+// breaker or moving the request onto another customer's/platform route.
+type ErrCustomerUpstream struct {
+	Failure ErrUpstream
+}
+
+func (e ErrCustomerUpstream) Error() string { return e.Failure.Error() }
+
+func (e ErrCustomerUpstream) Unwrap() error { return e.Failure }
+
+// CustomerCredentialFailure rewrites failures whose ownership changes their
+// routing meaning. Authentication and billing make the binding unavailable;
+// a throttle remains retryable customer information but is explicitly not a
+// failure of the shared deployment. Request faults and provider outages keep
+// their existing classification.
+func CustomerCredentialFailure(key Key, failure ErrUpstream) error {
+	if !key.CustomerOwned() {
+		return failure
+	}
+	switch failure.Code {
+	case contract.CodeProviderCredentialInvalid, contract.CodeProviderBillingRefused:
+		return ErrCustomerCredential{Code: failure.Code}
+	case contract.CodeRateLimited:
+		return ErrCustomerUpstream{Failure: failure}
+	default:
+		return failure
+	}
+}
+
 // AttributableCategory reports whether an upstream failure of this category
 // says something about the DEPLOYMENT rather than about the request.
 //
@@ -141,6 +189,10 @@ func RetryAfterMs(header http.Header) int {
 // whether the upstream did the work before it failed, so a second attempt might
 // pay for it twice.
 func DeploymentAttributable(err error) bool {
+	var customer ErrCustomerUpstream
+	if errors.As(err, &customer) {
+		return false
+	}
 	var upstream ErrUpstream
 	if !errors.As(err, &upstream) {
 		return false

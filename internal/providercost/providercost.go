@@ -176,6 +176,10 @@ func (c *Cards) Priced(deployment contract.DeploymentID) bool {
 // Measurement is what one upstream attempt cost.
 type Measurement struct {
 	Cost Money
+	// ProviderBilledCustomer is true for BYOK: the provider charged the
+	// customer's own account, so the attempt is completely accounted for but is
+	// not an expense Kaana may add to its provider-cost totals.
+	ProviderBilledCustomer bool
 	// Priced is false when the deployment has no rate card at all. It is a
 	// distinct state from a zero cost, which is what a card pricing everything
 	// at zero would legitimately produce.
@@ -187,7 +191,9 @@ type Measurement struct {
 }
 
 // Complete reports whether every measured unit was priced.
-func (m Measurement) Complete() bool { return m.Priced && len(m.UnpricedUnits) == 0 }
+func (m Measurement) Complete() bool {
+	return m.ProviderBilledCustomer || (m.Priced && len(m.UnpricedUnits) == 0)
+}
 
 // Measure prices one attempt's units.
 func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.UsageQuantity) Measurement {
@@ -233,6 +239,10 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 type AttemptUsage struct {
 	DeploymentID contract.DeploymentID
 	Provider     contract.ProviderSlug
+	// ProviderBilledCustomer marks a request-scoped BYOK attempt. Its usage is
+	// retained for reconciliation, but its upstream amount belongs to the
+	// customer's provider account rather than Kaana's cost ledger.
+	ProviderBilledCustomer bool
 	// KeyID names the pool key this attempt spent, and KeyClass what the
 	// operator said it costs. A deployment is served by a POOL, so the
 	// deployment id cannot answer which credential ran out — and the credential
@@ -272,12 +282,15 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	totals := make(map[string]int64)
 
 	for _, attempt := range attempts {
-		measurement := c.Measure(attempt.DeploymentID, attempt.Units)
+		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer}
+		if !attempt.ProviderBilledCustomer {
+			measurement = c.Measure(attempt.DeploymentID, attempt.Units)
+		}
 		record.Attempts = append(record.Attempts, AttemptCost{AttemptUsage: attempt, Measurement: measurement})
 		if !measurement.Complete() {
 			record.Complete = false
 		}
-		if measurement.Priced {
+		if measurement.Priced && !measurement.ProviderBilledCustomer {
 			totals[measurement.Cost.Currency] += measurement.Cost.Amount
 		}
 	}
@@ -300,7 +313,12 @@ func (r Record) LogValue() slog.Value {
 		amounts = append(amounts, total.String())
 	}
 	unpriced := make([]string, 0)
+	customerBilled := 0
 	for _, attempt := range r.Attempts {
+		if attempt.Measurement.ProviderBilledCustomer {
+			customerBilled++
+			continue
+		}
 		if !attempt.Priced {
 			unpriced = append(unpriced, string(attempt.DeploymentID)+":no-rate-card")
 			continue
@@ -312,6 +330,7 @@ func (r Record) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Any("totals", amounts),
 		slog.Int("attempts", len(r.Attempts)),
+		slog.Int("customerBilledAttempts", customerBilled),
 		slog.Bool("complete", r.Complete),
 		slog.Any("unpriced", unpriced),
 	)

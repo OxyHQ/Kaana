@@ -12,6 +12,13 @@ there is no provider-key fallback outside its database.
 | `KAANA_PROVIDERS` | yes | provider slugs served by this process |
 | `DATABASE_URL` | yes | TLS PostgreSQL URL for Kaana's credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | symmetric KMS key ARN; not secret |
+| `KAANA_OXY_SERVICE_API_KEY` | yes | public id of Kaana's dedicated Oxy service credential |
+| `KAANA_OXY_SERVICE_API_SECRET` | yes | secret for that Oxy service credential; must carry only `inference:byok:validate` under the trusted Kaana application |
+| `KAANA_OXY_SERVICE_ENVIRONMENT` | no | environment of that Oxy service credential, default `production`; verdicts for another environment are refused locally |
+| `KAANA_OXY_API_BASE_URL` | no | Oxy API origin, default and exact deployed value `https://api.oxy.so`; only `development` may use an explicit loopback origin |
+| `KAANA_OXY_VALIDATION_QUEUE_SIZE` | no | bounded off-request callback queue, default `256` |
+| `KAANA_OXY_VALIDATION_TIMEOUT` | no | timeout per token/verdict HTTP operation, default `5s` |
+| `KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT` | no | deadline for the isolated one-token upstream bootstrap probe, default `20s`, maximum `45s` so it cannot outlive its PostgreSQL lease |
 | `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent means cost is not measured |
 | `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon, default `1h` |
 | `KAANA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
@@ -97,6 +104,34 @@ signed request identity, terminal outcomes and a write-only SHA-256 secret
 fingerprint for changed-secret replay refusal, and that task split is separate
 from the operator pool commands below.
 
+The inference task opens the customer resolver over that same PostgreSQL/KMS
+boundary. It receives only an exact signed authorized-route binding, decrypts
+only that generation into a request-scoped one-key pool, and clears the returned
+byte slice after copying it into the provider call path; the request pool drops
+its retained copy immediately when the adapter returns. Its database role can
+execute only the exact active-row function and its KMS role needs `Decrypt`, not
+`Encrypt`. A resolution failure never falls back to the platform pool. The
+decrypted value must be visible ASCII valid for an HTTP credential header, and
+BYOK routes are isolated from the platform deployment breaker's admission and
+outcome state. A second breaker/throttle lane is keyed by the complete customer
+credential generation, so one tenant or revision cannot suppress another and a
+non-attributable BYOK failure never fails over to an unbound route.
+
+Successful normal BYOK use and explicit authentication refusal enqueue a
+closed-vocabulary validation verdict back to Oxy. Billing/credit refusal is not
+an invalid-key verdict; the same generation remains revalidatable after top-up.
+Throttles and provider outages do not disable the connection.
+
+Initial validation uses the distinct signed
+`/internal/v1/customer-provider-credentials/validations` path and its durable
+PostgreSQL lease/outcome ledger. It binds the exact application, provider,
+owner, environment, connection, generation and deployment, makes a fixed
+one-token provider call, discards output, and bypasses normal response, receipt,
+Oxy billing, failover and breaker paths. Its full exact terminal outcome is sent
+through the same narrow Oxy service principal to the bootstrap callback. A
+pending Oxy operation can be reposted after either process restarts; Kaana
+replays a terminal outcome without repeating provider spend.
+
 The credential-control task requires a verified-TLS `DATABASE_URL` for its
 dedicated database login, `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN`, and
 `KAANA_CREDENTIAL_CONTROL_PUBLIC_KEYS`. Its optional
@@ -116,7 +151,8 @@ providers or key identities.
 
 The runtime role needs only:
 
-- `SELECT` on `provider_credentials`;
+- `SELECT` on the `active_provider_credentials` view, never the base table that
+  retains disabled history;
 - `kms:Decrypt` on the one configured key;
 - network access to PostgreSQL and KMS.
 
@@ -125,13 +161,15 @@ same read/decrypt need because it authenticates one `GET /models` request. An
 operator one-shot task owns migration/write/encrypt authority and is not a
 long-running service.
 
-Every mutation calls one `SECURITY DEFINER` database function that changes the
-credential and appends `provider_credential_audit` in the same statement. The
-credential-admin role has no direct table DML and reads metadata through a view
-that excludes ciphertext; it cannot change a row without its audit or forge an
-audit row. The audit contains the session database principal, a required
-`KAANA_CREDENTIAL_ACTOR`, the action and provider/key identity, but neither
-plaintext nor ciphertext.
+Ordinary put/disable mutations call one `SECURITY DEFINER` database function
+that changes the credential and appends `provider_credential_audit` in the same
+statement. Rekey/deduplicate use a prepare/complete function pair inside one
+explicit transaction whose advisory and table locks remain held across the KMS
+operation. The credential-admin role has no direct table DML and reads metadata
+through projections that exclude ciphertext; it cannot change a row without its
+audit/operation record or forge either. Those records contain the session
+database principal, a required `KAANA_CREDENTIAL_ACTOR`, the action and exact
+provider/key identity, but neither plaintext nor ciphertext.
 
 `DATABASE_URL` is still a secret connection credential and remains in the ECS
 task's secret block. It is not an upstream provider key. It must use
@@ -159,7 +197,7 @@ Plaintext is accepted only on standard input:
 ```bash
 <secret-manager-read-command> | kaana-credentials put \
   --provider openrouter \
-  --key-id openrouter-main \
+  --key-id 123e4567-e89b-42d3-a456-426614174000 \
   --position 1 \
   --class paid
 ```
@@ -177,19 +215,21 @@ For the one-time removal of legacy SSM SecureStrings, use the direct importer:
 kaana-credentials import-ssm \
   --parameter /oxy/alia/PROVIDER_KEY_OPENROUTER \
   --provider openrouter \
-  --key-id openrouter-main \
+  --key-id legacy-alia-20260901 \
   --position 1 \
   --class paid
 ```
 
-The importer requests decryption through the AWS SDK, immediately re-encrypts
+The importer requests decryption through the AWS SDK, requires the exact
+historical parameter/provider/key-id triple, immediately re-encrypts
 the value under Kaana's KMS key, and never writes it to stdout, argv, an
 environment variable, or a file. It accepts only `SecureString` values under
-the legacy `/oxy/alia/PROVIDER_KEY_*` handoff prefix plus four exact historical
-Relay paths for Cerebras, Groq, OpenRouter and xAI. It accepts no Relay prefix,
-wildcard or other provider. Each Relay path is bound to its exact provider slug,
-and the task role narrows that code allow-list further to the exact parameters
-being migrated. It exists only for migration; after a verified
+the four exact historical Alia handoff paths for ElevenLabs, Groq, OpenRouter
+and xAI plus four exact historical Relay paths for Cerebras, Groq, OpenRouter
+and xAI. It accepts no prefix, wildcard or other provider. Every path is bound
+to its exact provider slug, and the task role narrows that code allow-list
+further to the exact parameters being migrated. It exists only for migration;
+after a verified
 provider call, delete the legacy parameter and the corresponding GitHub secret.
 
 Each Relay handoff uses the same command, with its bound provider identity stated
@@ -200,7 +240,8 @@ kaana-credentials import-ssm \
   --parameter /oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY \
   --provider cerebras \
   --key-id cerebras-relay-main \
-  --position 1
+  --position 1 \
+  --class paid
 ```
 
 Deploy the importer code and its exact IAM source grant before running that
@@ -209,9 +250,11 @@ and serving configuration with Cerebras enabled. A successful real request
 through Kaana is the gate before removing the legacy source; an import alone is
 not proof that the account can invoke a model.
 
-Putting an existing `(provider, keyId)` encrypts new plaintext and atomically
-rotates that row. Adding another key is another row and does not register a task
-definition. Serving reloads the complete set atomically every
+`put` accepts only an exact lowercase UUIDv4 key ID. Putting an existing
+`(provider, keyId)` encrypts new plaintext and atomically rotates that row.
+Adding another key is another opaque row and does not register a task
+definition. The legacy importer is the only named-ID exception and only for its
+eight frozen historical handoffs. Serving reloads the complete set atomically every
 `KAANA_CREDENTIAL_RELOAD_INTERVAL`: a partial or failed load leaves the previous
 generation serving. Revoke the old credential upstream first when immediate
 revocation matters; a database disable converges within the configured interval.
@@ -225,8 +268,15 @@ kaana-credentials list
 Disable without deleting ciphertext or losing the operator identity:
 
 ```bash
-kaana-credentials disable --provider openrouter --key-id openrouter-main
+kaana-credentials disable --provider openrouter --key-id 123e4567-e89b-42d3-a456-426614174000
 ```
+
+Historical platform key IDs are replaced only through `rekey-id`, never by
+copying ciphertext or reading plaintext into a shell. Exact duplicate checks use
+`deduplicate`; PostgreSQL receives only `deduplicated` or `different`, never a
+secret fingerprint. The frozen IDs, idempotency receipts, exact commands and
+dedupe-before-rekey order are in
+[`provider-credential-id-cutover.md`](provider-credential-id-cutover.md).
 
 Never print a source key to pipe it. Verify a real provider call through the new
 row, then delete the old SSM/GitHub copy and prove task definitions no longer
@@ -235,14 +285,15 @@ reference it.
 ## Publisher configuration
 
 `cmd/kaana-publisher` reads the same non-secret provider configuration and the
-same encrypted database pools as the serving process. It uses the first active
-key for one authenticated catalogue traversal, including every required page;
-serving owns rotation.
+same encrypted database pools as the serving process. It uses the one active
+credential selected by an exact, non-secret PostgreSQL key id for the complete
+catalogue traversal; serving owns pool order and rotation.
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `KAANA_PROVIDERS` | yes | serving superset used to prove that discovery cannot publish an unroutable provider |
 | `KAANA_DISCOVERY_PROVIDERS` | yes | slugs to discover; an ordered subsequence of the serving task's `KAANA_PROVIDERS` |
+| `KAANA_PROVIDER_<SLUG>_DISCOVERY_KEY_ID` | for every discovery slug | exact enabled PostgreSQL key id used for model discovery; no first/position fallback |
 | `DATABASE_URL` | yes | credential database, TLS required |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected KMS key ARN |
 | `KAANA_INVENTORY_BUCKET` | yes | S3 bucket; never defaulted |
@@ -253,11 +304,9 @@ serving owns rotation.
 
 A provider declared in either process's provider set but missing an active
 database key is a hard startup refusal for that process. A green task must not
-advertise an adapter or discovery target that cannot authenticate. The
-publisher temporarily accepts `KAANA_PROVIDERS` as a compatibility fallback,
-but new task definitions must set both variables explicitly. Publisher startup
-proves that every discovery slug is present in the serving superset and keeps
-the same priority order.
+advertise an adapter or discovery target that cannot authenticate. Publisher
+startup requires both variables, proves that every discovery slug is present in
+the serving superset and keeps the same priority order.
 
 Serving and publisher both reload credentials atomically. A failed database or
 KMS read leaves the previous complete generation in use and is logged; no

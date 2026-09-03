@@ -2,6 +2,7 @@ package openaicompat
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,7 +79,7 @@ func TestAQuotaHeaderIsReadOnEveryResponse(t *testing.T) {
 		Body:   []byte(`{}`),
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
-	if _, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}); streamErr == nil {
+	if _, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, nil); streamErr == nil {
 		t.Fatal("a 503 was reported as a successful stream")
 	}
 
@@ -100,7 +101,7 @@ func TestAQuotaHeaderIsReadOnEveryResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the control adapter: %v", err)
 	}
-	if _, streamErr := control.Stream(context.Background(), call, silentEmitter{}); streamErr == nil {
+	if _, streamErr := control.Stream(context.Background(), call, silentEmitter{}, nil); streamErr == nil {
 		t.Fatal("a 503 was reported as a successful stream")
 	}
 	if usable := control.credentials.Projection(time.Now()).Usable; usable != 2 {
@@ -180,7 +181,7 @@ func TestAThrottleRotatesOnlyWhenTheKeysAreDeclaredSeparateAccounts(t *testing.T
 				Header: http.Header{"Content-Type": []string{"application/json"}},
 				Stream: true,
 			}
-			_, streamErr := adapter.Stream(context.Background(), call, silentEmitter{})
+			_, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, nil)
 
 			if served := streamErr == nil; served != testCase.wantServed {
 				t.Errorf("the request was served: %v, expected %v (%v)", served, testCase.wantServed, streamErr)
@@ -241,7 +242,7 @@ func TestAPaymentRefusalRetiresTheKeyAndTheNextOneServes(t *testing.T) {
 		Body:   []byte(`{"model":"test-model"}`),
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
-	outcome, err := adapter.Stream(context.Background(), call, silentEmitter{})
+	outcome, err := adapter.Stream(context.Background(), call, silentEmitter{}, nil)
 	if err != nil {
 		t.Fatalf("the second key did not serve the request: %v", err)
 	}
@@ -250,6 +251,142 @@ func TestAPaymentRefusalRetiresTheKeyAndTheNextOneServes(t *testing.T) {
 	}
 	if outcome.KeyID != "key-2" {
 		t.Errorf("the served attempt reports key %q, want key-2", outcome.KeyID)
+	}
+}
+
+func TestCustomerCredentialOverrideNeverFallsBackToThePlatformPool(t *testing.T) {
+	const customerSecret = "customer-owned-credential"
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"refused ` + customerSecret + `","type":"authentication_error"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	adapter, err := New(Config{
+		Provider: "openai", BaseURL: upstream.URL,
+		Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
+	})
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	customerPool, err := provider.NewCustomerKeyPool("openai", []byte(customerSecret))
+	if err != nil {
+		t.Fatalf("building the request-scoped customer pool: %v", err)
+	}
+	call := &provider.Call{
+		Route:  provider.Route{Provider: "openai", ModelReference: "openai/test-model@2026-05-01", UpstreamModelID: "test-model"},
+		Method: http.MethodPost, URL: upstream.URL + "/chat/completions", Body: []byte(`{}`),
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+	}
+	_, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, customerPool)
+	var customerFailure provider.ErrCustomerCredential
+	if !errors.As(streamErr, &customerFailure) {
+		t.Fatalf("the customer's refused key was reported as %T: %v", streamErr, streamErr)
+	}
+	if len(seen) != 1 || seen[0] != "Bearer "+customerSecret {
+		t.Fatalf("the request used %v instead of exactly one customer credential", seen)
+	}
+	if strings.Contains(streamErr.Error(), customerSecret) {
+		t.Fatal("the customer credential escaped through the failure")
+	}
+	if usable := adapter.credentials.Projection(time.Now()).Usable; usable != 2 {
+		t.Fatalf("the customer refusal mutated the platform pool; usable=%d", usable)
+	}
+}
+
+func TestCustomerCredentialFailuresInsideAStreamStayCustomerOwned(t *testing.T) {
+	pool, err := provider.NewCustomerKeyPool("openai", []byte("customer-stream-secret"))
+	if err != nil {
+		t.Fatalf("building the customer pool: %v", err)
+	}
+	key, leased := pool.Begin().Next(time.Now())
+	if !leased {
+		t.Fatal("the customer pool leased no credential")
+	}
+	adapter, err := New(Config{Provider: "openai", BaseURL: "https://upstream.invalid", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	for _, kind := range []string{"authentication_error", "invalid_api_key", "billing_error", "insufficient_quota"} {
+		t.Run(kind, func(t *testing.T) {
+			failure := adapter.streamFailure(upstreamError{Type: kind, Message: "refused customer-stream-secret"}, key)
+			var customerFailure provider.ErrCustomerCredential
+			if !errors.As(failure, &customerFailure) {
+				t.Fatalf("mid-stream %s was reported as %T: %v", kind, failure, failure)
+			}
+			if strings.Contains(failure.Error(), "customer-stream-secret") {
+				t.Fatal("the customer credential escaped through the mid-stream failure")
+			}
+		})
+	}
+
+	t.Run("rate_limit_exceeded", func(t *testing.T) {
+		failure := adapter.streamFailure(upstreamError{Type: "rate_limit_exceeded", Message: "throttled customer-stream-secret"}, key)
+		var isolated provider.ErrCustomerUpstream
+		if !errors.As(failure, &isolated) {
+			t.Fatalf("the mid-stream customer throttle was reported as %T: %v", failure, failure)
+		}
+		var upstream provider.ErrUpstream
+		if !errors.As(failure, &upstream) || upstream.Code != contract.CodeRateLimited {
+			t.Fatalf("the mid-stream customer throttle lost its rate-limit code: %+v", upstream)
+		}
+		if provider.DeploymentAttributable(failure) {
+			t.Fatal("the mid-stream customer throttle can damage the shared deployment breaker")
+		}
+		if strings.Contains(failure.Error(), "customer-stream-secret") {
+			t.Fatal("the customer credential escaped through the mid-stream throttle")
+		}
+	})
+}
+
+func TestCustomerRateLimitBeforeTheBodyCannotUseOrDamageThePlatformPool(t *testing.T) {
+	const customerSecret = "customer-rate-limit-secret"
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "3")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"throttled ` + customerSecret + `","type":"rate_limit_exceeded"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	adapter, err := New(Config{
+		Provider: "openai", BaseURL: upstream.URL,
+		Declarations: provider.DeclareKeys([]string{fakeAPIKey, fakeSecondAPIKey}),
+	})
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	customerPool, err := provider.NewCustomerKeyPool("openai", []byte(customerSecret))
+	if err != nil {
+		t.Fatalf("building the customer pool: %v", err)
+	}
+	call := &provider.Call{
+		Route:  provider.Route{Provider: "openai", ModelReference: "openai/test-model@2026-05-01", UpstreamModelID: "test-model"},
+		Method: http.MethodPost, URL: upstream.URL + "/chat/completions", Body: []byte(`{}`),
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+	}
+	_, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, customerPool)
+	var isolated provider.ErrCustomerUpstream
+	if !errors.As(streamErr, &isolated) {
+		t.Fatalf("the customer's throttle was reported as %T: %v", streamErr, streamErr)
+	}
+	var classified provider.ErrUpstream
+	if !errors.As(streamErr, &classified) || classified.Code != contract.CodeRateLimited || classified.RetryAfterMs != 3000 {
+		t.Fatalf("the customer throttle lost its retry details: %+v", classified)
+	}
+	if provider.DeploymentAttributable(streamErr) {
+		t.Fatal("the customer throttle can damage the shared deployment breaker")
+	}
+	if len(seen) != 1 || seen[0] != "Bearer "+customerSecret {
+		t.Fatalf("the request used %v instead of exactly one customer credential", seen)
+	}
+	if usable := adapter.credentials.Projection(time.Now()).Usable; usable != 2 {
+		t.Fatalf("the customer throttle mutated the platform pool; usable=%d", usable)
 	}
 }
 
@@ -281,7 +418,7 @@ func TestAnInvalidRequestDoesNotRetireTheKey(t *testing.T) {
 		Body:   []byte(`{"model":"test-model"}`),
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
-	if _, err := adapter.Stream(context.Background(), call, silentEmitter{}); err == nil {
+	if _, err := adapter.Stream(context.Background(), call, silentEmitter{}, nil); err == nil {
 		t.Fatal("a malformed request was reported as a success")
 	}
 	if attempts != 1 {

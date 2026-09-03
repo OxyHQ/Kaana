@@ -13,7 +13,7 @@ func (a registryAdapter) Provider() contract.ProviderSlug { return a.slug }
 func (registryAdapter) Translate(*contract.Request, Route) (*Call, error) {
 	return nil, nil
 }
-func (registryAdapter) Stream(context.Context, *Call, Emitter) (Outcome, error) {
+func (registryAdapter) Stream(context.Context, *Call, Emitter, *KeyPool) (Outcome, error) {
 	return Outcome{}, nil
 }
 func (a registryAdapter) Health(context.Context) Health { return Health{Provider: a.slug} }

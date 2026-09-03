@@ -7,20 +7,22 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/OxyHQ/Kaana/internal/contract"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
 
 const maxImportedCredentialBytes = 4096
-const legacyProviderParameterPrefix = "/oxy/alia/PROVIDER_KEY_"
 
-var legacyRelayProviderParameters = map[string]contract.ProviderSlug{
-	"/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY":   "cerebras",
-	"/oxy/relay/RELAY_PROVIDER_GROQ_API_KEY":       "groq",
-	"/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY": "openrouter",
-	"/oxy/relay/RELAY_PROVIDER_XAI_API_KEY":        "xai",
+var legacyProviderParameters = map[string]Scope{
+	"/oxy/alia/PROVIDER_KEY_ELEVENLABS":            {Provider: "elevenlabs", KeyID: "legacy-alia-20260901"},
+	"/oxy/alia/PROVIDER_KEY_GROQ":                  {Provider: "groq", KeyID: "legacy-alia-20260901"},
+	"/oxy/alia/PROVIDER_KEY_OPENROUTER":            {Provider: "openrouter", KeyID: "legacy-alia-20260901"},
+	"/oxy/alia/PROVIDER_KEY_XAI":                   {Provider: "xai", KeyID: "legacy-alia-20260901"},
+	"/oxy/relay/RELAY_PROVIDER_CEREBRAS_API_KEY":   {Provider: "cerebras", KeyID: "cerebras-relay-main"},
+	"/oxy/relay/RELAY_PROVIDER_GROQ_API_KEY":       {Provider: "groq", KeyID: "relay-groq-20260902"},
+	"/oxy/relay/RELAY_PROVIDER_OPENROUTER_API_KEY": {Provider: "openrouter", KeyID: "relay-openrouter-20260902"},
+	"/oxy/relay/RELAY_PROVIDER_XAI_API_KEY":        {Provider: "xai", KeyID: "relay-xai-20260902"},
 }
 
 type ssmClient interface {
@@ -53,15 +55,14 @@ func NewSSMSource(client ssmClient) (*SSMSource, error) {
 
 // ReadSecureString retrieves one explicit parameter with KMS decryption. The
 // result must be cleared by the caller after it has been re-encrypted.
-func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string, provider contract.ProviderSlug) ([]byte, error) {
+func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string, scope Scope) ([]byte, error) {
 	name := strings.TrimSpace(parameterName)
-	aliaHandoff := strings.HasPrefix(name, legacyProviderParameterPrefix) && len(name) > len(legacyProviderParameterPrefix)
-	relayProvider, relayHandoff := legacyRelayProviderParameters[name]
-	if name == "" || name != parameterName || (!aliaHandoff && !relayHandoff) || len(name) > 2048 {
+	expectedScope, allowed := legacyProviderParameters[name]
+	if name == "" || name != parameterName || !allowed || len(name) > 2048 {
 		return nil, fmt.Errorf("credential import: parameter must be an allow-listed legacy provider-key handoff path")
 	}
-	if relayHandoff && provider != relayProvider {
-		return nil, fmt.Errorf("credential import: the legacy Relay handoff may only populate provider %q", relayProvider)
+	if scope != expectedScope {
+		return nil, errors.New("credential import: the legacy handoff provider/key identity does not match")
 	}
 	withDecryption := true
 	output, err := s.client.GetParameter(ctx, &ssm.GetParameterInput{
@@ -88,4 +89,13 @@ func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string, 
 		return nil, fmt.Errorf("credential import: SSM parameter %q is not one bounded credential", name)
 	}
 	return secret, nil
+}
+
+func legacyProviderCredentialScope(scope Scope) bool {
+	for _, expected := range legacyProviderParameters {
+		if scope == expected {
+			return true
+		}
+	}
+	return false
 }

@@ -101,6 +101,20 @@ var goShapes = map[string]reflect.Type{
 	"routingPolicyReferenceSchema": reflect.TypeOf(RoutingPolicyReference{}),
 	"authorizedRouteSchema":        reflect.TypeOf(AuthorizedRoute{}),
 
+	// Signed customer-provider credential control. The mutation/outcome wire
+	// schemas remain version 1 even though the contract set is 2.0.0.
+	"kaanaCredentialIdentitySchema":             reflect.TypeOf(KaanaCredentialIdentity{}),
+	"kaanaCredentialCreateMutationSchema":       reflect.TypeOf(KaanaCredentialCreateMutation{}),
+	"kaanaCredentialRotateMutationSchema":       reflect.TypeOf(KaanaCredentialRotateMutation{}),
+	"kaanaCredentialRevokeMutationSchema":       reflect.TypeOf(KaanaCredentialRevokeMutation{}),
+	"kaanaCredentialCreateOutcomeRequestSchema": reflect.TypeOf(KaanaCredentialCreateOutcomeRequest{}),
+	"kaanaCredentialRotateOutcomeRequestSchema": reflect.TypeOf(KaanaCredentialRotateOutcomeRequest{}),
+	"kaanaCredentialRevokeOutcomeRequestSchema": reflect.TypeOf(KaanaCredentialRevokeOutcomeRequest{}),
+	"kaanaCredentialAppliedOutcomeSchema":       reflect.TypeOf(KaanaCredentialAppliedOutcome{}),
+	"kaanaCredentialConflictOutcomeSchema":      reflect.TypeOf(KaanaCredentialConflictOutcome{}),
+	"kaanaCredentialValidationTaskSchema":       reflect.TypeOf(KaanaCredentialValidationTask{}),
+	"kaanaCredentialValidationOutcomeSchema":    reflect.TypeOf(KaanaCredentialValidationOutcome{}),
+
 	// The normalized stream.
 	"inferenceStreamStartEventSchema":       reflect.TypeOf(StreamStartEvent{}),
 	"inferenceStreamDeltaEventSchema":       reflect.TypeOf(StreamDeltaEvent{}),
@@ -123,37 +137,42 @@ var goShapes = map[string]reflect.Type{
 // ordered list: a member added upstream and not here is an unhandled value, and
 // a member here and not upstream is a value Kaana could emit that Oxy rejects.
 var goEnums = map[string]enumBinding{
-	"inferenceEnvironmentSchema":       bindEnum(environmentValues),
-	"inferenceScopeSchema":             bindEnum(scopeValues),
-	"inferenceModalitySchema":          bindEnum(modalityValues),
-	"inferenceMessageRoleSchema":       bindEnum(messageRoleValues),
-	"inferenceFinishReasonSchema":      bindEnum(finishReasonValues),
-	"inferenceRouteSwitchReasonSchema": bindEnum(routeSwitchReasonValues),
-	"inferenceRequestOutcomeSchema":    bindEnum(requestOutcomeValues),
-	"usageUnitSchema":                  bindEnum(usageUnitValues),
-	"usageSourceSchema":                bindEnum(usageSourceValues),
-	"inferenceErrorCodeSchema":         bindEnum(errorCodeValues),
-	"upstreamErrorCategorySchema":      bindEnum(upstreamErrorCategoryValues),
+	"inferenceEnvironmentSchema":                  bindEnum(environmentValues),
+	"inferenceScopeSchema":                        bindEnum(scopeValues),
+	"inferenceModalitySchema":                     bindEnum(modalityValues),
+	"inferenceMessageRoleSchema":                  bindEnum(messageRoleValues),
+	"inferenceFinishReasonSchema":                 bindEnum(finishReasonValues),
+	"inferenceRouteSwitchReasonSchema":            bindEnum(routeSwitchReasonValues),
+	"inferenceRequestOutcomeSchema":               bindEnum(requestOutcomeValues),
+	"usageUnitSchema":                             bindEnum(usageUnitValues),
+	"usageSourceSchema":                           bindEnum(usageSourceValues),
+	"inferenceErrorCodeSchema":                    bindEnum(errorCodeValues),
+	"upstreamErrorCategorySchema":                 bindEnum(upstreamErrorCategoryValues),
+	"kaanaCredentialOperationActionSchema":        bindEnum(kaanaCredentialOperationActionValues),
+	"kaanaCredentialValidationOutcomeStateSchema": bindEnum(kaanaCredentialValidationOutcomeStateValues),
+	"kaanaCredentialValidationFailureCodeSchema":  bindEnum(kaanaCredentialValidationFailureCodeValues),
 }
 
 // goScalars maps a published scalar (a branded id, a constrained string) to the
 // Go named type that carries it.
 var goScalars = map[string]reflect.Type{
-	"oxyAccountIdSchema":          reflect.TypeOf(AccountID("")),
-	"oxyApplicationIdSchema":      reflect.TypeOf(ApplicationID("")),
-	"oxyCredentialIdSchema":       reflect.TypeOf(CredentialID("")),
-	"delegatedUserIdSchema":       reflect.TypeOf(UserID("")),
-	"requestIdSchema":             reflect.TypeOf(RequestID("")),
-	"generationIdSchema":          reflect.TypeOf(GenerationID("")),
-	"idempotencyKeySchema":        reflect.TypeOf(IdempotencyKey("")),
-	"modelIdSchema":               reflect.TypeOf(ModelID("")),
-	"modelReferenceSchema":        reflect.TypeOf(ModelReference("")),
-	"routingProfileSlugSchema":    reflect.TypeOf(RoutingProfileSlug("")),
-	"inferenceProviderSlugSchema": reflect.TypeOf(ProviderSlug("")),
-	"deploymentIdSchema":          reflect.TypeOf(DeploymentID("")),
-	"inferenceRegionSchema":       reflect.TypeOf(Region("")),
-	"inferenceTimestampSchema":    reflect.TypeOf(Timestamp("")),
-	"safeErrorTextSchema":         reflect.TypeOf(""),
+	"oxyAccountIdSchema":               reflect.TypeOf(AccountID("")),
+	"oxyApplicationIdSchema":           reflect.TypeOf(ApplicationID("")),
+	"oxyCredentialIdSchema":            reflect.TypeOf(CredentialID("")),
+	"delegatedUserIdSchema":            reflect.TypeOf(UserID("")),
+	"requestIdSchema":                  reflect.TypeOf(RequestID("")),
+	"generationIdSchema":               reflect.TypeOf(GenerationID("")),
+	"idempotencyKeySchema":             reflect.TypeOf(IdempotencyKey("")),
+	"modelIdSchema":                    reflect.TypeOf(ModelID("")),
+	"modelReferenceSchema":             reflect.TypeOf(ModelReference("")),
+	"routingProfileIdSchema":           reflect.TypeOf(RoutingProfileID("")),
+	"inferenceProviderSlugSchema":      reflect.TypeOf(ProviderSlug("")),
+	"deploymentIdSchema":               reflect.TypeOf(DeploymentID("")),
+	"inferenceRegionSchema":            reflect.TypeOf(Region("")),
+	"inferenceTimestampSchema":         reflect.TypeOf(Timestamp("")),
+	"safeErrorTextSchema":              reflect.TypeOf(""),
+	"kaanaCredentialHandleSchema":      reflect.TypeOf(KaanaCredentialHandle("")),
+	"kaanaCredentialOperationIdSchema": reflect.TypeOf(KaanaCredentialOperationID("")),
 }
 
 // goUnions covers the two published unions that are not plain objects: the
@@ -176,6 +195,20 @@ var goCustomUnions = map[string]reflect.Type{
 
 var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 	"inferenceStreamEventSchema": goStreamEventVariants,
+	"kaanaCredentialMutationSchema": {
+		"create": reflect.TypeOf(KaanaCredentialCreateMutation{}),
+		"rotate": reflect.TypeOf(KaanaCredentialRotateMutation{}),
+		"revoke": reflect.TypeOf(KaanaCredentialRevokeMutation{}),
+	},
+	"kaanaCredentialOutcomeRequestSchema": {
+		"create": reflect.TypeOf(KaanaCredentialCreateOutcomeRequest{}),
+		"rotate": reflect.TypeOf(KaanaCredentialRotateOutcomeRequest{}),
+		"revoke": reflect.TypeOf(KaanaCredentialRevokeOutcomeRequest{}),
+	},
+	"kaanaCredentialOutcomeSchema": {
+		"applied":  reflect.TypeOf(KaanaCredentialAppliedOutcome{}),
+		"conflict": reflect.TypeOf(KaanaCredentialConflictOutcome{}),
+	},
 }
 
 // notApplicable names every published shape the data plane does not exchange,
@@ -211,6 +244,7 @@ var notApplicable = map[string]string{
 	"modelRevisionLabelSchema":              "catalogue: a component of a model reference Kaana never splits",
 	"routingProfileCandidateSchema":         "catalogue: profile candidates are resolved by Oxy before forwarding",
 	"routingProfileSchema":                  "catalogue: profile definitions live in the Oxy catalogue",
+	"routingProfileSlugSchema":              "catalogue: Oxy owns the display slug; signed Kaana targets carry only the exact profile id",
 	"inferenceDateSchema":                   "catalogue: calendar dates appear only on catalogue descriptors",
 	"inferenceHttpsUrlSchema":               "catalogue: documentation links appear only on catalogue descriptors",
 
@@ -240,11 +274,26 @@ var notApplicable = map[string]string{
 	// Oxy owns provider-connection metadata and Kaana owns only ciphertext plus
 	// an opaque handle. The whole Console/control-plane record is never exchanged
 	// with this data plane; an exact handle binding belongs on an authorized route.
-	"providerConnectionSchema":           "byok metadata: owned and rendered by Oxy, not exchanged with Kaana",
-	"providerConnectionScopeSchema":      "byok metadata: Oxy resolves scope before signing an exact route",
-	"providerConnectionStatusSchema":     "byok metadata: Oxy resolves eligibility before signing an exact route",
-	"providerConnectionValidationSchema": "byok metadata: Oxy validates and retains the result",
-	"providerSecretReferenceSchema":      "byok custody: superseded by an opaque Kaana handle; never sent to Kaana",
+	"providerConnectionSchema":                     "byok metadata: owned and rendered by Oxy, not exchanged with Kaana",
+	"providerConnectionScopeSchema":                "byok metadata: Oxy resolves scope before signing an exact route",
+	"providerConnectionStatusSchema":               "byok metadata: Oxy resolves eligibility before signing an exact route",
+	"providerConnectionValidationSchema":           "byok metadata: Oxy validates and retains the result",
+	"providerCredentialCustodyStateSchema":         "byok metadata: Oxy owns connection custody lifecycle; Kaana receives an exact handle generation",
+	"providerCredentialValidationDeploymentSchema": "byok metadata: Oxy owns the application-deployment selector used to bootstrap validation",
+	"providerCredentialValidationOperationSchema":  "byok metadata: Oxy owns validation-operation lifecycle metadata; Kaana exchanges the narrower exact task and outcome",
+
+	// Inbox owns these product-facing request and response DTOs. Inbox sends an
+	// already-authorized inference envelope to Kaana; Kaana never accepts or
+	// emits Inbox-specific wire shapes.
+	"inboxComposeRequestSchema":         "inbox: product-owned compose request translated before the Kaana boundary",
+	"inboxDailyBriefRequestSchema":      "inbox: product-owned daily-brief request translated before the Kaana boundary",
+	"inboxInferenceStreamEventSchema":   "inbox: product-owned stream projection assembled outside Kaana",
+	"inboxInferenceTextResponseSchema":  "inbox: product-owned text projection assembled outside Kaana",
+	"inboxMessageInferenceParamsSchema": "inbox: product-owned message parameters translated before the Kaana boundary",
+	"inboxNaturalSearchRequestSchema":   "inbox: product-owned natural-search request translated before the Kaana boundary",
+	"inboxNaturalSearchResponseSchema":  "inbox: product-owned search projection assembled outside Kaana",
+	"inboxSmartRepliesResponseSchema":   "inbox: product-owned smart-replies projection assembled outside Kaana",
+	"inboxThreadSummaryResponseSchema":  "inbox: product-owned summary projection assembled outside Kaana",
 
 	// Account billing. Balances, invoices, payment providers and auto-recharge
 	// are the control plane's by definition: AGENTS.md forbids a customer
@@ -307,7 +356,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 84
+const expectedNotApplicableCount = 96
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -465,6 +514,57 @@ func TestGoTypesMatchPublishedShapes(t *testing.T) {
 	}
 }
 
+// TestPublishedNamedShapeUnionsAreExhaustive pins every union whose variants
+// are exported schemas. Registering only the variant objects is insufficient:
+// the upstream union can add or remove an action without changing any existing
+// object, so the discriminator vocabulary is compared independently.
+func TestPublishedNamedShapeUnionsAreExhaustive(t *testing.T) {
+	file := loadDescriptor(t)
+	for unionName, implemented := range goUnionOfNamedShapes {
+		t.Run(unionName, func(t *testing.T) {
+			node := file.Shapes[unionName]
+			if node.Kind != "discriminatedUnion" {
+				t.Fatalf("%s is published as %q", unionName, node.Kind)
+			}
+			published := make(map[string]reflect.Type, len(node.Variants))
+			for _, variant := range node.Variants {
+				if variant.Kind != "ref" {
+					t.Fatalf("%s variant is %q; expected a named shape reference", unionName, variant.Kind)
+				}
+				shape, present := file.Shapes[variant.Ref]
+				if !present {
+					t.Fatalf("%s references unpublished variant %s", unionName, variant.Ref)
+				}
+				discriminator := ""
+				for _, field := range shape.Fields {
+					if field.Name == node.Discriminator {
+						if err := json.Unmarshal(field.Value, &discriminator); err != nil {
+							t.Fatalf("%s.%s is not a string literal", variant.Ref, node.Discriminator)
+						}
+					}
+				}
+				if discriminator == "" {
+					t.Fatalf("%s carries no %s literal", variant.Ref, node.Discriminator)
+				}
+				goType, registered := goShapes[variant.Ref]
+				if !registered {
+					t.Fatalf("%s variant %s has no implemented Go shape", unionName, variant.Ref)
+				}
+				published[discriminator] = goType
+			}
+
+			if diff := diffStringLists(sortedKeys(published), sortedKeys(implemented)); diff != "" {
+				t.Errorf("%s discriminator values differ from Go:\n%s", unionName, diff)
+			}
+			for discriminator, publishedType := range published {
+				if implementedType, present := implemented[discriminator]; present && implementedType != publishedType {
+					t.Errorf("%s discriminator %q maps to %s upstream and %s in Go", unionName, discriminator, publishedType, implementedType)
+				}
+			}
+		})
+	}
+}
+
 // TestStreamEventUnionIsExhaustive pins the seven-variant union: every
 // published variant has a Go type, that type declares the matching discriminator
 // through the StreamEvent interface, and no Go type claims a variant the
@@ -527,11 +627,12 @@ func TestStreamEventUnionIsExhaustive(t *testing.T) {
 func TestPublishedGrammarsMatchGoPatterns(t *testing.T) {
 	file := loadDescriptor(t)
 	for name, pattern := range map[string]string{
-		"modelReferenceSchema":        modelReferencePattern.String(),
-		"modelIdSchema":               modelIDPattern.String(),
-		"inferenceProviderSlugSchema": providerSlugPattern.String(),
-		"routingProfileSlugSchema":    routingProfileSlugPattern.String(),
-		"inferenceRegionSchema":       regionPattern.String(),
+		"modelReferenceSchema":             modelReferencePattern.String(),
+		"modelIdSchema":                    modelIDPattern.String(),
+		"inferenceProviderSlugSchema":      providerSlugPattern.String(),
+		"inferenceRegionSchema":            regionPattern.String(),
+		"kaanaCredentialHandleSchema":      kaanaCredentialHandlePattern.String(),
+		"kaanaCredentialOperationIdSchema": kaanaCredentialOperationIDPattern.String(),
 	} {
 		node, present := file.Shapes[name]
 		if !present {
@@ -658,6 +759,9 @@ func (c *shapeChecker) compareKind(where string, node descriptorNode, goType ref
 	case "ref":
 		return c.compareRef(where, node.Ref, goType)
 	case "string":
+		if goType == reflect.TypeOf(KaanaCredentialSecret(nil)) {
+			return nil
+		}
 		if goType.Kind() != reflect.String {
 			return []string{fmt.Sprintf("%s: the contract says string, Go says %s", where, goType)}
 		}

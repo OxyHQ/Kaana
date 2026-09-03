@@ -96,7 +96,7 @@ func TestOpenRouterProviderPolicyOnTheUpstreamWire(t *testing.T) {
 			if err != nil {
 				t.Fatalf("translating for %s: %v", testCase.slug, err)
 			}
-			if _, err := adapter.Stream(context.Background(), call, silentEmitter{}); err != nil {
+			if _, err := adapter.Stream(context.Background(), call, silentEmitter{}, nil); err != nil {
 				t.Fatalf("sending through %s: %v", testCase.slug, err)
 			}
 

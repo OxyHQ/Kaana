@@ -2,12 +2,11 @@
 //
 // A provider secret has exactly one durable home: PostgreSQL. The database
 // stores only KMS ciphertext, and the KMS encryption context binds that
-// ciphertext to its provider and operator-facing key id. Moving a ciphertext
+// ciphertext to its provider and exact opaque key id. Moving a ciphertext
 // to another row therefore does not move the authority it decrypts to.
 package credentialstore
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -52,6 +51,8 @@ type Repository interface {
 	Put(context.Context, EncryptedCredential, string) error
 	Disable(context.Context, Scope, string) (bool, error)
 	ListMetadata(context.Context) ([]Metadata, error)
+	RekeyID(context.Context, CredentialIDOperation, CredentialRekeyTransform) (CredentialAdminReceipt, error)
+	Deduplicate(context.Context, CredentialIDOperation, CredentialCompareTransform) (CredentialAdminReceipt, error)
 }
 
 // Cipher is the KMS boundary. Plaintext crosses it only in process memory.
@@ -132,9 +133,9 @@ func (s *Store) Load(ctx context.Context, requested []contract.ProviderSlug) (ma
 		if err != nil {
 			return nil, nil, fmt.Errorf("credential store: decrypting provider %q key %q: %w", row.Provider, row.KeyID, err)
 		}
-		if len(bytes.TrimSpace(plaintext)) == 0 {
+		if err := provider.ValidateCustomerCredential(plaintext); err != nil {
 			clear(plaintext)
-			return nil, nil, fmt.Errorf("credential store: provider %q key %q decrypted to an empty credential", row.Provider, row.KeyID)
+			return nil, nil, fmt.Errorf("credential store: provider %q key %q decrypted to an invalid credential", row.Provider, row.KeyID)
 		}
 		secret := string(plaintext)
 		clear(plaintext)
@@ -159,11 +160,27 @@ func (s *Store) Load(ctx context.Context, requested []contract.ProviderSlug) (ma
 
 // Put encrypts plaintext before the repository sees it.
 func (s *Store) Put(ctx context.Context, input EncryptedCredential, plaintext []byte, actor string) error {
+	if !validOpaqueCredentialID(input.KeyID) {
+		return errors.New("credential store: new provider credential key id must be an exact lowercase UUIDv4")
+	}
+	return s.put(ctx, input, plaintext, actor)
+}
+
+// ImportLegacy is the sole migration exception for the eight exact historical
+// SSM handoff identities. New administration must use Put with an opaque id.
+func (s *Store) ImportLegacy(ctx context.Context, input EncryptedCredential, plaintext []byte, actor string) error {
+	if !legacyProviderCredentialScope(input.Scope) {
+		return errors.New("credential store: legacy provider credential identity is not allow-listed")
+	}
+	return s.put(ctx, input, plaintext, actor)
+}
+
+func (s *Store) put(ctx context.Context, input EncryptedCredential, plaintext []byte, actor string) error {
 	if len(input.Ciphertext) != 0 || input.KMSKeyARN != "" {
 		return errors.New("credential store: Put accepts plaintext separately; ciphertext metadata must be empty")
 	}
-	if len(bytes.TrimSpace(plaintext)) == 0 {
-		return errors.New("credential store: refusing an empty provider credential")
+	if err := provider.ValidateCustomerCredential(plaintext); err != nil {
+		return errors.New("credential store: provider credential must be 1 to 4096 visible ASCII bytes")
 	}
 	if err := validateMetadata(input.Scope, input.Class, input.BudgetUSD, input.Position); err != nil {
 		return err
@@ -184,7 +201,7 @@ func (s *Store) Put(ctx context.Context, input EncryptedCredential, plaintext []
 }
 
 // Disable takes a credential out of the active pool without deleting its
-// ciphertext or its operator identity.
+// ciphertext or its opaque identity.
 func (s *Store) Disable(ctx context.Context, scope Scope, actor string) (bool, error) {
 	if err := validateScope(scope); err != nil {
 		return false, err

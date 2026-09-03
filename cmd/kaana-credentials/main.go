@@ -41,7 +41,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 	defer cancel()
 
 	databaseURL := strings.TrimSpace(getenv("DATABASE_URL"))
-	mutationActor := strings.TrimSpace(getenv("KAANA_CREDENTIAL_ACTOR"))
+	mutationActor := getenv("KAANA_CREDENTIAL_ACTOR")
 	switch arguments[0] {
 	case "migrate":
 		flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
@@ -64,7 +64,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		flags := flag.NewFlagSet("put", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		providerSlug := flags.String("provider", "", "provider slug")
-		keyID := flags.String("key-id", "", "operator-facing key id")
+		keyID := flags.String("key-id", "", "exact opaque key id")
 		class := flags.String("class", "", "free, paid, or empty")
 		budget := flags.String("budget-usd", "", "optional budget metadata")
 		position := flags.Int("position", 0, "1-based pool order")
@@ -80,17 +80,17 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		if err != nil {
 			return err
 		}
-		store, repository, err := credentialstore.Open(ctx, databaseURL, strings.TrimSpace(getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")))
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
 		if err != nil {
 			return err
 		}
 		defer repository.Close()
 		input := credentialstore.EncryptedCredential{
 			Scope: credentialstore.Scope{
-				Provider: contract.ProviderSlug(strings.TrimSpace(*providerSlug)),
-				KeyID:    strings.TrimSpace(*keyID),
+				Provider: contract.ProviderSlug(*providerSlug),
+				KeyID:    *keyID,
 			},
-			Class:     provider.KeyClass(strings.TrimSpace(*class)),
+			Class:     provider.KeyClass(*class),
 			BudgetUSD: budgetValue,
 			Position:  *position,
 		}
@@ -104,7 +104,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		flags := flag.NewFlagSet("import-ssm", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		providerSlug := flags.String("provider", "", "provider slug")
-		keyID := flags.String("key-id", "", "operator-facing key id")
+		keyID := flags.String("key-id", "", "exact opaque key id")
 		parameter := flags.String("parameter", "", "legacy SecureString path")
 		class := flags.String("class", "", "free, paid, or empty")
 		budget := flags.String("budget-usd", "", "optional budget metadata")
@@ -120,27 +120,25 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		if err != nil {
 			return err
 		}
-		providerSlugValue := contract.ProviderSlug(strings.TrimSpace(*providerSlug))
-		secret, err := source.ReadSecureString(ctx, *parameter, providerSlugValue)
+		providerSlugValue := contract.ProviderSlug(*providerSlug)
+		scope := credentialstore.Scope{Provider: providerSlugValue, KeyID: *keyID}
+		secret, err := source.ReadSecureString(ctx, *parameter, scope)
 		if err != nil {
 			return err
 		}
 		defer clear(secret)
-		store, repository, err := credentialstore.Open(ctx, databaseURL, strings.TrimSpace(getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")))
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
 		if err != nil {
 			return err
 		}
 		defer repository.Close()
 		input := credentialstore.EncryptedCredential{
-			Scope: credentialstore.Scope{
-				Provider: providerSlugValue,
-				KeyID:    strings.TrimSpace(*keyID),
-			},
-			Class:     provider.KeyClass(strings.TrimSpace(*class)),
+			Scope:     scope,
+			Class:     provider.KeyClass(*class),
 			BudgetUSD: budgetValue,
 			Position:  *position,
 		}
-		if err := store.Put(ctx, input, secret, mutationActor); err != nil {
+		if err := store.ImportLegacy(ctx, input, secret, mutationActor); err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(stdout, "imported %s/%s\n", input.Provider, input.KeyID)
@@ -150,16 +148,16 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		flags := flag.NewFlagSet("disable", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		providerSlug := flags.String("provider", "", "provider slug")
-		keyID := flags.String("key-id", "", "operator-facing key id")
+		keyID := flags.String("key-id", "", "exact opaque key id")
 		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
 			return errors.New("usage: kaana-credentials disable --provider <slug> --key-id <id>")
 		}
-		store, repository, err := credentialstore.Open(ctx, databaseURL, strings.TrimSpace(getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")))
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
 		if err != nil {
 			return err
 		}
 		defer repository.Close()
-		scope := credentialstore.Scope{Provider: contract.ProviderSlug(strings.TrimSpace(*providerSlug)), KeyID: strings.TrimSpace(*keyID)}
+		scope := credentialstore.Scope{Provider: contract.ProviderSlug(*providerSlug), KeyID: *keyID}
 		changed, err := store.Disable(ctx, scope, mutationActor)
 		if err != nil {
 			return err
@@ -169,6 +167,38 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		}
 		_, err = fmt.Fprintf(stdout, "disabled %s/%s\n", scope.Provider, scope.KeyID)
 		return err
+
+	case "rekey-id":
+		operation, err := parseRekeyOperation(arguments[1:], mutationActor)
+		if err != nil {
+			return err
+		}
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		receipt, err := store.RekeyID(ctx, operation)
+		if err != nil {
+			return err
+		}
+		return writeReceipt(stdout, receipt)
+
+	case "deduplicate":
+		operation, err := parseDeduplicationOperation(arguments[1:], mutationActor)
+		if err != nil {
+			return err
+		}
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		receipt, err := store.Deduplicate(ctx, operation)
+		if err != nil {
+			return err
+		}
+		return writeReceipt(stdout, receipt)
 
 	case "list":
 		flags := flag.NewFlagSet("list", flag.ContinueOnError)
@@ -193,6 +223,62 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 	default:
 		return usageError()
 	}
+}
+
+func parseRekeyOperation(arguments []string, actor string) (credentialstore.CredentialIDOperation, error) {
+	flags := flag.NewFlagSet("rekey-id", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	operationID := flags.String("operation-id", "", "exact idempotency id")
+	providerSlug := flags.String("provider", "", "provider slug")
+	oldKeyID := flags.String("old-key-id", "", "exact existing key id")
+	newKeyID := flags.String("new-key-id", "", "exact opaque UUIDv4 key id")
+	prerequisiteOperationID := flags.String("requires-operation-id", "", "exact prerequisite receipt id")
+	prerequisiteOutcome := flags.String("requires-outcome", "", "optional exact prerequisite outcome")
+	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
+		return credentialstore.CredentialIDOperation{}, errors.New("usage: kaana-credentials rekey-id --operation-id <kop_id> --provider <slug> --old-key-id <exact-id> --new-key-id <opaque-uuid> [--requires-operation-id <kop_id> [--requires-outcome <outcome>]]")
+	}
+	operation := credentialstore.CredentialIDOperation{
+		OperationID:             *operationID,
+		Provider:                contract.ProviderSlug(*providerSlug),
+		SourceKeyID:             *oldKeyID,
+		DestinationKeyID:        *newKeyID,
+		PrerequisiteOperationID: *prerequisiteOperationID,
+		PrerequisiteOutcome:     credentialstore.CredentialAdminOutcome(*prerequisiteOutcome),
+		Actor:                   actor,
+	}
+	if err := credentialstore.ValidateRekeyIDOperation(operation); err != nil {
+		return credentialstore.CredentialIDOperation{}, err
+	}
+	return operation, nil
+}
+
+func parseDeduplicationOperation(arguments []string, actor string) (credentialstore.CredentialIDOperation, error) {
+	flags := flag.NewFlagSet("deduplicate", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	operationID := flags.String("operation-id", "", "exact idempotency id")
+	providerSlug := flags.String("provider", "", "provider slug")
+	duplicateKeyID := flags.String("duplicate-key-id", "", "exact candidate duplicate id")
+	keepKeyID := flags.String("keep-key-id", "", "exact id to preserve")
+	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
+		return credentialstore.CredentialIDOperation{}, errors.New("usage: kaana-credentials deduplicate --operation-id <kop_id> --provider <slug> --duplicate-key-id <exact-id> --keep-key-id <exact-id>")
+	}
+	operation := credentialstore.CredentialIDOperation{
+		OperationID:      *operationID,
+		Provider:         contract.ProviderSlug(*providerSlug),
+		SourceKeyID:      *duplicateKeyID,
+		DestinationKeyID: *keepKeyID,
+		Actor:            actor,
+	}
+	if err := credentialstore.ValidateDeduplicationOperation(operation); err != nil {
+		return credentialstore.CredentialIDOperation{}, err
+	}
+	return operation, nil
+}
+
+func writeReceipt(output io.Writer, receipt credentialstore.CredentialAdminReceipt) error {
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(receipt)
 }
 
 func readCredential(input io.Reader) ([]byte, error) {
@@ -238,5 +324,5 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|put|import-ssm|disable|list>")
+	return errors.New("usage: kaana-credentials <migrate|put|import-ssm|disable|rekey-id|deduplicate|list>")
 }

@@ -71,6 +71,10 @@ const (
 	// from inference authority if an operator accidentally deploys the same key
 	// pair to both tasks.
 	credentialControlDomainSeparator = "oxy-kaana-credential-control:v1"
+	// credentialValidationDomainSeparator prevents a bootstrap probe from being
+	// replayed as normal inference even when both surfaces trust the same Oxy
+	// signing key.
+	credentialValidationDomainSeparator = "oxy-kaana-credential-validation:v1"
 )
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
@@ -111,6 +115,13 @@ func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Ver
 // misconfigured in both public-key sets.
 func NewCredentialControlVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
 	return newVerifier(keys, maxSkew, credentialControlDomainSeparator)
+}
+
+// NewCredentialValidationVerifier builds the dedicated pending-generation
+// bootstrap verifier. It trusts the same public key material as the edge while
+// assigning that key a distinct signed purpose.
+func NewCredentialValidationVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, credentialValidationDomainSeparator)
 }
 
 func newVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration, domain string) (*Verifier, error) {
@@ -180,6 +191,12 @@ func SigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 // Oxy signs for a customer provider credential mutation or outcome query.
 func CredentialControlSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	return signingInput(credentialControlDomainSeparator, keyID, timestampMillis, body)
+}
+
+// CredentialValidationSigningInput is the exact input Oxy signs for one BYOK
+// bootstrap operation.
+func CredentialValidationSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(credentialValidationDomainSeparator, keyID, timestampMillis, body)
 }
 
 func signingInput(domain, keyID string, timestampMillis int64, body []byte) []byte {

@@ -304,8 +304,10 @@ the deployment breaker. `internal/provider/credential.go` holds all of it.
   `x-ratelimit-remaining` is a burst limit at most providers. The shipped
   mapping is empty under an exact-count assertion; an entry needs a verified
   source.
-- **A key's identity outside `internal/provider` is its 1-based POSITION** —
-  not the secret and not a hash of it, since a fingerprint confirms a guess.
+- **A key's durable identity is its exact opaque PostgreSQL key ID.** Pool
+  position is only explicit spending order, never an admin or discovery
+  selector. Neither is the secret or a hash of it, since a fingerprint confirms
+  a guess.
 - **A provider slug resolves to an adapter, an address and a pool in
   `cmd/kaana`, never in the inventory** — a credential there is a copy of an Oxy
   entity, an address there makes one process's reachability global.

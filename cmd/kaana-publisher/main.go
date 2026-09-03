@@ -56,7 +56,7 @@ func run(logger *slog.Logger) error {
 	credentialStore, credentialDatabase, err := credentialstore.Open(
 		credentialContext,
 		strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		strings.TrimSpace(os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN")),
+		os.Getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"),
 	)
 	if err != nil {
 		cancelCredentialLoad()
@@ -167,54 +167,47 @@ func reloadPublisherCredentials(
 // It reads `KAANA_DISCOVERY_PROVIDERS` and the same non-secret
 // `KAANA_PROVIDER_<SLUG>_*` variables as the serving process, through the same
 // `providerconfig` helpers, so the two commands cannot disagree about where a
-// provider lives. KAANA_PROVIDERS is accepted as a compatibility fallback for
-// existing publisher task definitions, but a dedicated discovery set is what
-// lets serving-only providers coexist without making the publisher fail.
-// Credentials are attached from PostgreSQL after this returns.
+// provider lives. The dedicated discovery set lets serving-only providers
+// coexist without making the publisher fail. Credentials are attached from
+// PostgreSQL after this returns.
 func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider, error) {
-	providerSetVariable := "KAANA_DISCOVERY_PROVIDERS"
+	const providerSetVariable = "KAANA_DISCOVERY_PROVIDERS"
 	declared := providerconfig.SplitList(getenv(providerSetVariable))
 	if len(declared) == 0 {
-		providerSetVariable = "KAANA_PROVIDERS"
-		declared = providerconfig.SplitList(getenv(providerSetVariable))
+		return nil, errors.New("KAANA_DISCOVERY_PROVIDERS is required: an empty set would publish a snapshot naming nothing")
 	}
-	if len(declared) == 0 {
-		return nil, errors.New("KAANA_DISCOVERY_PROVIDERS is required (KAANA_PROVIDERS is the compatibility fallback): an empty set would publish a snapshot naming nothing")
+	serving := providerconfig.SplitList(getenv("KAANA_PROVIDERS"))
+	if len(serving) == 0 {
+		return nil, errors.New("KAANA_PROVIDERS is required alongside KAANA_DISCOVERY_PROVIDERS: the publisher must prove every discovered provider is served")
 	}
-	if providerSetVariable == "KAANA_DISCOVERY_PROVIDERS" {
-		serving := providerconfig.SplitList(getenv("KAANA_PROVIDERS"))
-		if len(serving) == 0 {
-			return nil, errors.New("KAANA_PROVIDERS is required alongside KAANA_DISCOVERY_PROVIDERS: the publisher must prove every discovered provider is served")
+	servedAt := make(map[contract.ProviderSlug]int, len(serving))
+	seenServingPrefix := make(map[string]contract.ProviderSlug, len(serving))
+	for index, name := range serving {
+		slug := contract.ProviderSlug(name)
+		if !slug.Valid() {
+			return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
 		}
-		servedAt := make(map[contract.ProviderSlug]int, len(serving))
-		seenPrefix := make(map[string]contract.ProviderSlug, len(serving))
-		for index, name := range serving {
-			slug := contract.ProviderSlug(name)
-			if !slug.Valid() {
-				return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
-			}
-			if _, duplicate := servedAt[slug]; duplicate {
-				return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
-			}
-			servedAt[slug] = index
+		if _, duplicate := servedAt[slug]; duplicate {
+			return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
+		}
+		servedAt[slug] = index
 
-			prefix := providerconfig.EnvironmentPrefix(slug)
-			if other, collides := seenPrefix[prefix]; collides {
-				return nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
-			}
-			seenPrefix[prefix] = slug
+		prefix := providerconfig.EnvironmentPrefix(slug)
+		if other, collides := seenServingPrefix[prefix]; collides {
+			return nil, fmt.Errorf("providers %q and %q both read their configuration from %s_*", other, slug, prefix)
 		}
-		previousIndex := -1
-		for _, name := range declared {
-			index, ok := servedAt[contract.ProviderSlug(name)]
-			if !ok {
-				return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS names %q, which KAANA_PROVIDERS does not serve", name)
-			}
-			if index <= previousIndex {
-				return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS reorders %q relative to KAANA_PROVIDERS; discovery must preserve serving priority", name)
-			}
-			previousIndex = index
+		seenServingPrefix[prefix] = slug
+	}
+	previousIndex := -1
+	for _, name := range declared {
+		index, ok := servedAt[contract.ProviderSlug(name)]
+		if !ok {
+			return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS names %q, which KAANA_PROVIDERS does not serve", name)
 		}
+		if index <= previousIndex {
+			return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS reorders %q relative to KAANA_PROVIDERS; discovery must preserve serving priority", name)
+		}
+		previousIndex = index
 	}
 
 	var providers []publisher.Provider
@@ -265,6 +258,10 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 		if known.Discovery == providerconfig.DiscoveryNotAvailable {
 			return nil, fmt.Errorf("provider %q has no documented account model-list endpoint, so the publisher cannot verify what this credential can serve", slug)
 		}
+		discoveryKeyID := getenv(prefix + "_DISCOVERY_KEY_ID")
+		if err := validateDiscoveryKeyID(discoveryKeyID); err != nil {
+			return nil, fmt.Errorf("%s_DISCOVERY_KEY_ID for provider %q: %w", prefix, slug, err)
+		}
 
 		regionValue := strings.TrimSpace(getenv(prefix + "_REGIONS"))
 		regionNames := providerconfig.SplitList(regionValue)
@@ -290,20 +287,48 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 
 		providers = append(providers, publisher.Provider{
 			Slug: slug, BaseURL: baseURL, Regions: regions, Discovery: known.Discovery,
+			CredentialKeyID: discoveryKeyID,
 		})
 	}
 	return providers, nil
 }
 
-// attachDiscoveryCredentials selects one key because listing models is one
-// authenticated catalogue question. Serving owns pool rotation and retirement.
+// attachDiscoveryCredentials selects one exact key id because listing models
+// is one authenticated catalogue question. Serving owns pool rotation and
+// retirement. Position and map iteration are never discovery authority.
 func attachDiscoveryCredentials(providers []publisher.Provider, declarations map[contract.ProviderSlug][]provider.KeyDeclaration) error {
 	for index := range providers {
 		pool := declarations[providers[index].Slug]
-		if len(pool) == 0 {
-			return fmt.Errorf("provider %q has no credential loaded from Kaana's database", providers[index].Slug)
+		matched := false
+		for _, declaration := range pool {
+			if declaration.KeyID != providers[index].CredentialKeyID {
+				continue
+			}
+			if matched {
+				return fmt.Errorf("provider %q returned discovery key id %q more than once", providers[index].Slug, providers[index].CredentialKeyID)
+			}
+			providers[index].APIKey = declaration.Secret
+			matched = true
 		}
-		providers[index].APIKey = pool[0].Secret
+		if !matched {
+			return fmt.Errorf("provider %q has no enabled credential with exact discovery key id %q", providers[index].Slug, providers[index].CredentialKeyID)
+		}
+	}
+	return nil
+}
+
+func validateDiscoveryKeyID(value string) error {
+	if value == "" || value != strings.TrimSpace(value) || len(value) > 128 {
+		return errors.New("an exact key id of 1 to 128 bytes is required")
+	}
+	for index, character := range value {
+		allowed := (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			(index > 0 && strings.ContainsRune("._:-", character))
+		if !allowed {
+			return errors.New("the key id contains a character PostgreSQL cannot store")
+		}
 	}
 	return nil
 }

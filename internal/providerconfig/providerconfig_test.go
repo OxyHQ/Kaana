@@ -74,6 +74,24 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	}
 }
 
+func TestExternalRadarDoesNotPromoteGatewaysOrOperatorRuntimesToBuiltIns(t *testing.T) {
+	// These names were search leads, not configuration evidence. Gateways hide
+	// or dynamically select the direct serving provider; operator runtimes have
+	// no global provider-owned HTTPS origin, account catalogue or cost identity.
+	// Keeping them out of Known means an operator has to provide an explicit,
+	// reviewed HTTPS endpoint and protocol instead of inheriting a guessed one.
+	excluded := []contract.ProviderSlug{
+		"amd-radeon", "requesty", "vercel-ai-gateway", "huggingface", "ollama-cloud",
+		"kilo-code", "opencode-zen", "aion-labs", "agnes-ai", "glhf", "vllm", "mlx",
+		"llamafile", "ollama", "lm-studio", "llama-cpp", "jan",
+	}
+	for _, slug := range excluded {
+		if endpoint, builtIn := providerconfig.Known[slug]; builtIn {
+			t.Errorf("external radar candidate %q became a built-in endpoint: %+v", slug, endpoint)
+		}
+	}
+}
+
 func TestProviderBaseURLMustBeVerifiedHTTPS(t *testing.T) {
 	for _, raw := range []string{
 		"http://api.example.invalid/v1",

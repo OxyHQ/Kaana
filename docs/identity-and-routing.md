@@ -11,9 +11,9 @@ configuration uses `KAANA_*`, and its only canonical signed data-plane origin is
 [`https://kaana.ai`](https://kaana.ai).
 
 The former inference-service name is not an internal compatibility identity.
-Historical `Relay` task, SSM and environment names may appear only in one-time
-migration code or records that explain their retirement. They must not appear
-in a new route, hostname, package, task, model alias or public instruction.
+Historical task, SSM and environment names may appear only in the one-time
+credential importer or the retirement runbook. They must not appear in a new
+route, hostname, package, task, model alias or public instruction.
 Unrelated uses of the ordinary word "relay" — SMTP, federation or device
 transport — are not Kaana and must not be renamed.
 
@@ -27,7 +27,7 @@ inference execution from Alia while preserving Alia's agent runtime.
 |---|---|---|
 | **Kaana** | provider adapters, authenticated provider-key pools, model deployments, routing execution, streaming, cancellation, provider health and technical usage | conversations, memory, tools, approvals, agent identity or product behavior |
 | **Alia** | conversations, agents, memory, tools, approvals, orchestration and assistant behavior | provider keys, provider adapters, model-deployment health or generic inference routing |
-| **Oxy** | authentication, applications, scopes, customer credentials, authorization, catalogue policy, spend reservation, settlement and customer billing | provider execution or agent behavior |
+| **Oxy** | authentication, applications, scopes, Oxy login/API credentials, provider-connection metadata, authorization, catalogue policy, spend reservation, settlement and customer billing | upstream provider-secret custody, provider execution or agent behavior |
 
 Every model invocation is authorized at the Oxy edge. Kaana accepts only the
 signed Oxy envelope; it is never a public credential issuer or a shortcut around
@@ -92,6 +92,15 @@ Sindi and Clarity therefore need Alia agent identities and bot accounts, not
 new provider adapters. Their bot-account ownership and delegation must be
 provisioned and verified before either path is called complete; this document
 does not claim that deployment step has already happened.
+
+Customer BYOK is likewise not enabled merely because Kaana can decrypt an exact
+signed generation. Oxy source now emits only the exact `ready + active + valid`
+binding and resolves a separate platform-fee pointer, but production must stay
+fail-closed until the fee amount/version is approved, published and associated,
+the matching schema/images and live probes are deployed, and the dedicated
+authenticated initial-validation bootstrap for pending generations exists.
+Kaana receives no customer price and cannot approve that commercial decision
+itself.
 
 ## Provider keys: PostgreSQL plus KMS only
 

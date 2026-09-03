@@ -74,9 +74,14 @@ env:
 
 jobs:
   deploy:
-    # workflow_dispatch can be run against arbitrary refs; only deploys from the
-    # protected main branch may assume the AWS deploy role.
-    if: github.ref == 'refs/heads/main'
+    # workflow_dispatch can be run against arbitrary refs; only main may assume
+    # the AWS role. The exact credential-ID cutover is a separate prerequisite:
+    # merging this source must not restart serving/publisher against historical
+    # IDs before migration 0007 and the reviewed rekey operations have run.
+    # A missing repository variable is not "true", so the gate fails closed.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE == 'true'
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
