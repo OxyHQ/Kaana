@@ -142,6 +142,34 @@ func TestFormerInferenceIdentityGateDetectsRegressions(t *testing.T) {
 	}
 }
 
+func TestFormerInferenceIdentityScanSkipsInstalledDependencies(t *testing.T) {
+	root := t.TempDir()
+	dependency := filepath.Join(root, "tools", "contract", "node_modules", "@oxyhq", "contracts", "dist", "devicePairing.js")
+	if err := os.MkdirAll(filepath.Dir(dependency), 0o700); err != nil {
+		t.Fatalf("creating dependency tree: %v", err)
+	}
+	if err := os.WriteFile(dependency, []byte("A generic relay-abuse bound protects encrypted device pairing."), 0o600); err != nil {
+		t.Fatalf("writing dependency fixture: %v", err)
+	}
+
+	problems := walkRepositoryIdentity(root, make(map[string]bool))
+	if len(problems) != 0 {
+		t.Fatalf("installed third-party code was treated as repository identity: %v", problems)
+	}
+
+	source := filepath.Join(root, "internal", "example.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+		t.Fatalf("creating source tree: %v", err)
+	}
+	if err := os.WriteFile(source, []byte("Call https://relay.oxy.so for inference."), 0o600); err != nil {
+		t.Fatalf("writing source fixture: %v", err)
+	}
+	problems = walkRepositoryIdentity(root, make(map[string]bool))
+	if len(problems) != 1 || !strings.Contains(problems[0], "internal/example.go") {
+		t.Fatalf("repository source escaped the identity scan: %v", problems)
+	}
+}
+
 func TestBrandAssetGateDetectsChangedBytes(t *testing.T) {
 	logo := readRepositoryFile(t, canonicalLogoPath)
 	mutated := slices.Clone(logo)
@@ -162,7 +190,14 @@ func walkRepositoryIdentity(root string, legacyFiles map[string]bool) []string {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" {
+			if entry.Name() == ".git" || entry.Name() == "node_modules" || entry.Name() == "vendor" {
+				return filepath.SkipDir
+			}
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			if relative == "build" || relative == "dist" {
 				return filepath.SkipDir
 			}
 			return nil
