@@ -35,13 +35,13 @@ func TestMistralDiscoveryKeepsOnlyChatCompletionModels(t *testing.T) {
 	}
 }
 
-func TestSiliconFlowDiscoveryRequestsOnlyTextChatModels(t *testing.T) {
+func TestSiliconFlowDiscoveryRequestsTextModelsIncludingEmbeddings(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("type") != "text" || r.URL.Query().Get("sub_type") != "chat" {
+		if r.URL.Query().Get("type") != "text" || r.URL.Query().Has("sub_type") {
 			t.Errorf("query = %q", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3.5-397B-A17B"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3.5-397B-A17B"},{"id":"Qwen/Qwen3-Embedding-0.6B"}]}`))
 	}))
 	t.Cleanup(server.Close)
 
@@ -51,7 +51,7 @@ func TestSiliconFlowDiscoveryRequestsOnlyTextChatModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if len(models) != 1 || models[0].UpstreamModelID != "Qwen/Qwen3.5-397B-A17B" {
+	if len(models) != 2 || models[0].UpstreamModelID != "Qwen/Qwen3-Embedding-0.6B" {
 		t.Fatalf("models = %+v", models)
 	}
 }

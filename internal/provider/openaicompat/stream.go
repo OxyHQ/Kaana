@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -44,6 +45,11 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return outcome, err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if call.Route.Provider == "siliconflow" && !call.Stream && strings.HasSuffix(call.URL, "/embeddings") {
+		outcome, err = a.readEmbedding(response.Body, key)
+		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+		return outcome, err
+	}
 
 	// Stamped here, once, on whichever path ran: the key is chosen by the walk
 	// above and every return below is an attempt that spent it.
@@ -54,6 +60,25 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	}
 	outcome.KeyID, outcome.KeyClass = key.ID, key.Class
 	return outcome, err
+}
+
+func (a *Adapter) readEmbedding(body io.Reader, key provider.Key) (provider.Outcome, error) {
+	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported}
+	var response embeddingResponse
+	if err := json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(&response); err != nil {
+		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: fmt.Sprintf("unreadable embedding response: %v", err)}
+	}
+	if len(response.Data) == 0 {
+		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "embedding response has no vectors"}
+	}
+	for index := range response.Data {
+		if response.Data[index].Index != index || len(response.Data[index].Embedding) != 1024 {
+			return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: fmt.Sprintf("embedding %d has invalid index or dimension", index)}
+		}
+	}
+	outcome.Embedding = &provider.EmbeddingResult{Dimension: 1024, Data: response.Data, InputTokens: response.Usage.PromptTokens, TotalTokens: response.Usage.TotalTokens}
+	outcome.Units = []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: response.Usage.PromptTokens}, {Unit: contract.UnitEmbeddings, Quantity: len(response.Data)}}
+	return outcome, nil
 }
 
 // readStream consumes the provider's SSE stream.

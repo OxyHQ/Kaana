@@ -266,6 +266,10 @@ Fixed chat candidates currently allowed by Kaana:
 - `Qwen/Qwen3.5-397B-A17B`
 - `deepseek-ai/DeepSeek-V3.1-Terminus`
 
+The fixed embedding deployment `Qwen/Qwen3-Embedding-0.6B` is also allowed.
+Kaana calls SiliconFlow's non-streaming `/embeddings` endpoint with an explicit
+1024-dimensional output and refuses a response of any other dimension.
+
 For models offered in both forms, SiliconFlow describes the unprefixed id as
 the free delivery and `Pro/` as the paid delivery. That prefix changes the
 upstream route and rate-limit tier, not the underlying weights. A canonical
@@ -275,7 +279,8 @@ exact upstream id.[^silicon-limits]
 Kaana status:
 
 - Serving uses the built-in shared adapter.
-- The `siliconflow_models` discovery profile applies the two required filters.
+- The `siliconflow_models` discovery profile requests text models, covering both
+  the attributed chat deployments and the attributed embedding deployment.
 - Attribution maps the five exact upstream ids to model identities and does not
   add both free and Pro variants as two model lines.
 - No static rule may classify every unprefixed id as free: SiliconFlow only

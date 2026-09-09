@@ -104,6 +104,7 @@ type Call struct {
 // would make an exact refund impossible, and a nil pointer is the easiest way
 // to accidentally return nothing.
 type Outcome struct {
+	Embedding *EmbeddingResult
 	// Units measured so far. Each unit appears at most once, as a total.
 	Units []contract.UsageQuantity
 	// UsageSource distinguishes what the provider reported from what Kaana
@@ -125,6 +126,15 @@ type Outcome struct {
 	// the customer covers them without a second mechanism.
 	KeyID    string
 	KeyClass KeyClass
+}
+
+// EmbeddingResult is normalized non-streaming vector output. It remains an
+// adapter result until the executor stamps request and canonical model identity.
+type EmbeddingResult struct {
+	Dimension   int
+	Data        []contract.EmbeddingVector
+	InputTokens int
+	TotalTokens int
 }
 
 // HealthStatus is the coarse state of an adapter's upstream.

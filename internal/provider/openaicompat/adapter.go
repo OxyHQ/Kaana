@@ -149,6 +149,32 @@ func (a *Adapter) Provider() contract.ProviderSlug { return a.config.Provider }
 // the whole reason translation is a separate, pure method: a request this
 // protocol cannot express must cost nothing.
 func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if request.Modality == contract.ModalityEmbedding {
+		if a.config.Provider != "siliconflow" {
+			return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "this deployment does not expose an embeddings endpoint"}
+		}
+		if request.Stream {
+			return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "stream", Detail: "embeddings are non-streaming"}
+		}
+		var input any
+		switch request.Input.Format {
+		case contract.InputText:
+			input = derefString(request.Input.Text)
+		case contract.InputTextBatch:
+			input = request.Input.Texts
+		default:
+			return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "input.format", Detail: "embeddings require text or text_batch input"}
+		}
+		body, err := json.Marshal(embeddingRequest{Model: route.UpstreamModelID, Input: input, Dimensions: 1024})
+		if err != nil {
+			return nil, fmt.Errorf("openaicompat: encoding embedding request: %w", err)
+		}
+		headers := make(http.Header, len(a.config.Headers))
+		for name, value := range a.config.Headers {
+			headers.Set(name, value)
+		}
+		return &provider.Call{Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/embeddings", Body: body, Header: headers}, nil
+	}
 	if request.Modality != contract.ModalityText {
 		return nil, provider.ErrUnsupported{
 			Code:   contract.CodeUnsupportedModality,

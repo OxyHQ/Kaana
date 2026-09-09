@@ -1,5 +1,7 @@
 package openaicompat
 
+import "github.com/OxyHQ/Kaana/internal/contract"
+
 // The upstream wire shapes, exactly as the OpenAI Chat Completions API defines
 // them. They are separate from the contract types on purpose: this file is the
 // only place in Kaana that knows what a provider's JSON looks like, and the
@@ -48,6 +50,21 @@ type openRouterProviderPolicy struct {
 // deterministic fallback as estimated rather than inventing a reported count.
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
+}
+
+type embeddingRequest struct {
+	Model      string `json:"model"`
+	Input      any    `json:"input"`
+	Dimensions int    `json:"dimensions"`
+}
+
+type embeddingResponse struct {
+	Model string                     `json:"model"`
+	Data  []contract.EmbeddingVector `json:"data"`
+	Usage struct {
+		PromptTokens int `json:"prompt_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 type chatMessage struct {

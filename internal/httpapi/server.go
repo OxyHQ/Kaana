@@ -284,6 +284,20 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(HeaderRequestID, string(requestID))
+	if request.Modality == contract.ModalityEmbedding {
+		startedAt := time.Now()
+		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })
+		if result.Failure != nil {
+			writeJSON(w, http.StatusBadGateway, contract.EmbeddingFailure{SchemaVersion: contract.EmbeddingResponseSchemaVersion, RequestID: requestID, Error: *result.Failure})
+		} else if result.Embedding == nil {
+			failure := contract.NewError(requestID, contract.CodeInternalError, "the embedding adapter returned no embedding response")
+			writeJSON(w, http.StatusInternalServerError, contract.EmbeddingFailure{SchemaVersion: contract.EmbeddingResponseSchemaVersion, RequestID: requestID, Error: *failure})
+		} else {
+			writeJSON(w, http.StatusOK, result.Embedding)
+		}
+		s.logResult(requestID, result, time.Since(startedAt))
+		return
+	}
 
 	writer, err := sse.NewWriter(w)
 	if err != nil {

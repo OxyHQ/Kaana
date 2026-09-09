@@ -3,6 +3,7 @@ package openaicompat
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,32 @@ func testRoute() provider.Route {
 		UpstreamModelID: "gpt-5-2026-05-01",
 		Regions:         []contract.Region{"us-east-1"},
 	}
+}
+
+func TestSiliconFlowEmbeddingResponseRequires1024Dimensions(t *testing.T) {
+	adapter := testAdapter(t)
+	vector := make([]float64, 1024)
+	payload := fmt.Sprintf(`{"model":"Qwen/Qwen3-Embedding-0.6B","data":[{"index":0,"embedding":%s}],"usage":{"prompt_tokens":3,"total_tokens":3}}`, mustJSON(t, vector))
+	outcome, err := adapter.readEmbedding(strings.NewReader(payload), provider.Key{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Embedding == nil || outcome.Embedding.Dimension != 1024 || len(outcome.Embedding.Data) != 1 {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	bad := strings.Replace(payload, mustJSON(t, vector), "[0,1]", 1)
+	if _, err := adapter.readEmbedding(strings.NewReader(bad), provider.Key{}); err == nil {
+		t.Fatal("accepted a two-dimensional embedding")
+	}
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
 }
 
 func testAdapter(t *testing.T) *Adapter {
@@ -94,6 +121,33 @@ func TestTranslateSendsTheUpstreamModelIdAndAsksForUsage(t *testing.T) {
 	options, present := body["stream_options"].(map[string]any)
 	if !present || options["include_usage"] != true {
 		t.Errorf("a streamed request did not ask for usage: %v", body["stream_options"])
+	}
+}
+
+func TestSiliconFlowEmbeddingTranslationPinsDimension(t *testing.T) {
+	adapter, err := New(Config{Provider: "siliconflow", BaseURL: "https://api.siliconflow.cn/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "embed me"
+	request := requestWith(nil)
+	request.Modality = contract.ModalityEmbedding
+	request.Input = contract.Input{Format: contract.InputText, Text: &text}
+	request.Stream = false
+	route := provider.Route{DeploymentID: "dep_embedding", Provider: "siliconflow", ModelReference: "qwen/qwen3-embedding-0.6b@2026-09-09", UpstreamModelID: "Qwen/Qwen3-Embedding-0.6B"}
+	call, err := adapter.Translate(request, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.URL != "https://api.siliconflow.cn/v1/embeddings" {
+		t.Fatalf("url = %s", call.URL)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(call.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["dimensions"] != float64(1024) || body["model"] != "Qwen/Qwen3-Embedding-0.6B" || body["input"] != text {
+		t.Fatalf("body = %#v", body)
 	}
 }
 

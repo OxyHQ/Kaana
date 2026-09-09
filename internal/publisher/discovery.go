@@ -261,7 +261,6 @@ func discoveryEndpoint(target Provider, page int) (string, error) {
 		}
 		query := parsed.Query()
 		query.Set("type", "text")
-		query.Set("sub_type", "chat")
 		parsed.RawQuery = query.Encode()
 		return parsed.String(), nil
 	case providerconfig.DiscoveryAlibabaModels:

@@ -392,6 +392,7 @@
       "Pro/zai-org/GLM-4.7": "z-ai/glm-4.7",
       "deepseek-ai/DeepSeek-V3.2": "deepseek/deepseek-v3.2",
       "Qwen/Qwen3.5-397B-A17B": "qwen/qwen3.5-397b-a17b",
+      "Qwen/Qwen3-Embedding-0.6B": "qwen/qwen3-embedding-0.6b",
       "deepseek-ai/DeepSeek-V3.1-Terminus": "deepseek/deepseek-v3.1-terminus"
     },
     "nebius": {
