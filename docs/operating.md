@@ -259,6 +259,23 @@ eight frozen historical handoffs. Serving reloads the complete set atomically ev
 generation serving. Revoke the old credential upstream first when immediate
 revocation matters; a database disable converges within the configured interval.
 
+The reviewed discovery identity for SiliconFlow is
+`455b2535-a58a-41f9-8b70-51dbf1861333`. Provision it from a trusted operator
+shell that has the credential-admin database and KMS authorities; the provider
+secret still crosses only stdin:
+
+```bash
+<secret-manager-read-command> | kaana-credentials put \
+  --provider siliconflow \
+  --key-id 455b2535-a58a-41f9-8b70-51dbf1861333 \
+  --position 1 \
+  --class paid
+```
+
+The publisher deployment carries only this key ID. It cannot enable SiliconFlow
+until the matching encrypted PostgreSQL row exists and live authenticated
+catalogue and embedding checks pass.
+
 List only non-secret metadata:
 
 ```bash

@@ -83,6 +83,10 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
+	"embeddingVectorSchema":  reflect.TypeOf(EmbeddingVector{}),
+	"embeddingUsageSchema":   reflect.TypeOf(EmbeddingUsage{}),
+	"embeddingSuccessSchema": reflect.TypeOf(EmbeddingSuccess{}),
+	"embeddingFailureSchema": reflect.TypeOf(EmbeddingFailure{}),
 	// The request envelope and everything it embeds.
 	"inferenceRequestSchema":       reflect.TypeOf(Request{}),
 	"inferenceAttributionSchema":   reflect.TypeOf(Attribution{}),
@@ -190,7 +194,8 @@ var goStreamEventVariants = map[string]reflect.Type{
 }
 
 var goCustomUnions = map[string]reflect.Type{
-	"toolChoiceSchema": reflect.TypeOf(ToolChoice{}),
+	"toolChoiceSchema":        reflect.TypeOf(ToolChoice{}),
+	"embeddingResponseSchema": reflect.TypeOf(EmbeddingResponse{}),
 }
 
 var goUnionOfNamedShapes = map[string]map[string]reflect.Type{

@@ -208,10 +208,11 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"rekey-openrouter-secondary-if-different": "admin", "rekey-xai-secondary-if-different": "admin",
 		},
 		DiscoveryCredentialIDs: map[string]string{
-			"cerebras":   "43405cea-a7d1-49c2-ba73-5a84536d3abf",
-			"groq":       "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1",
-			"openrouter": "b8090dce-82f2-4077-9fc1-fd831a53ca27",
-			"xai":        "1d72d527-81ca-41e5-9644-2d81a4b126ec",
+			"cerebras":    "43405cea-a7d1-49c2-ba73-5a84536d3abf",
+			"groq":        "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1",
+			"openrouter":  "b8090dce-82f2-4077-9fc1-fd831a53ca27",
+			"siliconflow": "455b2535-a58a-41f9-8b70-51dbf1861333",
+			"xai":         "1d72d527-81ca-41e5-9644-2d81a4b126ec",
 		},
 	}
 	manifest.Operations = nil

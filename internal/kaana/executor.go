@@ -123,7 +123,8 @@ func NewExecutor(config Config) (*Executor, error) {
 // the absence of a report is what makes a refund impossible rather than
 // approximate.
 type Result struct {
-	Report *contract.UsageReport
+	Embedding *contract.EmbeddingSuccess
+	Report    *contract.UsageReport
 	// Failure is the terminal error, if the request ended in one. It has been
 	// emitted on the stream, except when the client cancelled: writing to a
 	// client that withdrew is pointless, and a cancelled request whose events
@@ -551,6 +552,15 @@ func (e *Executor) settle(
 		RouteSwitches:          switches,
 		StartedAt:              contract.NewTimestamp(startedAt),
 		CompletedAt:            contract.NewTimestamp(completedAt),
+	}
+	if last.err == nil && last.outcome.Embedding != nil {
+		value := last.outcome.Embedding
+		response := &contract.EmbeddingSuccess{SchemaVersion: contract.EmbeddingResponseSchemaVersion, RequestID: requestID, Model: last.route.ModelReference, Dimension: value.Dimension, Data: value.Data, Usage: contract.EmbeddingUsage{InputTokens: value.InputTokens, TotalTokens: value.TotalTokens}}
+		report.Outcome = contract.OutcomeCompleted
+		if report.UsageSource == "" {
+			report.UsageSource = contract.UsageProviderReported
+		}
+		return Result{Report: report, Embedding: response, UpstreamCost: cost}
 	}
 	if ttft := emit.timeToFirstToken(); ttft > 0 {
 		milliseconds := int(ttft.Milliseconds())
