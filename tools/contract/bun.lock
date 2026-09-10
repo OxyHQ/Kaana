@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@oxyhq/kaana-contract-tools",
+      "name": "@oxy.so/kaana-contract-tools",
       "dependencies": {
         "@oxy.so/contracts": "1.0.1",
       },
