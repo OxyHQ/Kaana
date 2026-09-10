@@ -228,7 +228,7 @@ func identityBoundFakeClient(t *testing.T, upstream string) *http.Client {
 
 func identityBoundTestBaseURL(slug contract.ProviderSlug) (string, bool) {
 	switch slug {
-	case "openrouter":
+	case "openrouter", "cheaperinference":
 		return providerconfig.Known[slug].BaseURL, true
 	case "alibaba":
 		return "https://workspace-opaque.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1", true

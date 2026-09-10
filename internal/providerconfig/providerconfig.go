@@ -51,32 +51,33 @@ const (
 // publisher command is the first thing here that calls one at all, and it does
 // so only with an operator-supplied credential.
 var Known = map[contract.ProviderSlug]Endpoint{
-	"openai":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
-	"anthropic":    {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
-	"openrouter":   {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
-	"cerebras":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1", Discovery: DiscoveryOpenAIModels},
-	"groq":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.groq.com/openai/v1", Discovery: DiscoveryOpenAIModels},
-	"xai":          {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.x.ai/v1", Discovery: DiscoveryOpenAIModels},
-	"mistral":      {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.mistral.ai/v1", Discovery: DiscoveryMistralModels},
-	"deepseek":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.deepseek.com", Discovery: DiscoveryOpenAIModels},
-	"sambanova":    {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.sambanova.ai/v1", Discovery: DiscoveryOpenAIModels},
-	"siliconflow":  {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.siliconflow.cn/v1", Discovery: DiscoverySiliconModels},
-	"ai21":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.ai21.com/studio/v1", Discovery: DiscoveryNotAvailable},
-	"google":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", Discovery: DiscoveryNotAvailable},
-	"together":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.together.ai/v1", Discovery: DiscoveryOpenAIModels},
-	"cohere":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cohere.ai/compatibility/v1", Discovery: DiscoveryNotAvailable},
-	"fireworks":    {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.fireworks.ai/inference/v1", Discovery: DiscoveryNotAvailable},
-	"hyperbolic":   {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.hyperbolic.xyz/v1", Discovery: DiscoveryNotAvailable},
-	"digitalocean": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.do-ai.run/v1", Discovery: DiscoveryOpenAIModels},
-	"nvidia":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://integrate.api.nvidia.com/v1", Discovery: DiscoveryNotAvailable},
-	"modelscope":   {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api-inference.modelscope.cn/v1", Discovery: DiscoveryNotAvailable},
-	"zai":          {Protocol: ProtocolOpenAICompatible, BaseURL: "https://open.bigmodel.cn/api/paas/v4", Discovery: DiscoveryNotAvailable},
-	"nebius":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.tokenfactory.nebius.com/v1", Discovery: DiscoveryNebiusModels},
-	"nscale":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.api.nscale.com/v1", Discovery: DiscoveryOpenAIModels},
-	"chutes":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://llm.chutes.ai/v1", Discovery: DiscoveryNotAvailable},
-	"ovhcloud":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", Discovery: DiscoveryNotAvailable},
-	"alibaba":      {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryAlibabaModels},
-	"cloudflare":   {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryNotAvailable},
+	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
+	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
+	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
+	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
+	"cerebras":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1", Discovery: DiscoveryOpenAIModels},
+	"groq":             {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.groq.com/openai/v1", Discovery: DiscoveryOpenAIModels},
+	"xai":              {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.x.ai/v1", Discovery: DiscoveryOpenAIModels},
+	"mistral":          {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.mistral.ai/v1", Discovery: DiscoveryMistralModels},
+	"deepseek":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.deepseek.com", Discovery: DiscoveryOpenAIModels},
+	"sambanova":        {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.sambanova.ai/v1", Discovery: DiscoveryOpenAIModels},
+	"siliconflow":      {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.siliconflow.cn/v1", Discovery: DiscoverySiliconModels},
+	"ai21":             {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.ai21.com/studio/v1", Discovery: DiscoveryNotAvailable},
+	"google":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", Discovery: DiscoveryNotAvailable},
+	"together":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.together.ai/v1", Discovery: DiscoveryOpenAIModels},
+	"cohere":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cohere.ai/compatibility/v1", Discovery: DiscoveryNotAvailable},
+	"fireworks":        {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.fireworks.ai/inference/v1", Discovery: DiscoveryNotAvailable},
+	"hyperbolic":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.hyperbolic.xyz/v1", Discovery: DiscoveryNotAvailable},
+	"digitalocean":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.do-ai.run/v1", Discovery: DiscoveryOpenAIModels},
+	"nvidia":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://integrate.api.nvidia.com/v1", Discovery: DiscoveryNotAvailable},
+	"modelscope":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api-inference.modelscope.cn/v1", Discovery: DiscoveryNotAvailable},
+	"zai":              {Protocol: ProtocolOpenAICompatible, BaseURL: "https://open.bigmodel.cn/api/paas/v4", Discovery: DiscoveryNotAvailable},
+	"nebius":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.tokenfactory.nebius.com/v1", Discovery: DiscoveryNebiusModels},
+	"nscale":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.api.nscale.com/v1", Discovery: DiscoveryOpenAIModels},
+	"chutes":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://llm.chutes.ai/v1", Discovery: DiscoveryNotAvailable},
+	"ovhcloud":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", Discovery: DiscoveryNotAvailable},
+	"alibaba":          {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryAlibabaModels},
+	"cloudflare":       {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryNotAvailable},
 }
 
 // ValidateBaseURL limits provider credentials to a verified HTTPS origin.
@@ -122,6 +123,15 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 		// broader.
 		if raw != Known["openrouter"].BaseURL {
 			return fmt.Errorf("provider endpoint identity: provider %q must use the canonical OpenRouter HTTPS API base", slug)
+		}
+		return nil
+	}
+	if slug != "cheaperinference" && host == "api.cheaperinference.com" {
+		return fmt.Errorf("provider endpoint identity: CheaperInference host %q is reserved for the provider slug %q", host, "cheaperinference")
+	}
+	if slug == "cheaperinference" {
+		if raw != Known["cheaperinference"].BaseURL {
+			return fmt.Errorf("provider endpoint identity: provider %q must use the canonical CheaperInference HTTPS API base", slug)
 		}
 		return nil
 	}
