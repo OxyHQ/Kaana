@@ -37,6 +37,15 @@ in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
 is comparing like with like.
 
+When an upstream returns the exact amount it billed for the request, that fact
+outranks the rate-card calculation for the same attempt. It is parsed directly
+from the provider's decimal string into the fixed 1e-12 integer scale; it never
+passes through a floating-point number. CheaperInference's
+`cheaper_inference.billed_cost_usd` is the first such source. A malformed amount
+fails the upstream attempt instead of silently falling back to a different
+number, and providers that do not return an exact amount continue to use the
+versioned rate card or report an unknown cost.
+
 ## Rules a reviewer applies
 
 - **`internal/providercost` is the only package that may hold an amount**, it is
