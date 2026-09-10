@@ -21,7 +21,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import * as contracts from '@oxyhq/contracts';
+import * as contracts from '@oxy.so/contracts';
 
 const FIXTURE_ROOT = resolve(import.meta.dirname, '..', '..', 'internal', 'contract', 'testdata', 'wire');
 
@@ -82,7 +82,7 @@ for (const fixture of invalid) {
 
 process.stdout.write(
   `validated ${valid.length} produced shapes and ${invalid.length} rejection controls ` +
-    `against @oxyhq/contracts ${contracts.INFERENCE_CONTRACT_VERSION}\n`,
+    `against @oxy.so/contracts ${contracts.INFERENCE_CONTRACT_VERSION}\n`,
 );
 
 if (failures.length > 0) {

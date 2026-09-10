@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// descriptor.json is generated from the pinned, published @oxyhq/contracts
+// descriptor.json is generated from the pinned, published @oxy.so/contracts
 // package by tools/contract/generate.mjs. It is embedded into the test binary
 // rather than the shipped one because nothing at runtime reads it: the runtime
 // authority is the Go types, and this file exists to prove they still say what
@@ -304,7 +304,7 @@ var notApplicable = map[string]string{
 	// are the control plane's by definition: AGENTS.md forbids a customer
 	// balance or a billing ledger in this repository, so these shapes are not
 	// merely unimplemented here — implementing one would be the boundary
-	// breach. Published in @oxyhq/contracts 0.28.0.
+	// breach. Published in @oxy.so/contracts 0.28.0.
 	"accountBillingStateSchema":     "billing: customer balances are Oxy's; a balance here is a second ledger",
 	"autoRechargeSchema":            "billing: recharging a customer's balance is a control-plane action",
 	"autoRechargeAttemptSchema":     "billing: recharging a customer's balance is a control-plane action",
@@ -321,7 +321,7 @@ var notApplicable = map[string]string{
 	// Reconciliation compares what Oxy charged against what a provider
 	// invoiced. Kaana measures its own upstream cost (internal/providercost)
 	// and deliberately does not reconcile it — see the README's out-of-scope
-	// list. Published in @oxyhq/contracts 0.28.0.
+	// list. Published in @oxy.so/contracts 0.28.0.
 	"reconciliationReportSchema":          "reconciliation: a finance process with no home in a data plane",
 	"reconciliationRunSchema":             "reconciliation: a finance process with no home in a data plane",
 	"reconciliationRunStatusSchema":       "reconciliation: a finance process with no home in a data plane",
@@ -331,7 +331,7 @@ var notApplicable = map[string]string{
 	// Entitlements, plans and cost centres are what a customer bought and how
 	// they attribute it. Kaana is told the outcome of that decision — an
 	// already-authorized envelope — and never re-derives it (ADR 0006).
-	// Published in @oxyhq/contracts 0.28.0.
+	// Published in @oxy.so/contracts 0.28.0.
 	"costCenterSchema":            "entitlement: cost attribution is an Oxy account structure",
 	"costCenterSpendSchema":       "entitlement: cost attribution is an Oxy account structure",
 	"costCenterStatusSchema":      "entitlement: cost attribution is an Oxy account structure",
@@ -382,8 +382,8 @@ func bindEnum[T ~string](values []T) enumBinding {
 
 func TestDescriptorIsTheePinnedPublishedPackage(t *testing.T) {
 	file := loadDescriptor(t)
-	if file.Package != "@oxyhq/contracts" {
-		t.Errorf("descriptor was generated from %q, not @oxyhq/contracts", file.Package)
+	if file.Package != "@oxy.so/contracts" {
+		t.Errorf("descriptor was generated from %q, not @oxy.so/contracts", file.Package)
 	}
 	if file.PackageVersion == "" {
 		t.Error("descriptor records no package version, so nothing pins what it describes")

@@ -9,7 +9,7 @@ import (
 )
 
 // TestRedactSecretIsStillTheOnlyControl answers the question the contract's own
-// rewrite raises: `@oxyhq/contracts@0.29.0` closed the header-name hole this
+// rewrite raises: `@oxy.so/contracts@0.29.0` closed the header-name hole this
 // repository reported, so is an adapter-side redaction still needed?
 //
 // It is, for two separate reasons, and the second is a leak.
