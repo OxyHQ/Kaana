@@ -68,6 +68,27 @@ func TestVersionedOfficialPriceAndExactBalanceRemainOperatorSafe(t *testing.T) {
 	}
 }
 
+func TestControlledProjectionRejectsMutationAndMissingIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	runner, err := providertelemetry.NewRunner(map[contract.ProviderSlug]providertelemetry.Collector{
+		"cohere": collectorFunc(func(_ context.Context, credential providertelemetry.Credential, observed time.Time) ([]providertelemetry.Observation, error) {
+			return []providertelemetry.Observation{{Provider: credential.Provider, KeyID: credential.KeyID, Kind: providertelemetry.KindQuota, UsageUnit: "requests", Amount: "1000", Provenance: providertelemetry.ProvenanceProviderAPI, Certainty: providertelemetry.CertaintyExact, ObservedAt: observed, FreshUntil: observed.Add(time.Hour)}}, nil
+		}),
+	}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := runner.Collect(context.Background(), providertelemetry.Credential{Provider: "cohere", KeyID: "key-a", Secret: []byte("secret")}, now)
+	snapshot.Observations[0].Amount = "2000"
+	if _, err := providertelemetry.MarshalControlledProjection(snapshot); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("mutated snapshot error = %v", err)
+	}
+	snapshot.SchemaVersion = 0
+	if _, err := providertelemetry.MarshalControlledProjection(snapshot); err == nil {
+		t.Fatal("projection accepted a snapshot without a schema version")
+	}
+}
+
 func TestStaleOrIdentityMismatchedDataFailsClosed(t *testing.T) {
 	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
 	for name, observation := range map[string]providertelemetry.Observation{

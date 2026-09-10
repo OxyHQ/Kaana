@@ -37,6 +37,12 @@ in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
 is comparing like with like.
 
+The file is one immutable observation, not a mutable table: schema version,
+rate-card version id, provider-owned or operator-reviewed source, upstream
+source version, observation time, effective time and optional expiry accompany
+the deployment rates. Every estimated attempt retains that version id, so a
+later price change cannot erase which observation produced the estimate.
+
 When an upstream returns the exact amount it billed for the request, that fact
 outranks the rate-card calculation for the same attempt. It is parsed directly
 from the provider's decimal string into the fixed 1e-12 integer scale; it never

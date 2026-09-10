@@ -371,7 +371,6 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			KeyClass:               string(outcome.KeyClass),
 			ProviderReportedCost:   outcome.ProviderReportedCost,
 			ProviderBilledCustomer: providerBilledCustomer,
-			Served:                 streamErr == nil || emit.started,
 			Units:                  outcome.Units,
 		})
 		last = &attempt{
@@ -558,6 +557,19 @@ func (e *Executor) settle(
 				sinkErr = err
 			}
 		}
+	}
+	// Exactly one route can serve a request, and `last` is that route. Marking
+	// an attempt while the failover loop is still running is subtly wrong:
+	// emitter.started and delivered-output state belong to the whole request,
+	// so after a fallback starts they also read true while inspecting an earlier
+	// failed attempt. Settlement is the first point that knows the terminal
+	// attempt and whether it actually reached the customer.
+	for index := range usage {
+		usage[index].Served = false
+	}
+	if len(usage) > 0 {
+		usage[len(usage)-1].Served = emit.hasDeliveredOutput() ||
+			(last.err == nil && (emit.started || last.outcome.Embedding != nil))
 	}
 	cost := e.costs.MeasureRequest(requestID, usage)
 

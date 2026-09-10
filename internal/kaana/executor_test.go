@@ -1106,7 +1106,7 @@ func TestExecutorPersistsOperatorCostWithoutChangingTheCustomerResult(t *testing
 		outcome.KeyID = "key-runtime"
 		return outcome, err
 	}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":75}]}]}`))
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":75}]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1172,7 +1172,7 @@ func TestAnAdapterThatReportsNothingGetsAnEstimatedCompletedReport(t *testing.T)
 		}
 		return provider.Outcome{FinishReason: contract.FinishStop}, nil
 	}}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
 		{"unit":"requests","amountPerUnit":100},
 		{"unit":"input_tokens","amountPerUnit":10},
 		{"unit":"output_tokens","amountPerUnit":20}
@@ -1224,7 +1224,7 @@ func TestBrokenSinkKeepsEstimatedPartialUsageWithoutAnotherWrite(t *testing.T) {
 		}
 		return provider.Outcome{FinishReason: contract.FinishStop}, nil
 	}}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
 		{"unit":"requests","amountPerUnit":100},
 		{"unit":"input_tokens","amountPerUnit":10},
 		{"unit":"output_tokens","amountPerUnit":20}

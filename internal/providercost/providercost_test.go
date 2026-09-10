@@ -21,6 +21,26 @@ type costEventWriter struct {
 	failAt int
 }
 
+type batchCostEventWriter struct {
+	calls        int
+	failuresLeft int
+	events       []providercost.Event
+}
+
+func (w *batchCostEventWriter) WriteProviderCostEvent(context.Context, providercost.Event) error {
+	return errors.New("individual persistence must not be used")
+}
+
+func (w *batchCostEventWriter) WriteProviderCostEvents(_ context.Context, events []providercost.Event) error {
+	w.calls++
+	if w.failuresLeft > 0 {
+		w.failuresLeft--
+		return errors.New("transient database failure")
+	}
+	w.events = append([]providercost.Event(nil), events...)
+	return nil
+}
+
 func (w *costEventWriter) WriteProviderCostEvent(_ context.Context, event providercost.Event) error {
 	if w.failAt > 0 && len(w.events)+1 == w.failAt {
 		return errors.New("database unavailable")
@@ -49,7 +69,7 @@ func TestProviderReportedCostOutranksRateCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_exact","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1000000000000}]}]}`))
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_exact","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1000000000000}]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +114,9 @@ func TestRecorderPersistsExactRateCardAndUnknownAttempts(t *testing.T) {
 	if writer.events[1].Source != providercost.SourceRateCard || writer.events[1].Cost.Amount != 50 || !writer.events[1].Served {
 		t.Fatalf("rate-card event = %+v", writer.events[1])
 	}
+	if writer.events[1].RateCardVersionID != "rc_test_v1" || writer.events[0].RateCardVersionID != "" {
+		t.Fatalf("persisted rate-card versions = exact %q estimate %q", writer.events[0].RateCardVersionID, writer.events[1].RateCardVersionID)
+	}
 	if writer.events[2].Source != providercost.SourceUnknown || writer.events[2].Cost.Currency != "" || writer.events[2].Complete {
 		t.Fatalf("unknown event = %+v", writer.events[2])
 	}
@@ -120,7 +143,26 @@ func TestRecorderSkipsCustomerBYOKAndStopsAtPersistenceFailure(t *testing.T) {
 	}
 }
 
-const twoCards = `{"rateCards":[
+func TestRecorderRetriesOneWholeAtomicBatch(t *testing.T) {
+	at := time.Date(2026, time.September, 11, 12, 0, 0, 0, time.UTC)
+	record := parse(t, twoCards).MeasureRequest("req_batch_retry", []providercost.AttemptUsage{
+		{AttemptIndex: 0, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at},
+		{AttemptIndex: 1, Provider: "groq", KeyID: "key-2", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at.Add(time.Second)},
+	})
+	writer := &batchCostEventWriter{failuresLeft: 2}
+	recorder, err := providercost.NewRecorder(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.Record(context.Background(), record); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if writer.calls != 3 || len(writer.events) != 2 {
+		t.Fatalf("batch calls=%d persisted events=%d", writer.calls, len(writer.events))
+	}
+}
+
+const twoCards = `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
   {"deploymentId":"dep_a","currency":"XTS","rates":[
     {"unit":"requests","amountPerUnit":1000},
     {"unit":"input_tokens","amountPerUnit":2},
@@ -154,6 +196,37 @@ func TestPricesTheUnitsAnAttemptConsumed(t *testing.T) {
 	}
 	if measured.Cost.Currency != "XTS" {
 		t.Errorf("the attempt is priced in %q", measured.Cost.Currency)
+	}
+	if measured.Source != providercost.SourceRateCard || measured.RateCardVersionID != "rc_test_v1" {
+		t.Fatalf("rate-card identity = source %q, version %q", measured.Source, measured.RateCardVersionID)
+	}
+}
+
+func TestRateCardObservationIdentityAndValidityAreRequired(t *testing.T) {
+	for name, document := range map[string]string{
+		"legacy unversioned": `{"rateCards":[{"deploymentId":"dep","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1}]}]}`,
+		"invalid source":     `{"schemaVersion":1,"rateCardVersionId":"rc_1","source":"scraped","sourceVersion":"page","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1}]}]}`,
+		"invalid window":     `{"schemaVersion":1,"rateCardVersionId":"rc_1","source":"provider_api","sourceVersion":"etag","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","expiresAt":"2025-12-31T00:00:00Z","rateCards":[{"deploymentId":"dep","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1}]}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := providercost.Parse([]byte(document)); err == nil {
+				t.Fatal("Parse accepted an untraceable rate-card observation")
+			}
+		})
+	}
+}
+
+func TestRateCardOutsideItsEffectiveWindowIsUnknown(t *testing.T) {
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_window","source":"provider_api","sourceVersion":"etag-1","observedAt":"2026-09-11T10:00:00Z","effectiveAt":"2026-09-11T11:00:00Z","expiresAt":"2026-09-11T13:00:00Z","rateCards":[{"deploymentId":"dep","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := cards.MeasureRequest("req_expired", []providercost.AttemptUsage{{
+		DeploymentID: "dep", OccurredAt: time.Date(2026, 9, 11, 14, 0, 0, 0, time.UTC),
+		Units: []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}},
+	}})
+	if record.Complete || record.Attempts[0].Source != providercost.SourceUnknown || record.Attempts[0].RateCardVersionID != "" {
+		t.Fatalf("expired card measured %+v", record.Attempts[0].Measurement)
 	}
 }
 
@@ -224,7 +297,7 @@ func TestNoRateCardsAtAllIsASupportedState(t *testing.T) {
 // can invoice in different currencies, and adding them would be a conversion
 // Kaana has no rate for.
 func TestTwoCurrenciesAreNotAddedTogether(t *testing.T) {
-	cards := parse(t, `{"rateCards":[
+	cards := parse(t, `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
 	  {"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]},
 	  {"deploymentId":"dep_b","currency":"XXX","rates":[{"unit":"requests","amountPerUnit":700}]}]}`)
 
@@ -280,37 +353,37 @@ func TestParseRefusesACardThatWouldProduceAPlausibleWrongNumber(t *testing.T) {
 	}{
 		{
 			name:     "no cards at all",
-			document: `{"rateCards":[]}`,
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[]}`,
 			expect:   "no rate cards declared",
 		},
 		{
 			name:     "a card with no rates",
-			document: `{"rateCards":[{"deploymentId":"d","currency":"XTS","rates":[]}]}`,
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"d","currency":"XTS","rates":[]}]}`,
 			expect:   "price every request at zero",
 		},
 		{
 			name:     "a currency that is not a currency",
-			document: `{"rateCards":[{"deploymentId":"d","currency":"dollars","rates":[{"unit":"requests","amountPerUnit":1}]}]}`,
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"d","currency":"dollars","rates":[{"unit":"requests","amountPerUnit":1}]}]}`,
 			expect:   "not a currency code",
 		},
 		{
 			name:     "a unit the contract does not declare",
-			document: `{"rateCards":[{"deploymentId":"d","currency":"XTS","rates":[{"unit":"gpu_seconds","amountPerUnit":1}]}]}`,
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"d","currency":"XTS","rates":[{"unit":"gpu_seconds","amountPerUnit":1}]}]}`,
 			expect:   "not a usage unit",
 		},
 		{
 			name:     "a negative rate",
-			document: `{"rateCards":[{"deploymentId":"d","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":-1}]}]}`,
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"d","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":-1}]}]}`,
 			expect:   "negatively",
 		},
 		{
 			name:     "one unit priced twice",
-			document: `{"rateCards":[{"deploymentId":"d","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":1},{"unit":"requests","amountPerUnit":2}]}]}`,
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"d","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":1},{"unit":"requests","amountPerUnit":2}]}]}`,
 			expect:   "prices requests twice",
 		},
 		{
 			name: "two cards for one deployment",
-			document: `{"rateCards":[
+			document: `{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
 			  {"deploymentId":"d","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":1}]},
 			  {"deploymentId":"d","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":2}]}]}`,
 			expect: "two rate cards price",

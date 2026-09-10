@@ -45,3 +45,33 @@ func TestProviderCostMigrationKeepsTheOperatorOnlyBoundary(t *testing.T) {
 		t.Errorf("provider cost function count = %d, want 1", count)
 	}
 }
+
+func TestProviderCostBatchMigrationIsOneAtomicRuntimeCall(t *testing.T) {
+	for _, required := range []string{
+		"CREATE FUNCTION kaana_record_provider_cost_events(",
+		"ADD COLUMN rate_card_version_id TEXT",
+		"provider_cost_events_rate_card_version_check",
+		"p_events JSONB",
+		"jsonb_array_length(p_events) NOT BETWEEN 1 AND 64",
+		"parsed.request_id IS DISTINCT FROM expected_request_id",
+		"GROUP BY parsed.request_id, parsed.attempt_index",
+		"rate_card_version_id IS DISTINCT FROM event->>'rate_card_version_id'",
+		"REVOKE ALL ON FUNCTION kaana_record_provider_cost_event",
+		"FROM kaana_runtime",
+		"GRANT EXECUTE ON FUNCTION kaana_record_provider_cost_events(JSONB) TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0010, required) {
+			t.Errorf("provider cost batch migration lost %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"GRANT INSERT ON provider_cost_events",
+		"GRANT UPDATE ON provider_cost_events",
+		"GRANT DELETE ON provider_cost_events",
+		"COMMIT",
+	} {
+		if strings.Contains(strings.ToUpper(migration0010), strings.ToUpper(forbidden)) {
+			t.Errorf("provider cost batch migration contains forbidden operation %q", forbidden)
+		}
+	}
+}

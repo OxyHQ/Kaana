@@ -46,7 +46,8 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 		Provider: "groq", KeyID: "key-cost-test", DeploymentID: "dep_cost_test",
 		ModelReference: "openai/gpt-oss-120b@2026-08-01",
 		Cost:           providercost.Money{Currency: "USD", Amount: 125_000},
-		Source:         providercost.SourceRateCard, Complete: true, Served: true, OccurredAt: at,
+		Source:         providercost.SourceRateCard, RateCardVersionID: "rc_integration_v1",
+		Complete: true, Served: true, OccurredAt: at,
 	}
 	if err := repository.WriteProviderCostEvent(ctx, event); err != nil {
 		t.Fatalf("WriteProviderCostEvent: %v", err)
@@ -69,6 +70,7 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 	unknown.AttemptIndex = 1
 	unknown.Cost = providercost.Money{}
 	unknown.Source = providercost.SourceUnknown
+	unknown.RateCardVersionID = ""
 	unknown.Complete = false
 	if err := repository.WriteProviderCostEvent(ctx, unknown); err != nil {
 		t.Fatalf("recording an explicitly unknown cost: %v", err)
@@ -81,5 +83,27 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 	}
 	if currency != nil || amount != nil {
 		t.Fatalf("unknown cost persisted as currency/amount %v/%v", currency, amount)
+	}
+
+	atomicExisting := event
+	atomicExisting.RequestID = "req_cost_atomic"
+	atomicExisting.AttemptIndex = 1
+	if err := repository.WriteProviderCostEvent(ctx, atomicExisting); err != nil {
+		t.Fatalf("seeding atomic conflict: %v", err)
+	}
+	atomicFirst := event
+	atomicFirst.RequestID = "req_cost_atomic"
+	atomicFirst.AttemptIndex = 0
+	atomicConflict := atomicExisting
+	atomicConflict.Served = false
+	if err := repository.WriteProviderCostEvents(ctx, []providercost.Event{atomicFirst, atomicConflict}); err == nil {
+		t.Fatal("batch with a conflicting later attempt succeeded")
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM provider_cost_events
+		WHERE request_id = 'req_cost_atomic' AND attempt_index = 0`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("failed batch partially persisted its first event: rows/error=%d/%v", rows, err)
+	}
+	if err := repository.WriteProviderCostEvents(ctx, []providercost.Event{event, unknown}); err != nil {
+		t.Fatalf("idempotent full batch replay: %v", err)
 	}
 }

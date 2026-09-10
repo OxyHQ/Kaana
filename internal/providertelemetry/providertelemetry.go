@@ -7,6 +7,8 @@ package providertelemetry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,18 +74,30 @@ type Observation struct {
 
 // Snapshot is the complete operator projection from one collection pass.
 type Snapshot struct {
-	IssuedAt     time.Time     `json:"issuedAt"`
-	Observations []Observation `json:"observations"`
+	SchemaVersion int           `json:"schemaVersion"`
+	SnapshotID    string        `json:"snapshotId"`
+	IssuedAt      time.Time     `json:"issuedAt"`
+	Observations  []Observation `json:"observations"`
 }
 
 // MarshalControlledProjection produces the non-secret payload a separately
 // authenticated operator channel may deliver to Oxy. Keeping serialization in
 // this package prevents a caller from accidentally marshalling Credential.
 func MarshalControlledProjection(snapshot Snapshot) ([]byte, error) {
+	if snapshot.SchemaVersion != 1 || snapshot.SnapshotID == "" || snapshot.IssuedAt.IsZero() || len(snapshot.Observations) == 0 {
+		return nil, errors.New("provider telemetry: snapshot identity is invalid")
+	}
 	for _, observation := range snapshot.Observations {
-		if observation.Certainty == CertaintyUnknown && observation.Amount != "" {
-			return nil, errors.New("provider telemetry: unknown observation carries an amount")
+		credential := Credential{Provider: observation.Provider, KeyID: observation.KeyID, Secret: []byte{1}}
+		if observation.Kind == KindPrice && credential.KeyID == "" {
+			credential.KeyID = "price-observation"
 		}
+		if err := validate(observation, credential, snapshot.IssuedAt, time.Duration(1<<63-1)); err != nil {
+			return nil, fmt.Errorf("provider telemetry: controlled projection contains an invalid observation: %w", err)
+		}
+	}
+	if snapshot.SnapshotID != snapshotIdentity(snapshot.IssuedAt, snapshot.Observations) {
+		return nil, errors.New("provider telemetry: snapshot content does not match its identity")
 	}
 	return json.Marshal(snapshot)
 }
@@ -120,12 +134,12 @@ func NewRunner(collectors map[contract.ProviderSlug]Collector, maxAge time.Durat
 // unknown observation: an unavailable API can never look like zero capacity.
 func (r *Runner) Collect(ctx context.Context, credential Credential, now time.Time) Snapshot {
 	unknown := func(reason string) Snapshot {
-		return Snapshot{IssuedAt: now, Observations: []Observation{{
+		return newSnapshot(now, []Observation{{
 			Provider: credential.Provider, KeyID: credential.KeyID, Kind: KindBalance,
 			UsageUnit: "unknown", Provenance: ProvenanceProviderAPI,
 			Certainty: CertaintyUnknown, ObservedAt: now, FreshUntil: now,
 			UnknownReason: reason,
-		}}}
+		}})
 	}
 	if credential.Provider == "" || credential.KeyID == "" || len(credential.Secret) == 0 {
 		return unknown("credential_unavailable")
@@ -157,7 +171,23 @@ func (r *Runner) Collect(ctx context.Context, credential Credential, now time.Ti
 		}
 		return left.UsageUnit < right.UsageUnit
 	})
-	return Snapshot{IssuedAt: now, Observations: observations}
+	return newSnapshot(now, observations)
+}
+
+func newSnapshot(issuedAt time.Time, observations []Observation) Snapshot {
+	return Snapshot{SchemaVersion: 1, SnapshotID: snapshotIdentity(issuedAt, observations), IssuedAt: issuedAt, Observations: observations}
+}
+
+func snapshotIdentity(issuedAt time.Time, observations []Observation) string {
+	encoded, err := json.Marshal(struct {
+		IssuedAt     time.Time
+		Observations []Observation
+	}{IssuedAt: issuedAt, Observations: observations})
+	if err != nil {
+		panic("provider telemetry: fixed snapshot shape could not be encoded")
+	}
+	digest := sha256.Sum256(encoded)
+	return "pts_" + hex.EncodeToString(digest[:])
 }
 
 var decimalPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)

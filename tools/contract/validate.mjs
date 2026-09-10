@@ -16,14 +16,40 @@
  *    validator with a broken schema lookup, a swallowed exception or an
  *    always-true parse would pass the valid ones and fail here.
  *
- * Usage: `bun install --frozen-lockfile && bun run validate` after `go test ./internal/contract/...`.
+ * Fixture generation is intentionally isolated from the repository: this
+ * command asks the focused Go test to write into a fresh OS temporary
+ * directory, validates it, and removes it before exiting.
+ *
+ * Usage: `bun install --frozen-lockfile && bun run validate`.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 import * as contracts from '@oxy.so/contracts';
 
-const FIXTURE_ROOT = resolve(import.meta.dirname, '..', '..', 'internal', 'contract', 'testdata', 'wire');
+const REPOSITORY_ROOT = resolve(import.meta.dirname, '..', '..');
+const TEMP_ROOT = mkdtempSync(join(tmpdir(), 'kaana-contract-'));
+const FIXTURE_ROOT = join(TEMP_ROOT, 'wire');
+
+function generateFixtures() {
+  const result = spawnSync(
+    'go',
+    ['test', './internal/contract', '-run', '^TestWriteWireFixtures$', '-count=1'],
+    {
+      cwd: REPOSITORY_ROOT,
+      env: { ...process.env, KAANA_CONTRACT_FIXTURE_DIR: FIXTURE_ROOT },
+      stdio: 'inherit',
+    },
+  );
+  if (result.error) {
+    throw new Error(`cannot generate contract fixtures: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`contract fixture generation exited with status ${result.status}`);
+  }
+}
 
 function readFixtures(kind) {
   const dir = join(FIXTURE_ROOT, kind);
@@ -31,7 +57,7 @@ function readFixtures(kind) {
   try {
     entries = readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
   } catch (error) {
-    throw new Error(`cannot read ${dir}: run \`go test ./internal/contract/...\` first (${error.message})`);
+    throw new Error(`cannot read generated fixtures from ${dir}: ${error.message}`);
   }
   return entries.map((name) => ({
     file: join(kind, name),
@@ -47,45 +73,51 @@ function schemaFor(name) {
   return schema;
 }
 
-const failures = [];
-const valid = readFixtures('valid');
-const invalid = readFixtures('invalid');
+try {
+  generateFixtures();
 
-if (valid.length === 0) {
-  throw new Error('no valid fixtures were found; every check below would pass vacuously');
-}
-if (invalid.length === 0) {
-  throw new Error('no invalid control fixtures were found; the validator would have no vacuity floor');
-}
+  const failures = [];
+  const valid = readFixtures('valid');
+  const invalid = readFixtures('invalid');
 
-for (const fixture of valid) {
-  const result = schemaFor(fixture.schema).safeParse(fixture.value);
-  if (!result.success) {
-    failures.push(
-      `REJECTED a shape Kaana produces — ${fixture.file} (${fixture.schema}/${fixture.case})\n` +
-        result.error.issues
-          .map((issue) => `      ${issue.path.join('.') || '<root>'}: ${issue.message}`)
-          .join('\n'),
-    );
+  if (valid.length === 0) {
+    throw new Error('no valid fixtures were found; every check below would pass vacuously');
   }
-}
-
-for (const fixture of invalid) {
-  const result = schemaFor(fixture.schema).safeParse(fixture.value);
-  if (result.success) {
-    failures.push(
-      `ACCEPTED a control that must be rejected — ${fixture.file} (${fixture.schema}/${fixture.case}); ` +
-        'the validator is not reading the schema it claims to',
-    );
+  if (invalid.length === 0) {
+    throw new Error('no invalid control fixtures were found; the validator would have no vacuity floor');
   }
-}
 
-process.stdout.write(
-  `validated ${valid.length} produced shapes and ${invalid.length} rejection controls ` +
-    `against @oxy.so/contracts ${contracts.INFERENCE_CONTRACT_VERSION}\n`,
-);
+  for (const fixture of valid) {
+    const result = schemaFor(fixture.schema).safeParse(fixture.value);
+    if (!result.success) {
+      failures.push(
+        `REJECTED a shape Kaana produces — ${fixture.file} (${fixture.schema}/${fixture.case})\n` +
+          result.error.issues
+            .map((issue) => `      ${issue.path.join('.') || '<root>'}: ${issue.message}`)
+            .join('\n'),
+      );
+    }
+  }
 
-if (failures.length > 0) {
-  process.stderr.write(`\n${failures.map((failure) => `  - ${failure}`).join('\n\n')}\n\n`);
-  process.exit(1);
+  for (const fixture of invalid) {
+    const result = schemaFor(fixture.schema).safeParse(fixture.value);
+    if (result.success) {
+      failures.push(
+        `ACCEPTED a control that must be rejected — ${fixture.file} (${fixture.schema}/${fixture.case}); ` +
+          'the validator is not reading the schema it claims to',
+      );
+    }
+  }
+
+  process.stdout.write(
+    `validated ${valid.length} produced shapes and ${invalid.length} rejection controls ` +
+      `against @oxy.so/contracts ${contracts.INFERENCE_CONTRACT_VERSION}\n`,
+  );
+
+  if (failures.length > 0) {
+    process.stderr.write(`\n${failures.map((failure) => `  - ${failure}`).join('\n\n')}\n\n`);
+    process.exitCode = 1;
+  }
+} finally {
+  rmSync(TEMP_ROOT, { recursive: true, force: true });
 }
