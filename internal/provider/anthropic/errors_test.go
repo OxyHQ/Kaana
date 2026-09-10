@@ -280,7 +280,7 @@ func asUpstream(err error, target *provider.ErrUpstream) bool {
 // port asked the contract for and got: a model DECLINING to answer is a
 // property of the answer, and a content filter is an upstream system removing
 // one. `refusal` joined `inferenceFinishReasonSchema` in
-// @oxyhq/contracts@0.29.0 (contract version 1.1.0); before it, this row had to
+// @oxy.so/contracts@0.29.0 (contract version 1.1.0); before it, this row had to
 // report `content_filter` and say something that was not quite true.
 func TestStopReasonsMapOntoTheContractsFinishReasons(t *testing.T) {
 	for reason, want := range map[string]contract.FinishReason{

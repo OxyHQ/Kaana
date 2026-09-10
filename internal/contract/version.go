@@ -1,5 +1,5 @@
 // Package contract holds Kaana's Go representation of the Oxy↔data-plane
-// inference contract published as `@oxyhq/contracts`.
+// inference contract published as `@oxy.so/contracts`.
 //
 // The types here are not a convenience mirror. They are the wire, and the
 // authority for what the wire says is the published package, never this

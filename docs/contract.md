@@ -1,10 +1,10 @@
 # The wire contract
 
-`@oxyhq/contracts` is the authority; `internal/contract` restates it in Go and is answerable to it.
+`@oxy.so/contracts` is the authority; `internal/contract` restates it in Go and is answerable to it.
 
 ## The contract is not re-invented here
 
-`@oxyhq/contracts@0.40.0` (contract version 2.0.0) is the wire contract, and the Go types in
+`@oxy.so/contracts@0.40.0` (contract version 2.0.0) is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 

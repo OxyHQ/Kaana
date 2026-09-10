@@ -137,7 +137,7 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
    on Kaana's own cost side. A `cache_write_input_tokens` unit would close it.
 6. **The closed error set has no non-retryable platform-side failure.**
    *Answered by OxyHQ/oxy#1019, which added `provider_credential_invalid`
-   (non-retryable), published in `@oxyhq/contracts@0.28.0` and adopted here.*
+   (non-retryable), published in `@oxy.so/contracts@0.28.0` and adopted here.*
    Both adapters now report an upstream refusing the PLATFORM's credential under
    that code, with category `authentication`. The two halves pull in opposite
    directions on purpose: the code is non-retryable so a client stops hammering a
@@ -152,7 +152,7 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
    helps — and reporting it as `quota_exceeded` was correct about retryability
    and wrong about whose account is exhausted, which reads as actionable while
    the action does nothing. `provider_billing_refused` landed in
-   `@oxyhq/contracts@0.29.0`; Anthropic's 402 `billing_error` and an
+   `@oxy.so/contracts@0.29.0`; Anthropic's 402 `billing_error` and an
    OpenAI-compatible `insufficient_quota` both map to it, and the conformance
    suite refuses any code that names the CUSTOMER's money for that scenario.
 7. **Nothing specifies how Kaana authenticates the edge.** See
@@ -215,7 +215,7 @@ contract fits one provider's shape and not another's.
     rate cannot be metered exactly against the published unit list.
 
 16. **`refusal` had no finish reason of its own.** *Closed in
-    `@oxyhq/contracts@0.29.0`.* The Messages API stops with
+    `@oxy.so/contracts@0.29.0`.* The Messages API stops with
     `stop_reason: "refusal"` when the model declines; the contract's finish
     reasons ended at `content_filter`, so Kaana had to report a filter acting
     where the model had declined — different things to a customer deciding
@@ -236,7 +236,7 @@ contract fits one provider's shape and not another's.
 
 18. **`safeErrorTextSchema`'s credential pattern was bearer-shaped, and
     redacting against it made a leak worse.** *Closed in
-    `@oxyhq/contracts@0.29.0`.* The old pattern refused `authorization:`,
+    `@oxy.so/contracts@0.29.0`.* The old pattern refused `authorization:`,
     `bearer <token>`, `api_key=` and `sk-…`. An upstream echoing
     `{x-api-key: <value>}` matched the **marker** and not the **value**, so
     redacting the match produced `{x-[redacted] <value>}` — which no longer
@@ -262,7 +262,7 @@ contract fits one provider's shape and not another's.
 
 19. **A published version number did not identify the contract it names, and
     nothing gates that.** While this adapter was being written,
-    `@oxyhq/contracts` on `main` and `@oxyhq/contracts@0.27.0` on npm had
+    `@oxy.so/contracts` on `main` and `@oxy.so/contracts@0.27.0` on npm had
     *different contents under the same version*: `main`'s `errors.ts` carried
     `provider_credential_invalid` and the published tarball did not, because
     #1019 merged after 0.27.0 shipped and did not bump the version. The

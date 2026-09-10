@@ -37,7 +37,7 @@ or metadata · customer balances · a billing ledger · a customer console.
 
 ## The contract is not authored here
 
-`@oxyhq/contracts` is the wire contract. `internal/contract` restates it in Go
+`@oxy.so/contracts` is the wire contract. `internal/contract` restates it in Go
 and is answerable to it.
 
 - **Never edit `internal/contract/descriptor.json` by hand.** Regenerate:
