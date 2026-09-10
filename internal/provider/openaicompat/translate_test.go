@@ -85,6 +85,13 @@ func requestWith(messages []contract.Message) *contract.Request {
 			ReceivedAt: contract.NewTimestamp(time.Now()),
 		},
 		RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: "rp", PolicyVersion: 1},
+		AuthorizedRoutes: []contract.AuthorizedRoute{{
+			Substitution:   contract.SubstitutionSameModel,
+			DeploymentID:   "dep_test",
+			ModelReference: reference,
+			Provider:       "openai",
+			Regions:        []contract.Region{"us-east-1"},
+		}},
 	}
 }
 

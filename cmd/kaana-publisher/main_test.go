@@ -84,7 +84,7 @@ func TestDiscoveryProviderSetCanBeNarrowerThanServing(t *testing.T) {
 	}
 }
 
-func TestDiscoveryProviderSetMustBeAnOrderedSubsetOfServing(t *testing.T) {
+func TestDiscoveryProviderSetMustBeASubsetOfServing(t *testing.T) {
 	for name, environment := range map[string]map[string]string{
 		"missing serving set": {
 			"KAANA_DISCOVERY_PROVIDERS": "nebius",
@@ -92,10 +92,6 @@ func TestDiscoveryProviderSetMustBeAnOrderedSubsetOfServing(t *testing.T) {
 		"provider not served": {
 			"KAANA_PROVIDERS":           "openrouter",
 			"KAANA_DISCOVERY_PROVIDERS": "openrouter,nebius",
-		},
-		"serving priority reversed": {
-			"KAANA_PROVIDERS":           "cerebras,nebius",
-			"KAANA_DISCOVERY_PROVIDERS": "nebius,cerebras",
 		},
 		"invalid serving slug": {
 			"KAANA_PROVIDERS":           "Not Valid,nebius",
@@ -111,6 +107,19 @@ func TestDiscoveryProviderSetMustBeAnOrderedSubsetOfServing(t *testing.T) {
 				t.Fatal("an unservable discovery set was accepted")
 			}
 		})
+	}
+}
+
+func TestDiscoveryProviderOrderDoesNotSelectServingPriority(t *testing.T) {
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":           "cerebras,nebius",
+		"KAANA_DISCOVERY_PROVIDERS": "nebius,cerebras",
+	}))
+	if err != nil {
+		t.Fatalf("a reordered discovery subset was treated as routing priority: %v", err)
+	}
+	if len(providers) != 2 || providers[0].Slug != "nebius" || providers[1].Slug != "cerebras" {
+		t.Fatalf("discovery providers = %+v", slugsOf(providers))
 	}
 }
 

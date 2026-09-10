@@ -32,9 +32,8 @@ there is no provider-key fallback outside its database.
 | `KAANA_MAX_ENVELOPE_BYTES` | no | default `16777216` |
 
 Failover has no process-wide switch. The signed request's ordered
-`authorizedRoutes` list is the complete authority: an absent list narrows a
-concrete target to its declared primary, and a routing-profile target without a
-list is refused.
+`authorizedRoutes` list is the complete authority: an absent or empty list is
+refused for every target and every supported envelope version.
 
 Per provider, `<SLUG>` is upper-cased and `.`/`-` become `_`:
 
@@ -309,7 +308,7 @@ catalogue traversal; serving owns pool order and rotation.
 | Variable | Required | Meaning |
 |---|---|---|
 | `KAANA_PROVIDERS` | yes | serving superset used to prove that discovery cannot publish an unroutable provider |
-| `KAANA_DISCOVERY_PROVIDERS` | yes | slugs to discover; an ordered subsequence of the serving task's `KAANA_PROVIDERS` |
+| `KAANA_DISCOVERY_PROVIDERS` | yes | slugs to discover; each must also appear in the serving task's `KAANA_PROVIDERS` |
 | `KAANA_PROVIDER_<SLUG>_DISCOVERY_KEY_ID` | for every discovery slug | exact enabled PostgreSQL key id used for model discovery; no first/position fallback |
 | `DATABASE_URL` | yes | credential database, TLS required |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | expected KMS key ARN |
@@ -322,8 +321,9 @@ catalogue traversal; serving owns pool order and rotation.
 A provider declared in either process's provider set but missing an active
 database key is a hard startup refusal for that process. A green task must not
 advertise an adapter or discovery target that cannot authenticate. Publisher
-startup requires both variables, proves that every discovery slug is present in
-the serving superset and keeps the same priority order.
+startup requires both variables and proves that every discovery slug is present
+in the serving superset. Declaration order schedules discovery; it is not
+routing priority.
 
 Serving and publisher both reload credentials atomically. A failed database or
 KMS read leaves the previous complete generation in use and is logged; no
@@ -471,7 +471,6 @@ Also verify in production:
 - the database contains ciphertext, never plaintext;
 - a row-swapped ciphertext fails KMS context authentication;
 - serving and publisher use the same image digest and endpoint facts; publisher
-  startup has proved its explicit provider set is an ordered subsequence of
-  serving;
+  startup has proved its explicit provider set is a subset of serving;
 - signed health reports every declared provider configured;
 - old GitHub secrets, SSM parameters and task-definition revisions are retired.
