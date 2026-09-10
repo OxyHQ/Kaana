@@ -154,13 +154,13 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 | a cadence at or past the horizon | refuses to start rather than clamping |
 | a provider speaking no `GET /models` | refuses; a hand-written list is the checked-in file this command replaces |
 
-### Ordering is load-bearing
+### Inventory order is presentation only
 
-A concrete envelope with no `authorizedRoutes` resolves to the deployment
-declared FIRST and no other. A signed list keeps its own exact preference order
-and inventory never widens it. Deployments follow serving priority because
-`KAANA_DISCOVERY_PROVIDERS` must preserve the order declared by
-`KAANA_PROVIDERS`; only providers holding a credential are emitted at all.
+Every inference envelope carries a non-empty signed `authorizedRoutes` list.
+Kaana keeps that exact preference order and inventory never adds to it. Provider
+declaration order therefore cannot select a route. The publisher emits only
+providers holding a credential and sorts deployments by exact opaque id, so
+reordering discovery inputs does not change routing content or its snapshot id.
 
 Two providers of one model line produce ONE reference with two endpoints, which
 is the failover set. That is why the observation date is keyed by model LINE and
@@ -207,7 +207,7 @@ Serving owns pool order and rotation.
 | `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/kaana-publisher/model-attribution.json`, baked into the image |
 
 Publisher startup requires both variables and refuses any discovery slug absent
-from the serving set or ordered differently. Thus
+from the serving set. Thus
 adding a serving-only provider cannot make discovery fail, and discovery cannot
 publish a provider the serving task would reject as unroutable.
 

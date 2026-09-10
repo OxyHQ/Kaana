@@ -14,8 +14,9 @@ when its target is a direct `model`. It never interprets v1's retired
 or `{kind: "routing_profile_id", routingProfileId: <exact opaque Oxy id>}`. A
 profile ID carries no routing semantics into Kaana: Oxy's signed
 `authorizedRoutes` are the complete ordered authority, and Kaana neither looks
-up nor normalizes the ID. Any other envelope version is refused whole before
-the body is interpreted.
+up nor normalizes the ID. Both supported versions require that list to be
+non-empty; compatibility never authorizes a deployment by inventory position.
+Any other envelope version is refused whole before the body is interpreted.
 
 **1. A generated descriptor, compared field by field.**
 `tools/contract/generate.mjs` imports every module under the published package's

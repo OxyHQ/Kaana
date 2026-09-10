@@ -404,11 +404,8 @@ func (r *Request) Validate() error {
 }
 
 func (r *Request) validateAuthorizedRoutes() error {
-	if r.AuthorizedRoutes == nil {
-		return nil
-	}
 	if len(r.AuthorizedRoutes) == 0 {
-		return fmt.Errorf("contract: authorizedRoutes must contain at least one route when present")
+		return fmt.Errorf("contract: authorizedRoutes must contain at least one route")
 	}
 	for index := range r.AuthorizedRoutes {
 		if err := r.AuthorizedRoutes[index].validate(); err != nil {

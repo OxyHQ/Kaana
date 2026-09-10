@@ -164,10 +164,11 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
    `availabilityScope`, `commercialPermission` and `priceVersionId` — Oxy
    commercial decisions under ADR 0006 — so the shape currently has two owners
    and no stated direction of exchange.
-9. **Nothing says who picks the current revision of an unpinned reference.** The
-   contract says Oxy chooses it, but the envelope carries no resolution and the
-   `start` event must report a revision-pinned reference — so in practice Kaana
-   chooses. It does so from an explicit `current` flag in the inventory.
+9. **The exact authorized route resolves an unpinned target before execution.**
+   The contract says Oxy chooses the current revision, and each signed
+   `authorizedRoutes` entry carries the resulting revision-pinned reference.
+   Kaana refuses an absent list rather than consulting inventory `current` as
+   request authority.
 10. **Several produced shapes are not `.strict()`.** The stream events, the
     usage report and the error body all allow unknown keys, so a field Kaana
     emitted by mistake is silently stripped at Oxy's parse rather than caught.
@@ -176,8 +177,8 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
 11. **Answered by contract 1.3.0: failover authorization is an entry, never a
     process flag.** The edge applies the customer's fallback and region controls
     and signs the ordered destinations. Kaana validates each one against its
-    inventory, attempts only that list, and preserves list order. With no list a
-    concrete model uses only its declared primary; a profile is refused.
+    inventory, attempts only that list, and preserves list order. With no list,
+    every target is refused before inventory resolution.
 12. **The contract specifies event shapes and not their order.** Kaana emits
     `route_switch` *before* `start`, because the only switch it can safely
     perform is one where nothing has been streamed yet, and saying so in order

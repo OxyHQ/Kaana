@@ -2,6 +2,7 @@ package contract
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,33 @@ func TestRequestEnvelopeVersionTransitionIsNarrow(t *testing.T) {
 	current := validAuthorizedRouteRequest()
 	if err := current.Validate(); err != nil {
 		t.Fatalf("the v2 exact-profile target was refused: %v", err)
+	}
+}
+
+func TestEverySupportedEnvelopeVersionRequiresAuthorizedRoutes(t *testing.T) {
+	for _, version := range []int{LegacyRequestEnvelopeVersion, RequestEnvelopeVersion} {
+		for _, list := range []struct {
+			name   string
+			routes []AuthorizedRoute
+		}{
+			{name: "absent", routes: nil},
+			{name: "empty", routes: []AuthorizedRoute{}},
+		} {
+			t.Run(fmt.Sprintf("v%d/%s", version, list.name), func(t *testing.T) {
+				request := validAuthorizedRouteRequest()
+				request.SchemaVersion = version
+				if version == LegacyRequestEnvelopeVersion {
+					reference := ModelReference("stub/model@2026-05-01")
+					request.Target = RoutingTarget{Kind: TargetModel, ModelReference: &reference}
+				}
+				request.AuthorizedRoutes = list.routes
+
+				err := request.Validate()
+				if err == nil || !strings.Contains(err.Error(), "authorizedRoutes") {
+					t.Fatalf("the route-less envelope validation = %v", err)
+				}
+			})
+		}
 	}
 }
 

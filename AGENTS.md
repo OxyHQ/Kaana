@@ -67,9 +67,9 @@ and is answerable to it.
   reference to `Endpoint`, and do not build a `provider.Route` from inventory
   anywhere but `RouteSet.Candidates()`.
 - **Kaana chooses only among the ordered `authorizedRoutes` in the signed
-  envelope.** An absent list means the declared primary and nothing else; a
-  routing-profile target without a list is refused. Never derive authorization
-  from the inventory — it is global and the policy is per customer.
+  envelope.** An absent or empty list authorizes nothing and is refused for
+  every supported envelope version. Never derive authorization from the
+  inventory — it is global and the policy is per customer.
 - **A route switch is announced at the attempt that replaces the failed one**,
   never at the moment of failure: the replacement's breaker may refuse it, and a
   switch nobody made must not reach a receipt.
@@ -132,10 +132,10 @@ holds the logic; `internal/awssig` is the signer.
 - **A provider with no credential is dropped, not declared**, and one provider
   failing never withdraws the others. A cycle in which nobody answered refuses
   and leaves the published snapshot alone.
-- **Inventory order defines the no-list primary; envelope order defines an
-  authorized request.** Emit inventory endpoints in `KAANA_PROVIDERS` order and
-  only for providers holding a key. Never reorder `authorizedRoutes` by health,
-  price or inventory preference.
+- **Inventory order is presentation, never routing authority.** Emit only
+  providers holding a key and sort the resulting deployments by exact opaque
+  id for stable snapshots. Never reorder `authorizedRoutes` by health, price or
+  inventory preference.
 - **Never default `KAANA_INVENTORY_BUCKET`.** A plausible default turns a
   variable that never arrived into "published somewhere else, everything green".
 - **It runs in its own process under its own task role.** The write decides all

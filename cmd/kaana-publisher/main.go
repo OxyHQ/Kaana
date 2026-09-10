@@ -180,17 +180,17 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 	if len(serving) == 0 {
 		return nil, errors.New("KAANA_PROVIDERS is required alongside KAANA_DISCOVERY_PROVIDERS: the publisher must prove every discovered provider is served")
 	}
-	servedAt := make(map[contract.ProviderSlug]int, len(serving))
+	served := make(map[contract.ProviderSlug]struct{}, len(serving))
 	seenServingPrefix := make(map[string]contract.ProviderSlug, len(serving))
-	for index, name := range serving {
+	for _, name := range serving {
 		slug := contract.ProviderSlug(name)
 		if !slug.Valid() {
 			return nil, fmt.Errorf("KAANA_PROVIDERS names %q, which is not a provider slug", name)
 		}
-		if _, duplicate := servedAt[slug]; duplicate {
+		if _, duplicate := served[slug]; duplicate {
 			return nil, fmt.Errorf("KAANA_PROVIDERS names %q twice", slug)
 		}
-		servedAt[slug] = index
+		served[slug] = struct{}{}
 
 		prefix := providerconfig.EnvironmentPrefix(slug)
 		if other, collides := seenServingPrefix[prefix]; collides {
@@ -198,16 +198,11 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 		}
 		seenServingPrefix[prefix] = slug
 	}
-	previousIndex := -1
 	for _, name := range declared {
-		index, ok := servedAt[contract.ProviderSlug(name)]
+		_, ok := served[contract.ProviderSlug(name)]
 		if !ok {
 			return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS names %q, which KAANA_PROVIDERS does not serve", name)
 		}
-		if index <= previousIndex {
-			return nil, fmt.Errorf("KAANA_DISCOVERY_PROVIDERS reorders %q relative to KAANA_PROVIDERS; discovery must preserve serving priority", name)
-		}
-		previousIndex = index
 	}
 
 	var providers []publisher.Provider

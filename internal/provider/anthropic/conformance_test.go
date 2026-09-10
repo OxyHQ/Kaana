@@ -137,5 +137,12 @@ func baseRequest(requestID contract.RequestID) *contract.Request {
 			ReceivedAt: contract.NewTimestamp(time.Now()),
 		},
 		RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: "rp_conformance", PolicyVersion: 1},
+		AuthorizedRoutes: []contract.AuthorizedRoute{{
+			Substitution:   contract.SubstitutionSameModel,
+			DeploymentID:   "dep_conformance",
+			ModelReference: reference,
+			Provider:       Slug,
+			Regions:        []contract.Region{"test-region"},
+		}},
 	}
 }
