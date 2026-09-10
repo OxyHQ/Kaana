@@ -44,6 +44,9 @@ func TestProviderReportedCostOutranksRateCard(t *testing.T) {
 	if !record.Complete || len(record.Totals) != 1 || record.Totals[0].Amount != reported.Amount {
 		t.Fatalf("reported-cost record = %+v", record)
 	}
+	if record.Attempts[0].Provenance != providercost.ProvenanceProviderReported {
+		t.Fatalf("reported cost provenance = %q", record.Attempts[0].Provenance)
+	}
 }
 
 const twoCards = `{"rateCards":[
@@ -81,6 +84,9 @@ func TestPricesTheUnitsAnAttemptConsumed(t *testing.T) {
 	if measured.Cost.Currency != "XTS" {
 		t.Errorf("the attempt is priced in %q", measured.Cost.Currency)
 	}
+	if measured.Provenance != providercost.ProvenanceRateCard {
+		t.Fatalf("rate-card measurement provenance = %q", measured.Provenance)
+	}
 }
 
 // TestAnUnknownCostIsNotAZeroCost is the shape this package exists for. Summing
@@ -100,6 +106,9 @@ func TestAnUnknownCostIsNotAZeroCost(t *testing.T) {
 	}
 	if unpriced.Cost.Currency != "" {
 		t.Errorf("an unpriced attempt carries currency %q", unpriced.Cost.Currency)
+	}
+	if unpriced.Provenance != providercost.ProvenanceUnknown {
+		t.Fatalf("unknown measurement provenance = %q", unpriced.Provenance)
 	}
 
 	// A card that prices SOME of what was measured is the more dangerous case:

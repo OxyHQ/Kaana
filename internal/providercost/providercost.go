@@ -59,6 +59,16 @@ type Money struct {
 	Amount   int64
 }
 
+// Provenance states how an upstream amount was established. Unknown is a
+// first-class result, never an alias for a zero-valued estimate.
+type Provenance string
+
+const (
+	ProvenanceUnknown          Provenance = "unknown"
+	ProvenanceRateCard         Provenance = "rate_card"
+	ProvenanceProviderReported Provenance = "provider_reported"
+)
+
 // ParseDecimal parses a provider-reported decimal amount without passing
 // through floating point. Providers use fewer than Scale decimal places in
 // practice; accepting more would silently round an invoice fact.
@@ -211,6 +221,9 @@ func (c *Cards) Priced(deployment contract.DeploymentID) bool {
 // Measurement is what one upstream attempt cost.
 type Measurement struct {
 	Cost Money
+	// Provenance distinguishes an exact provider billing fact from a rate-card
+	// estimate and an amount that could not be established.
+	Provenance Provenance
 	// ProviderBilledCustomer is true for BYOK: the provider charged the
 	// customer's own account, so the attempt is completely accounted for but is
 	// not an expense Kaana may add to its provider-cost totals.
@@ -233,11 +246,11 @@ func (m Measurement) Complete() bool {
 // Measure prices one attempt's units.
 func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.UsageQuantity) Measurement {
 	if c == nil {
-		return Measurement{}
+		return Measurement{Provenance: ProvenanceUnknown}
 	}
 	card, found := c.byDeployment[deployment]
 	if !found {
-		return Measurement{}
+		return Measurement{Provenance: ProvenanceUnknown}
 	}
 
 	rates := make(map[contract.UsageUnit]int64, len(card.Rates))
@@ -245,7 +258,7 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 		rates[rate.Unit] = rate.AmountPerUnit
 	}
 
-	measurement := Measurement{Priced: true, Cost: Money{Currency: card.Currency}}
+	measurement := Measurement{Priced: true, Provenance: ProvenanceRateCard, Cost: Money{Currency: card.Currency}}
 	for _, quantity := range units {
 		rate, priced := rates[quantity.Unit]
 		if !priced {
@@ -321,10 +334,10 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	totals := make(map[string]int64)
 
 	for _, attempt := range attempts {
-		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer}
+		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer, Provenance: ProvenanceUnknown}
 		if !attempt.ProviderBilledCustomer {
 			if attempt.ProviderReportedCost != nil {
-				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true}
+				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true, Provenance: ProvenanceProviderReported}
 			} else {
 				measurement = c.Measure(attempt.DeploymentID, attempt.Units)
 			}
