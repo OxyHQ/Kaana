@@ -14,6 +14,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -50,7 +51,14 @@ var migration0010 string
 
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
-	pool *pgxpool.Pool
+	pool             *pgxpool.Pool
+	databaseIdentity postgresDatabaseIdentity
+}
+
+type postgresDatabaseIdentity struct {
+	host     string
+	port     uint16
+	database string
 }
 
 // OpenPostgres connects and proves the database is reachable.
@@ -79,7 +87,12 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*Postgres, error) {
 		pool.Close()
 		return nil, fmt.Errorf("credential store: pinging PostgreSQL: %w", err)
 	}
-	return &Postgres{pool: pool}, nil
+	return &Postgres{
+		pool: pool,
+		databaseIdentity: postgresDatabaseIdentity{
+			host: config.ConnConfig.Host, port: config.ConnConfig.Port, database: config.ConnConfig.Database,
+		},
+	}, nil
 }
 
 // requireVerifiedPostgresTLS refuses encryption without server identity
@@ -114,6 +127,21 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 		return fmt.Errorf("credential store: beginning migration: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := migratePostgres(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("credential store: committing migrations: %w", err)
+	}
+	return nil
+}
+
+type migrationExecutor interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 	if _, err := tx.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS kaana_schema_migrations (
 			version TEXT PRIMARY KEY,
@@ -141,9 +169,6 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("credential store: committing migrations: %w", err)
 	}
 	return nil
 }
@@ -205,7 +230,7 @@ func (p *Postgres) WriteProviderCostEvents(ctx context.Context, events []provide
 	return nil
 }
 
-func applyMigration(ctx context.Context, tx pgx.Tx, version, body string) error {
+func applyMigration(ctx context.Context, tx migrationExecutor, version, body string) error {
 	checksum := migrationChecksum(body)
 	var appliedChecksum string
 	err := tx.QueryRow(ctx, `SELECT checksum FROM kaana_schema_migrations WHERE version = $1`, version).Scan(&appliedChecksum)

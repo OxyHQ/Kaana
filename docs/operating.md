@@ -189,31 +189,39 @@ The migration is idempotent. Runtime never applies DDL at startup; granting a
 serving process schema authority to make deployment convenient would make every
 request-serving task a migration principal.
 
-The platform credential-control cutover has one prerequisite that deliberately
-contains no password or provider secret. A database administrator creates only
-the non-login grant role, once:
+Platform credential control is bootstrapped by the reviewed
+`bootstrap-platform-control` operation in `credential-admin.yml`. Its immutable
+migrator task receives two exact SecureStrings from its execution role:
+`DATABASE_URL` is the administrative migration connection and
+`KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL` is the future control login.
+Neither is accepted through argv, an ECS override or logs.
 
-```sql
-DO $platform_control_role$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_roles
-        WHERE rolname = 'kaana_platform_credential_control'
-    ) THEN
-        CREATE ROLE kaana_platform_credential_control NOLOGIN
-            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-    END IF;
-END
-$platform_control_role$;
+The operation parses the control URL in memory, requires its user to be exactly
+`kaana_platform_credential_control_login`, requires exact verified TLS and the
+same host, port and database as the administrative connection, then atomically:
+
+1. creates or verifies the unprivileged NOLOGIN authorization role;
+2. creates or verifies the unprivileged LOGIN mapping and rotates its password;
+3. grants the authorization role to that login; and
+4. applies every schema migration, including migration `0009`, which grants
+   only the platform mutation function's execution.
+
+The password reaches PostgreSQL as a bound parameter stored in a
+transaction-local setting. The logged SQL text contains `$1`, not the password
+or a verifier. Run it only through the main-only workflow after the task
+definition and execution role have been reviewed with those exact two secret
+bindings:
+
+```text
+gh workflow run credential-admin.yml --repo OxyHQ/Kaana --ref main \
+  -f operation=bootstrap-platform-control
 ```
 
-Then the reviewed `migrate` operation in `credential-admin.yml` runs
-`kaana-credentials migrate` under the existing DDL-only migrator task. Migration
-`0009` creates the function and grants only its execution to that role. Neither
-step accepts or reads a provider key. Terraform may create the service and its
-login/database-secret binding only after the migration succeeds; until that
-service is `ACTIVE`, the image workflow detects its absence and does not invent
-an ECS service, task role, network or database principal.
+The workflow launches the task inside the VPC and reports only its task ARN and
+the fixed success line. It never opens PostgreSQL or reads either SecureString
+into the runner. Terraform may create the service only after this operation
+succeeds; until the service is `ACTIVE`, image deployment skips it rather than
+inventing infrastructure.
 
 ### Add or rotate a key
 
