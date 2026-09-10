@@ -31,7 +31,12 @@ inference execution from Alia while preserving Alia's agent runtime.
 
 Every model invocation is authorized at the Oxy edge. Kaana accepts only the
 signed Oxy envelope; it is never a public credential issuer or a shortcut around
-Oxy authorization.
+Oxy authorization. Developer access is managed in **Oxy Console**, the single
+console for every Oxy API: an application and its API keys are registered there
+whether they call Kaana, Alia or Mention. Alia, in turn, is the assistant
+product — the ChatGPT of Oxy — with a product API of its own that other Oxy apps
+call; a request to that API is authorized by Oxy the same way and reaches Kaana
+only through the Oxy edge.
 
 ## Exact deployment identity and order
 
