@@ -29,6 +29,7 @@
 package providercost
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -36,6 +37,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
@@ -58,16 +60,6 @@ type Money struct {
 	Currency string
 	Amount   int64
 }
-
-// Provenance states how an upstream amount was established. Unknown is a
-// first-class result, never an alias for a zero-valued estimate.
-type Provenance string
-
-const (
-	ProvenanceUnknown          Provenance = "unknown"
-	ProvenanceRateCard         Provenance = "rate_card"
-	ProvenanceProviderReported Provenance = "provider_reported"
-)
 
 // ParseDecimal parses a provider-reported decimal amount without passing
 // through floating point. Providers use fewer than Scale decimal places in
@@ -221,9 +213,10 @@ func (c *Cards) Priced(deployment contract.DeploymentID) bool {
 // Measurement is what one upstream attempt cost.
 type Measurement struct {
 	Cost Money
-	// Provenance distinguishes an exact provider billing fact from a rate-card
-	// estimate and an amount that could not be established.
-	Provenance Provenance
+	// Source says whether Cost came from the provider's exact receipt or from
+	// Kaana's versioned rate card. Unknown carries no amount and can never be
+	// interpreted as a free request.
+	Source Source
 	// ProviderBilledCustomer is true for BYOK: the provider charged the
 	// customer's own account, so the attempt is completely accounted for but is
 	// not an expense Kaana may add to its provider-cost totals.
@@ -238,6 +231,15 @@ type Measurement struct {
 	UnpricedUnits []contract.UsageUnit
 }
 
+// Source is the provenance of an upstream-cost measurement.
+type Source string
+
+const (
+	SourceUnknown          Source = "unknown"
+	SourceRateCard         Source = "rate_card"
+	SourceProviderReported Source = "provider_reported"
+)
+
 // Complete reports whether every measured unit was priced.
 func (m Measurement) Complete() bool {
 	return m.ProviderBilledCustomer || (m.Priced && len(m.UnpricedUnits) == 0)
@@ -246,11 +248,11 @@ func (m Measurement) Complete() bool {
 // Measure prices one attempt's units.
 func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.UsageQuantity) Measurement {
 	if c == nil {
-		return Measurement{Provenance: ProvenanceUnknown}
+		return Measurement{Source: SourceUnknown}
 	}
 	card, found := c.byDeployment[deployment]
 	if !found {
-		return Measurement{Provenance: ProvenanceUnknown}
+		return Measurement{Source: SourceUnknown}
 	}
 
 	rates := make(map[contract.UsageUnit]int64, len(card.Rates))
@@ -258,7 +260,7 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 		rates[rate.Unit] = rate.AmountPerUnit
 	}
 
-	measurement := Measurement{Priced: true, Provenance: ProvenanceRateCard, Cost: Money{Currency: card.Currency}}
+	measurement := Measurement{Priced: true, Source: SourceRateCard, Cost: Money{Currency: card.Currency}}
 	for _, quantity := range units {
 		rate, priced := rates[quantity.Unit]
 		if !priced {
@@ -285,8 +287,11 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 // is the reason this measurement exists separately from the usage report rather
 // than as a field on it.
 type AttemptUsage struct {
-	DeploymentID contract.DeploymentID
-	Provider     contract.ProviderSlug
+	AttemptIndex   int
+	DeploymentID   contract.DeploymentID
+	Provider       contract.ProviderSlug
+	ModelReference contract.ModelReference
+	OccurredAt     time.Time
 	// ProviderBilledCustomer marks a request-scoped BYOK attempt. Its usage is
 	// retained for reconciliation, but its upstream amount belongs to the
 	// customer's provider account rather than Kaana's cost ledger.
@@ -334,10 +339,10 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	totals := make(map[string]int64)
 
 	for _, attempt := range attempts {
-		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer, Provenance: ProvenanceUnknown}
+		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer, Source: SourceUnknown}
 		if !attempt.ProviderBilledCustomer {
 			if attempt.ProviderReportedCost != nil {
-				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true, Provenance: ProvenanceProviderReported}
+				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true, Source: SourceProviderReported}
 			} else {
 				measurement = c.Measure(attempt.DeploymentID, attempt.Units)
 			}
@@ -359,6 +364,89 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	}
 	sort.Slice(record.Totals, func(a, b int) bool { return record.Totals[a].Currency < record.Totals[b].Currency })
 	return record
+}
+
+// Event is one operator-only upstream-cost fact ready for durable storage.
+// Customer BYOK attempts are absent: their provider account, and therefore
+// their expense, belongs to the customer rather than Kaana.
+type Event struct {
+	RequestID      contract.RequestID
+	AttemptIndex   int
+	Provider       contract.ProviderSlug
+	KeyID          string
+	DeploymentID   contract.DeploymentID
+	ModelReference contract.ModelReference
+	Cost           Money
+	Source         Source
+	Complete       bool
+	Served         bool
+	OccurredAt     time.Time
+}
+
+// Writer is the narrow persistence authority used by Recorder.
+type Writer interface {
+	WriteProviderCostEvent(context.Context, Event) error
+}
+
+// Recorder persists each platform-funded attempt in a measured request.
+type Recorder struct {
+	writer Writer
+}
+
+// NewRecorder builds the operator-cost persistence boundary.
+func NewRecorder(writer Writer) (*Recorder, error) {
+	if writer == nil {
+		return nil, fmt.Errorf("providercost: no event writer")
+	}
+	return &Recorder{writer: writer}, nil
+}
+
+// Record persists all platform-funded attempts in order. The database writer
+// provides exact idempotency per request and attempt, so retrying a partially
+// completed Record call is safe.
+func (r *Recorder) Record(ctx context.Context, record Record) error {
+	for _, attempt := range record.Attempts {
+		// No key identity means no credential was leased and no upstream call
+		// was made (for example, an entirely retired pool). It is an execution
+		// refusal rather than a provider-cost event.
+		if attempt.AttemptUsage.ProviderBilledCustomer || attempt.KeyID == "" {
+			continue
+		}
+		event := Event{
+			RequestID: record.RequestID, AttemptIndex: attempt.AttemptIndex,
+			Provider: attempt.Provider, KeyID: attempt.KeyID,
+			DeploymentID: attempt.DeploymentID, ModelReference: attempt.ModelReference,
+			Cost: attempt.Cost, Source: attempt.Source, Complete: attempt.Complete(),
+			Served: attempt.Served, OccurredAt: attempt.OccurredAt,
+		}
+		if err := validateEvent(event); err != nil {
+			return err
+		}
+		if err := r.writer.WriteProviderCostEvent(ctx, event); err != nil {
+			return fmt.Errorf("providercost: recording request %s attempt %d: %w", record.RequestID, attempt.AttemptIndex, err)
+		}
+	}
+	return nil
+}
+
+func validateEvent(event Event) error {
+	if event.RequestID == "" || event.AttemptIndex < 0 || event.Provider == "" || event.KeyID == "" ||
+		event.DeploymentID == "" || event.ModelReference == "" || event.OccurredAt.IsZero() {
+		return fmt.Errorf("providercost: event identity is incomplete")
+	}
+	switch event.Source {
+	case SourceProviderReported, SourceRateCard:
+		if !currencyPattern.MatchString(event.Cost.Currency) || event.Cost.Amount < 0 {
+			return fmt.Errorf("providercost: a priced event has invalid money")
+		}
+	case SourceUnknown:
+		if event.Cost.Currency != "" || event.Cost.Amount != 0 || event.Complete {
+			return fmt.Errorf("providercost: an unknown event carries a cost or claims completeness")
+		}
+	default:
+		return fmt.Errorf("providercost: event has unknown source %q", event.Source)
+	}
+	return nil
 }
 
 // LogValue renders a record for the operator log. It names the request, the

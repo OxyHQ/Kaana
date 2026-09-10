@@ -11,6 +11,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +37,9 @@ var migration0006 string
 
 //go:embed migrations/0007_provider_credential_id_operations.sql
 var migration0007 string
+
+//go:embed migrations/0008_provider_cost_events.sql
+var migration0008 string
 
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
@@ -123,6 +127,7 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 		{version: "0005", body: migration0005},
 		{version: "0006", body: migration0006},
 		{version: "0007", body: migration0007},
+		{version: "0008", body: migration0008},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -130,6 +135,32 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("credential store: committing migrations: %w", err)
+	}
+	return nil
+}
+
+// WriteProviderCostEvent records one operator-only upstream expense through
+// the runtime role's exact SECURITY DEFINER function. The function provides
+// exact replay idempotency and rejects a reused request-attempt identity whose
+// facts differ.
+func (p *Postgres) WriteProviderCostEvent(ctx context.Context, event providercost.Event) error {
+	var currency *string
+	var amount *int64
+	if event.Source != providercost.SourceUnknown {
+		currency = &event.Cost.Currency
+		amount = &event.Cost.Amount
+	}
+	var recorded bool
+	err := p.pool.QueryRow(ctx, `SELECT kaana_record_provider_cost_event(
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+	)`, event.RequestID, event.AttemptIndex, event.Provider, event.KeyID,
+		event.DeploymentID, event.ModelReference, currency, amount, event.Source,
+		event.Complete, event.Served, event.OccurredAt).Scan(&recorded)
+	if err != nil {
+		return fmt.Errorf("credential store: recording provider cost event: %w", err)
+	}
+	if !recorded {
+		return errors.New("credential store: provider cost event was not recorded")
 	}
 	return nil
 }

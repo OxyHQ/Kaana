@@ -37,12 +37,15 @@ import (
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
+const providerCostPersistenceTimeout = 5 * time.Second
+
 // Executor turns an envelope into a stream and a usage report.
 type Executor struct {
 	inventory           *inventory.Store
 	registry            *provider.Registry
 	rotation            *rotation.Registry
 	costs               *providercost.Cards
+	costRecorder        *providercost.Recorder
 	customerCredentials CustomerCredentialResolver
 	validationReporter  oxyvalidation.Submitter
 	customerLimits      *customerlimit.Registry
@@ -71,6 +74,9 @@ type Config struct {
 	// Costs prices upstream attempts. Optional — absent means cost is not
 	// measured, and every measurement says so rather than reporting zero.
 	Costs *providercost.Cards
+	// CostRecorder durably records operator-only upstream cost. It is optional
+	// for tests and development without PostgreSQL.
+	CostRecorder *providercost.Recorder
 	// CustomerCredentials resolves a BYOK binding into a request-scoped key.
 	// It is optional only because platform-funded routes do not use it; a route
 	// carrying a binding fails closed when this authority is absent.
@@ -110,6 +116,7 @@ func NewExecutor(config Config) (*Executor, error) {
 		registry:            config.Providers,
 		rotation:            config.Rotation,
 		costs:               config.Costs,
+		costRecorder:        config.CostRecorder,
 		customerCredentials: config.CustomerCredentials,
 		validationReporter:  config.ValidationReporter,
 		customerLimits:      customerLimits,
@@ -136,6 +143,10 @@ type Result struct {
 	// operator number: nothing in it crosses back to Oxy, and no contract shape
 	// has a field it could occupy.
 	UpstreamCost providercost.Record
+	// CostRecordError is operator-only persistence state. It never changes the
+	// customer result: provider work already happened, and retrying inference
+	// would spend twice. The HTTP layer logs it for operations.
+	CostRecordError error
 }
 
 // ErrClientGone reports that the sink stopped accepting events. The executor
@@ -167,6 +178,17 @@ type candidate struct {
 // are given for the HTTP request, so an adapter that ignores it cannot make an
 // upstream call at all.
 func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink Sink) Result {
+	result := e.execute(ctx, request, sink)
+	if e.costRecorder == nil || len(result.UpstreamCost.Attempts) == 0 {
+		return result
+	}
+	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), providerCostPersistenceTimeout)
+	defer cancel()
+	result.CostRecordError = e.costRecorder.Record(recordContext, result.UpstreamCost)
+	return result
+}
+
+func (e *Executor) execute(ctx context.Context, request *contract.Request, sink Sink) Result {
 	requestID := request.Attribution.RequestID
 	generationID := e.generationID(request)
 	startedAt := e.now()
@@ -340,13 +362,16 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 		reportCustomerLimitOutcome(customerPermit, streamErr)
 		e.reportCustomerCredentialValidation(route, streamErr)
 		usage = append(usage, providercost.AttemptUsage{
+			AttemptIndex:           len(usage),
 			DeploymentID:           route.DeploymentID,
 			Provider:               route.Provider,
+			ModelReference:         route.ModelReference,
+			OccurredAt:             e.now(),
 			KeyID:                  outcome.KeyID,
 			KeyClass:               string(outcome.KeyClass),
 			ProviderReportedCost:   outcome.ProviderReportedCost,
 			ProviderBilledCustomer: providerBilledCustomer,
-			Served:                 streamErr == nil,
+			Served:                 streamErr == nil || emit.started,
 			Units:                  outcome.Units,
 		})
 		last = &attempt{

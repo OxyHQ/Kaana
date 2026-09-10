@@ -1,6 +1,8 @@
 package providercost_test
 
 import (
+	"context"
+	"errors"
 	"go/parser"
 	"go/token"
 	"log/slog"
@@ -8,10 +10,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
+
+type costEventWriter struct {
+	events []providercost.Event
+	failAt int
+}
+
+func (w *costEventWriter) WriteProviderCostEvent(_ context.Context, event providercost.Event) error {
+	if w.failAt > 0 && len(w.events)+1 == w.failAt {
+		return errors.New("database unavailable")
+	}
+	w.events = append(w.events, event)
+	return nil
+}
 
 func TestParseProviderReportedDecimalWithoutFloatingPoint(t *testing.T) {
 	parsed, err := providercost.ParseDecimal("USD", "0.012345")
@@ -44,8 +60,63 @@ func TestProviderReportedCostOutranksRateCard(t *testing.T) {
 	if !record.Complete || len(record.Totals) != 1 || record.Totals[0].Amount != reported.Amount {
 		t.Fatalf("reported-cost record = %+v", record)
 	}
-	if record.Attempts[0].Provenance != providercost.ProvenanceProviderReported {
-		t.Fatalf("reported cost provenance = %q", record.Attempts[0].Provenance)
+	if record.Attempts[0].Source != providercost.SourceProviderReported {
+		t.Fatalf("reported cost source = %q", record.Attempts[0].Source)
+	}
+}
+
+func TestRecorderPersistsExactRateCardAndUnknownAttempts(t *testing.T) {
+	at := time.Date(2026, time.September, 11, 12, 0, 0, 0, time.UTC)
+	reported, err := providercost.ParseDecimal("USD", "0.25")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards := parse(t, twoCards)
+	record := cards.MeasureRequest("req_persist", []providercost.AttemptUsage{
+		{AttemptIndex: 0, Provider: "cheaperinference", KeyID: "key-ci", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, ProviderReportedCost: &reported},
+		{AttemptIndex: 1, Provider: "groq", KeyID: "key-groq", DeploymentID: "dep_b", ModelReference: "openai/model@2026-09-01", OccurredAt: at.Add(time.Second), Served: true, Units: []contract.UsageQuantity{{Unit: contract.UnitOutputTokens, Quantity: 2}}},
+		{AttemptIndex: 2, Provider: "mistral", KeyID: "key-mistral", DeploymentID: "dep_unknown", ModelReference: "mistralai/model@2026-09-01", OccurredAt: at.Add(2 * time.Second)},
+	})
+	writer := &costEventWriter{}
+	recorder, err := providercost.NewRecorder(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.Record(context.Background(), record); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if len(writer.events) != 3 {
+		t.Fatalf("recorded %d events, want 3", len(writer.events))
+	}
+	if writer.events[0].Source != providercost.SourceProviderReported || writer.events[0].Cost != reported || !writer.events[0].Complete {
+		t.Fatalf("exact event = %+v", writer.events[0])
+	}
+	if writer.events[1].Source != providercost.SourceRateCard || writer.events[1].Cost.Amount != 50 || !writer.events[1].Served {
+		t.Fatalf("rate-card event = %+v", writer.events[1])
+	}
+	if writer.events[2].Source != providercost.SourceUnknown || writer.events[2].Cost.Currency != "" || writer.events[2].Complete {
+		t.Fatalf("unknown event = %+v", writer.events[2])
+	}
+}
+
+func TestRecorderSkipsCustomerBYOKAndStopsAtPersistenceFailure(t *testing.T) {
+	at := time.Date(2026, time.September, 11, 12, 0, 0, 0, time.UTC)
+	record := parse(t, twoCards).MeasureRequest("req_failure", []providercost.AttemptUsage{
+		{AttemptIndex: 0, Provider: "openai", KeyID: "customer-byok", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, ProviderBilledCustomer: true},
+		{AttemptIndex: 1, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at},
+		{AttemptIndex: 2, Provider: "groq", KeyID: "key-2", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at},
+	})
+	writer := &costEventWriter{failAt: 2}
+	recorder, err := providercost.NewRecorder(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = recorder.Record(context.Background(), record)
+	if err == nil || !strings.Contains(err.Error(), "attempt 2") {
+		t.Fatalf("Record error = %v", err)
+	}
+	if len(writer.events) != 1 || writer.events[0].KeyID != "key-1" {
+		t.Fatalf("events before failure = %+v", writer.events)
 	}
 }
 
@@ -84,9 +155,6 @@ func TestPricesTheUnitsAnAttemptConsumed(t *testing.T) {
 	if measured.Cost.Currency != "XTS" {
 		t.Errorf("the attempt is priced in %q", measured.Cost.Currency)
 	}
-	if measured.Provenance != providercost.ProvenanceRateCard {
-		t.Fatalf("rate-card measurement provenance = %q", measured.Provenance)
-	}
 }
 
 // TestAnUnknownCostIsNotAZeroCost is the shape this package exists for. Summing
@@ -106,9 +174,6 @@ func TestAnUnknownCostIsNotAZeroCost(t *testing.T) {
 	}
 	if unpriced.Cost.Currency != "" {
 		t.Errorf("an unpriced attempt carries currency %q", unpriced.Cost.Currency)
-	}
-	if unpriced.Provenance != providercost.ProvenanceUnknown {
-		t.Fatalf("unknown measurement provenance = %q", unpriced.Provenance)
 	}
 
 	// A card that prices SOME of what was measured is the more dangerous case:

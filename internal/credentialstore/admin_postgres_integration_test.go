@@ -79,6 +79,7 @@ func TestProviderCredentialIDOperationsPostgresAndFakeKMS(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `TRUNCATE TABLE
+		provider_cost_events,
 		provider_credential_admin_operations,
 		provider_credential_audit,
 		provider_credentials RESTART IDENTITY`); err != nil {
