@@ -101,6 +101,11 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/kaana-credential-control ./cmd/kaana-credential-control
 
+# Platform pool mutations use a separate signed task and KMS Encrypt-only role;
+# customer BYOK authority cannot be replayed onto this surface.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-platform-credential-control ./cmd/kaana-platform-credential-control
+
 # The mount point for the configuration snapshot, created here because the
 # runtime stage has no shell to mkdir with. A volume mounted over it brings its
 # own ownership and shadows this directory entirely, so the chown governs only
@@ -129,6 +134,7 @@ COPY --from=build /out/kaana /usr/local/bin/kaana
 COPY --from=build /out/kaana-publisher /usr/local/bin/kaana-publisher
 COPY --from=build /out/kaana-credentials /usr/local/bin/kaana-credentials
 COPY --from=build /out/kaana-credential-control /usr/local/bin/kaana-credential-control
+COPY --from=build /out/kaana-platform-credential-control /usr/local/bin/kaana-platform-credential-control
 COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
 COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem

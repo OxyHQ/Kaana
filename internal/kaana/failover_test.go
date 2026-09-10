@@ -618,7 +618,7 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 		{Unit: contract.UnitRequests, Quantity: 1},
 		{Unit: contract.UnitOutputTokens, Quantity: 40},
 	}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
 		{"deploymentId":"dep_a","currency":"XTS","rates":[
 			{"unit":"requests","amountPerUnit":1000},{"unit":"output_tokens","amountPerUnit":10}]},
 		{"deploymentId":"dep_b","currency":"XTS","rates":[
@@ -664,6 +664,12 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 			result.UpstreamCost.Totals[0].Amount, expected)
 	}
 
+	if result.UpstreamCost.Attempts[0].Served {
+		t.Error("the failed primary is marked served because the fallback later started the request stream")
+	}
+	if !result.UpstreamCost.Attempts[1].Served {
+		t.Error("the successful fallback is not marked served")
+	}
 	served := 0
 	for _, attempt := range result.UpstreamCost.Attempts {
 		if attempt.Served {
@@ -671,7 +677,38 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 		}
 	}
 	if served != 1 {
-		t.Errorf("%d attempts are marked as having served the customer", served)
+		t.Errorf("%d attempts are marked as having served the customer; at most one terminal attempt may serve", served)
+	}
+}
+
+func TestAPartialPrimaryThatReachedTheCustomerIsTheOnlyServedAttempt(t *testing.T) {
+	primary := &scriptedAdapter{slug: "stub", stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		if err := out.Delta(0, contract.ChannelOutputText, "partial"); err != nil {
+			return provider.Outcome{}, err
+		}
+		return provider.Outcome{
+			Units:       []contract.UsageQuantity{{Unit: contract.UnitOutputTokens, Quantity: 1}},
+			UsageSource: contract.UsageProviderReported,
+		}, overloaded("stub")
+	}}
+	backup := succeedingAdapter("backup", 4)
+
+	_, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, backup},
+	}.run(t, authorizedRequest())
+
+	if backup.attempts() != 0 {
+		t.Fatalf("a partial customer-visible primary was retried on the backup %d times", backup.attempts())
+	}
+	if len(result.UpstreamCost.Attempts) != 1 {
+		t.Fatalf("partial request recorded %d attempts, want only the primary", len(result.UpstreamCost.Attempts))
+	}
+	if !result.UpstreamCost.Attempts[0].Served {
+		t.Error("the partial primary that delivered output is not marked served")
 	}
 }
 
@@ -793,7 +830,7 @@ func TestFailoverResolvesCustomerCredentialOnlyAfterAnnouncingTheSwitch(t *testi
 	primaryUnits := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
 	primary := failingAdapter("stub", overloaded("stub"), primaryUnits)
 	backup := succeedingAdapter("backup", 1)
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]}]}`))
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]}]}`))
 	if err != nil {
 		t.Fatalf("building the primary cost card: %v", err)
 	}
@@ -836,7 +873,7 @@ func TestFailoverSettlesThePrimaryWhenCustomerCredentialCooldownBlocksTheFallbac
 	primaryUnits := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
 	primary := failingAdapter("stub", overloaded("stub"), primaryUnits)
 	backup := succeedingAdapter("backup", 1)
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]}]}`))
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_a","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":100}]}]}`))
 	if err != nil {
 		t.Fatalf("building the primary cost card: %v", err)
 	}

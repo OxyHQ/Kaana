@@ -178,7 +178,7 @@ const (
 // a real amount to look for rather than a zero that would be absent anyway.
 func testRateCards(t *testing.T) *providercost.Cards {
 	t.Helper()
-	document := fmt.Sprintf(`{"rateCards":[{
+	document := fmt.Sprintf(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{
 		"deploymentId":"dep_stub",
 		"currency":%q,
 		"rates":[

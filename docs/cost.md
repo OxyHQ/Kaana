@@ -37,6 +37,12 @@ in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
 is comparing like with like.
 
+The file is one immutable observation, not a mutable table: schema version,
+rate-card version id, provider-owned or operator-reviewed source, upstream
+source version, observation time, effective time and optional expiry accompany
+the deployment rates. Every estimated attempt retains that version id, so a
+later price change cannot erase which observation produced the estimate.
+
 When an upstream returns the exact amount it billed for the request, that fact
 outranks the rate-card calculation for the same attempt. It is parsed directly
 from the provider's decimal string into the fixed 1e-12 integer scale; it never
@@ -45,6 +51,19 @@ passes through a floating-point number. CheaperInference's
 fails the upstream attempt instead of silently falling back to a different
 number, and providers that do not return an exact amount continue to use the
 versioned rate card or report an unknown cost.
+
+Every attempt now carries explicit operator provenance: `provider_reported`
+for an exact upstream billing fact, `rate_card` for a calculated estimate, or
+`unknown`. The last state has no currency or amount and therefore cannot be
+summed as free traffic.
+
+Provider-owned pricing, balance and quota APIs are collected behind
+`internal/providertelemetry`. Their observations carry the opaque provider key
+id, source, exact/estimated/unknown certainty, source version and freshness
+window. An unavailable, stale or malformed provider response becomes an
+explicit unknown observation. The controlled projection contains no plaintext
+credential and is intended only for a separately authenticated operator path
+into Oxy; it is never attached to an inference response.
 
 ## Rules a reviewer applies
 

@@ -723,8 +723,8 @@ type CredentialedSender interface {
 
 // Walk sends a call with the first credential that can serve it, rotating on
 // the failures that say something about a credential and on nothing else. It
-// returns the response that will be read and the key that produced it; the
-// caller closes that response.
+// returns the response that will be read and the key used by the last upstream
+// call, including when that call failed; the caller closes a returned response.
 //
 // Everything here happens BEFORE the response body is read, and that is the
 // design rather than a convenience: not one byte has reached the customer, so
@@ -746,13 +746,14 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 	// than a synthesized "nothing left to try", which would replace a diagnosis
 	// with a vaguer restatement of it.
 	var refused error
+	var refusedKey Key
 
 	for {
 		now := time.Now()
 		key, leased := attempt.Next(now)
 		if !leased {
 			if refused != nil {
-				return nil, Key{}, refused
+				return nil, refusedKey, refused
 			}
 			// Not one key could be leased, so no provider ever saw this
 			// request: either nothing is configured, or every credential was
@@ -762,9 +763,10 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 
 		response, err := sender.Send(ctx, call, key)
 		if err != nil {
-			// A transport failure says nothing about the credential: the
-			// request never reached the provider, so nobody refused it.
-			return nil, Key{}, sender.TransportFailure(ctx, err)
+			// A transport failure says nothing about the credential: delivery is
+			// uncertain and nobody returned a credential verdict. The key still
+			// names the attempted upstream expense for operator reconciliation.
+			return nil, key, sender.TransportFailure(ctx, err)
 		}
 
 		// Applied to every response, successful ones included: a proactive
@@ -785,6 +787,7 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// customer never learns this happened.
 			pool.Retire(key, KeyExhausted, now, time.Time{})
 			refused = failure
+			refusedKey = key
 
 		case CredentialRejected:
 			// The credential was refused. The key leaves rotation so no later
@@ -794,12 +797,12 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// one failure into a call per key and retire the whole pool on a
 			// blip.
 			pool.Retire(key, KeyRejected, now, time.Time{})
-			return nil, Key{}, failure
+			return nil, key, failure
 
 		case CredentialRequestFault:
 			// The request is what was refused, and it would be refused
 			// identically by every other credential. Retried nowhere.
-			return nil, Key{}, failure
+			return nil, key, failure
 
 		case CredentialHealthy:
 			// The failure says nothing about this key, so nothing is retired.
@@ -809,12 +812,13 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// has just been reached.
 			if Throttled(failure) && attempt.AllowThrottleRotation() {
 				refused = failure
+				refusedKey = key
 				continue
 			}
-			return nil, Key{}, failure
+			return nil, key, failure
 
 		default:
-			return nil, Key{}, failure
+			return nil, key, failure
 		}
 	}
 }

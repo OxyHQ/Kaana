@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +38,15 @@ var migration0006 string
 
 //go:embed migrations/0007_provider_credential_id_operations.sql
 var migration0007 string
+
+//go:embed migrations/0008_provider_cost_events.sql
+var migration0008 string
+
+//go:embed migrations/0009_platform_provider_credential_operations.sql
+var migration0009 string
+
+//go:embed migrations/0010_provider_cost_event_batches.sql
+var migration0010 string
 
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
@@ -123,6 +134,9 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 		{version: "0005", body: migration0005},
 		{version: "0006", body: migration0006},
 		{version: "0007", body: migration0007},
+		{version: "0008", body: migration0008},
+		{version: "0009", body: migration0009},
+		{version: "0010", body: migration0010},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -130,6 +144,63 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("credential store: committing migrations: %w", err)
+	}
+	return nil
+}
+
+// WriteProviderCostEvent uses the same atomic batch boundary for a single
+// attempt. The runtime role has no execute grant on the retired row-at-a-time
+// function after migration 0010.
+func (p *Postgres) WriteProviderCostEvent(ctx context.Context, event providercost.Event) error {
+	return p.WriteProviderCostEvents(ctx, []providercost.Event{event})
+}
+
+type providerCostEventJSON struct {
+	RequestID         contract.RequestID      `json:"request_id"`
+	AttemptIndex      int                     `json:"attempt_index"`
+	Provider          contract.ProviderSlug   `json:"provider_slug"`
+	KeyID             string                  `json:"key_id"`
+	DeploymentID      contract.DeploymentID   `json:"deployment_id"`
+	ModelReference    contract.ModelReference `json:"model_reference"`
+	Currency          *string                 `json:"currency"`
+	AmountPicos       *int64                  `json:"amount_picos"`
+	Source            providercost.Source     `json:"source"`
+	RateCardVersionID string                  `json:"rate_card_version_id,omitempty"`
+	Complete          bool                    `json:"complete"`
+	Served            bool                    `json:"served"`
+	OccurredAt        time.Time               `json:"occurred_at"`
+}
+
+// WriteProviderCostEvents persists every platform-funded attempt for one
+// request through one PostgreSQL statement and transaction. An error commits
+// none of the attempts, so Recorder may safely retry the whole batch.
+func (p *Postgres) WriteProviderCostEvents(ctx context.Context, events []providercost.Event) error {
+	encodedEvents := make([]providerCostEventJSON, 0, len(events))
+	for _, event := range events {
+		encoded := providerCostEventJSON{
+			RequestID: event.RequestID, AttemptIndex: event.AttemptIndex,
+			Provider: event.Provider, KeyID: event.KeyID,
+			DeploymentID: event.DeploymentID, ModelReference: event.ModelReference,
+			Source: event.Source, RateCardVersionID: event.RateCardVersionID,
+			Complete: event.Complete, Served: event.Served,
+			OccurredAt: event.OccurredAt,
+		}
+		if event.Source != providercost.SourceUnknown {
+			encoded.Currency = &event.Cost.Currency
+			encoded.AmountPicos = &event.Cost.Amount
+		}
+		encodedEvents = append(encodedEvents, encoded)
+	}
+	payload, err := json.Marshal(encodedEvents)
+	if err != nil {
+		return fmt.Errorf("credential store: encoding provider cost event batch: %w", err)
+	}
+	var recorded int
+	if err := p.pool.QueryRow(ctx, `SELECT kaana_record_provider_cost_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
+		return fmt.Errorf("credential store: recording provider cost event batch: %w", err)
+	}
+	if recorded != len(events) {
+		return fmt.Errorf("credential store: provider cost event batch recorded %d of %d attempts", recorded, len(events))
 	}
 	return nil
 }

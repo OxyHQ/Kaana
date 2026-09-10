@@ -79,8 +79,12 @@ func TestAQuotaHeaderIsReadOnEveryResponse(t *testing.T) {
 		Body:   []byte(`{}`),
 		Header: http.Header{"Content-Type": []string{"application/json"}},
 	}
-	if _, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, nil); streamErr == nil {
+	outcome, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, nil)
+	if streamErr == nil {
 		t.Fatal("a 503 was reported as a successful stream")
+	}
+	if outcome.KeyID != "key-1" {
+		t.Fatalf("the failed upstream attempt lost key id %q", outcome.KeyID)
 	}
 
 	projection := adapter.credentials.Projection(time.Now())

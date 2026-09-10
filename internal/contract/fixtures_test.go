@@ -14,17 +14,18 @@ import (
 // code that forbids it, a unit reported twice — all of those are structurally
 // perfect and rejected at Oxy's parse.
 //
-// So this file writes one fixture per wire shape, marshalled by the same Go
-// types the server uses, and `tools/contract/validate.mjs` parses each with the
-// published Zod schema itself. Nothing about the round trip is re-implemented:
-// the acceptance decision is made by the contract's own code.
+// So this file writes one fixture per wire shape to an isolated temporary
+// directory, marshalled by the same Go types the server uses, and
+// `tools/contract/validate.mjs` parses each with the published Zod schema
+// itself. Nothing about the round trip is re-implemented: the acceptance
+// decision is made by the contract's own code.
 //
 // The invalid fixtures are the validator's vacuity floor. A validate.mjs that
 // silently accepted everything — a bad schema lookup, an empty directory, a
 // swallowed exception — would report the same success on the valid ones, so it
 // is required to REJECT each of these and fails if it does not.
 
-const fixtureDir = "testdata/wire"
+const fixtureOutputEnv = "KAANA_CONTRACT_FIXTURE_DIR"
 
 type fixture struct {
 	Schema string `json:"schema"`
@@ -48,16 +49,32 @@ func TestWriteWireFixtures(t *testing.T) {
 		t.Fatalf("expected 18 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
-	writeFixtures(t, filepath.Join(fixtureDir, "valid"), valid)
-	writeFixtures(t, filepath.Join(fixtureDir, "invalid"), invalid)
+	root := fixtureOutputRoot(t)
+	writeFixtures(t, filepath.Join(root, "valid"), valid)
+	writeFixtures(t, filepath.Join(root, "invalid"), invalid)
+}
+
+// fixtureOutputRoot keeps ordinary Go tests read-only with respect to the
+// repository. The cross-language validator may provide a fresh absolute path,
+// but it cannot point this test at an existing directory: fixture generation
+// must never delete or overwrite shared state.
+func fixtureOutputRoot(t *testing.T) string {
+	t.Helper()
+	root := os.Getenv(fixtureOutputEnv)
+	if root == "" {
+		root = filepath.Join(t.TempDir(), "wire")
+	} else if !filepath.IsAbs(root) {
+		t.Fatalf("%s must be an absolute path, got %q", fixtureOutputEnv, root)
+	}
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatalf("creating fresh fixture root %s: %v", root, err)
+	}
+	return root
 }
 
 func writeFixtures(t *testing.T, dir string, fixtures []fixture) {
 	t.Helper()
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatalf("clearing %s: %v", dir, err)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatalf("creating %s: %v", dir, err)
 	}
 	for index, item := range fixtures {

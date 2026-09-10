@@ -29,6 +29,7 @@
 package providercost
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -36,6 +37,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
@@ -48,6 +50,8 @@ import (
 // against the ledger's revenue is comparing these two numbers by hand, and two
 // different scales is how that comparison goes wrong by a factor of a thousand.
 const Scale = 12
+
+const maxPersistenceBatchEvents = 64
 
 // Money is an amount in one currency, in units of 1e-12.
 //
@@ -131,16 +135,34 @@ type Card struct {
 	Rates        []Rate                `json:"rates"`
 }
 
+type RateCardSource string
+
+const (
+	RateCardProviderAPI           RateCardSource = "provider_api"
+	RateCardProviderDocumentation RateCardSource = "provider_documentation"
+	RateCardOperator              RateCardSource = "operator"
+)
+
 // Cards is the loaded rate table.
 //
 // A nil *Cards is a supported state and means cost measurement is not
 // configured: every measurement then reports itself unpriced rather than zero.
 type Cards struct {
 	byDeployment map[contract.DeploymentID]Card
+	versionID    string
+	effectiveAt  time.Time
+	expiresAt    *time.Time
 }
 
 type cardFile struct {
-	RateCards []Card `json:"rateCards"`
+	SchemaVersion int            `json:"schemaVersion"`
+	VersionID     string         `json:"rateCardVersionId"`
+	Source        RateCardSource `json:"source"`
+	SourceVersion string         `json:"sourceVersion"`
+	ObservedAt    time.Time      `json:"observedAt"`
+	EffectiveAt   time.Time      `json:"effectiveAt"`
+	ExpiresAt     *time.Time     `json:"expiresAt,omitempty"`
+	RateCards     []Card         `json:"rateCards"`
 }
 
 // Load reads rate cards from a JSON file.
@@ -159,11 +181,25 @@ func Parse(raw []byte) (*Cards, error) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("providercost: %w", err)
 	}
+	if parsed.SchemaVersion != 1 || strings.TrimSpace(parsed.VersionID) != parsed.VersionID || parsed.VersionID == "" ||
+		strings.TrimSpace(parsed.SourceVersion) != parsed.SourceVersion || parsed.SourceVersion == "" ||
+		parsed.ObservedAt.IsZero() || parsed.EffectiveAt.IsZero() {
+		return nil, fmt.Errorf("providercost: rate-card observation identity is incomplete")
+	}
+	if parsed.Source != RateCardProviderAPI && parsed.Source != RateCardProviderDocumentation && parsed.Source != RateCardOperator {
+		return nil, fmt.Errorf("providercost: rate-card observation source %q is invalid", parsed.Source)
+	}
+	if parsed.ExpiresAt != nil && !parsed.ExpiresAt.After(parsed.EffectiveAt) {
+		return nil, fmt.Errorf("providercost: rate-card observation has an invalid validity window")
+	}
 	if len(parsed.RateCards) == 0 {
 		return nil, fmt.Errorf("providercost: no rate cards declared; omit the file instead of shipping an empty one")
 	}
 
-	cards := &Cards{byDeployment: make(map[contract.DeploymentID]Card, len(parsed.RateCards))}
+	cards := &Cards{
+		byDeployment: make(map[contract.DeploymentID]Card, len(parsed.RateCards)),
+		versionID:    parsed.VersionID, effectiveAt: parsed.EffectiveAt, expiresAt: parsed.ExpiresAt,
+	}
 	for _, card := range parsed.RateCards {
 		switch {
 		case card.DeploymentID == "":
@@ -211,6 +247,13 @@ func (c *Cards) Priced(deployment contract.DeploymentID) bool {
 // Measurement is what one upstream attempt cost.
 type Measurement struct {
 	Cost Money
+	// Source says whether Cost came from the provider's exact receipt or from
+	// Kaana's versioned rate card. Unknown carries no amount and can never be
+	// interpreted as a free request.
+	Source Source
+	// RateCardVersionID binds an estimate to the immutable observation used to
+	// calculate it. Exact and unknown costs carry no rate-card identity.
+	RateCardVersionID string
 	// ProviderBilledCustomer is true for BYOK: the provider charged the
 	// customer's own account, so the attempt is completely accounted for but is
 	// not an expense Kaana may add to its provider-cost totals.
@@ -225,6 +268,15 @@ type Measurement struct {
 	UnpricedUnits []contract.UsageUnit
 }
 
+// Source is the provenance of an upstream-cost measurement.
+type Source string
+
+const (
+	SourceUnknown          Source = "unknown"
+	SourceRateCard         Source = "rate_card"
+	SourceProviderReported Source = "provider_reported"
+)
+
 // Complete reports whether every measured unit was priced.
 func (m Measurement) Complete() bool {
 	return m.ProviderBilledCustomer || (m.Priced && len(m.UnpricedUnits) == 0)
@@ -232,12 +284,22 @@ func (m Measurement) Complete() bool {
 
 // Measure prices one attempt's units.
 func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.UsageQuantity) Measurement {
+	return c.measureAt(deployment, units, time.Now())
+}
+
+func (c *Cards) measureAt(deployment contract.DeploymentID, units []contract.UsageQuantity, at time.Time) Measurement {
 	if c == nil {
-		return Measurement{}
+		return Measurement{Source: SourceUnknown}
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if at.Before(c.effectiveAt) || (c.expiresAt != nil && !at.Before(*c.expiresAt)) {
+		return Measurement{Source: SourceUnknown}
 	}
 	card, found := c.byDeployment[deployment]
 	if !found {
-		return Measurement{}
+		return Measurement{Source: SourceUnknown}
 	}
 
 	rates := make(map[contract.UsageUnit]int64, len(card.Rates))
@@ -245,7 +307,7 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 		rates[rate.Unit] = rate.AmountPerUnit
 	}
 
-	measurement := Measurement{Priced: true, Cost: Money{Currency: card.Currency}}
+	measurement := Measurement{Priced: true, Source: SourceRateCard, RateCardVersionID: c.versionID, Cost: Money{Currency: card.Currency}}
 	for _, quantity := range units {
 		rate, priced := rates[quantity.Unit]
 		if !priced {
@@ -272,8 +334,11 @@ func (c *Cards) Measure(deployment contract.DeploymentID, units []contract.Usage
 // is the reason this measurement exists separately from the usage report rather
 // than as a field on it.
 type AttemptUsage struct {
-	DeploymentID contract.DeploymentID
-	Provider     contract.ProviderSlug
+	AttemptIndex   int
+	DeploymentID   contract.DeploymentID
+	Provider       contract.ProviderSlug
+	ModelReference contract.ModelReference
+	OccurredAt     time.Time
 	// ProviderBilledCustomer marks a request-scoped BYOK attempt. Its usage is
 	// retained for reconciliation, but its upstream amount belongs to the
 	// customer's provider account rather than Kaana's cost ledger.
@@ -321,12 +386,12 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	totals := make(map[string]int64)
 
 	for _, attempt := range attempts {
-		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer}
+		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer, Source: SourceUnknown}
 		if !attempt.ProviderBilledCustomer {
 			if attempt.ProviderReportedCost != nil {
-				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true}
+				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true, Source: SourceProviderReported}
 			} else {
-				measurement = c.Measure(attempt.DeploymentID, attempt.Units)
+				measurement = c.measureAt(attempt.DeploymentID, attempt.Units, attempt.OccurredAt)
 			}
 		}
 		record.Attempts = append(record.Attempts, AttemptCost{AttemptUsage: attempt, Measurement: measurement})
@@ -346,6 +411,138 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	}
 	sort.Slice(record.Totals, func(a, b int) bool { return record.Totals[a].Currency < record.Totals[b].Currency })
 	return record
+}
+
+// Event is one operator-only upstream-cost fact ready for durable storage.
+// Customer BYOK attempts are absent: their provider account, and therefore
+// their expense, belongs to the customer rather than Kaana.
+type Event struct {
+	RequestID         contract.RequestID
+	AttemptIndex      int
+	Provider          contract.ProviderSlug
+	KeyID             string
+	DeploymentID      contract.DeploymentID
+	ModelReference    contract.ModelReference
+	Cost              Money
+	Source            Source
+	RateCardVersionID string
+	Complete          bool
+	Served            bool
+	OccurredAt        time.Time
+}
+
+// Writer is the narrow persistence authority used by Recorder.
+type Writer interface {
+	WriteProviderCostEvent(context.Context, Event) error
+}
+
+// BatchWriter persists one request's attempts in a single atomic operation.
+// Production storage implements this interface; the single-event Writer keeps
+// the package usable with narrow in-memory measurement sinks.
+type BatchWriter interface {
+	WriteProviderCostEvents(context.Context, []Event) error
+}
+
+// Recorder persists each platform-funded attempt in a measured request.
+type Recorder struct {
+	writer Writer
+}
+
+// NewRecorder builds the operator-cost persistence boundary.
+func NewRecorder(writer Writer) (*Recorder, error) {
+	if writer == nil {
+		return nil, fmt.Errorf("providercost: no event writer")
+	}
+	return &Recorder{writer: writer}, nil
+}
+
+// Record validates every platform-funded attempt before writing. Production
+// storage receives one atomic batch and is retried as a whole; no prefix of a
+// multi-attempt request can become durable by itself.
+func (r *Recorder) Record(ctx context.Context, record Record) error {
+	if len(record.Attempts) > maxPersistenceBatchEvents {
+		return fmt.Errorf("providercost: request %s has more than %d attempts", record.RequestID, maxPersistenceBatchEvents)
+	}
+	events := make([]Event, 0, len(record.Attempts))
+	seenAttemptIndexes := make(map[int]struct{}, len(record.Attempts))
+	for _, attempt := range record.Attempts {
+		// No key identity means no credential was leased and no upstream call
+		// was made (for example, an entirely retired pool). It is an execution
+		// refusal rather than a provider-cost event.
+		if attempt.AttemptUsage.ProviderBilledCustomer || attempt.KeyID == "" {
+			continue
+		}
+		event := Event{
+			RequestID: record.RequestID, AttemptIndex: attempt.AttemptIndex,
+			Provider: attempt.Provider, KeyID: attempt.KeyID,
+			DeploymentID: attempt.DeploymentID, ModelReference: attempt.ModelReference,
+			Cost: attempt.Cost, Source: attempt.Source, RateCardVersionID: attempt.RateCardVersionID, Complete: attempt.Complete(),
+			Served: attempt.Served, OccurredAt: attempt.OccurredAt,
+		}
+		if err := validateEvent(event); err != nil {
+			return err
+		}
+		if _, duplicate := seenAttemptIndexes[event.AttemptIndex]; duplicate {
+			return fmt.Errorf("providercost: request %s repeats attempt index %d", record.RequestID, event.AttemptIndex)
+		}
+		seenAttemptIndexes[event.AttemptIndex] = struct{}{}
+		events = append(events, event)
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	if writer, supported := r.writer.(BatchWriter); supported {
+		var err error
+		for retryDelay := 25 * time.Millisecond; ; retryDelay *= 4 {
+			err = writer.WriteProviderCostEvents(ctx, events)
+			if err == nil {
+				return nil
+			}
+			if retryDelay > 100*time.Millisecond {
+				break
+			}
+			timer := time.NewTimer(retryDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("providercost: recording request %s atomically: %w", record.RequestID, ctx.Err())
+			case <-timer.C:
+			}
+		}
+		return fmt.Errorf("providercost: recording request %s atomically after retries: %w", record.RequestID, err)
+	}
+	for _, event := range events {
+		if err := r.writer.WriteProviderCostEvent(ctx, event); err != nil {
+			return fmt.Errorf("providercost: recording request %s attempt %d: %w", record.RequestID, event.AttemptIndex, err)
+		}
+	}
+	return nil
+}
+
+func validateEvent(event Event) error {
+	if event.RequestID == "" || event.AttemptIndex < 0 || event.Provider == "" || event.KeyID == "" ||
+		event.DeploymentID == "" || event.ModelReference == "" || event.OccurredAt.IsZero() {
+		return fmt.Errorf("providercost: event identity is incomplete")
+	}
+	switch event.Source {
+	case SourceProviderReported, SourceRateCard:
+		if !currencyPattern.MatchString(event.Cost.Currency) || event.Cost.Amount < 0 {
+			return fmt.Errorf("providercost: a priced event has invalid money")
+		}
+		if event.Source == SourceRateCard && (event.RateCardVersionID == "" || len(event.RateCardVersionID) > 256) {
+			return fmt.Errorf("providercost: a rate-card event has no exact rate-card version")
+		}
+		if event.Source == SourceProviderReported && event.RateCardVersionID != "" {
+			return fmt.Errorf("providercost: a provider-reported event carries a rate-card version")
+		}
+	case SourceUnknown:
+		if event.Cost.Currency != "" || event.Cost.Amount != 0 || event.Complete || event.RateCardVersionID != "" {
+			return fmt.Errorf("providercost: an unknown event carries a cost or claims completeness")
+		}
+	default:
+		return fmt.Errorf("providercost: event has unknown source %q", event.Source)
+	}
+	return nil
 }
 
 // LogValue renders a record for the operator log. It names the request, the

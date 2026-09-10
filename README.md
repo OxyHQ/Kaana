@@ -162,6 +162,8 @@ cmd/kaana/                      the binary: env config, wiring, graceful drain
 cmd/kaana-publisher/            re-issues the inventory snapshot on a cadence
 cmd/kaana-credentials/          migrate and administer encrypted provider keys
 cmd/kaana-credential-control/   signed customer-BYOK create/rotate/revoke task
+cmd/kaana-platform-credential-control/ signed platform-pool import/rotate task
+cmd/kaana-platform-credential-import/ host client; signed HTTPS, secret on stdin
 internal/contract/              Go types for @oxy.so/contracts' inference module
 internal/credentialcontrol/     mutation and exact-outcome BYOK HTTP boundary
 internal/credentialstore/       PostgreSQL ciphertext store and KMS boundary

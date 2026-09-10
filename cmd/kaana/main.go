@@ -103,6 +103,10 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer credentialDatabase.Close()
+	costRecorder, err := providercost.NewRecorder(credentialDatabase)
+	if err != nil {
+		return err
+	}
 	for index := range providerConfigs {
 		providerConfigs[index].Declarations = declarations[providerConfigs[index].Slug]
 	}
@@ -183,6 +187,7 @@ func run(logger *slog.Logger) error {
 		Providers:           registry,
 		Rotation:            rotationRegistry,
 		Costs:               costs,
+		CostRecorder:        costRecorder,
 		CustomerCredentials: customerCredentialResolver,
 		ValidationReporter:  validationReporter,
 	})

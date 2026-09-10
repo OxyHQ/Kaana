@@ -71,6 +71,9 @@ const (
 	// from inference authority if an operator accidentally deploys the same key
 	// pair to both tasks.
 	credentialControlDomainSeparator = "oxy-kaana-credential-control:v1"
+	// platformCredentialControlDomainSeparator isolates the authority that may
+	// create Kaana-owned provider pool credentials from customer BYOK mutation.
+	platformCredentialControlDomainSeparator = "oxy-kaana-platform-credential-control:v1"
 	// credentialValidationDomainSeparator prevents a bootstrap probe from being
 	// replayed as normal inference even when both surfaces trust the same Oxy
 	// signing key.
@@ -115,6 +118,12 @@ func NewVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Ver
 // misconfigured in both public-key sets.
 func NewCredentialControlVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
 	return newVerifier(keys, maxSkew, credentialControlDomainSeparator)
+}
+
+// NewPlatformCredentialControlVerifier builds the verifier used only for
+// platform provider-pool credential imports.
+func NewPlatformCredentialControlVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, platformCredentialControlDomainSeparator)
 }
 
 // NewCredentialValidationVerifier builds the dedicated pending-generation
@@ -191,6 +200,12 @@ func SigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 // Oxy signs for a customer provider credential mutation or outcome query.
 func CredentialControlSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	return signingInput(credentialControlDomainSeparator, keyID, timestampMillis, body)
+}
+
+// PlatformCredentialControlSigningInput is the exact input an operator-side
+// client signs for one Kaana platform provider credential mutation.
+func PlatformCredentialControlSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(platformCredentialControlDomainSeparator, keyID, timestampMillis, body)
 }
 
 // CredentialValidationSigningInput is the exact input Oxy signs for one BYOK

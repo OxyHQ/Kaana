@@ -82,6 +82,19 @@ type recordingValidationReporter struct {
 	verdicts []oxyvalidation.Verdict
 }
 
+type recordingCostWriter struct {
+	events []providercost.Event
+	err    error
+}
+
+func (w *recordingCostWriter) WriteProviderCostEvent(_ context.Context, event providercost.Event) error {
+	if w.err != nil {
+		return w.err
+	}
+	w.events = append(w.events, event)
+	return nil
+}
+
 func (r *recordingValidationReporter) Submit(verdict oxyvalidation.Verdict) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -131,6 +144,7 @@ type harness struct {
 	adapters            []provider.Adapter
 	rotation            *rotation.Registry
 	costs               *providercost.Cards
+	costRecorder        *providercost.Recorder
 	customerCredentials kaana.CustomerCredentialResolver
 	validationReporter  oxyvalidation.Submitter
 	customerLimits      *customerlimit.Registry
@@ -177,6 +191,7 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		Providers:           registry,
 		Rotation:            rotationRegistry,
 		Costs:               h.costs,
+		CostRecorder:        h.costRecorder,
 		CustomerCredentials: h.customerCredentials,
 		ValidationReporter:  h.validationReporter,
 		CustomerLimits:      h.customerLimits,
@@ -1083,6 +1098,66 @@ func TestASuccessfulRequestProducesASettleableReport(t *testing.T) {
 	}
 }
 
+func TestExecutorPersistsOperatorCostWithoutChangingTheCustomerResult(t *testing.T) {
+	adapter := happyAdapter()
+	originalStream := adapter.stream
+	adapter.stream = func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		outcome, err := originalStream(ctx, call, out)
+		outcome.KeyID = "key-runtime"
+		return outcome, err
+	}
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[{"unit":"requests","amountPerUnit":75}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := &recordingCostWriter{}
+	recorder, err := providercost.NewRecorder(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, result := (harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}, costs: cards, costRecorder: recorder}).run(t, baseRequest())
+	if result.Failure != nil || result.CostRecordError != nil {
+		t.Fatalf("execution/persistence failed: result=%+v persistence=%v", result.Failure, result.CostRecordError)
+	}
+	if len(writer.events) != 1 {
+		t.Fatalf("persisted %d cost events, want 1", len(writer.events))
+	}
+	got := writer.events[0]
+	if got.RequestID != "req_test" || got.AttemptIndex != 0 || got.Provider != "stub" || got.KeyID != "key-runtime" ||
+		got.DeploymentID != "dep_test" || got.ModelReference != "stub/model@2026-05-01" || got.Source != providercost.SourceRateCard ||
+		got.Cost.Amount != 75 || !got.Complete || !got.Served || got.OccurredAt.IsZero() {
+		t.Fatalf("persisted event = %+v", got)
+	}
+	if events[len(events)-1].EventType() != contract.EventDone {
+		t.Fatalf("customer stream ended with %q", events[len(events)-1].EventType())
+	}
+}
+
+func TestCostPersistenceFailureIsOperatorOnly(t *testing.T) {
+	adapter := happyAdapter()
+	originalStream := adapter.stream
+	adapter.stream = func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		outcome, err := originalStream(ctx, call, out)
+		outcome.KeyID = "key-runtime"
+		return outcome, err
+	}
+	writer := &recordingCostWriter{err: fmt.Errorf("database unavailable")}
+	recorder, err := providercost.NewRecorder(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, result := (harness{deployments: oneDeployment, adapters: []provider.Adapter{adapter}, costRecorder: recorder}).run(t, baseRequest())
+	if result.Failure != nil || result.Report == nil || result.Report.Outcome != contract.OutcomeCompleted {
+		t.Fatalf("operator persistence changed customer result: %+v", result)
+	}
+	if result.CostRecordError == nil || !strings.Contains(result.CostRecordError.Error(), "database unavailable") {
+		t.Fatalf("persistence error = %v", result.CostRecordError)
+	}
+	if events[len(events)-1].EventType() != contract.EventDone {
+		t.Fatalf("customer stream ended with %q", events[len(events)-1].EventType())
+	}
+}
+
 // TestAnAdapterThatReportsNothingGetsAnEstimatedCompletedReport covers the
 // report-v2 rule without turning a provider's otherwise valid answer into an
 // internal error. The estimate comes from the normalized request and emitted
@@ -1097,7 +1172,7 @@ func TestAnAdapterThatReportsNothingGetsAnEstimatedCompletedReport(t *testing.T)
 		}
 		return provider.Outcome{FinishReason: contract.FinishStop}, nil
 	}}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
 		{"unit":"requests","amountPerUnit":100},
 		{"unit":"input_tokens","amountPerUnit":10},
 		{"unit":"output_tokens","amountPerUnit":20}
@@ -1149,7 +1224,7 @@ func TestBrokenSinkKeepsEstimatedPartialUsageWithoutAnotherWrite(t *testing.T) {
 		}
 		return provider.Outcome{FinishReason: contract.FinishStop}, nil
 	}}
-	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_test_v1","source":"operator","sourceVersion":"test-fixture-v1","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[{"deploymentId":"dep_test","currency":"XTS","rates":[
 		{"unit":"requests","amountPerUnit":100},
 		{"unit":"input_tokens","amountPerUnit":10},
 		{"unit":"output_tokens","amountPerUnit":20}
