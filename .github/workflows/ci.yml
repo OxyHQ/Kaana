@@ -92,7 +92,7 @@ jobs:
         run: |
           bun run generate
           if ! git diff --exit-code -- ../../internal/contract/descriptor.json; then
-            echo "descriptor.json does not match the pinned @oxyhq/contracts package."
+            echo "descriptor.json does not match the pinned @oxy.so/contracts package."
             echo "Run 'bun install --frozen-lockfile && bun run generate' in tools/contract and review the diff."
             exit 1
           fi

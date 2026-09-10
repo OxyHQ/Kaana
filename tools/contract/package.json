@@ -1,5 +1,5 @@
 {
-  "name": "@oxyhq/kaana-contract-tools",
+  "name": "@oxy.so/kaana-contract-tools",
   "private": true,
   "version": "0.0.0",
   "packageManager": "bun@1.3.14",
