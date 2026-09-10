@@ -17,28 +17,29 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 26 {
-		t.Fatalf("built-in providers = %d, want the 26 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 27 {
+		t.Fatalf("built-in providers = %d, want the 27 documented in README.md and docs/operating.md", got)
 	}
 	want := map[contract.ProviderSlug]string{
-		"mistral":      "https://api.mistral.ai/v1",
-		"deepseek":     "https://api.deepseek.com",
-		"sambanova":    "https://api.sambanova.ai/v1",
-		"siliconflow":  "https://api.siliconflow.cn/v1",
-		"ai21":         "https://api.ai21.com/studio/v1",
-		"google":       "https://generativelanguage.googleapis.com/v1beta/openai",
-		"together":     "https://api.together.ai/v1",
-		"cohere":       "https://api.cohere.ai/compatibility/v1",
-		"fireworks":    "https://api.fireworks.ai/inference/v1",
-		"hyperbolic":   "https://api.hyperbolic.xyz/v1",
-		"digitalocean": "https://inference.do-ai.run/v1",
-		"nvidia":       "https://integrate.api.nvidia.com/v1",
-		"modelscope":   "https://api-inference.modelscope.cn/v1",
-		"zai":          "https://open.bigmodel.cn/api/paas/v4",
-		"nebius":       "https://api.tokenfactory.nebius.com/v1",
-		"nscale":       "https://inference.api.nscale.com/v1",
-		"chutes":       "https://llm.chutes.ai/v1",
-		"ovhcloud":     "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+		"mistral":          "https://api.mistral.ai/v1",
+		"cheaperinference": "https://api.cheaperinference.com/v1",
+		"deepseek":         "https://api.deepseek.com",
+		"sambanova":        "https://api.sambanova.ai/v1",
+		"siliconflow":      "https://api.siliconflow.cn/v1",
+		"ai21":             "https://api.ai21.com/studio/v1",
+		"google":           "https://generativelanguage.googleapis.com/v1beta/openai",
+		"together":         "https://api.together.ai/v1",
+		"cohere":           "https://api.cohere.ai/compatibility/v1",
+		"fireworks":        "https://api.fireworks.ai/inference/v1",
+		"hyperbolic":       "https://api.hyperbolic.xyz/v1",
+		"digitalocean":     "https://inference.do-ai.run/v1",
+		"nvidia":           "https://integrate.api.nvidia.com/v1",
+		"modelscope":       "https://api-inference.modelscope.cn/v1",
+		"zai":              "https://open.bigmodel.cn/api/paas/v4",
+		"nebius":           "https://api.tokenfactory.nebius.com/v1",
+		"nscale":           "https://inference.api.nscale.com/v1",
+		"chutes":           "https://llm.chutes.ai/v1",
+		"ovhcloud":         "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
 	}
 	for slug, baseURL := range want {
 		endpoint, ok := providerconfig.Known[slug]
@@ -71,6 +72,26 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	}
 	if endpoint := providerconfig.Known["cloudflare"]; endpoint.Protocol != providerconfig.ProtocolOpenAICompatible || endpoint.BaseURL != "" || endpoint.Discovery != providerconfig.DiscoveryNotAvailable {
 		t.Errorf("Cloudflare dynamic endpoint = %+v", endpoint)
+	}
+}
+
+func TestCheaperInferenceEndpointIdentityCannotBeAliasedOrBorrowed(t *testing.T) {
+	canonical := "https://api.cheaperinference.com/v1"
+	if err := providerconfig.ValidateEndpointIdentity("cheaperinference", canonical); err != nil {
+		t.Fatalf("canonical CheaperInference endpoint was refused: %v", err)
+	}
+	for _, raw := range []string{
+		"https://api.cheaperinference.com/v1/",
+		"https://api.cheaperinference.com",
+		"https://api.cheaperinference.com/v2",
+		"https://api.cheaperinference.com/v1?route=other",
+	} {
+		if err := providerconfig.ValidateEndpointIdentity("cheaperinference", raw); err == nil {
+			t.Errorf("CheaperInference accepted non-canonical endpoint %q", raw)
+		}
+	}
+	if err := providerconfig.ValidateEndpointIdentity("custom-compatible", canonical); err == nil {
+		t.Error("another slug borrowed the reserved CheaperInference endpoint")
 	}
 }
 

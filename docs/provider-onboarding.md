@@ -50,6 +50,7 @@ credential only at send time.
 | Nscale | `https://inference.api.nscale.com/v1` | `POST /chat/completions` | Authenticated, organization-scoped `GET /models`; the catalogue mixes chat, vision, embeddings and image generation | Versioned ids exist, but task capability still needs review | Built-in `openaicompat` serving and generic authenticated discovery. One fixed Meta chat id from the official guide is attributed; every other row remains dropped. |
 | Chutes | `https://llm.chutes.ai/v1` | `POST /chat/completions` | The documented `/models` catalogue is public, not an account entitlement list | TEE suffixes are deployment facts; saved aliases and routing strategies move | Built-in serving only. Discovery is `not_available` until account access, routing identity and streamed usage have a provider-specific control. |
 | OVHcloud AI Endpoints | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | `POST /chat/completions` | Public catalogue at a separate `catalog.endpoints.ai.ovh.net` origin | Availability and decommission state are mutable deployment facts | Built-in serving only. Discovery is `not_available`; Kaana will not send a provider credential to the public catalogue or mistake catalogue presence for account access. |
+| CheaperInference | `https://api.cheaperinference.com/v1` | `POST /chat/completions` | `GET /models`; authenticated view includes the key's available catalogue | Exact model ids are requested, while CheaperInference may choose among eligible same-model supply routes | Built-in `openaicompat` serving and authenticated OpenAI-list discovery. Publication remains empty until model attribution is reviewed from a real account catalogue. |
 
 "Built in" above means that the current tree can construct the shared adapter
 with the documented base URL. It does **not** mean that provider-specific error
@@ -57,6 +58,28 @@ types, optional fields, streaming edge cases or usage semantics have passed a
 real provider call. Before production enablement, each provider still needs a
 scrubbed conformance fixture captured from its own API and registered in the
 adapter conformance suite.
+
+## CheaperInference
+
+CheaperInference publishes the canonical OpenAI-compatible base
+`https://api.cheaperinference.com/v1`, bearer authentication, Chat Completions,
+SSE streaming and an authenticated `GET /v1/models` catalogue. Its gateway may
+select or retry supply behind an exact requested model, but it does not authorize
+Kaana to substitute another model reference. The provider slug and canonical
+host are bound together so the endpoint cannot be hidden behind an arbitrary
+compatible slug.
+
+Kaana status:
+
+- `providerconfig.Known["cheaperinference"]` selects the shared OpenAI-compatible
+  adapter, canonical API root and authenticated OpenAI model-list discovery.
+- No attribution rows are added by this change. Discovered ids remain dropped
+  until their publisher identity and immutability are reviewed individually.
+- The documented wallet balance is account-wide, whereas Kaana may hold several
+  keys for one or several accounts. It is evidence for credential-capacity
+  reconciliation, not a model price or a reason to merge distinct keys.
+- Production enablement still requires a KMS-encrypted credential, a scrubbed
+  real-wire conformance capture and an authenticated catalogue readback.
 
 ## Mistral
 

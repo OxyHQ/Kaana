@@ -136,11 +136,11 @@ Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 | `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
 | `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT accounts; only then does a throttle rotate |
 
-Twenty-four providers carry a built-in protocol and global API root: `openai`, `anthropic`,
+Twenty-five providers carry a built-in protocol and global API root: `openai`, `anthropic`,
 `openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
 `siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
 `digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
-`ovhcloud`. `alibaba` and `cloudflare` also carry reviewed protocol and endpoint
+`ovhcloud` and `cheaperinference`. `alibaba` and `cloudflare` also carry reviewed protocol and endpoint
 identity, but require `BASE_URL` because their official origins contain a
 workspace/region or account id. Hugging Face, Kilo and LLM7 remain explicit
 because they are provider routers or moving selectors, not direct immutable
