@@ -37,7 +37,19 @@ in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
 is comparing like with like.
 
+## Rules a reviewer applies
 
+- **`internal/providercost` is the only package that may hold an amount**, it is
+  never the contract's money type, and `internal/contract` must not be able to
+  reach it (asserted, not reviewed).
+- **A cost never enters a stream event, a usage report, an error body or a
+  response of any kind.** It is an operator number; the customer's amount is
+  Oxy's and always was.
+- **An unknown cost is never a zero cost.** A deployment with no rate card, or a
+  measured unit nobody priced, says so and names what it could not price.
+- **A failed failover attempt is off the customer's receipt and on Kaana's
+  cost.** Do not merge the two: the customer never received that output and the
+  provider will invoice for it regardless.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md

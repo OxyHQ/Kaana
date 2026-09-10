@@ -195,7 +195,8 @@ configs/model-attribution.json  who RELEASED each model — the publisher's only
 | [`docs/operating.md`](docs/operating.md) | running it, and what a deployment must supply |
 | [`docs/cost.md`](docs/cost.md) | upstream provider cost, and why it is not a customer amount |
 | [`docs/contract.md`](docs/contract.md) | the wire contract, which is not authored here |
-| `AGENTS.md` | the rules a reviewer applies |
+| [`docs/rules.md`](docs/rules.md) | cross-cutting rules: secrets and customer data, what a test must prove, conventions |
+| `AGENTS.md` | the one-line index of rules; each topic doc ends with the full rule and its reason |
 
 ---
 

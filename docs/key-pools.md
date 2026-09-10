@@ -152,9 +152,11 @@ is a property of the walk.
 
 **No credential enters anything.** Not a `Call`, an error, a log, a usage record
 or the health projection. A key's identity outside `internal/provider` is its
-1-based POSITION in the declared list — not a truncated hash, because a
-fingerprint of a secret confirms a guessed secret and a position names a key
-just as well. `GET /internal/v1/health` reports, per provider, how many
+`Key.ID` — the immutable opaque database id, never derived from the secret
+(`internal/provider/credential.go`, `Key`). It is not a truncated hash, because
+a fingerprint of a secret confirms a guessed secret. `Position` was the only
+identity before `KeyID` existed and survives as the operator's declared order,
+not as identity. `GET /internal/v1/health` reports, per provider, how many
 credentials are declared, how many are usable, and which are out and until when;
 a provider answering a probe with part of its pool spent reports `degraded`
 rather than `ok`, because a pool draining towards empty is otherwise invisible
@@ -221,3 +223,86 @@ the complete database/KMS pool atomically on
 previous complete generation, so no request observes a pool assembled across
 two credential revisions. A restart is required for provider-set or adapter
 configuration changes, not for an ordinary database credential rotation.
+
+## Rules a reviewer applies
+
+A credential is a POOL per provider, and the pool is a different rotation from
+the deployment breaker. `internal/provider/credential.go` holds all of it. The
+sections above carry the reasoning; these are the lines a reviewer holds a
+change to.
+
+### Custody of platform keys
+
+- **PostgreSQL is the only durable provider-key store.** A provider key never
+  enters environment, a GitHub secret, argv, a manifest, an inventory or a
+  tracked file. The one-time `import-ssm` command may read a legacy SecureString
+  directly through the AWS SDK; delete that source after verification.
+  `DATABASE_URL` is a database credential, not a provider key.
+- **PostgreSQL stores KMS ciphertext only.** KMS encryption context binds every
+  ciphertext to `provider + keyId`; moving the bytes to another row must make
+  decryption fail. The serving task gets `kms:Decrypt`, never `kms:Encrypt`.
+- **Administration accepts plaintext only on stdin or directly from the legacy
+  SSM API.** `kaana-credentials put` never accepts a value flag or environment
+  variable; `import-ssm` never emits the fetched value. List operations do not
+  initialize KMS or select ciphertext.
+- **A key's durable identity is its exact opaque PostgreSQL key ID.** Pool
+  position is only explicit spending order, never an admin or discovery
+  selector. Neither is the secret or a hash of it, since a fingerprint confirms
+  a guess.
+- **Class is stated, never inferred**, and **unstated is not paid** — the
+  measurement behind both is in "Key class" above. An unclassified pool keeps
+  the order it was declared in, so classifying one key moves that key and
+  disturbs no other.
+- **A 402 is the platform's account refusing to be billed**, and it must retire
+  the key. It reached the default branch once and became `invalid_request`,
+  which told the customer their request was at fault and kept spending an
+  account that cannot pay. The contract code is `provider_billing_refused`
+  (`architecture.md`, finding 6).
+
+### Rotation
+
+- **A key leaves rotation only when something REPORTED that it has nothing
+  left** — the provider refusing with its own exhaustion error, or a header that
+  provider's declared mapping says means remaining credits, reading zero.
+  `unknown` is not `exhausted`, `unavailable` is not `exhausted`, and every
+  failure nobody classified leaves the key exactly as it was.
+- **An exhausted key rotates the request to the next one; a REFUSED key does
+  not.** Both directions are conformance checks, and they are a matched pair.
+- **A request the PROVIDER refused is retried on nothing.** The next credential
+  would be refused identically.
+- **The verdict is read from the code the ADAPTER chose, never from a status.**
+  `CredentialVerdictFor` is the one function, as `AttributableCategory` is for
+  the deployment; the two answer different questions and disagree on purpose.
+- **Key rotation is not a route switch** — same deployment, no `route_switch`,
+  and no additional routing-policy authorization.
+- **A refused credential is not failed over onto the same provider slug.** One
+  slug is one adapter and one pool, so "another deployment holds a different
+  credential" is true across slugs and false within one.
+- **A rotation happens only before the response body is read**, so a failure
+  arriving mid-stream rotates nothing: the request is committed to the key that
+  opened the stream.
+- **A retirement is a flat window, never permanent and never a backoff.** The
+  provider's own reset time wins over the window.
+- **A quota header mapping is per provider, lives in the ADAPTER package, and
+  maps a header to a MEANING** — never a generic name. The shipped mapping is
+  empty under an exact-count assertion; an entry needs a verified source.
+
+### Providers, protocols and configuration
+
+- **A provider slug resolves to an adapter, an address and a pool in
+  `cmd/kaana`, never in the inventory** — a credential there is a copy of an Oxy
+  entity, an address there makes one process's reachability global.
+- **Provider slugs are not a closed list; PROTOCOLS are.** A build can only
+  construct an adapter it contains, so an unknown protocol is refused; a slug
+  that declares a protocol and a base URL needs no Go change.
+- **Provider configuration and provider secrets have separate authorities.**
+  Protocol, base URL, headers and pool policy are non-secret task environment;
+  keys are ordered rows in PostgreSQL and are decrypted only after the adapter
+  configuration is validated. Two slugs folding onto one configuration prefix
+  are refused, never resolved.
+- **The snapshot, the adapter set and the credential list move on different
+  clocks, and no pairing may be fatal.** An undeclared provider in a snapshot is
+  a WARNING, not a refusal to start: stopping takes every supported provider
+  down over one unsupported one, and only on the next restart. A credential
+  delivered for a provider nobody serves is warned about here because nothing
+  outside the process can see it.

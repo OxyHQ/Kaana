@@ -136,7 +136,36 @@ When every deployment of a model is out of rotation the request is refused with
 earliest breaker will admit its next trial** rather than a number chosen to look
 reasonable.
 
+## Rules a reviewer applies
 
+- **A `RouteSet` is one exact model reference.** Its endpoints are the only
+  same-model candidates for that reference, and an `inventory.Endpoint` never
+  names a model. Cross-model execution is possible only when the executor
+  resolves a separately signed `authorizedRoutes` entry from another
+  `RouteSet`; it must emit a model-scoped `route_switch`. Do not add a model
+  reference to `Endpoint`, and do not build a `provider.Route` from inventory
+  anywhere but `RouteSet.Candidates()`.
+- **Kaana chooses only among the ordered `authorizedRoutes` in the signed
+  envelope.** An absent or empty list authorizes nothing and is refused for
+  every supported envelope version. Never derive authorization from the
+  inventory — it is global and the policy is per customer ("Authorized
+  failover" above).
+- **A route switch is announced at the attempt that replaces the failed one**,
+  never at the moment of failure: the replacement's breaker may refuse it, and a
+  switch nobody made must not reach a receipt.
+- **Only `provider.AttributableCategory` decides what a deployment is blamed
+  for.** Failover and the circuit breakers read that one function. A customer
+  fault, a content filter, a cancellation and an unclassified failure trip
+  nothing and are retried nowhere — otherwise one customer's malformed traffic
+  takes a healthy route out of rotation for everybody.
+- **A deployment returns to rotation on one REAL request through a half-open
+  breaker**, one at a time. Never a synthetic probe: it proves the provider
+  answers a different request from the one it is failing, and Kaana pays for it.
+- **A pinned reference is served from a snapshot of any age; an unpinned one is
+  refused past the horizon**, and **staleness is measured from the snapshot's
+  own `issuedAt`**, never from when the file was last read. A failed reload
+  never disturbs what is being served. The reasoning is in `inventory.md`,
+  "Configuration snapshots".
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
