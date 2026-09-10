@@ -13,6 +13,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
@@ -126,6 +127,13 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			outcome.Units = normalizeUsage(chunk.Usage)
 			outcome.UsageSource = contract.UsageProviderReported
 		}
+		if a.config.Provider == "cheaperinference" && chunk.CheaperInference != nil {
+			cost, err := providercost.ParseDecimal("USD", chunk.CheaperInference.BilledCostUSD)
+			if err != nil {
+				return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "the provider returned an invalid billed cost"}
+			}
+			outcome.ProviderReportedCost = &cost
+		}
 
 		for _, choice := range chunk.Choices {
 			if err := emitDelta(out, choice); err != nil {
@@ -197,6 +205,13 @@ func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider
 	if completion.Usage != nil {
 		outcome.Units = normalizeUsage(completion.Usage)
 		outcome.UsageSource = contract.UsageProviderReported
+	}
+	if a.config.Provider == "cheaperinference" && completion.CheaperInference != nil {
+		cost, err := providercost.ParseDecimal("USD", completion.CheaperInference.BilledCostUSD)
+		if err != nil {
+			return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "the provider returned an invalid billed cost"}
+		}
+		outcome.ProviderReportedCost = &cost
 	}
 
 	for _, choice := range completion.Choices {

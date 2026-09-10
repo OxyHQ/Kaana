@@ -156,9 +156,14 @@ type fileRefSpec struct {
 // so a decoder that ignored the field would report a truncated answer as a
 // completed one.
 type chatChunk struct {
-	Choices []streamChoice `json:"choices"`
-	Usage   *chatUsage     `json:"usage"`
-	Error   *upstreamError `json:"error"`
+	Choices          []streamChoice           `json:"choices"`
+	Usage            *chatUsage               `json:"usage"`
+	Error            *upstreamError           `json:"error"`
+	CheaperInference *cheaperInferenceBilling `json:"cheaper_inference"`
+}
+
+type cheaperInferenceBilling struct {
+	BilledCostUSD string `json:"billed_cost_usd"`
 }
 
 type streamChoice struct {
@@ -195,8 +200,9 @@ type streamCallFunction struct {
 
 // chatCompletion is a non-streamed response.
 type chatCompletion struct {
-	Choices []completionChoice `json:"choices"`
-	Usage   *chatUsage         `json:"usage"`
+	Choices          []completionChoice       `json:"choices"`
+	Usage            *chatUsage               `json:"usage"`
+	CheaperInference *cheaperInferenceBilling `json:"cheaper_inference"`
 }
 
 type completionChoice struct {

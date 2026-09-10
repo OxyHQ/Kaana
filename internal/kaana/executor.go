@@ -344,6 +344,7 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 			Provider:               route.Provider,
 			KeyID:                  outcome.KeyID,
 			KeyClass:               string(outcome.KeyClass),
+			ProviderReportedCost:   outcome.ProviderReportedCost,
 			ProviderBilledCustomer: providerBilledCustomer,
 			Served:                 streamErr == nil,
 			Units:                  outcome.Units,

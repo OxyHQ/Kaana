@@ -35,6 +35,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
@@ -56,6 +57,40 @@ const Scale = 12
 type Money struct {
 	Currency string
 	Amount   int64
+}
+
+// ParseDecimal parses a provider-reported decimal amount without passing
+// through floating point. Providers use fewer than Scale decimal places in
+// practice; accepting more would silently round an invoice fact.
+func ParseDecimal(currency, value string) (Money, error) {
+	if !currencyPattern.MatchString(currency) {
+		return Money{}, fmt.Errorf("providercost: %q is not a currency code", currency)
+	}
+	if value == "" || strings.TrimSpace(value) != value || strings.HasPrefix(value, "-") || strings.HasPrefix(value, "+") {
+		return Money{}, fmt.Errorf("providercost: %q is not a non-negative decimal amount", value)
+	}
+	whole, fraction, found := strings.Cut(value, ".")
+	if !found {
+		fraction = ""
+	}
+	if whole == "" || len(fraction) > Scale || strings.Contains(fraction, ".") {
+		return Money{}, fmt.Errorf("providercost: %q is not a decimal with at most %d places", value, Scale)
+	}
+	for _, part := range []string{whole, fraction} {
+		for _, digit := range part {
+			if digit < '0' || digit > '9' {
+				return Money{}, fmt.Errorf("providercost: %q is not a decimal amount", value)
+			}
+		}
+	}
+	var amount int64
+	for _, digit := range whole + fraction + strings.Repeat("0", Scale-len(fraction)) {
+		if amount > (int64(^uint64(0)>>1)-int64(digit-'0'))/10 {
+			return Money{}, fmt.Errorf("providercost: %q exceeds the supported amount", value)
+		}
+		amount = amount*10 + int64(digit-'0')
+	}
+	return Money{Currency: currency, Amount: amount}, nil
 }
 
 // String renders an amount for an operator log.
@@ -249,6 +284,10 @@ type AttemptUsage struct {
 	// is the thing a budget is kept against.
 	KeyID    string
 	KeyClass string
+	// ProviderReportedCost is the exact amount the upstream says it billed for
+	// this attempt. It outranks a rate-card calculation but never enters a
+	// customer response.
+	ProviderReportedCost *Money
 	// Served marks the attempt whose output reached the customer. At most one
 	// attempt per request is served.
 	Served bool
@@ -284,7 +323,11 @@ func (c *Cards) MeasureRequest(requestID contract.RequestID, attempts []AttemptU
 	for _, attempt := range attempts {
 		measurement := Measurement{ProviderBilledCustomer: attempt.ProviderBilledCustomer}
 		if !attempt.ProviderBilledCustomer {
-			measurement = c.Measure(attempt.DeploymentID, attempt.Units)
+			if attempt.ProviderReportedCost != nil {
+				measurement = Measurement{Cost: *attempt.ProviderReportedCost, Priced: true}
+			} else {
+				measurement = c.Measure(attempt.DeploymentID, attempt.Units)
+			}
 		}
 		record.Attempts = append(record.Attempts, AttemptCost{AttemptUsage: attempt, Measurement: measurement})
 		if !measurement.Complete() {

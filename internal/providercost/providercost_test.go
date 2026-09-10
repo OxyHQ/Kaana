@@ -13,6 +13,39 @@ import (
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
+func TestParseProviderReportedDecimalWithoutFloatingPoint(t *testing.T) {
+	parsed, err := providercost.ParseDecimal("USD", "0.012345")
+	if err != nil {
+		t.Fatalf("ParseDecimal: %v", err)
+	}
+	if parsed.Amount != 12_345_000_000 || parsed.String() != "USD 0.012345000000" {
+		t.Fatalf("parsed amount = %+v", parsed)
+	}
+	for _, invalid := range []string{"", "-1", "+1", " 1", "1.0000000000001", "1e-3", "1.2.3"} {
+		if _, err := providercost.ParseDecimal("USD", invalid); err == nil {
+			t.Errorf("ParseDecimal accepted %q", invalid)
+		}
+	}
+}
+
+func TestProviderReportedCostOutranksRateCard(t *testing.T) {
+	reported, err := providercost.ParseDecimal("USD", "0.250000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards, err := providercost.Parse([]byte(`{"rateCards":[{"deploymentId":"dep_exact","currency":"USD","rates":[{"unit":"requests","amountPerUnit":1000000000000}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := cards.MeasureRequest("req_reported", []providercost.AttemptUsage{{
+		DeploymentID: "dep_exact", ProviderReportedCost: &reported,
+		Units: []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}},
+	}})
+	if !record.Complete || len(record.Totals) != 1 || record.Totals[0].Amount != reported.Amount {
+		t.Fatalf("reported-cost record = %+v", record)
+	}
+}
+
 const twoCards = `{"rateCards":[
   {"deploymentId":"dep_a","currency":"XTS","rates":[
     {"unit":"requests","amountPerUnit":1000},

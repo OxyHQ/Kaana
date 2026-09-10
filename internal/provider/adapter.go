@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
 // Adapter translates the normalized inference contract into one upstream
@@ -126,6 +127,9 @@ type Outcome struct {
 	// the customer covers them without a second mechanism.
 	KeyID    string
 	KeyClass KeyClass
+	// ProviderReportedCost is an exact upstream billing fact, when the provider
+	// returns one. The owned type keeps all monetary arithmetic in providercost.
+	ProviderReportedCost *providercost.Money
 }
 
 // EmbeddingResult is normalized non-streaming vector output. It remains an
