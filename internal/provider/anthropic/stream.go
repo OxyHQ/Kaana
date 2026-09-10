@@ -42,6 +42,7 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		credentials = a.credentials
 	}
 	response, key, err := provider.Walk(ctx, credentials, call, a)
+	outcome.KeyID, outcome.KeyClass = key.ID, key.Class
 	if err != nil {
 		return outcome, err
 	}

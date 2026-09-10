@@ -366,6 +366,11 @@ func (s *Server) logResult(requestID contract.RequestID, result kaana.Result, el
 		// and never quotes an amount to anyone.
 		attributes = append(attributes, "upstreamCost", result.UpstreamCost)
 	}
+	if result.CostRecordError != nil {
+		attributes = append(attributes, "providerCostPersistence", "failed")
+		s.logger.Error("upstream provider cost was not persisted",
+			"requestId", requestID, "errorType", "provider_cost_persistence")
+	}
 	if result.Failure != nil {
 		attributes = append(attributes, "code", result.Failure.Code, "retryable", result.Failure.Retryable)
 		s.logger.Warn("inference request failed", attributes...)
