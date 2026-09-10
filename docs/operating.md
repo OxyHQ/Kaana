@@ -366,13 +366,25 @@ because the two binaries ship in one image.
 
 ## Container and deployment
 
-The image contains four static binaries:
+The image contains five static binaries:
 
 - `/usr/local/bin/kaana` serves inference;
 - `/usr/local/bin/kaana-publisher` publishes inventory;
 - `/usr/local/bin/kaana-credentials` is for one-shot administration.
 - `/usr/local/bin/kaana-credential-control` accepts signed customer-BYOK
   create/rotate/revoke mutations under an encrypt-only task role.
+- `/usr/local/bin/kaana-platform-credential-control` accepts signed platform
+  pool imports and rotations under a separate encrypt-only task role. Its
+  public signing keys and signature domain are distinct from customer BYOK.
+
+The platform control task is reachable only through verified HTTPS inside the
+VPC. The operator client sends the provider secret as strict base64 in the
+signed request body; it never places plaintext in argv, environment, SSM, a
+task definition or a response. `operationId`, exact `provider + keyId`, class,
+position, actor and a write-only SHA-256 secret fingerprint form the durable
+idempotency identity. PostgreSQL commits the ciphertext row, operation receipt
+and audit row atomically. An exact replay returns `replayed`; reusing an
+operation id with any different selector or secret returns `409`.
 
 It runs distroless as uid 65532 with no shell or package manager. CI pushes one
 digest and updates serving and publisher from that same digest. Provider keys
