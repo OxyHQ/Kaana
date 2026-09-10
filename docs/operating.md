@@ -386,6 +386,27 @@ idempotency identity. PostgreSQL commits the ciphertext row, operation receipt
 and audit row atomically. An exact replay returns `replayed`; reusing an
 operation id with any different selector or secret returns `409`.
 
+From an authorized operator host, the companion client keeps the provider key
+out of shell history and signs the exact body before sending it over HTTPS:
+
+```bash
+kaana-platform-credential-import \
+  --endpoint https://<internal-host>/internal/v1/platform-provider-credentials/mutations \
+  --operation-id kpc_<32-lowercase-hex> \
+  --provider cohere \
+  --key-id <opaque-uuid-v4> \
+  --class free \
+  --position 1 \
+  --actor operator:<opaque-id> \
+  --signing-key-id <key-id> \
+  --signing-key-file <0600-ed25519-key-file> < provider-key.txt
+```
+
+The signing-key file contains strict base64 of a 32-byte Ed25519 seed or
+64-byte private key. It is an operator authentication credential, not a
+provider key; it stays on the authorized host and only its public half reaches
+the task configuration.
+
 It runs distroless as uid 65532 with no shell or package manager. CI pushes one
 digest and updates serving and publisher from that same digest. Provider keys
 are never synchronized by CI and never exist as repository secrets.
