@@ -1,6 +1,7 @@
 package credentialstore
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -47,5 +48,35 @@ func TestPlatformCredentialMigrationKeepsTheEncryptOnlyBoundary(t *testing.T) {
 	}
 	if count := strings.Count(migration0009, "CREATE FUNCTION "); count != 1 {
 		t.Errorf("platform credential function count = %d, want 1", count)
+	}
+}
+
+func TestPlatformCredentialRoleBootstrapNeedsNoSecret(t *testing.T) {
+	runbookBytes, err := os.ReadFile("../../docs/operating.md")
+	if err != nil {
+		t.Fatalf("reading operating runbook: %v", err)
+	}
+	runbook := string(runbookBytes)
+	for _, required := range []string{
+		"CREATE ROLE kaana_platform_credential_control NOLOGIN",
+		"NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT",
+		"kaana-credentials migrate",
+		"step accepts or reads a provider key",
+		"service is `ACTIVE`",
+	} {
+		if !strings.Contains(runbook, required) {
+			t.Errorf("platform credential bootstrap lost %q", required)
+		}
+	}
+	start := strings.Index(runbook, "The platform credential-control cutover")
+	end := strings.Index(runbook, "### Add or rotate a key")
+	if start < 0 || end <= start {
+		t.Fatal("platform credential bootstrap section is absent or out of order")
+	}
+	section := runbook[start:end]
+	for _, forbidden := range []string{" PASSWORD ", " LOGIN;", "provider-key.txt", "secretBase64", "aws ecs create-service"} {
+		if strings.Contains(section, forbidden) {
+			t.Errorf("role/function bootstrap contains forbidden secret or infrastructure mutation %q", forbidden)
+		}
 	}
 }

@@ -1,13 +1,13 @@
 name: Deploy to AWS
 
 # Kaana's release path: build the arm64 image, push it to ECR, register a task
-# definition that names the image by DIGEST, and repoint the services at that
-# revision.
+# definition that names the image by DIGEST, and repoint every Terraform-owned
+# service at that revision.
 #
-# SERVICES, plural. One image carries two binaries and there are two services —
-# `kaana` serves, `kaana-publisher` writes the inventory the serving tasks read
-# — and both are deployed here. Deploying only the first is not a smaller
-# release, it is a release the publisher never receives: see the deploy step.
+# SERVICES, plural. `kaana` serves and `kaana-publisher` writes the inventory;
+# both are mandatory parts of a release. The same digest also moves each
+# credential-control service once Terraform has created it. An absent optional
+# service is observed and skipped; this workflow never creates infrastructure.
 #
 # # Why the digest and not a tag
 #
@@ -80,6 +80,10 @@ env:
   # on asking the provider set it was created with.
   PUBLISHER_SERVICE: kaana-publisher
   PUBLISHER_FAMILY: oxy-kaana-publisher
+  CREDENTIAL_CONTROL_SERVICE: kaana-credential-control
+  CREDENTIAL_CONTROL_FAMILY: oxy-kaana-credential-control
+  PLATFORM_CREDENTIAL_CONTROL_SERVICE: kaana-platform-credential-control
+  PLATFORM_CREDENTIAL_CONTROL_FAMILY: oxy-kaana-platform-credential-control
   CLUSTER: oxy-cluster
 
 jobs:
@@ -140,7 +144,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ONE IMAGE, TWO SERVICES, ONE RELEASE.
+          # ONE IMAGE, EVERY TERRAFORM-OWNED SERVICE, ONE RELEASE.
           #
           # `kaana` serves and `kaana-publisher` writes the inventory the
           # serving tasks read. They are built from one commit into one image
@@ -340,3 +344,5 @@ jobs:
 
           deploy_one "$APP" "$FAMILY" "$APP"
           deploy_one "$PUBLISHER_SERVICE" "$PUBLISHER_FAMILY" "$PUBLISHER_SERVICE"
+          deploy_one "$CREDENTIAL_CONTROL_SERVICE" "$CREDENTIAL_CONTROL_FAMILY" "$CREDENTIAL_CONTROL_SERVICE"
+          deploy_one "$PLATFORM_CREDENTIAL_CONTROL_SERVICE" "$PLATFORM_CREDENTIAL_CONTROL_FAMILY" "$PLATFORM_CREDENTIAL_CONTROL_SERVICE"
