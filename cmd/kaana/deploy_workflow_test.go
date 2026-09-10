@@ -94,3 +94,47 @@ func TestPublisherDeployCarriesOnlyTheReviewedDiscoveryCredentialIDs(t *testing.
 		t.Fatal("publisher discovery IDs are not registered and read back before the service update")
 	}
 }
+
+func TestCredentialControlServicesDeployOnlyAfterTerraformCreatesThem(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../../.github/workflows/deploy-aws.yml")
+	if err != nil {
+		t.Fatalf("reading the AWS deploy workflow: %v", err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{
+		"CREDENTIAL_CONTROL_SERVICE: kaana-credential-control",
+		"CREDENTIAL_CONTROL_FAMILY: oxy-kaana-credential-control",
+		"PLATFORM_CREDENTIAL_CONTROL_SERVICE: kaana-platform-credential-control",
+		"PLATFORM_CREDENTIAL_CONTROL_FAMILY: oxy-kaana-platform-credential-control",
+		`STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service"`,
+		`if [ "$STATUS" != "ACTIVE" ]; then`,
+		`return 0`,
+		`BASE=$(aws ecs describe-task-definition --task-definition "$family" --query 'taskDefinition')`,
+		`REGISTERED_IMAGE=$(aws ecs describe-task-definition --task-definition "$ARN"`,
+		`if [ "$REGISTERED_IMAGE" != "$IMAGE" ]; then`,
+		`deploy_one "$CREDENTIAL_CONTROL_SERVICE" "$CREDENTIAL_CONTROL_FAMILY" "$CREDENTIAL_CONTROL_SERVICE"`,
+		`deploy_one "$PLATFORM_CREDENTIAL_CONTROL_SERVICE" "$PLATFORM_CREDENTIAL_CONTROL_FAMILY" "$PLATFORM_CREDENTIAL_CONTROL_SERVICE"`,
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("credential-control digest deployment lost %q", required)
+		}
+	}
+	status := strings.Index(workflow, `STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service"`)
+	family := strings.Index(workflow, `BASE=$(aws ecs describe-task-definition --task-definition "$family"`)
+	register := strings.Index(workflow, `ARN=$(aws ecs register-task-definition`)
+	update := strings.Index(workflow, `aws ecs update-service --cluster "$CLUSTER" --service "$service" --task-definition "$ARN"`)
+	if status < 0 || family <= status || register <= family || update <= register {
+		t.Fatal("service existence, Terraform family, digest registration and service update are not ordered safely")
+	}
+	for _, forbidden := range []string{
+		"aws ecs create-service",
+		"aws iam create-role",
+		"aws ssm put-parameter",
+		"KAANA_PLATFORM_CREDENTIAL_CONTROL_PRIVATE_KEY",
+		"KAANA_PROVIDER_KEY",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("deploy workflow contains forbidden bootstrap authority %q", forbidden)
+		}
+	}
+}

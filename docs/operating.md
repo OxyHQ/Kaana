@@ -189,6 +189,32 @@ The migration is idempotent. Runtime never applies DDL at startup; granting a
 serving process schema authority to make deployment convenient would make every
 request-serving task a migration principal.
 
+The platform credential-control cutover has one prerequisite that deliberately
+contains no password or provider secret. A database administrator creates only
+the non-login grant role, once:
+
+```sql
+DO $platform_control_role$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'kaana_platform_credential_control'
+    ) THEN
+        CREATE ROLE kaana_platform_credential_control NOLOGIN
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+    END IF;
+END
+$platform_control_role$;
+```
+
+Then the reviewed `migrate` operation in `credential-admin.yml` runs
+`kaana-credentials migrate` under the existing DDL-only migrator task. Migration
+`0009` creates the function and grants only its execution to that role. Neither
+step accepts or reads a provider key. Terraform may create the service and its
+login/database-secret binding only after the migration succeeds; until that
+service is `ACTIVE`, the image workflow detects its absence and does not invent
+an ECS service, task role, network or database principal.
+
 ### Add or rotate a key
 
 Plaintext is accepted only on standard input:
