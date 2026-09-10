@@ -73,7 +73,10 @@ in this repository, on purpose.** This is the *data plane*: it executes what has
 already been authorized and reports what it measured. Accounts, Oxy login/API
 credentials, provider-connection metadata, customer balances and the billing
 ledger live in Oxy, which is the single control plane ([ADR 0005][adr0005],
-[ADR 0006][adr0006]). Upstream provider keys are different: Kaana owns every one
+[ADR 0006][adr0006]). The console is **Oxy Console**, the one place where every
+Oxy API — Kaana, Alia, Mention — is managed: a developer registers an
+application and issues its API keys there, for Kaana exactly as for the others.
+Kaana itself never issues a credential to anyone. Upstream provider keys are different: Kaana owns every one
 as KMS ciphertext in its PostgreSQL credential store, including customer BYOK,
 and never receives one through environment variables.
 
