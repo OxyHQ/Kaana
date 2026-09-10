@@ -65,7 +65,24 @@ Regenerate after a version bump:
 cd tools/contract && bun install --frozen-lockfile && bun run generate
 ```
 
+## Rules a reviewer applies
 
+- **Never edit `internal/contract/descriptor.json` by hand.** Regenerate with
+  the command above. CI regenerates and fails on any diff.
+- **Never add a field to a produced shape that the contract does not have.**
+  The descriptor test fails on it, and that failure is correct: Oxy's parse would
+  strip it silently, so the field would appear to work here and do nothing there.
+- **A published shape Kaana does not exchange goes in `notApplicable` with a
+  reason naming the owner**, and `expectedNotApplicableCount` moves in the same
+  change. The count is exact so a shape cannot be excused by appending a line.
+- **Bumping the pinned contracts version is its own change.** Regenerate the
+  descriptor, read the diff, then make the Go side agree — in that order.
+- **Do not decode inbound envelopes strictly.** Adding an optional field is
+  additive under the contract, so `DisallowUnknownFields` would turn every
+  additive Oxy change into an outage here. What *is* refused is an unimplemented
+  `schemaVersion`, whole, before any field is interpreted
+  (`architecture.md`, "The Oxy-facing surface").
+- **A version is never inferred from the presence of a field.**
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md

@@ -211,7 +211,65 @@ changes, and the distinction matters:
 | `maxOutputTokens` populated in the fixture | **The suite was OpenAI-shaped**, in the sense that a minimal fixture only passes for a provider that requires nothing the contract makes optional. Populating optional fields is this repository's own rule anyway. |
 | "an exhausted quota on the *same status*" | **Was OpenAI-specific prose.** The invariant is that an adapter tells a throttle from an exhausted account; that they share a status is one provider's habit. Wording only. |
 
+## Rules a reviewer applies
 
+- **One implementation of `provider.Adapter` and one fake upstream per
+  provider.** If a change to add a provider touches the executor, the stream
+  framing or the receipt shape, the abstraction is wrong — fix that instead.
+- **Every adapter passes `internal/provider/conformance` before it is
+  registered.** The fake upstream must speak the provider's **real** wire format;
+  a fake speaking the normalized contract tests nothing, because translation is
+  the half with no schema to check it.
+- **Adapters never** allocate ids, assign sequence numbers, decide terminality,
+  emit `done`/`error`/`route_switch`, resolve a model reference to an upstream
+  model id, or apply routing policy.
+- **Refuse in `Translate` what the provider cannot express**, with a
+  non-retryable code and the field named. Silently dropping a parameter changes
+  what the model does while reporting success.
+- **An adapter classifies its own failures, and stops there.** What that
+  classification means for the KEY is `provider.Walk`'s, once, for every adapter
+  — an adapter that reimplemented the rotation rules would be free to
+  reimplement them differently. Adapters supply `Send`, `Refuse` and
+  `TransportFailure`; `Refuse` closes the response body it read.
+- **Classify from the provider's own error TYPE first.** Never infer
+  retryability from an HTTP status: a 429 from an exhausted daily quota and a
+  429 from a burst limit are the same status and opposite answers — and a
+  failure arriving mid-stream, after a 200, has no status at all. Every
+  streaming protocol can fail that way, and an adapter that reads the frame it
+  cannot use and stops reports a truncated answer as a completed one.
+- **The contract's usage units PARTITION a request, and the normalising
+  arithmetic is NOT portable between adapters.** An OpenAI-compatible
+  `prompt_tokens` includes its cached tokens; Anthropic's `input_tokens` excludes
+  them and its `output_tokens` includes reasoning. Copying one adapter's
+  subtraction into another mis-bills silently, because a nested report and a
+  disjoint one are the same non-negative integers. State the PHYSICAL request in
+  the conformance subject and let the suite do the arithmetic.
+- **An adapter redacts its OWN credential by exact match; the contract's pattern
+  is a last-resort REFUSAL and never the control.** `provider.RedactSecret`
+  removes the value the adapter is holding — the only thing that works on a
+  credential with no marker and no issued-token prefix, which the published
+  pattern states it cannot see. Relying on the refusal instead loses the whole
+  diagnostic, which the conformance suite fails you for.
+- **Never redact by replacing the span a credential pattern matched.** The span
+  is the MARKER and the secret is what follows it, so a span redaction converts
+  "this string is dangerous" into "this string is fine" with the key still in
+  it. `contract.SafeErrorText` withholds the whole message or none of it
+  (`architecture.md`, finding 18).
+- **A parameter the provider REQUIRES and the contract makes optional is
+  refused, never supplied.** Choosing it at the adapter, or per deployment,
+  changes what the model does while reporting success.
+- **`Stream` returns the units it measured even when it fails.** A partial
+  stream is a settlement case; an adapter that returns nothing on cancellation
+  makes an exact refund impossible.
+- **`ctx` reaches the upstream HTTP request.** That is the entire cancellation
+  design, and it is why an adapter cannot decline to honour it.
+- **Never invent a default the caller did not send.** An absent sampling
+  parameter means the route's own default.
+- **Redact upstream error text before emitting it.** Provider errors routinely
+  echo the request that caused them; the contract *rejects* an error body whose
+  text looks like a credential, so an unredacted one loses the customer their
+  diagnostic entirely. The conformance suite covers this with a control proving
+  the upstream really echoed one.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md

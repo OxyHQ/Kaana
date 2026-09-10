@@ -253,3 +253,27 @@ validation execution authority.
 The migration refuses unless `kaana_customer_credential_control` already exists.
 Infrastructure must create that no-login role/login mapping and give its task a
 separate verified-TLS `DATABASE_URL` before migration. Runtime never applies DDL.
+
+## Rules a reviewer applies
+
+- **Customer BYOK is a provider key and follows the same custody rule as a
+  platform key** (`key-pools.md`, "Custody of platform keys"). Oxy stores
+  provider-connection metadata and one opaque Kaana handle, never a
+  Vault/SSM/Secrets Manager locator. Kaana stores KMS ciphertext under its own
+  handle and the immutable Oxy identity `provider + ownerAccountId +
+  connectionId + environment`; those opaque ids never become local account or
+  connection entities.
+- **BYOK mutation and resolution are inverse authorities.** The signed
+  credential-control task gets database mutation functions plus `kms:Encrypt`
+  and no decrypt; the inference task gets one exact resolver plus `kms:Decrypt`
+  and no encrypt. No HTTP endpoint, list operation, or control-plane response
+  may return plaintext.
+- **Every BYOK mutation has one exact opaque operation id.** The operation,
+  credential write and audit row commit atomically. An exact replay returns its
+  first terminal outcome; reusing the id with another action, actor, identity,
+  handle, revision or secret fails closed. A write-only secret fingerprint may
+  enforce that last comparison but never leaves PostgreSQL through the signed
+  outcome function. The query repeats every non-secret selector, so an absent
+  operation and a mismatch are indistinguishable. KMS context also binds the
+  Kaana handle and revision, so restoring an older ciphertext cannot silently
+  roll a credential back.

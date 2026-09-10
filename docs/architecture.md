@@ -17,7 +17,8 @@ reservation all happen **in Oxy, before a request reaches Kaana** — Kaana does
 not re-derive them, and an envelope that does not carry them is refused.
 
 If a change would put an Oxy-owned concept in this repository, the change is
-wrong, not the boundary. `AGENTS.md` states the rules a reviewer applies.
+wrong, not the boundary. The rules a reviewer applies are at the end of this
+document; `AGENTS.md` is the one-line index to them.
 
 
 ## The Oxy-facing surface
@@ -283,7 +284,34 @@ contract fits one provider's shape and not another's.
     comparing the working tree's contract source against the published tarball
     for the version in `package.json` would answer it once.
 
+## Rules a reviewer applies
 
+The ownership split is the paragraph at the top of this document ([ADR
+0005][adr0005], [ADR 0006][adr0006]). Kaana owns request normalization,
+provider adapters, routing *execution*, streaming, cancellation, model
+deployments, provider health and circuit breakers, technical metering, upstream
+provider cost, and encrypted custody of every upstream provider secret,
+including customer BYOK. Kaana must never own accounts, organizations,
+projects, members, applications, Oxy login/application credentials,
+provider-connection policy or metadata, customer balances, a billing ledger or
+a customer console.
+
+- **An Oxy id is an immutable opaque string.** Kaana never parses it, joins it
+  against a local entity, or updates it. A table whose *primary* key is an Oxy id
+  is a copy of an Oxy entity and is forbidden. A column holding one, written once
+  at request time and never updated, is the intended shape.
+- **Kaana authorizes nothing about a customer.** Scope checks, account access,
+  provider-connection eligibility and spend reservation are resolved at the Oxy
+  edge; the envelope is an already-authorized instruction. Kaana enforces only
+  the exact active ciphertext handle and identity Oxy signed. Re-deriving policy
+  reintroduces the replication lag that makes revocation unsafe. The one
+  exception is refusing an envelope that carries no `inference:invoke` — that is
+  a malformed instruction from the edge, not a customer decision.
+- **Kaana measures units and never prices them.** There is no money type in
+  `internal/contract`, and adding one is the moment a second ledger starts
+  (`cost.md`).
+- **If a change would put an Oxy-owned concept here, the change is wrong, not
+  the boundary.** A schema review is a boundary review.
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
