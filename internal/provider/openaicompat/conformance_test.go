@@ -2,12 +2,14 @@ package openaicompat
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/conformance"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // The fake credentials are test strings and nothing else. The conformance
@@ -30,20 +32,36 @@ func TestOpenAICompatConformance(t *testing.T) {
 	conformance.Run(t, subject("openai"))
 }
 
-// TestOneProtocolServesSeveralProviders is the shared-protocol invariant: all
-// of these providers speak the same response and error protocol, so serving one
-// of them must remain a Config, not a rewrite.
+// TestOneProtocolServesSeveralProviders is the shared-protocol invariant: every
+// built-in provider declaring this protocol speaks the same response and error
+// protocol, so serving one of them must remain a Config, not a rewrite.
 //
 // It is a test rather than a comment because "the abstraction generalises" is
 // exactly the kind of claim that stops being true without anybody noticing.
-// Provider-specific request fields are tested separately at the actual HTTP
-// boundary and must not change the common response normalization.
+// The subjects are derived from `providerconfig.Known` rather than listed here
+// so that a provider added to the table is a conformance subject the same day,
+// with nobody having to remember this test exists. Provider-specific request
+// fields are tested separately at the actual HTTP boundary and must not change
+// the common response normalization.
 func TestOneProtocolServesSeveralProviders(t *testing.T) {
-	for _, slug := range []contract.ProviderSlug{"together", "groq", "xai", "cerebras", "openrouter", "alibaba", "cloudflare"} {
+	for _, slug := range compatibleBuiltInSlugs() {
 		t.Run(string(slug), func(t *testing.T) {
 			conformance.Run(t, subject(slug))
 		})
 	}
+}
+
+// compatibleBuiltInSlugs is every built-in provider served by this adapter,
+// sorted so a failure is reported under the same name on every run.
+func compatibleBuiltInSlugs() []contract.ProviderSlug {
+	slugs := make([]contract.ProviderSlug, 0, len(providerconfig.Known))
+	for slug, endpoint := range providerconfig.Known {
+		if endpoint.Protocol == providerconfig.ProtocolOpenAICompatible {
+			slugs = append(slugs, slug)
+		}
+	}
+	slices.Sort(slugs)
+	return slugs
 }
 
 func subject(slug contract.ProviderSlug) conformance.Subject {
@@ -102,11 +120,13 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 
 		// An embedding request is something chat completions genuinely cannot
 		// express, as opposed to something this adapter merely has not
-		// implemented.
+		// implemented. The one exception is `siliconflow`, the deployment this
+		// adapter serves an embeddings endpoint for: there an embedding is
+		// served, so the request this protocol cannot express is an image one.
 		Refusals: func() []conformance.Refusal {
 			reference := contract.ModelReference(string(slug) + "/test-model@2026-05-01")
 			text := "embed me"
-			embedding := &contract.Request{
+			unexpressible := &contract.Request{
 				SchemaVersion: contract.RequestEnvelopeVersion,
 				Attribution: contract.Attribution{
 					Principal: contract.AuthenticatedPrincipal{
@@ -136,9 +156,17 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 					Regions:        []contract.Region{"test-region"},
 				}},
 			}
+			name := "an embedding request"
+			if slug == "siliconflow" {
+				name = "an image request"
+				unexpressible.Attribution.RequestID = "req_conformance_unsupported_image"
+				unexpressible.Modality = contract.ModalityImage
+				unexpressible.Client.APIFormat = contract.APIFormatImagesGenerations
+				unexpressible.Client.Endpoint = "/v1/images/generations"
+			}
 			return []conformance.Refusal{{
-				Name:    "an embedding request",
-				Request: embedding,
+				Name:    name,
+				Request: unexpressible,
 				Code:    contract.CodeUnsupportedModality,
 				Param:   "modality",
 			}}

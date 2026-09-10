@@ -79,8 +79,11 @@ absent, and the code refuses rather than pretending.
 - **A threshold-based `approaching_limit` quota state.** It would need a
   threshold nobody has chosen, and nothing in this build would act on it: a key
   is usable or it is not.
-- **Modalities other than text.** Embeddings, images, audio and rerank are
-  refused with `unsupported_modality` rather than mistranslated.
+- **Modalities other than text and embeddings.** Embeddings are served only
+  where the adapter exposes an embeddings endpoint (today the OpenAI-compatible
+  adapter's `POST {base}/embeddings` for `siliconflow`, non-streaming, text or
+  text-batch input); images, audio and rerank are refused with
+  `unsupported_modality` rather than mistranslated.
 - **Replay protection beyond the signature time window.** Kaana keeps no nonce
   cache; the edge owns request idempotency.
 
