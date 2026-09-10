@@ -46,6 +46,19 @@ fails the upstream attempt instead of silently falling back to a different
 number, and providers that do not return an exact amount continue to use the
 versioned rate card or report an unknown cost.
 
+Every attempt now carries explicit operator provenance: `provider_reported`
+for an exact upstream billing fact, `rate_card` for a calculated estimate, or
+`unknown`. The last state has no currency or amount and therefore cannot be
+summed as free traffic.
+
+Provider-owned pricing, balance and quota APIs are collected behind
+`internal/providertelemetry`. Their observations carry the opaque provider key
+id, source, exact/estimated/unknown certainty, source version and freshness
+window. An unavailable, stale or malformed provider response becomes an
+explicit unknown observation. The controlled projection contains no plaintext
+credential and is intended only for a separately authenticated operator path
+into Oxy; it is never attached to an inference response.
+
 ## Rules a reviewer applies
 
 - **`internal/providercost` is the only package that may hold an amount**, it is
