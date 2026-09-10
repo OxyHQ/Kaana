@@ -448,14 +448,10 @@ func TestAnUnattributedModelIsDroppedNotGuessed(t *testing.T) {
 	}
 }
 
-// TestTwoProvidersOfOneLineShareOneReferenceAndTheFirstDeclaredLeads is the
-// same-model route shape AND the default ordering requirement in one case.
-//
-// Without authorizedRoutes a reference resolves to the deployment declared
-// FIRST. Two providers of one model line must therefore produce ONE reference
-// with two endpoints, led by the provider declared first — not two references,
-// which `inventory.Parse` refuses as two current revisions.
-func TestTwoProvidersOfOneLineShareOneReferenceAndTheFirstDeclaredLeads(t *testing.T) {
+// TestTwoProvidersOfOneLineShareOneReference proves provider discovery order
+// cannot split one model line into multiple current revisions. Route preference
+// exists only in a request's signed authorizedRoutes list.
+func TestTwoProvidersOfOneLineShareOneReference(t *testing.T) {
 	cerebras := newFakeUpstream(t, "c-key", "gpt-oss-120b")
 	groq := newFakeUpstream(t, "g-key", "gpt-oss-120b")
 	store := &fakeStore{}
@@ -478,6 +474,7 @@ func TestTwoProvidersOfOneLineShareOneReferenceAndTheFirstDeclaredLeads(t *testi
 	}
 
 	body := store.written()[0]
+	published := parseSnapshot(t, body)
 	loaded, err := inventory.Parse(body, inventory.DefaultMaxSnapshotAge)
 	if err != nil {
 		t.Fatalf("the real reader refused a two-provider snapshot: %v", err)
@@ -490,8 +487,34 @@ func TestTwoProvidersOfOneLineShareOneReferenceAndTheFirstDeclaredLeads(t *testi
 	if set.Len() != 2 {
 		t.Fatalf("two providers of one line produced %d endpoints, want 2", set.Len())
 	}
-	if first := set.Candidates()[0].Provider; first != "groq" {
-		t.Errorf("the primary route is %q; the provider declared FIRST was groq, and failover is off by default", first)
+	providers := map[contract.ProviderSlug]bool{}
+	for _, route := range set.Candidates() {
+		providers[route.Provider] = true
+	}
+	if !providers["groq"] || !providers["cerebras"] {
+		t.Errorf("the shared line carries providers %v", providers)
+	}
+
+	reversedStore := &fakeStore{}
+	reversed, err := New(Config{
+		Providers: []Provider{
+			{Slug: "cerebras", BaseURL: cerebras.baseURL(), APIKey: "c-key"},
+			{Slug: "groq", BaseURL: groq.baseURL(), APIKey: "g-key"},
+		},
+		Attribution: testAttribution(t),
+		Store:       reversedStore,
+		Client:      groq.server.Client(),
+		Logger:      quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("wiring the reordered publisher: %v", err)
+	}
+	if err := reversed.PublishOnce(context.Background()); err != nil {
+		t.Fatalf("publishing in another discovery order: %v", err)
+	}
+	reordered := parseSnapshot(t, reversedStore.written()[0])
+	if published.SnapshotID != reordered.SnapshotID {
+		t.Fatalf("provider discovery order changed routing content: %q then %q", published.SnapshotID, reordered.SnapshotID)
 	}
 }
 

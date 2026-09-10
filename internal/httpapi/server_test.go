@@ -405,6 +405,13 @@ func envelope(t *testing.T, mutate func(map[string]any)) []byte {
 			"receivedAt": string(contract.NewTimestamp(time.Now())),
 		},
 		"routingPolicy": map[string]any{"routingPolicyId": "rp_test", "policyVersion": 1},
+		"authorizedRoutes": []map[string]any{{
+			"substitution":   "same_model",
+			"deploymentId":   "dep_stub",
+			"modelReference": "stub/model@2026-05-01",
+			"provider":       "stub",
+			"regions":        []string{"test-region"},
+		}},
 	}
 	if mutate != nil {
 		mutate(body)
@@ -546,6 +553,46 @@ func TestEnvelopeVersionTransitionAcceptsOnlyLegacyDirectModels(t *testing.T) {
 				t.Fatalf("the retired routing-profile slug reached the adapter %d times", calls)
 			}
 		})
+	}
+}
+
+func TestEverySignedEnvelopeVersionRefusesAnAbsentOrEmptyAuthorizedRouteList(t *testing.T) {
+	for _, version := range []int{contract.LegacyRequestEnvelopeVersion, contract.RequestEnvelopeVersion} {
+		for _, routeList := range []struct {
+			name   string
+			mutate func(map[string]any)
+		}{
+			{name: "absent", mutate: func(body map[string]any) { delete(body, "authorizedRoutes") }},
+			{name: "empty", mutate: func(body map[string]any) { body["authorizedRoutes"] = []any{} }},
+		} {
+			t.Run(fmt.Sprintf("v%d/%s", version, routeList.name), func(t *testing.T) {
+				harness := newHarness(t, &stubAdapter{chunks: 1})
+				body := envelope(t, func(body map[string]any) {
+					body["schemaVersion"] = version
+					routeList.mutate(body)
+				})
+				response := harness.post(t, context.Background(), body, true)
+				defer func() { _ = response.Body.Close() }()
+
+				collected := readFrames(t, response.Body)
+				if len(collected.events) != 1 || collected.events[0]["type"] != string(contract.EventError) {
+					t.Fatalf("the signed envelope produced events %v", collected.events)
+				}
+				failure, ok := collected.events[0]["error"].(map[string]any)
+				if !ok {
+					t.Fatalf("the terminal event carries no error body: %v", collected.events[0])
+				}
+				if failure["code"] != string(contract.CodeInvalidRequest) || failure["param"] != "authorizedRoutes" {
+					t.Fatalf("the signed envelope was refused as %v", failure)
+				}
+				if len(collected.reports) != 0 {
+					t.Fatalf("a request refused before execution produced %d usage reports", len(collected.reports))
+				}
+				if _, _, calls := harness.adapter.snapshot(); calls != 0 {
+					t.Fatalf("a request without an exact authorized route reached the adapter %d times", calls)
+				}
+			})
+		}
 	}
 }
 

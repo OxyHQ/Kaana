@@ -57,12 +57,13 @@ route list is its entire executable meaning. Same-reference failover emits a
 deployment-scoped `route_switch`; a cross-model failover emits a model-scoped
 switch naming the primary line, origin and destination.
 
-An absent list grants nothing. A concrete target resolves to the inventory's
-declared primary and nowhere else, preserving compatibility with envelopes from
-before the optional field existed. An exact routing-profile-ID target names no
-concrete destination and is therefore refused without a list. An empty list is
-malformed. During the rollout, schema v1 is accepted only for the direct-model
-case; its former routing-profile slug arm is refused rather than resolved.
+An absent or empty list grants nothing and is malformed for every supported
+envelope version. This applies equally to a concrete target and an exact
+routing-profile-ID target: inventory contents, provider declaration order and a
+routing-policy reference cannot supply missing authority. During the rollout,
+schema v1 is accepted only for a direct-model target that also carries at least
+one exact authorized route; its former routing-profile slug arm is refused
+rather than resolved.
 
 **A switch is only possible while nothing has been streamed.** Once output has
 reached the customer, retrying elsewhere would deliver the beginning of one

@@ -136,8 +136,8 @@ type harness struct {
 	customerLimits      *customerlimit.Registry
 	issuedAt            time.Time
 	now                 func() time.Time
-	// routes are the exact destinations Oxy authorized for tests that exercise
-	// failover. nil exercises the additive contract's no-list default.
+	// routes replace the request's exact Oxy authorization when a fixture needs
+	// a deployment set different from baseRequest's one-route control.
 	routes []contract.AuthorizedRoute
 }
 
@@ -239,6 +239,13 @@ func baseRequest() *contract.Request {
 			ReceivedAt: contract.NewTimestamp(time.Now()),
 		},
 		RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: "rp", PolicyVersion: 1},
+		AuthorizedRoutes: []contract.AuthorizedRoute{{
+			Substitution:   contract.SubstitutionSameModel,
+			DeploymentID:   "dep_test",
+			ModelReference: reference,
+			Provider:       "stub",
+			Regions:        []contract.Region{"test-region"},
+		}},
 	}
 }
 
@@ -262,30 +269,40 @@ func happyAdapter() *scriptedAdapter {
 /*  Refusals                                                                  */
 /* -------------------------------------------------------------------------- */
 
-// TestARoutingProfileWithoutAuthorizedRoutesIsRefusedWithTheFieldNamed pins the
-// default-deny half of the contract. A profile names no model, so only Oxy's
-// signed list can give Kaana a destination; inventory is never a substitute.
-func TestARoutingProfileWithoutAuthorizedRoutesIsRefusedWithTheFieldNamed(t *testing.T) {
-	request := baseRequest()
-	profileID := contract.RoutingProfileID("rpf_exact")
-	request.Target = contract.RoutingTarget{Kind: contract.TargetRoutingProfileID, RoutingProfileID: &profileID}
+func TestEverySupportedEnvelopeVersionRequiresANonEmptyAuthorizedRouteList(t *testing.T) {
+	for _, version := range []int{contract.LegacyRequestEnvelopeVersion, contract.RequestEnvelopeVersion} {
+		for _, list := range []struct {
+			name   string
+			routes []contract.AuthorizedRoute
+		}{
+			{name: "absent", routes: nil},
+			{name: "empty", routes: []contract.AuthorizedRoute{}},
+		} {
+			t.Run(fmt.Sprintf("v%d/%s", version, list.name), func(t *testing.T) {
+				request := baseRequest()
+				request.SchemaVersion = version
+				request.AuthorizedRoutes = list.routes
+				adapter := happyAdapter()
 
-	events, result := execute(t, happyAdapter(), request)
+				events, result := execute(t, adapter, request)
 
-	if result.Failure == nil {
-		t.Fatal("a routing-profile target was served")
-	}
-	if result.Failure.Code != contract.CodeInvalidRequest {
-		t.Errorf("refused with %q", result.Failure.Code)
-	}
-	if result.Failure.Retryable {
-		t.Error("the refusal is retryable, but an identical envelope still names no authorized destination")
-	}
-	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes" {
-		t.Errorf("the refusal names %v as the field at fault", result.Failure.Param)
-	}
-	if len(events) != 1 || events[0].EventType() != contract.EventError {
-		t.Errorf("the refusal produced %d events", len(events))
+				if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
+					t.Fatalf("the route-less envelope refusal = %+v", result.Failure)
+				}
+				if result.Failure.Retryable {
+					t.Error("the refusal is retryable, but an identical envelope still authorizes no destination")
+				}
+				if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes" {
+					t.Errorf("the refusal names %v as the field at fault", result.Failure.Param)
+				}
+				if adapter.attempts() != 0 {
+					t.Fatalf("the route-less envelope reached the adapter %d times", adapter.attempts())
+				}
+				if len(events) != 1 || events[0].EventType() != contract.EventError {
+					t.Errorf("the refusal produced %d events", len(events))
+				}
+			})
+		}
 	}
 }
 
@@ -920,21 +937,25 @@ func TestAnEnvelopeWithoutTheInvokeScopeIsRefused(t *testing.T) {
 	}
 }
 
-func TestAnUnroutableModelIsRefusedAsNotFound(t *testing.T) {
+func TestAnAuthorizedRouteAbsentFromInventoryIsRefused(t *testing.T) {
 	request := baseRequest()
 	reference := contract.ModelReference("stub/other@2026-05-01")
 	request.Target.ModelReference = &reference
+	request.AuthorizedRoutes[0].ModelReference = reference
 
 	_, result := execute(t, happyAdapter(), request)
 
 	if result.Failure == nil {
 		t.Fatal("an unroutable model was served")
 	}
-	if result.Failure.Code != contract.CodeModelNotFound {
+	if result.Failure.Code != contract.CodeInvalidRequest {
 		t.Errorf("refused with %q", result.Failure.Code)
 	}
+	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes[0]" {
+		t.Errorf("the refusal names %v as the field at fault", result.Failure.Param)
+	}
 	if result.Failure.Retryable {
-		t.Error("model_not_found was reported retryable; no identical retry makes a route appear")
+		t.Error("the invalid signed route was reported retryable; no identical retry makes it appear")
 	}
 }
 

@@ -67,10 +67,9 @@ type Deployment struct {
 	// resolves to.
 	//
 	// Choosing the current revision of a model is described in the contract as
-	// Oxy's decision, but the envelope carries no resolution and the stream's
-	// start event must report a revision-pinned reference. An authorizedRoutes
-	// entry is already pinned by Oxy; only an older no-list request reaches this
-	// inventory choice.
+	// Oxy's decision. Every inference envelope carries that resolution as a
+	// revision-pinned authorizedRoutes entry; this flag remains inventory
+	// metadata and is never request authorization.
 	Current bool `json:"current"`
 }
 
@@ -281,8 +280,8 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 		seenIDs[deployment.DeploymentID] = struct{}{}
 
 		// Several deployments of one reference is the same-model failover shape.
-		// Declaration order selects the no-list primary; a signed route list
-		// carries its own exact attempt order and health never reorders it.
+		// Inventory order is presentation only; a signed route list carries the
+		// exact attempt order and health never reorders it.
 		set := inventory.byReference[deployment.ModelReference]
 		set.reference = deployment.ModelReference
 		set.endpoints = append(set.endpoints, Endpoint{

@@ -13,8 +13,9 @@
 // The edge sends authorizedRoutes in preference order after applying the
 // customer's policy. Kaana resolves every deployment id against its own
 // inventory and refuses metadata that disagrees, but it never adds a route from
-// that inventory to the list. A concrete target with no list keeps the additive
-// contract's default-deny behaviour: its declared primary and nothing else.
+// that inventory to the list. An absent or empty list authorizes no deployment
+// and is refused before inventory resolution for every supported envelope
+// version.
 package kaana
 
 import (
@@ -153,9 +154,8 @@ type attempt struct {
 	cancelled bool
 }
 
-// candidate is one resolved destination. It came either from the request's
-// signed authorizedRoutes list or from the single-primary concrete fallback
-// used when that additive field is absent.
+// candidate is one destination resolved from the request's signed
+// authorizedRoutes list.
 type candidate struct {
 	route provider.Route
 }
@@ -670,6 +670,11 @@ func (e *Executor) finalize(report *contract.UsageReport, failure *contract.Erro
 func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate, *contract.Error) {
 	requestID := request.Attribution.RequestID
 
+	if len(request.AuthorizedRoutes) == 0 {
+		return nil, contract.NewError(requestID, contract.CodeInvalidRequest,
+			"the envelope requires at least one exact route authorized by Oxy",
+		).WithParam("authorizedRoutes")
+	}
 	if err := request.Validate(); err != nil {
 		return nil, contract.NewError(requestID, contract.CodeInvalidRequest, err.Error())
 	}
@@ -682,51 +687,20 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 			"the envelope does not carry inference:invoke")
 	}
 
-	if request.AuthorizedRoutes != nil {
-		if request.Target.Kind == contract.TargetModel {
-			primary := request.AuthorizedRoutes[0].ModelReference
-			for index, route := range request.AuthorizedRoutes {
-				if route.Substitution == contract.SubstitutionCrossModel {
-					return nil, invalidAuthorizedRoute(requestID, index,
-						"a concrete model target cannot authorize cross-model substitution")
-				}
-				if route.ModelReference != primary {
-					return nil, invalidAuthorizedRoute(requestID, index,
-						fmt.Sprintf("same-model execution must keep the primary revision %q", primary))
-				}
+	if request.Target.Kind == contract.TargetModel {
+		primary := request.AuthorizedRoutes[0].ModelReference
+		for index, route := range request.AuthorizedRoutes {
+			if route.Substitution == contract.SubstitutionCrossModel {
+				return nil, invalidAuthorizedRoute(requestID, index,
+					"a concrete model target cannot authorize cross-model substitution")
+			}
+			if route.ModelReference != primary {
+				return nil, invalidAuthorizedRoute(requestID, index,
+					fmt.Sprintf("same-model execution must keep the primary revision %q", primary))
 			}
 		}
-		return e.resolveAuthorizedRoutes(request, at)
 	}
-
-	if request.Target.Kind == contract.TargetRoutingProfileID {
-		return nil, contract.NewError(requestID, contract.CodeInvalidRequest,
-			"a routing-profile target requires the ordered authorizedRoutes list resolved by Oxy",
-		).WithParam("authorizedRoutes")
-	}
-
-	set, err := e.inventory.Current().Resolve(*request.Target.ModelReference, at)
-	if err != nil {
-		var noRoute inventory.ErrNoRoute
-		if errors.As(err, &noRoute) {
-			return nil, contract.NewError(requestID, contract.CodeModelNotFound,
-				fmt.Sprintf("no deployment serves %q", noRoute.Reference)).WithParam("target.modelReference")
-		}
-		var stale inventory.ErrSnapshotTooStale
-		if errors.As(err, &stale) {
-			// The configuration snapshot has stopped being re-issued, so which
-			// revision is current is no longer a question Kaana can answer.
-			// Pinned references are unaffected, and saying so is the difference
-			// between an outage and a degradation the caller can work around.
-			return nil, contract.NewError(requestID, contract.CodeServiceUnavailable,
-				fmt.Sprintf("the deployment configuration has not been re-issued for %s, so the current revision of %q cannot be resolved; a revision-pinned reference is still served",
-					stale.Age.Round(time.Second), stale.Reference))
-		}
-		return nil, contract.NewError(requestID, contract.CodeInternalError, err.Error())
-	}
-
-	routes := set.Candidates()
-	return []candidate{{route: routes[0]}}, nil
+	return e.resolveAuthorizedRoutes(request, at)
 }
 
 // resolveAuthorizedRoutes turns the signed list into executable routes without

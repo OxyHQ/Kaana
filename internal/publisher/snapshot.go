@@ -66,7 +66,7 @@ const observationDateLayout = "2006-01-02"
 // line, which `inventory.Parse` refuses outright as two `current` revisions.
 type Observations map[contract.ModelID]string
 
-// Discovery is what one provider reported, in the order providers were declared.
+// Discovery is what one provider reported.
 type Discovery struct {
 	Provider Provider
 	Models   []DiscoveredModel
@@ -93,13 +93,11 @@ type BuildResult struct {
 
 // BuildSnapshot renders the inventory file from what the providers reported.
 //
-// Ordering is load-bearing rather than cosmetic. A concrete request without
-// authorizedRoutes resolves to the deployment declared FIRST and no other; an
-// explicit signed list carries its own order. The caller only passes providers
-// that have a credential, so every deployment here is servable, and within a
-// reference the snapshot order is the order providers were declared — which
-// makes the operator's `KAANA_PROVIDERS` the default-primary knob, in one place,
-// rather than an emergent property of a map iteration.
+// Inventory order is presentation only: every executable choice comes from an
+// exact deployment id in the signed authorizedRoutes list. The caller only
+// passes providers that have a credential, so every deployment here is
+// servable. Sorting by exact deployment id makes the same routing content
+// produce the same snapshot id regardless of provider discovery order.
 func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time) (BuildResult, error) {
 	if len(discoveries) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: no provider reported any models, so a snapshot would declare nothing and Kaana would refuse it")
@@ -115,9 +113,6 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 		deployments  []snapshotDeployment
 		unattributed []string
 	)
-	// A model line's endpoints must be contiguous only in the sense that the
-	// FIRST one declared is servable; they are appended in provider-declaration
-	// order, so the first provider declaring a line owns its primary route.
 	for _, discovery := range discoveries {
 		for _, model := range discovery.Models {
 			line, attributed := attribution.ModelLine(discovery.Provider.Slug, model.UpstreamModelID)
@@ -155,6 +150,9 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 	if len(deployments) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: every discovered model was unattributed (%s), so the snapshot would be empty", strings.Join(unattributed, ", "))
 	}
+	sort.Slice(deployments, func(i, j int) bool {
+		return deployments[i].DeploymentID < deployments[j].DeploymentID
+	})
 
 	file := snapshotFile{
 		Comment:     snapshotComment(),
@@ -265,7 +263,7 @@ func snapshotComment() []string {
 		"Every upstream model id here was read from that provider's own /models endpoint with the operator's credential. Nothing is copied from documentation, and a model no provider reported is not here.",
 		"PUBLISHER IS WHO RELEASED THE WEIGHTS, NEVER WHO SERVES THEM. `openai/gpt-oss-120b` served BY Cerebras carries provider `cerebras` and a reference that does not name it. The attribution table is the only place that mapping is declared, and an unattributed model is dropped rather than guessed at.",
 		"THE REVISION LABEL IS AN OBSERVATION, NOT A RELEASE. These providers expose no immutable revision handle, so the pin records the date this publisher first saw the alias. That date is carried forward from the previous snapshot forever: re-dating it would silently re-point every reference a customer has pinned.",
-		"ORDER IS LOAD-BEARING. A concrete request with no authorizedRoutes resolves to the deployment declared FIRST; a signed list keeps its own exact order. Deployments appear in KAANA_PROVIDERS order, and only providers holding a credential are declared.",
+		"INVENTORY ORDER IS PRESENTATION ONLY. Every inference request carries a non-empty signed authorizedRoutes list of exact deployment ids, and Kaana executes only that list in its signed order. Deployments here are sorted by exact id so provider declaration order cannot select a route.",
 		"REGIONS ARE UPSTREAM EXECUTION/RESIDENCY, NOT THE AWS REGION RUNNING KAANA. A provider's model API does not report them. KAANA_PROVIDER_<SLUG>_REGIONS carries an explicit verified declaration; when absent, the route has no regional attestation and matches only an explicitly empty signed set that Oxy permits under no regional policy control.",
 		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, price or commercial permission. Provider credentials resolve from Kaana's PostgreSQL/KMS store and are never here.",
 		"STALENESS IS MEASURED FROM `issuedAt`. This file is re-issued on a cadence shorter than KAANA_INVENTORY_MAX_AGE even when nothing has changed, because an unchanged snapshot with an old issuedAt is indistinguishable from a publisher that has stopped.",

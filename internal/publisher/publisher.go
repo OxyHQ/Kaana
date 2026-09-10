@@ -57,7 +57,8 @@ const DefaultInterval = 15 * time.Minute
 
 // Config wires a Publisher.
 type Config struct {
-	// Providers are the upstreams to ask, in the order they were declared.
+	// Providers are the upstreams to ask. Their order schedules discovery only;
+	// BuildSnapshot sorts exact deployment identities before rendering.
 	// Only providers holding a credential belong here: a snapshot may not name
 	// a provider whose key does not exist, because there is no value of
 	// KAANA_PROVIDERS that serves it without either refusing its references or

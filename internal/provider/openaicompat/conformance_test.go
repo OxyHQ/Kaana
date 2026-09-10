@@ -128,6 +128,13 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 					ReceivedAt: contract.NewTimestamp(time.Now()),
 				},
 				RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: "rp_conformance", PolicyVersion: 1},
+				AuthorizedRoutes: []contract.AuthorizedRoute{{
+					Substitution:   contract.SubstitutionSameModel,
+					DeploymentID:   "dep_conformance",
+					ModelReference: reference,
+					Provider:       slug,
+					Regions:        []contract.Region{"test-region"},
+				}},
 			}
 			return []conformance.Refusal{{
 				Name:    "an embedding request",

@@ -129,41 +129,38 @@ func customerBinding(providerSlug contract.ProviderSlug) (*contract.CustomerProv
 /*  Default deny without signed routes                                        */
 /* -------------------------------------------------------------------------- */
 
-// TestWithoutAuthorizedRoutesKaanaNeverChoosesAmongDeployments pins the default,
-// and it is the most important test in this file.
+// TestWithoutAuthorizedRoutesKaanaNeverChoosesAmongDeployments pins the
+// fail-closed boundary against an inventory containing plausible destinations.
 //
 // Oxy resolves the customer's fallback and region controls before signing the
 // envelope. A routing-policy reference alone carries no executable authority;
 // only the ordered authorizedRoutes list does. A Kaana that chose a second
 // deployment from inventory would silently override that policy decision.
-//
-// With the default in place a reference resolves to its declared primary and
-// nowhere else, which is exactly how this build behaved before failover
-// existed. Every other test in this file supplies the signed routes explicitly;
-// if this one ever passes for the wrong reason, they all become vacuous.
 func TestWithoutAuthorizedRoutesKaanaNeverChoosesAmongDeployments(t *testing.T) {
 	primary := failingAdapter("stub", overloaded("stub"), nil)
 	secondary := succeedingAdapter("backup", 7)
+	request := baseRequest()
+	request.AuthorizedRoutes = nil
 
 	events, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
 		adapters:    []provider.Adapter{primary, secondary},
-	}.run(t, baseRequest())
+	}.run(t, request)
 
-	if primary.attempts() != 1 {
-		t.Errorf("the declared primary was attempted %d times", primary.attempts())
-	}
-	if secondary.attempts() != 0 {
-		t.Errorf("a second deployment was used %d times without a signed route authorizing the choice", secondary.attempts())
+	if primary.attempts() != 0 || secondary.attempts() != 0 {
+		t.Errorf("an inventory deployment was attempted without signed authorization: first=%d second=%d", primary.attempts(), secondary.attempts())
 	}
 	if len(eventsOfType(events, contract.EventRouteSwitch)) != 0 {
 		t.Error("a route switch was announced without a signed route authorizing it")
 	}
-	if result.Failure == nil || result.Failure.Code != contract.CodeProviderOverloaded {
-		t.Fatalf("the customer was told %v; the declared primary failed and nothing else was tried", result.Failure)
+	if result.Failure == nil || result.Failure.Code != contract.CodeInvalidRequest {
+		t.Fatalf("the route-less request was reported as %v", result.Failure)
 	}
-	if result.Report == nil || result.Report.RouteSwitches != 0 {
-		t.Errorf("the report counts %v route switches", result.Report)
+	if result.Failure.Param == nil || *result.Failure.Param != "authorizedRoutes" {
+		t.Errorf("the refusal names %v as the field at fault", result.Failure.Param)
+	}
+	if result.Report != nil {
+		t.Errorf("the route-less request produced a usage report: %+v", result.Report)
 	}
 
 	// The control: the identical fixture DOES fail over once the signed list
@@ -682,9 +679,10 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 /*  Serving from a stale snapshot                                             */
 /* -------------------------------------------------------------------------- */
 
-// TestAStaleSnapshotServesPinnedTargetsAndRefusesUnpinnedOnes is the
-// control-plane outage behaviour, read through the errors a customer receives.
-func TestAStaleSnapshotServesPinnedTargetsAndRefusesUnpinnedOnes(t *testing.T) {
+// TestAStaleSnapshotServesTheExactAuthorizedRevisionForEitherModelTargetShape
+// proves Kaana never resolves `current` for inference. Oxy pins the executable
+// revision in authorizedRoutes even when the caller named an unpinned model.
+func TestAStaleSnapshotServesTheExactAuthorizedRevisionForEitherModelTargetShape(t *testing.T) {
 	// The snapshot was issued two hours ago and nothing has re-issued it. The
 	// default horizon is an hour.
 	stale := harness{
@@ -696,32 +694,17 @@ func TestAStaleSnapshotServesPinnedTargetsAndRefusesUnpinnedOnes(t *testing.T) {
 		issuedAt: time.Now().Add(-2 * time.Hour),
 	}
 
-	pinned := baseRequest()
+	pinned := authorizedRequest()
 	if _, result := stale.run(t, pinned); result.Failure != nil {
 		t.Fatalf("a pinned reference was refused from a stale snapshot: %v", result.Failure)
 	}
 
-	unpinned := baseRequest()
+	unpinned := authorizedRequest()
 	reference := contract.ModelReference("stub/model")
 	unpinned.Target.ModelReference = &reference
 
-	_, result := stale.run(t, unpinned)
-	if result.Failure == nil {
-		t.Fatal("an unpinned reference resolved from a snapshot nobody is re-issuing")
-	}
-	if result.Failure.Code != contract.CodeServiceUnavailable {
-		t.Errorf("refused with %q", result.Failure.Code)
-	}
-	if !result.Failure.Retryable {
-		t.Error("the refusal is non-retryable, but it clears the moment the inventory publisher re-issues the snapshot")
-	}
-
-	// The control: the same unpinned request is served from a snapshot inside
-	// the horizon, so the refusal above is the staleness and not the reference.
-	fresh := stale
-	fresh.issuedAt = time.Now()
-	if _, result := fresh.run(t, unpinned); result.Failure != nil {
-		t.Fatalf("a fresh snapshot refused an unpinned reference: %v", result.Failure)
+	if _, result := stale.run(t, unpinned); result.Failure != nil {
+		t.Fatalf("an unpinned target with an exact authorized revision was refused from a stale snapshot: %v", result.Failure)
 	}
 }
 
