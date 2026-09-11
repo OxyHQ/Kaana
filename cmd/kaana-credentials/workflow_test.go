@@ -45,8 +45,12 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	}
 
 	expectedOperations := map[string][]string{
-		"list":    {"list"},
-		"migrate": {"migrate"},
+		"list":                            {"list"},
+		"migrate":                         {"migrate"},
+		"import-handoff-cheaperinference": {"import-ssm", "--provider", "cheaperinference", "--key-id", "e97a886e-ab58-4492-b250-84a944e44276", "--position", "1", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/cheaperinference", "--class", "paid", "--budget-usd", "0"},
+		"import-handoff-mistral":          {"import-ssm", "--provider", "mistral", "--key-id", "fcb72e20-6b68-418f-bf34-50b58e59744e", "--position", "1", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/mistral"},
+		"import-handoff-cohere":           {"import-ssm", "--provider", "cohere", "--key-id", "3574baf0-c7b8-4985-bc5f-94d29b72eafb", "--position", "1", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/cohere", "--class", "free"},
+		"import-handoff-cohere-2":         {"import-ssm", "--provider", "cohere", "--key-id", "5db11d45-b08a-4b2a-a318-3f88f5d8466a", "--position", "2", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/cohere-2", "--class", "free"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",
@@ -120,12 +124,23 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		t.Fatalf("reading credential ID cutover runbook: %v", err)
 	}
 	runbook := string(runbookBytes)
+	handoffBytes, err := os.ReadFile("../../docs/provider-credential-handoff-20260911.md")
+	if err != nil {
+		t.Fatalf("reading provider credential handoff runbook: %v", err)
+	}
+	runbook += "\n" + string(handoffBytes)
 	operationIDs := make(map[string]string)
 	canonicalIDs := make(map[string]struct{})
+	temporaryImports := map[string]bool{
+		"import-handoff-cheaperinference": true,
+		"import-handoff-mistral":          true,
+		"import-handoff-cohere":           true,
+		"import-handoff-cohere-2":         true,
+	}
 	for operationName, command := range manifest.Operations {
 		joined := strings.Join(command, " ")
 		for _, forbidden := range []string{"--position", "--value", "import-ssm"} {
-			if operationName != "list" && strings.Contains(joined, forbidden) {
+			if operationName != "list" && !temporaryImports[operationName] && strings.Contains(joined, forbidden) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
 		}
@@ -201,6 +216,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		},
 		OperationTaskProfiles: map[string]string{
 			"list": "admin", "migrate": "migrator",
+			"import-handoff-cheaperinference": "admin", "import-handoff-mistral": "admin",
+			"import-handoff-cohere": "admin", "import-handoff-cohere-2": "admin",
 			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
 			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
@@ -228,6 +245,10 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	expectedOperationChoices := `        options:
           - list
           - migrate
+          - import-handoff-cheaperinference
+          - import-handoff-mistral
+          - import-handoff-cohere
+          - import-handoff-cohere-2
           - deduplicate-groq
           - deduplicate-openrouter
           - deduplicate-xai

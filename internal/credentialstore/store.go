@@ -175,11 +175,12 @@ func (s *Store) Put(ctx context.Context, input EncryptedCredential, plaintext []
 	return s.put(ctx, input, plaintext, actor)
 }
 
-// ImportLegacy is the sole migration exception for the eight exact historical
-// SSM handoff identities. New administration must use Put with an opaque id.
-func (s *Store) ImportLegacy(ctx context.Context, input EncryptedCredential, plaintext []byte, actor string) error {
-	if !legacyProviderCredentialScope(input.Scope) {
-		return errors.New("credential store: legacy provider credential identity is not allow-listed")
+// ImportSSMHandoff accepts only an exact path-bound identity reviewed in
+// ssm.go. It exists for one-shot custody transfers; normal administration uses
+// Put and temporary handoffs must be removed after verification.
+func (s *Store) ImportSSMHandoff(ctx context.Context, input EncryptedCredential, plaintext []byte, actor string) error {
+	if !reviewedProviderCredentialHandoffScope(input.Scope) {
+		return errors.New("credential store: provider credential handoff identity is not allow-listed")
 	}
 	return s.put(ctx, input, plaintext, actor)
 }
