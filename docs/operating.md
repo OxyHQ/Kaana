@@ -221,39 +221,39 @@ binary or disable the affected credential rows before starting an older one.
 The tables are additive and inert to old administration code; never drop them
 while a current task may still be recording an attempt.
 
-Platform credential control is bootstrapped by the reviewed
-`bootstrap-platform-control` operation in `credential-admin.yml`. Its immutable
-migrator task receives two exact SecureStrings from its execution role:
-`DATABASE_URL` is the administrative migration connection and
-`KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL` is the future control login.
-Neither is accepted through argv, an ECS override or logs.
-
-The operation parses the control URL in memory, requires its user to be exactly
+Platform credential control role creation and schema migration are separate
+authority boundaries. `create-platform-control-roles` is a master-authority one-shot;
+it is intentionally not exposed by `credential-admin.yml` and must never run
+with the migrator login. It parses
+`KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL` in memory, requires its user
+to be exactly
 `kaana_platform_credential_control_login`, requires exact verified TLS and the
-same host, port and database as the administrative connection, then atomically:
+same host, port and database as `DATABASE_URL`, then atomically:
 
 1. creates or verifies the unprivileged NOLOGIN authorization role;
 2. creates or verifies the unprivileged LOGIN mapping and rotates its password;
-3. grants the authorization role to that login; and
-4. applies every schema migration, including migration `0009`, which grants
-   only the platform mutation function's execution.
+3. grants the authorization role to that login.
 
 The password reaches PostgreSQL as a bound parameter stored in a
 transaction-local setting. The logged SQL text contains `$1`, not the password
-or a verifier. Run it only through the main-only workflow after the task
-definition and execution role have been reviewed with those exact two secret
-bindings:
+or a verifier. Supply both URLs only from a reviewed secret transport in the
+controlled master environment; never put either URL in argv or logs:
 
 ```text
-gh workflow run credential-admin.yml --repo OxyHQ/Kaana --ref main \
-  -f operation=bootstrap-platform-control
+DATABASE_URL=<master URL> \
+KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL=<control URL> \
+  kaana-credentials create-platform-control-roles
 ```
 
-The workflow launches the task inside the VPC and reports only its task ARN and
-the fixed success line. It never opens PostgreSQL or reads either SecureString
-into the runner. Terraform may create the service only after this operation
-succeeds; until the service is `ACTIVE`, image deployment skips it rather than
-inventing infrastructure.
+After the one-shot succeeds, all schema, function, and grant changes run through
+the `migrate` operation in `credential-admin.yml`. Its login does not have `CREATEROLE`,
+and its task receives only `MIGRATOR_DATABASE_URL`; it cannot create roles or
+rotate the platform login password. Migration `0009` assumes
+the roles exist and idempotently grants only the platform mutation function's
+execution. If the roles already exist, do not rerun role creation just to apply
+a migration. Run `migrate`, including for migration `0011`. Terraform may create
+the service only after the required migration succeeds; until the service is
+`ACTIVE`, image deployment skips it rather than inventing infrastructure.
 
 ### Add or rotate a key
 

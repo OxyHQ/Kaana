@@ -9,16 +9,15 @@ import (
 )
 
 type credentialTaskProfile struct {
-	TaskDefinitionFamily                   string            `json:"taskDefinitionFamily"`
-	ContainerName                          string            `json:"containerName"`
-	TaskRoleARN                            string            `json:"taskRoleArn"`
-	ExecutionRoleARN                       string            `json:"executionRoleArn"`
-	DatabaseURLParameterARN                string            `json:"databaseUrlParameterArn"`
-	PlatformControlDatabaseURLParameterARN string            `json:"platformControlDatabaseUrlParameterArn"`
-	SecurityGroupID                        string            `json:"securityGroupId"`
-	LogStreamPrefix                        string            `json:"logStreamPrefix"`
-	DefaultCommand                         []string          `json:"defaultCommand"`
-	Environment                            map[string]string `json:"environment"`
+	TaskDefinitionFamily    string            `json:"taskDefinitionFamily"`
+	ContainerName           string            `json:"containerName"`
+	TaskRoleARN             string            `json:"taskRoleArn"`
+	ExecutionRoleARN        string            `json:"executionRoleArn"`
+	DatabaseURLParameterARN string            `json:"databaseUrlParameterArn"`
+	SecurityGroupID         string            `json:"securityGroupId"`
+	LogStreamPrefix         string            `json:"logStreamPrefix"`
+	DefaultCommand          []string          `json:"defaultCommand"`
+	Environment             map[string]string `json:"environment"`
 }
 
 type credentialOperationManifest struct {
@@ -46,9 +45,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	}
 
 	expectedOperations := map[string][]string{
-		"list":                       {"list"},
-		"migrate":                    {"migrate"},
-		"bootstrap-platform-control": {"bootstrap-platform-control"},
+		"list":    {"list"},
+		"migrate": {"migrate"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",
@@ -131,7 +129,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
 		}
-		if operationName == "list" || operationName == "migrate" || operationName == "bootstrap-platform-control" {
+		if operationName == "list" || operationName == "migrate" {
 			continue
 		}
 		if !strings.Contains(runbook, joined) {
@@ -190,20 +188,19 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 				},
 			},
 			"migrator": {
-				TaskDefinitionFamily:                   "oxy-kaana-credential-migrator",
-				ContainerName:                          "kaana-credential-migrator",
-				TaskRoleARN:                            "arn:aws:iam::237343248947:role/oxy-kaana-credential-migrator",
-				ExecutionRoleARN:                       "arn:aws:iam::237343248947:role/oxy-kaana-credential-migrator-execution",
-				DatabaseURLParameterARN:                "arn:aws:ssm:us-west-2:237343248947:parameter/oxy/kaana/MIGRATOR_DATABASE_URL",
-				PlatformControlDatabaseURLParameterARN: "arn:aws:ssm:us-west-2:237343248947:parameter/oxy/kaana/PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL",
-				SecurityGroupID:                        "sg-0f39701eba3c972de",
-				LogStreamPrefix:                        "kaana-credential-migrator",
-				DefaultCommand:                         []string{"migrate"},
-				Environment:                            map[string]string{},
+				TaskDefinitionFamily:    "oxy-kaana-credential-migrator",
+				ContainerName:           "kaana-credential-migrator",
+				TaskRoleARN:             "arn:aws:iam::237343248947:role/oxy-kaana-credential-migrator",
+				ExecutionRoleARN:        "arn:aws:iam::237343248947:role/oxy-kaana-credential-migrator-execution",
+				DatabaseURLParameterARN: "arn:aws:ssm:us-west-2:237343248947:parameter/oxy/kaana/MIGRATOR_DATABASE_URL",
+				SecurityGroupID:         "sg-0f39701eba3c972de",
+				LogStreamPrefix:         "kaana-credential-migrator",
+				DefaultCommand:          []string{"migrate"},
+				Environment:             map[string]string{},
 			},
 		},
 		OperationTaskProfiles: map[string]string{
-			"list": "admin", "migrate": "migrator", "bootstrap-platform-control": "migrator",
+			"list": "admin", "migrate": "migrator",
 			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
 			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
@@ -231,7 +228,6 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	expectedOperationChoices := `        options:
           - list
           - migrate
-          - bootstrap-platform-control
           - deduplicate-groq
           - deduplicate-openrouter
           - deduplicate-xai
@@ -268,8 +264,6 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"AUDIT_ACTOR: github-actions:OxyHQ/Kaana:${{ github.run_id }}",
 		"^github-actions:OxyHQ/Kaana:[0-9]+$",
 		`environment: [{name: "KAANA_CREDENTIAL_ACTOR", value: $audit_actor}]`,
-		`"name": "KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL"`,
-		`task_config.get("platformControlDatabaseUrlParameterArn")`,
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("credential workflow lost required boundary %q", required)
@@ -280,6 +274,10 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"aws ssm put-parameter",
 		"aws ecs update-service",
 		"type: string",
+		"bootstrap-platform-control",
+		"create-platform-control-roles",
+		"KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL",
+		"platformControlDatabaseUrlParameterArn",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("credential workflow contains forbidden capability %q", forbidden)
