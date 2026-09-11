@@ -68,6 +68,8 @@ type Adapter struct {
 	credentials *provider.KeyPool
 }
 
+func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
+
 // New builds an adapter, refusing a configuration that could not serve.
 func New(config Config) (*Adapter, error) {
 	if !config.Provider.Valid() {

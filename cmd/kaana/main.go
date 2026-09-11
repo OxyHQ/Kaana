@@ -97,6 +97,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	declarations, unenforcedBudgets, err := credentialStore.Load(credentialContext, providerSlugsFrom(providerConfigs))
+	if err != nil {
+		cancelCredentialLoad()
+		credentialDatabase.Close()
+		return err
+	}
+	bindings, err := credentialDatabase.LoadDeploymentBindings(credentialContext)
 	cancelCredentialLoad()
 	if err != nil {
 		credentialDatabase.Close()
@@ -122,6 +128,9 @@ func run(logger *slog.Logger) error {
 	}
 	registry, err := provider.NewRegistry(adapters...)
 	if err != nil {
+		return err
+	}
+	if err := registry.ReplaceGeneration(bindings, adapters...); err != nil {
 		return err
 	}
 
@@ -286,9 +295,15 @@ func reloadCredentialPools(
 		case <-ticker.C:
 			loadContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 			declarations, unenforcedBudgets, err := store.Load(loadContext, providerSlugsFrom(configs))
+			if err != nil {
+				cancel()
+				logger.Error("provider credentials could not be reloaded; keeping the last complete pools", "error", err)
+				continue
+			}
+			bindings, err := store.LoadDeploymentBindings(loadContext)
 			cancel()
 			if err != nil {
-				logger.Error("provider credentials could not be reloaded; keeping the last complete pools", "error", err)
+				logger.Error("deployment credential bindings could not be reloaded; keeping the last complete generation", "error", err)
 				continue
 			}
 			replacementConfigs := append([]providerConfig(nil), configs...)
@@ -300,7 +315,7 @@ func reloadCredentialPools(
 				logger.Error("reloaded provider credentials could not build a complete adapter set; keeping the previous pools", "error", err)
 				continue
 			}
-			if err := registry.Replace(adapters...); err != nil {
+			if err := registry.ReplaceGeneration(bindings, adapters...); err != nil {
 				logger.Error("reloaded provider credentials could not replace the adapter registry; keeping the previous pools", "error", err)
 				continue
 			}

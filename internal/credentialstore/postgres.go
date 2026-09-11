@@ -52,6 +52,9 @@ var migration0011 string
 //go:embed migrations/0012_runtime_state_read_authority.sql
 var migration0012 string
 
+//go:embed migrations/0013_deployment_credential_bindings.sql
+var migration0013 string
+
 //go:embed migrations/0010_provider_cost_event_batches.sql
 var migration0010 string
 
@@ -173,6 +176,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0010", body: migration0010},
 		{version: "0011", body: migration0011},
 		{version: "0012", body: migration0012},
+		{version: "0013", body: migration0013},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err

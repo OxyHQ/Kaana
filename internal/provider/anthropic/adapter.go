@@ -115,6 +115,8 @@ var quotaHeaders = provider.QuotaHeaders{}
 // Provider implements provider.Adapter.
 func (a *Adapter) Provider() contract.ProviderSlug { return Slug }
 
+func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
+
 // Translate implements provider.Adapter.
 //
 // Every refusal below happens before a single byte is sent upstream, which is

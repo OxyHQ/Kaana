@@ -190,7 +190,8 @@ where a provider lives. Both load their pools from the same PostgreSQL/KMS
 store. The publisher uses one exact key id because listing models is one
 authenticated catalogue question even when the provider paginates its answer;
 rotating or selecting the first pool row would silently change authority.
-Serving owns pool order and rotation.
+Serving resolves each deployment to its exact key binding; pool order is not an
+execution selector.
 
 | Variable | Required | Meaning |
 |---|---|---|

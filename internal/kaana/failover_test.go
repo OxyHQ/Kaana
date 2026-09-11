@@ -2,6 +2,7 @@ package kaana_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -773,52 +774,44 @@ func credentialRefused(slug contract.ProviderSlug) provider.ErrUpstream {
 	}
 }
 
-// TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider.
-//
-// A refused credential is attributable to the deployment, and deliberately so:
-// the breaker takes the route out of rotation, and a failover to a deployment
-// holding a DIFFERENT credential is meant to remain possible. But two
-// deployments of one provider slug resolve to one adapter and one credential
-// pool, so within a slug there is no different credential to reach — and the
-// pool refuses to walk itself on a rejection for exactly this reason. Failing
-// over here would reproduce that walk one deployment at a time, burning a key
-// per deployment on a single provider-side authentication blip.
-func TestARefusedCredentialIsNotRetriedOnAnotherDeploymentOfTheSameProvider(t *testing.T) {
-	// One adapter serves both deployments, because a registry keys on the
-	// provider slug — which is the whole point.
-	sameProvider := failingAdapter("stub", credentialRefused("stub"), nil)
+func TestARefusedExactCredentialFailsOverToAnotherKeyOfTheSameProvider(t *testing.T) {
+	seen := map[contract.DeploymentID]string{}
+	sameProvider := &scriptedAdapter{slug: "stub", streamWithCredentials: func(_ context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
+		key, ok := credentials.Begin().Next(time.Now())
+		if !ok {
+			return provider.Outcome{}, errors.New("exact credential view was empty")
+		}
+		seen[call.Route.DeploymentID] = key.ID
+		if call.Route.DeploymentID == "dep_a" {
+			return provider.Outcome{KeyID: key.ID}, credentialRefused("stub")
+		}
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+		return provider.Outcome{KeyID: key.ID, Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
+	}}
 
 	events, result := harness{
-		deployments: twoDeploymentsOfOneProvider,
-		adapters:    []provider.Adapter{sameProvider},
+		deployments:   twoDeploymentsOfOneProvider,
+		adapters:      []provider.Adapter{sameProvider},
+		bindingKeyIDs: map[contract.DeploymentID]string{"dep_a": "stub-test", "dep_b": "stub-test-2"},
 	}.run(t, sameProviderAuthorizedRequest())
 
-	if sameProvider.attempts() != 1 {
-		t.Errorf("the refused credential was sent %d times; both deployments draw on the same pool, so every attempt after the first burns another key for one blip", sameProvider.attempts())
+	if sameProvider.attempts() != 2 {
+		t.Fatalf("attempts = %d, want both exact deployments", sameProvider.attempts())
 	}
-	if len(eventsOfType(events, contract.EventRouteSwitch)) != 0 {
-		t.Error("a route switch was announced to a deployment that was never tried")
+	if seen["dep_a"] != "stub-test" || seen["dep_b"] != "stub-test-2" {
+		t.Fatalf("exact binding execution = %+v", seen)
 	}
-	if result.Failure == nil || result.Failure.Code != contract.CodeProviderCredentialInvalid {
-		t.Fatalf("the customer was told %v, expected the provider's own refusal", result.Failure)
+	if len(eventsOfType(events, contract.EventRouteSwitch)) != 1 {
+		t.Fatal("the successful exact-key failover did not emit one route switch")
 	}
-
-	// The control, and it is what keeps the check above from being "failover is
-	// broken": the identical failure DOES fail over when the second deployment
-	// is served by a different provider, because that one holds a different
-	// credential pool.
-	refused := failingAdapter("stub", credentialRefused("stub"), nil)
-	elsewhere := succeedingAdapter("backup", 7)
-	_, crossProvider := harness{
-		deployments: twoDeploymentsOfOneRevision,
-		adapters:    []provider.Adapter{refused, elsewhere},
-	}.run(t, authorizedRequest())
-
-	if elsewhere.attempts() != 1 {
-		t.Fatalf("a refused credential was not retried on a deployment holding a different one (%d attempts), so the check above measures nothing", elsewhere.attempts())
+	if result.Failure != nil || result.Report == nil || result.Report.DeploymentID != "dep_b" {
+		t.Fatalf("failover result = %+v", result)
 	}
-	if crossProvider.Failure != nil {
-		t.Errorf("the cross-provider failover still failed: %v", crossProvider.Failure)
+	if len(result.UpstreamCost.Attempts) != 2 || result.UpstreamCost.Attempts[0].KeyID != "stub-test" || result.UpstreamCost.Attempts[1].KeyID != "stub-test-2" {
+		t.Fatalf("cost attempts do not prove exact keys: %+v", result.UpstreamCost.Attempts)
 	}
 }
 
@@ -912,7 +905,7 @@ func TestPlatformCredentialRefusalCanFailOverToCustomerCredentialOnTheSameProvid
 	adapter := &scriptedAdapter{
 		slug: "stub",
 		credentials: func(pool *provider.KeyPool) {
-			if pool != nil {
+			if pool != nil && pool.CustomerOwned() {
 				customerPools++
 			}
 		},

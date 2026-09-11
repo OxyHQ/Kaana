@@ -270,6 +270,32 @@ Plaintext is accepted only on standard input:
 Set `KAANA_CREDENTIAL_ACTOR` to the non-secret operator or automation identity
 for `put`, `import-ssm` and `disable`; a mutation without one is refused.
 
+Bind every published opaque deployment to exactly one active key before its
+serving candidate is enabled:
+
+```bash
+kaana-credentials bind-deployment \
+  --operation-id kdb_0123456789abcdef0123456789abcdef \
+  --deployment-id dep_exact \
+  --provider openrouter \
+  --key-id 123e4567-e89b-42d3-a456-426614174000
+```
+
+This non-secret mutation is idempotent and conflict-checked. Runtime reloads
+bindings and decrypted pools as one generation. An unbound deployment never
+falls back to the provider pool; exact readback and a real canary gate ambient
+execution.
+
+Read back the protected, non-secret mapping and its immutable operation/database
+actors before the canary:
+
+```bash
+kaana-credentials list-deployment-bindings
+```
+
+Only the credential-admin database role may read this operator projection; the
+runtime role can read the binding table but not its operation history.
+
 The source command must write the value only to its stdout. The CLI has no value
 flag and no provider-secret environment variable, so the key cannot land in
 argv, shell history, a task definition or a GitHub Actions environment.
@@ -369,7 +395,7 @@ reference it.
 `cmd/kaana-publisher` reads the same non-secret provider configuration and the
 same encrypted database pools as the serving process. It uses the one active
 credential selected by an exact, non-secret PostgreSQL key id for the complete
-catalogue traversal; serving owns pool order and rotation.
+catalogue traversal; serving resolves each deployment's exact database binding.
 
 | Variable | Required | Meaning |
 |---|---|---|

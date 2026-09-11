@@ -34,16 +34,34 @@ const oneDeployment = `{
 /* -------------------------------------------------------------------------- */
 
 type scriptedAdapter struct {
-	slug   contract.ProviderSlug
-	stream func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error)
+	slug                  contract.ProviderSlug
+	stream                func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error)
+	streamWithCredentials func(context.Context, *provider.Call, provider.Emitter, *provider.KeyPool) (provider.Outcome, error)
 	// translate, when set, replaces the pass-through translation.
 	translate func(request *contract.Request, route provider.Route) (*provider.Call, error)
 	// credentials observes the request-scoped override before the scripted
 	// stream runs. nil is the platform-pool path.
 	credentials func(*provider.KeyPool)
 
-	mutex sync.Mutex
-	calls int
+	mutex        sync.Mutex
+	calls        int
+	platformPool *provider.KeyPool
+}
+
+func (s *scriptedAdapter) PlatformCredentials() *provider.KeyPool {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.platformPool == nil {
+		pool, err := provider.NewKeyPool(s.Provider(), []provider.KeyDeclaration{
+			{KeyID: string(s.Provider()) + "-test", Secret: "kaana-test-platform-secret"},
+			{KeyID: string(s.Provider()) + "-test-2", Secret: "kaana-test-platform-secret-2"},
+		}, provider.KeyPolicy{}, nil)
+		if err != nil {
+			panic(err)
+		}
+		s.platformPool = pool
+	}
+	return s.platformPool
 }
 
 func (s *scriptedAdapter) Provider() contract.ProviderSlug {
@@ -66,6 +84,9 @@ func (s *scriptedAdapter) Stream(ctx context.Context, call *provider.Call, out p
 	s.mutex.Unlock()
 	if s.credentials != nil {
 		s.credentials(credentials)
+	}
+	if s.streamWithCredentials != nil {
+		return s.streamWithCredentials(ctx, call, out, credentials)
 	}
 	return s.stream(ctx, call, out)
 }
@@ -152,7 +173,8 @@ type harness struct {
 	now                 func() time.Time
 	// routes replace the request's exact Oxy authorization when a fixture needs
 	// a deployment set different from baseRequest's one-route control.
-	routes []contract.AuthorizedRoute
+	routes        []contract.AuthorizedRoute
+	bindingKeyIDs map[contract.DeploymentID]string
 }
 
 func (h harness) build(t *testing.T) *kaana.Executor {
@@ -181,6 +203,20 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 	registry, err := provider.NewRegistry(h.adapters...)
 	if err != nil {
 		t.Fatalf("registering: %v", err)
+	}
+	bindings := make([]provider.CredentialBinding, 0)
+	for _, descriptor := range store.Current().DeploymentDescriptors() {
+		if _, ok := registry.Lookup(descriptor.Provider); !ok {
+			continue
+		}
+		keyID := string(descriptor.Provider) + "-test"
+		if exact := h.bindingKeyIDs[descriptor.DeploymentID]; exact != "" {
+			keyID = exact
+		}
+		bindings = append(bindings, provider.CredentialBinding{DeploymentID: descriptor.DeploymentID, Provider: descriptor.Provider, KeyID: keyID})
+	}
+	if err := registry.ReplaceGeneration(bindings, h.adapters...); err != nil {
+		t.Fatalf("binding test credentials: %v", err)
 	}
 	rotationRegistry := h.rotation
 	if rotationRegistry == nil {

@@ -433,6 +433,34 @@ type KeyPool struct {
 
 	mu   sync.Mutex
 	keys []*pooledKey
+	// root and onlyKeyID form a request-scoped exact view over a platform pool.
+	// The view owns no credential state: all mutations are applied to root.
+	root      *KeyPool
+	onlyKeyID string
+}
+
+func (p *KeyPool) base() *KeyPool {
+	if p != nil && p.root != nil {
+		return p.root
+	}
+	return p
+}
+
+// Bind returns an exact, non-owning view of one opaque platform credential.
+// It never falls back to another key in the provider pool.
+func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
+	base := p.base()
+	if base == nil || strings.TrimSpace(keyID) != keyID || keyID == "" {
+		return nil, errors.New("provider: an exact credential key id is required")
+	}
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	for _, key := range base.keys {
+		if key.keyID == keyID {
+			return &KeyPool{root: base, onlyKeyID: keyID}, nil
+		}
+	}
+	return nil, fmt.Errorf("provider: credential key id %q is not configured for %s", keyID, base.provider)
 }
 
 type pooledKey struct {
@@ -589,14 +617,17 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 // none is a distinct state from one whose keys are all retired: the first is an
 // operator gap, the second is a provider having spent them.
 func (p *KeyPool) Configured() bool {
+	p = p.base()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.keys) > 0
 }
 
+func (p *KeyPool) CustomerOwned() bool { return p.base().customerOwned }
+
 // Begin starts one request's walk through the pool.
 func (p *KeyPool) Begin() *KeyAttempt {
-	return &KeyAttempt{pool: p, tried: make(map[int]bool, 2)}
+	return &KeyAttempt{pool: p.base(), onlyKeyID: p.onlyKeyID, tried: make(map[int]bool, 2)}
 }
 
 // Retire takes a key out of rotation until a moment.
@@ -605,6 +636,7 @@ func (p *KeyPool) Begin() *KeyAttempt {
 // A provider that said when the capacity returns is believed over the window,
 // because the window is a guess and the provider's answer is not.
 func (p *KeyPool) Retire(key Key, reason KeyRetirement, at time.Time, until time.Time) {
+	p = p.base()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, candidate := range p.keys {
@@ -627,6 +659,7 @@ func (p *KeyPool) recover(key Key) {
 }
 
 func (p *KeyPool) markUsable(key Key, evidence string, at time.Time) {
+	p = p.base()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, candidate := range p.keys {
@@ -651,6 +684,7 @@ func (p *KeyPool) Observe(key Key, header http.Header, at time.Time) {
 }
 
 func (p *KeyPool) observe(key Key, header http.Header, at time.Time) (bool, time.Time) {
+	p = p.base()
 	if observation := p.signals.Read(header); observation.State == QuotaExhausted {
 		p.Retire(key, KeyExhausted, at, observation.ResetAt)
 		p.mu.Lock()
@@ -684,6 +718,8 @@ func (p *KeyPool) observe(key Key, header http.Header, at time.Time) (bool, time
 //     returns, because that is a fact rather than a number chosen to look
 //     reasonable.
 func (p *KeyPool) NoUsableCredential(at time.Time) error {
+	onlyKeyID := p.onlyKeyID
+	p = p.base()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -698,7 +734,12 @@ func (p *KeyPool) NoUsableCredential(at time.Time) error {
 
 	category := contract.UpstreamQuota
 	earliest := time.Time{}
+	count := 0
 	for _, key := range p.keys {
+		if onlyKeyID != "" && key.keyID != onlyKeyID {
+			continue
+		}
+		count++
 		if key.reason == KeyRejected {
 			// A refused credential is the one an operator has to act on, so it
 			// is what the category names when both kinds are present.
@@ -713,7 +754,7 @@ func (p *KeyPool) NoUsableCredential(at time.Time) error {
 		Code:     contract.CodeDeploymentUnavailable,
 		Category: category,
 		Detail: fmt.Sprintf("every credential this build holds for %s is out of rotation (%d declared)",
-			p.provider, len(p.keys)),
+			p.provider, count),
 		Passthrough: &contract.ProviderErrorPassthrough{Provider: p.provider},
 	}
 	if wait := earliest.Sub(at); wait > 0 {
@@ -733,8 +774,9 @@ func (p *KeyPool) NoUsableCredential(at time.Time) error {
 // upstream calls as the pool has keys, and the bound is a property of the walk
 // rather than a number somebody chose.
 type KeyAttempt struct {
-	pool  *KeyPool
-	tried map[int]bool
+	pool      *KeyPool
+	onlyKeyID string
+	tried     map[int]bool
 	// throttleRotations counts the rotations spent on a transient throttle,
 	// which retires nothing and would otherwise repeat on every request.
 	throttleRotations int
@@ -764,6 +806,9 @@ func (a *KeyAttempt) next(at time.Time, allowRecovery bool) (Key, bool) {
 	defer a.pool.mu.Unlock()
 
 	for _, key := range a.pool.keys {
+		if a.onlyKeyID != "" && key.keyID != a.onlyKeyID {
+			continue
+		}
 		if a.tried[key.position] {
 			continue
 		}

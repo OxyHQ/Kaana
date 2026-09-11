@@ -13,6 +13,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -60,6 +61,76 @@ type Repository interface {
 	Deduplicate(context.Context, CredentialIDOperation, CredentialCompareTransform) (CredentialAdminReceipt, error)
 }
 
+// LoadDeploymentBindings returns the complete non-secret execution binding
+// generation. Disabled or absent credentials are deliberately excluded.
+func (p *Postgres) LoadDeploymentBindings(ctx context.Context) ([]provider.CredentialBinding, error) {
+	rows, err := p.pool.Query(ctx, `SELECT b.deployment_id, b.provider_slug, b.key_id
+		FROM provider_deployment_credential_bindings b
+		JOIN provider_credentials c ON c.provider_slug = b.provider_slug AND c.key_id = b.key_id
+		WHERE c.enabled = TRUE ORDER BY b.deployment_id`)
+	if err != nil {
+		return nil, fmt.Errorf("credential store: listing deployment bindings: %w", err)
+	}
+	defer rows.Close()
+	var bindings []provider.CredentialBinding
+	for rows.Next() {
+		var binding provider.CredentialBinding
+		if err := rows.Scan(&binding.DeploymentID, &binding.Provider, &binding.KeyID); err != nil {
+			return nil, fmt.Errorf("credential store: reading deployment binding: %w", err)
+		}
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("credential store: reading deployment bindings: %w", err)
+	}
+	return bindings, nil
+}
+
+func (p *Postgres) BindDeployment(ctx context.Context, operationID string, binding provider.CredentialBinding, actor string) (string, error) {
+	var outcome string
+	if err := p.pool.QueryRow(ctx, `SELECT kaana_bind_provider_deployment($1,$2,$3,$4,$5)`, operationID, binding.DeploymentID, binding.Provider, binding.KeyID, actor).Scan(&outcome); err != nil {
+		return "", fmt.Errorf("credential store: binding deployment credential: %w", err)
+	}
+	switch outcome {
+	case "applied", "replayed":
+		return outcome, nil
+	case "conflict":
+		return outcome, ErrDeploymentBindingConflict
+	default:
+		return outcome, errors.New("credential store: deployment binding is invalid")
+	}
+}
+
+type DeploymentBindingMetadata struct {
+	DeploymentID   contract.DeploymentID `json:"deploymentId"`
+	Provider       contract.ProviderSlug `json:"provider"`
+	KeyID          string                `json:"keyId"`
+	OperationID    string                `json:"operationId"`
+	OperationActor string                `json:"operationActor"`
+	DatabaseActor  string                `json:"databaseActor"`
+	UpdatedAt      time.Time             `json:"updatedAt"`
+}
+
+func (p *Postgres) ListDeploymentBindings(ctx context.Context) ([]DeploymentBindingMetadata, error) {
+	rows, err := p.pool.Query(ctx, `SELECT deployment_id,provider_slug,key_id,last_operation_id,operation_actor,database_actor,updated_at FROM provider_deployment_binding_metadata ORDER BY deployment_id`)
+	if err != nil {
+		return nil, fmt.Errorf("credential store: listing deployment binding metadata: %w", err)
+	}
+	defer rows.Close()
+	var result []DeploymentBindingMetadata
+	for rows.Next() {
+		var item DeploymentBindingMetadata
+		if err := rows.Scan(&item.DeploymentID, &item.Provider, &item.KeyID, &item.OperationID, &item.OperationActor, &item.DatabaseActor, &item.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("credential store: reading deployment binding metadata: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("credential store: reading deployment binding metadata: %w", err)
+	}
+	return result, nil
+}
+
 // Cipher is the KMS boundary. Plaintext crosses it only in process memory.
 type Cipher interface {
 	Encrypt(context.Context, Scope, []byte) ([]byte, string, error)
@@ -71,6 +142,20 @@ type Cipher interface {
 type Store struct {
 	repository Repository
 	cipher     Cipher
+}
+
+type deploymentBindingRepository interface {
+	LoadDeploymentBindings(context.Context) ([]provider.CredentialBinding, error)
+}
+
+var ErrDeploymentBindingConflict = errors.New("credential store: deployment binding operation conflicts")
+
+func (s *Store) LoadDeploymentBindings(ctx context.Context) ([]provider.CredentialBinding, error) {
+	repository, ok := s.repository.(deploymentBindingRepository)
+	if !ok {
+		return nil, errors.New("credential store: repository cannot load deployment bindings")
+	}
+	return repository.LoadDeploymentBindings(ctx)
 }
 
 // New builds a store from explicit dependencies.

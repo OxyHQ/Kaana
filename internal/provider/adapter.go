@@ -10,6 +10,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -54,6 +55,13 @@ type Adapter interface {
 	Translate(request *contract.Request, route Route) (*Call, error)
 	Stream(ctx context.Context, call *Call, out Emitter, credentials *KeyPool) (Outcome, error)
 	Health(ctx context.Context) Health
+}
+
+// PlatformCredentialSource is implemented by production adapters backed by
+// Kaana's encrypted platform credential store. Keeping it separate preserves
+// the provider adapter contract for test and non-platform implementations.
+type PlatformCredentialSource interface {
+	PlatformCredentials() *KeyPool
 }
 
 // Route is what the deployment inventory resolved for this request: which
@@ -222,13 +230,21 @@ type ToolCallDelta struct {
 // registration, so a typo cannot produce a provider that serves requests under
 // one name and reports usage under another.
 type Registry struct {
-	mu       sync.RWMutex
-	adapters map[contract.ProviderSlug]Adapter
+	mu               sync.RWMutex
+	adapters         map[contract.ProviderSlug]Adapter
+	bindings         map[contract.DeploymentID]CredentialBinding
+	bindingsRequired bool
+}
+
+type CredentialBinding struct {
+	DeploymentID contract.DeploymentID
+	Provider     contract.ProviderSlug
+	KeyID        string
 }
 
 // NewRegistry builds a registry, refusing duplicates and invalid slugs.
 func NewRegistry(adapters ...Adapter) (*Registry, error) {
-	registry := &Registry{adapters: make(map[contract.ProviderSlug]Adapter, len(adapters))}
+	registry := &Registry{adapters: make(map[contract.ProviderSlug]Adapter, len(adapters)), bindings: make(map[contract.DeploymentID]CredentialBinding)}
 	for _, adapter := range adapters {
 		slug := adapter.Provider()
 		if !slug.Valid() {
@@ -240,6 +256,67 @@ func NewRegistry(adapters ...Adapter) (*Registry, error) {
 		registry.adapters[slug] = adapter
 	}
 	return registry, nil
+}
+
+// ResolveExecution returns an adapter and its exact platform credential view
+// from one registry generation. One read lock prevents reload from pairing an
+// old adapter with bindings from a different generation.
+func (r *Registry) ResolveExecution(deploymentID contract.DeploymentID, slug contract.ProviderSlug, platform bool) (Adapter, *KeyPool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	adapter, ok := r.adapters[slug]
+	if !ok {
+		return nil, nil, fmt.Errorf("provider: no adapter for %s", slug)
+	}
+	if !platform || !r.bindingsRequired {
+		return adapter, nil, nil
+	}
+	binding, ok := r.bindings[deploymentID]
+	if !ok || binding.Provider != slug {
+		return nil, nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s", deploymentID, slug)
+	}
+	source, ok := adapter.(PlatformCredentialSource)
+	if !ok {
+		return nil, nil, fmt.Errorf("provider: adapter for %s has no platform credential source", slug)
+	}
+	pool, err := source.PlatformCredentials().Bind(binding.KeyID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return adapter, pool, nil
+}
+
+// ReplaceGeneration atomically swaps adapters and exact credential bindings.
+func (r *Registry) ReplaceGeneration(bindings []CredentialBinding, adapters ...Adapter) error {
+	replacement, err := NewRegistry(adapters...)
+	if err != nil {
+		return err
+	}
+	for _, binding := range bindings {
+		if binding.DeploymentID == "" || !binding.Provider.Valid() || binding.KeyID == "" {
+			return errors.New("provider: an exact deployment credential binding is invalid")
+		}
+		if _, duplicate := replacement.bindings[binding.DeploymentID]; duplicate {
+			return fmt.Errorf("provider: deployment %q has duplicate credential bindings", binding.DeploymentID)
+		}
+		adapter, ok := replacement.adapters[binding.Provider]
+		if !ok {
+			return fmt.Errorf("provider: binding for %q names unconfigured provider %s", binding.DeploymentID, binding.Provider)
+		}
+		source, ok := adapter.(PlatformCredentialSource)
+		if !ok {
+			return fmt.Errorf("provider: adapter for %s has no platform credential source", binding.Provider)
+		}
+		if _, err := source.PlatformCredentials().Bind(binding.KeyID); err != nil {
+			return err
+		}
+		replacement.bindings[binding.DeploymentID] = binding
+	}
+	replacement.bindingsRequired = true
+	r.mu.Lock()
+	r.adapters, r.bindings, r.bindingsRequired = replacement.adapters, replacement.bindings, replacement.bindingsRequired
+	r.mu.Unlock()
+	return nil
 }
 
 // Lookup returns the adapter serving a provider slug.

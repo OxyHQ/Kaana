@@ -32,6 +32,20 @@ jobs:
   go:
     name: build, vet, lint, test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: kaana-ci-password
+          POSTGRES_DB: kaana_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kaana_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +53,18 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: provision the credential database roles
+        env:
+          PGPASSWORD: kaana-ci-password
+        run: |
+          psql --host 127.0.0.1 --username postgres --dbname kaana_test --set ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE kaana_runtime NOLOGIN;
+          CREATE ROLE kaana_migrator NOLOGIN;
+          CREATE ROLE kaana_credential_admin NOLOGIN;
+          CREATE ROLE kaana_customer_credential_control NOLOGIN;
+          CREATE ROLE kaana_platform_credential_control NOLOGIN;
+          SQL
 
       - name: gofmt
         # `gofmt -l` prints unformatted files and exits 0 either way, so the
@@ -60,6 +86,11 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.13.2
+
+      - name: deployment binding PostgreSQL integration
+        env:
+          KAANA_POSTGRES_TEST_URL: postgres://postgres:kaana-ci-password@127.0.0.1:5432/kaana_test?sslmode=disable
+        run: go test -race -count=1 -run '^TestDeploymentBindingPostgresLifecycle$' ./internal/credentialstore
 
       - name: go test
         # -race because the data plane is concurrent by nature: a stream, a
