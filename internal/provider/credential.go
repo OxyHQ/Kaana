@@ -83,11 +83,9 @@ const (
 	// CredentialRejected means the provider refused this credential: revoked,
 	// invalid, or lacking access somebody has to grant it.
 	//
-	// It retires the key and does NOT move the request. If one key is refused,
-	// the likeliest explanations are an operator error and a provider-side auth
-	// failure — and under the second, every remaining key is refused
-	// identically, so walking the pool multiplies one failure into N upstream
-	// calls and retires the whole pool on a blip.
+	// It retires the exact key and moves the request to the next one. Authentication
+	// is a property of the credential that was sent, not evidence about its
+	// neighbours; the request-scoped attempt set bounds this to one call per key.
 	CredentialRejected CredentialVerdict = "rejected"
 	// CredentialRequestFault means the request is what was refused. No key can
 	// fix it, so it retires nothing and is retried nowhere: the next credential
@@ -828,7 +826,9 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 
 // KeyHealth is one credential's state, with nothing derived from its secret.
 type KeyHealth struct {
-	Position int `json:"position"`
+	// KeyID is the immutable opaque PostgreSQL identity an operator can act on.
+	KeyID    string `json:"keyId"`
+	Position int    `json:"position"`
 	// State is `usable`, or the KeyRetirement that took it out.
 	State string `json:"state"`
 	// RetiredUntil is when it returns, present only while it is out.
@@ -853,7 +853,7 @@ func (p *KeyPool) Projection(at time.Time) KeyPoolHealth {
 
 	health := KeyPoolHealth{Declared: len(p.keys), Keys: make([]KeyHealth, 0, len(p.keys))}
 	for _, key := range p.keys {
-		projected := KeyHealth{Position: key.position, State: "usable"}
+		projected := KeyHealth{KeyID: key.keyID, Position: key.position, State: "usable"}
 		if key.retiredUntil.After(at) {
 			projected.State = string(key.reason)
 			retiredUntil := contract.NewTimestamp(key.retiredUntil)

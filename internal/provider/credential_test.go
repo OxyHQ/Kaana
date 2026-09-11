@@ -309,6 +309,9 @@ func TestARejectedCredentialContinuesWithTheNextExactProviderKey(t *testing.T) {
 	if projection.Usable != 1 || projection.Keys[0].State != string(KeyRejected) || projection.Keys[1].State != "usable" {
 		t.Fatalf("pool health after rotation = %+v", projection)
 	}
+	if projection.Keys[0].KeyID != "invalid-key" || projection.Keys[1].KeyID != "working-key" {
+		t.Fatalf("pool health key identities = %+v", projection.Keys)
+	}
 }
 
 func TestAllRejectedCredentialsAreTriedOnceAndReturnTheLastProviderRefusal(t *testing.T) {

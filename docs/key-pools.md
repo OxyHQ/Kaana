@@ -38,17 +38,14 @@ status:
 |---|---|---|
 | `healthy` | the failure says nothing about the key — a timeout, a network failure, a provider 5xx, a throttle | the key stays; the request does not move |
 | `exhausted` | the provider reported that this key's account has nothing left | the key is retired **and the request moves to the next key** |
-| `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the key is retired and the request does **not** move |
+| `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the key is retired **and the request moves to the next key** |
 | `request_fault` | the request is what was refused | nothing is retired and nothing is retried |
 
-**An exhausted key rotates and a refused one does not**, and the asymmetry is
-the point. Exhaustion is expected and benign: the next key is a different
-account and will very likely serve the request. A refused credential is a
-configuration fault or a provider-side auth failure, and under the second every
-remaining key is refused identically — so walking the pool would multiply one
-failure into a call per key AND retire the whole pool on a blip. The two are a
-matched pair in the conformance suite: a build that never rotates fails one, a
-build that always rotates fails the other.
+**An exhausted or refused key rotates; a request fault does not.** Exhaustion
+means the next account may still have capacity. Rejection is a fact about the
+exact credential that was sent, not evidence about its neighbours, so each key
+is attempted at most once. A request fault would be reproduced by every key and
+is retried nowhere.
 
 **A request fault is retried nowhere.** The next credential would be refused
 identically, so a rotation turns one customer error into several upstream calls
@@ -266,10 +263,10 @@ change to.
   provider's declared mapping says means remaining credits, reading zero.
   `unknown` is not `exhausted`, `unavailable` is not `exhausted`, and every
   failure nobody classified leaves the key exactly as it was.
-- **An exhausted key rotates the request to the next one; a REFUSED key does
-  not.** Both directions are conformance checks, and they are a matched pair.
-- **A request the PROVIDER refused is retried on nothing.** The next credential
-  would be refused identically.
+- **An exhausted or REFUSED key rotates the request to the next one.** The
+  request-scoped attempt set bounds the walk to one attempt per exact key.
+- **A request fault is retried on nothing.** The next credential would be
+  refused identically.
 - **The verdict is read from the code the ADAPTER chose, never from a status.**
   `CredentialVerdictFor` is the one function, as `AttributableCategory` is for
   the deployment; the two answer different questions and disagree on purpose.
