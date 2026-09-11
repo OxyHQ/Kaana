@@ -65,9 +65,12 @@ jobs:
           network=$(jq -ec '.networkConfiguration' <<<"$service")
           live_td=$(jq -er '.taskDefinition' <<<"$service")
           base=$(aws ecs describe-task-definition --task-definition "$live_td" --query taskDefinition --output json)
-          jq --arg image "$repository@$DIGEST" '
+          jq --arg image "$repository@$DIGEST" --arg lifetime "${HOLD_MINUTES}m" '
             .family="oxy-kaana-candidate"
-            | .containerDefinitions |= map(if .name == "kaana" then .image=$image else . end)
+            | .containerDefinitions |= map(if .name == "kaana" then
+                .image=$image
+                | .environment = (((.environment // []) | map(select(.name != "KAANA_CANDIDATE_MAX_LIFETIME"))) + [{name:"KAANA_CANDIDATE_MAX_LIFETIME",value:$lifetime}])
+              else . end)
             | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy,.deregisteredAt)
           ' <<<"$base" >/tmp/candidate-task.json
           candidate_td=$(aws ecs register-task-definition --cli-input-json file:///tmp/candidate-task.json \

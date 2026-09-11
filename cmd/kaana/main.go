@@ -246,7 +246,18 @@ func run(logger *slog.Logger) error {
 		"costMeasured", costs != nil,
 	)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	lifetimeContext := context.Background()
+	cancelLifetime := func() {}
+	if rawLifetime := strings.TrimSpace(os.Getenv("KAANA_CANDIDATE_MAX_LIFETIME")); rawLifetime != "" {
+		lifetime, parseErr := time.ParseDuration(rawLifetime)
+		if parseErr != nil || lifetime < 10*time.Minute || lifetime > 20*time.Minute {
+			return errors.New("KAANA_CANDIDATE_MAX_LIFETIME must be between 10m and 20m")
+		}
+		lifetimeContext, cancelLifetime = context.WithTimeout(context.Background(), lifetime)
+		logger.Info("isolated candidate lifetime armed", "lifetime", lifetime)
+	}
+	defer cancelLifetime()
+	ctx, stop := signal.NotifyContext(lifetimeContext, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,

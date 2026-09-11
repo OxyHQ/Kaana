@@ -98,6 +98,7 @@ func TestCandidateCanaryIsIsolatedBoundedAndAlwaysCleanedUp(t *testing.T) {
 		"aws ecs wait tasks-stopped",
 		"aws ecs deregister-task-definition",
 		"OxyOperation,value=KaanaCandidateCanary",
+		"KAANA_CANDIDATE_MAX_LIFETIME",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("candidate workflow lost boundary %q", required)
