@@ -1,0 +1,100 @@
+name: Hold isolated Kaana candidate for Oxy signed canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_image_digest:
+        description: Exact reviewed Kaana image digest
+        required: true
+        type: string
+      candidate_source_commit:
+        description: Exact main commit tagged to that digest
+        required: true
+        type: string
+      expected_snapshot_id:
+        description: Exact reviewed production inventory snapshot
+        required: true
+        type: string
+      hold_minutes:
+        description: Bounded window for the separate Oxy signed canary
+        required: true
+        type: choice
+        default: '15'
+        options: ['10', '15', '20']
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: kaana-isolated-candidate-canary
+  cancel-in-progress: false
+
+jobs:
+  hold:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::237343248947:role/oxy-kaana-github-deploy
+          aws-region: us-west-2
+      - name: Launch exact candidate, attest it, then always clean it up
+        env:
+          DIGEST: ${{ inputs.candidate_image_digest }}
+          SOURCE: ${{ inputs.candidate_source_commit }}
+          SNAPSHOT: ${{ inputs.expected_snapshot_id }}
+          HOLD_MINUTES: ${{ inputs.hold_minutes }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || [[ ! "$SOURCE" =~ ^[a-f0-9]{40}$ ]] ||
+             [[ ! "$SNAPSHOT" =~ ^[A-Za-z0-9._-]{1,256}$ ]] || [[ ! "$HOLD_MINUTES" =~ ^(10|15|20)$ ]]; then
+            echo '::error::candidate identity inputs are not exact'
+            exit 64
+          fi
+          repository=237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana
+          source_digest=$(aws ecr describe-images --repository-name oxy/kaana \
+            --image-ids "imageTag=$SOURCE" --query 'imageDetails[0].imageDigest' --output text)
+          if [ "$source_digest" != "$DIGEST" ]; then
+            echo '::error::candidate source tag does not resolve to the reviewed digest'
+            exit 1
+          fi
+          service=$(aws ecs describe-services --cluster oxy-cluster --services kaana --query 'services[0]' --output json)
+          network=$(jq -ec '.networkConfiguration' <<<"$service")
+          live_td=$(jq -er '.taskDefinition' <<<"$service")
+          base=$(aws ecs describe-task-definition --task-definition "$live_td" --query taskDefinition --output json)
+          jq --arg image "$repository@$DIGEST" '
+            .family="oxy-kaana-candidate"
+            | .containerDefinitions |= map(if .name == "kaana" then .image=$image else . end)
+            | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy,.deregisteredAt)
+          ' <<<"$base" >/tmp/candidate-task.json
+          candidate_td=$(aws ecs register-task-definition --cli-input-json file:///tmp/candidate-task.json \
+            --query taskDefinition.taskDefinitionArn --output text)
+          candidate_task=''
+          cleanup() {
+            if [ -n "$candidate_task" ]; then
+              aws ecs stop-task --cluster oxy-cluster --task "$candidate_task" --reason 'isolated candidate canary window closed' >/dev/null 2>&1 || true
+              aws ecs wait tasks-stopped --cluster oxy-cluster --tasks "$candidate_task" >/dev/null 2>&1 || true
+            fi
+            aws ecs deregister-task-definition --task-definition "$candidate_td" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          run=$(aws ecs run-task --cluster oxy-cluster --task-definition "$candidate_td" --count 1 \
+            --launch-type FARGATE --network-configuration "$network" \
+            --tags key=OxyOperation,value=KaanaCandidateCanary --output json)
+          [ "$(jq '.failures|length' <<<"$run")" = 0 ] || { jq '.failures' <<<"$run"; exit 1; }
+          candidate_task=$(jq -er '.tasks[0].taskArn' <<<"$run")
+          aws ecs wait tasks-running --cluster oxy-cluster --tasks "$candidate_task"
+          observed=$(aws ecs describe-tasks --cluster oxy-cluster --tasks "$candidate_task" --query 'tasks[0]' --output json)
+          private_ip=$(jq -er '[.attachments[].details[]|select(.name=="privateIPv4Address")|.value]|unique|if length==1 then .[0] else error("private IP is not singular") end' <<<"$observed")
+          observed_digest=$(jq -er '.containers[]|select(.name=="kaana")|.imageDigest' <<<"$observed")
+          [ "$observed_digest" = "$DIGEST" ] || { echo '::error::running candidate digest differs'; exit 1; }
+          echo "candidateTaskArn=$candidate_task"
+          echo "candidateTaskDefinitionArn=$candidate_td"
+          echo "candidateImageDigest=$observed_digest"
+          echo "candidatePrivateOrigin=http://$private_ip:8080"
+          echo "expectedSnapshotId=$SNAPSHOT"
+          echo "Run OxyHQServices / Kaana signed production canary with these exact values before this ${HOLD_MINUTES}-minute window closes."
+          sleep "$((HOLD_MINUTES * 60))"

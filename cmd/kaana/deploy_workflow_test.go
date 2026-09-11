@@ -80,6 +80,34 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 	}
 }
 
+func TestCandidateCanaryIsIsolatedBoundedAndAlwaysCleanedUp(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../../.github/workflows/candidate-canary.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{
+		"if: github.ref == 'refs/heads/main'",
+		"oxy-kaana-candidate",
+		`source_digest" != "$DIGEST`,
+		"aws ecs wait tasks-running",
+		"privateIPv4Address",
+		`observed_digest" = "$DIGEST`,
+		"trap cleanup EXIT",
+		"aws ecs stop-task",
+		"aws ecs wait tasks-stopped",
+		"aws ecs deregister-task-definition",
+		"OxyOperation,value=KaanaCandidateCanary",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("candidate workflow lost boundary %q", required)
+		}
+	}
+	if strings.Contains(workflow, "aws ecs update-service") || strings.Contains(workflow, "assignPublicIp: ENABLED") {
+		t.Fatal("candidate workflow can change serving traffic or request a public address")
+	}
+}
+
 func TestPublisherDeployCarriesOnlyTheReviewedDiscoveryCredentialIDs(t *testing.T) {
 	workflowBytes, err := os.ReadFile("../../.github/workflows/deploy-aws.yml")
 	if err != nil {
