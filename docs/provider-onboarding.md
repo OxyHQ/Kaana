@@ -39,6 +39,7 @@ credential only at send time.
 
 | Provider | OpenAI-compatible base URL | Chat endpoint | Account model discovery | Model identity status | Current Kaana implementation |
 |---|---|---|---|---|---|
+| OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | Authenticated `GET /models`, OpenAI list shape | Four current flagship text ids are reviewed; the shorter `gpt-5.6` alias moves and specialized media models require other transports/contracts | Built-in `openaicompat` serving and authenticated discovery. Only `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` can currently publish direct deployments. |
 | Mistral | `https://api.mistral.ai/v1` | `POST /chat/completions` | `GET /models`; response includes `capabilities.completion_chat` | Fixed GA ids are available; `*-latest` and major aliases move; `labs-*` may update silently | Built-in `openaicompat` serving; publisher filters for chat capability; five fixed ids are attributed. No live credential conformance has been recorded. |
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `GET /models`, OpenAI list shape | Current direct ids are moving aliases; vision id is experimental | Built-in `openaicompat` serving and generic discovery. Direct attribution is deliberately absent, so discovery cannot emit a direct DeepSeek deployment yet. |
 | SambaNova | `https://api.sambanova.ai/v1` | `POST /chat/completions` | `GET /models`; includes context, max output and pricing metadata | Four production ids are allowed; `DeepSeek-V3.2` is preview | Built-in `openaicompat` serving and generic discovery; four production ids are attributed. Publisher currently consumes only ids, not SambaNova's richer metadata. No live credential conformance has been recorded. |
@@ -58,6 +59,31 @@ types, optional fields, streaming edge cases or usage semantics have passed a
 real provider call. Before production enablement, each provider still needs a
 scrubbed conformance fixture captured from its own API and registered in the
 adapter conformance suite.
+
+## OpenAI
+
+OpenAI documents `https://api.openai.com/v1`, bearer authentication and the
+authenticated `GET /v1/models` account catalogue. The current flagship model
+pages name four exact text-output ids that support Chat Completions, streaming
+and function calling: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra` and
+`gpt-5.6-luna`.[^openai-models][^openai-gpt6][^openai-sol][^openai-terra][^openai-luna]
+
+Kaana status:
+
+- The existing `openai_models` discovery profile reads only this credential's
+  authenticated catalogue. Attribution is therefore an allow-list, not a claim
+  that an uncharged or lower-tier account can invoke every reviewed model.
+- Only the four exact flagship ids above are attributed. The shorter `gpt-5.6`
+  alias, ChatGPT-only models and specialized media models remain absent.
+- Realtime, Live, translation and live-transcription models use sessionful
+  WebRTC/WebSocket/SIP or specialized realtime endpoints and events. Audio
+  Chat Completions additionally produces audio output. Kaana's current
+  request/stream contract exposes neither a realtime session nor an audio-output
+  event, so publishing those rows would advertise routes the adapter cannot
+  faithfully execute.[^openai-realtime][^openai-audio]
+- A successful catalogue read is not a paid-account balance check. The new
+  OpenAI credential remains unavailable to economic routing until Oxy records
+  verified usable balance.
 
 ## CheaperInference
 
@@ -613,6 +639,13 @@ green:
 [^chutes-tools]: [Chutes agents and tools](https://chutes.ai/docs/guides/agents-and-tools)
 [^ovh-tools]: [OVHcloud AI Endpoints function calling](https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-function-calling)
 [^ovh-catalogue]: [OVHcloud AI Endpoints Catalog API](https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-catalog-api)
+[^openai-models]: [OpenAI model catalogue](https://developers.openai.com/api/docs/models/all)
+[^openai-gpt6]: [OpenAI GPT-6 Astra model](https://developers.openai.com/api/docs/models/gpt-6-astra)
+[^openai-sol]: [OpenAI GPT-5.6 Sol model](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
+[^openai-terra]: [OpenAI GPT-5.6 Terra model](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+[^openai-luna]: [OpenAI GPT-5.6 Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+[^openai-realtime]: [OpenAI Realtime API](https://developers.openai.com/api/docs/guides/realtime)
+[^openai-audio]: [OpenAI GPT-Audio-1.5 model](https://developers.openai.com/api/docs/models/gpt-audio-1.5)
 [^hf-router]: [Hugging Face Inference Providers routing](https://huggingface.co/docs/inference-providers/en/index)
 [^kilo-gateway]: [Kilo AI Gateway model routing](https://kilo.ai/docs/gateway/models-and-providers)
 [^llm7-models]: [LLM7 model selectors](https://docs.llm7.io/guides/models)
