@@ -46,9 +46,21 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 	between := workflow[build:deploy]
 	if strings.Contains(between, "KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE") ||
 		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE") ||
-		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE") ||
-		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE") || strings.Contains(between, "inputs.mode") {
+		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE") || strings.Contains(between, "inputs.mode") {
 		t.Fatal("the immutable build is incorrectly hidden behind the deployment gate")
+	}
+	for _, preparationBoundary := range []string{
+		"Prepare credential schema 0013 without changing serving traffic",
+		"vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true'",
+		`command:["migrate"]`,
+		"schema 0013 prepared with $IMAGE; serving ECS services were not updated",
+	} {
+		if !strings.Contains(between, preparationBoundary) {
+			t.Errorf("schema-only preparation lost boundary %q", preparationBoundary)
+		}
+	}
+	if strings.Contains(between, "aws ecs update-service") {
+		t.Fatal("schema preparation can change serving traffic")
 	}
 	for _, bypass := range []string{
 		"KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE != 'false'",

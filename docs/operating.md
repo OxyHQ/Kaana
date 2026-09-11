@@ -309,11 +309,14 @@ key.
 
 Roll out in this order:
 
-1. Build the reviewed main image without deploying it. Pin that digest and
-   source commit in `.github/credential-admin-operations.json` through review.
-2. Run the `migrate` credential-administration operation and verify migration
-   `0013` was applied. This changes schema only; leave the repository cutover
-   variable unset.
+1. Push the reviewed commit to main. The release workflow builds its immutable
+   candidate and, while the 0013 completeness variable is false or absent,
+   runs that candidate's migrator as a one-shot. It does not call
+   `update-service`, and completes successfully after schema preparation.
+   Verify the migration task's clean exit. Pin that candidate digest and source
+   commit in `.github/credential-admin-operations.json` through review before
+   using its new administration commands.
+2. Leave the repository cutover variable unset while bindings are populated.
 3. Obtain the exact deployment IDs and provider slugs from the current signed
    production inventory and the exact active key IDs from the credential-admin
    readback. The mapping must come from Oxy's authoritative deployment
