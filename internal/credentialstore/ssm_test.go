@@ -69,14 +69,24 @@ func TestSSMImportRequestsDecryptionAndReturnsNoMetadata(t *testing.T) {
 }
 
 func TestCompletedTemporarySSMHandoffsAreRefused(t *testing.T) {
-	for _, provider := range []string{"cheaperinference", "mistral", "cohere", "cohere-2", "openai"} {
+	parameters := map[string]Scope{
+		"cheaperinference": {Provider: "cheaperinference", KeyID: "e97a886e-ab58-4492-b250-84a944e44276"},
+		"mistral":          {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
+		"cohere":           {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
+		"cohere-2":         {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
+		"openai":           {Provider: "openai", KeyID: "610adcc8-4a29-4ab1-a1c8-fca191a1fadd"},
+	}
+	for provider, scope := range parameters {
 		parameter := "/oxy/kaana/provider-key-handoff/" + "20260911/" + provider
+		if _, allowed := reviewedProviderCredentialHandoff(parameter); allowed {
+			t.Fatalf("completed temporary handoff %q remains allow-listed", provider)
+		}
 		client := &fakeSSMClient{value: "provider-secret"}
 		source, err := NewSSMSource(client)
 		if err != nil {
 			t.Fatalf("NewSSMSource: %v", err)
 		}
-		if _, err := source.ReadSecureString(context.Background(), parameter, Scope{}); err == nil {
+		if _, err := source.ReadSecureString(context.Background(), parameter, scope); err == nil {
 			t.Fatalf("completed temporary handoff %q was accepted", provider)
 		}
 		if client.input != nil {
