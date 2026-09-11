@@ -1,3 +1,5 @@
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE provider_credential_runtime_state (
     provider_slug TEXT NOT NULL,
     key_id TEXT NOT NULL,
@@ -34,7 +36,7 @@ CREATE INDEX provider_credential_attempt_events_key_time_idx
 CREATE FUNCTION kaana_claim_provider_credential_recovery(
     p_provider_slug TEXT, p_key_id TEXT, p_at TIMESTAMPTZ, p_lease_until TIMESTAMPTZ
 ) RETURNS TEXT
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $body$
 DECLARE changed_rows INTEGER;
 BEGIN
@@ -63,9 +65,9 @@ CREATE FUNCTION kaana_record_provider_credential_attempt(
     p_provider_slug TEXT, p_key_id TEXT, p_outcome TEXT, p_evidence_source TEXT,
     p_occurred_at TIMESTAMPTZ, p_retired_until TIMESTAMPTZ
 ) RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $body$
-DECLARE existing provider_credential_attempt_events%ROWTYPE;
+DECLARE existing public.provider_credential_attempt_events%ROWTYPE;
 BEGIN
     IF p_request_id IS NULL OR length(p_request_id) NOT BETWEEN 1 AND 256
        OR p_deployment_id IS NULL OR length(p_deployment_id) NOT BETWEEN 1 AND 256
@@ -123,7 +125,7 @@ END
 $body$;
 
 CREATE FUNCTION kaana_reset_provider_credential_runtime() RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $body$
 BEGIN
     IF TG_OP = 'UPDATE' AND OLD.encrypted_secret IS DISTINCT FROM NEW.encrypted_secret THEN

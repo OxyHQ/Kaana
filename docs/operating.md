@@ -196,6 +196,17 @@ the joined state. The runtime role receives only `EXECUTE` on the two
 then deploy one task and send a real inference request through a deliberately
 retired test key: exactly one task may hold the recovery lease and every
 credential tried must produce one event with opaque IDs only.
+The migration sets a five-second local lock timeout. Creating the trigger takes
+a brief metadata lock on `provider_credentials`, but performs no table rewrite
+or historical-row scan; contention fails and rolls the migration transaction
+back instead of waiting behind production traffic.
+
+`KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE` is a literal repository
+deployment gate. Leave it absent or not `true` while the release image is built
+and pinned into `.github/credential-admin-operations.json`. Run the pinned
+`migrate` operation from `main`, verify ledger version `0011`, then set the gate
+to exact `true` and dispatch `deploy-aws.yml` with `mode=deploy`. A merge cannot
+therefore restart serving tasks against a schema that has not been applied.
 
 There is no destructive down migration. Rolling the application back is unsafe
 while a credential is retired because an older binary ignores the durable
