@@ -320,11 +320,11 @@ func TestPutRequiresOpaqueIDsAndLegacyImportIsAnExactException(t *testing.T) {
 		t.Fatal("a new semantic key id was accepted")
 	}
 	input.KeyID = "legacy-alia-20260901"
-	if err := store.ImportSSMHandoff(context.Background(), input, []byte("secret"), "operator:test"); err != nil {
+	if err := store.ImportLegacy(context.Background(), input, []byte("secret"), "operator:test"); err != nil {
 		t.Fatalf("exact historical import: %v", err)
 	}
 	input.KeyID = "another-legacy-name"
-	if err := store.ImportSSMHandoff(context.Background(), input, []byte("secret"), "operator:test"); err == nil {
+	if err := store.ImportLegacy(context.Background(), input, []byte("secret"), "operator:test"); err == nil {
 		t.Fatal("an unreviewed legacy identity was accepted")
 	}
 }

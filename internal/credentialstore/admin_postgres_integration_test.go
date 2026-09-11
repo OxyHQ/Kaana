@@ -297,7 +297,7 @@ func putProviderCredential(t *testing.T, ctx context.Context, store *Store, prov
 	if validOpaqueCredentialID(keyID) {
 		err = store.Put(ctx, input, plaintext, "operator:integration")
 	} else {
-		err = store.ImportSSMHandoff(ctx, input, plaintext, "operator:integration")
+		err = store.ImportLegacy(ctx, input, plaintext, "operator:integration")
 	}
 	if err != nil {
 		t.Fatalf("put %s/%s: %v", providerSlug, keyID, err)

@@ -122,7 +122,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		flags.SetOutput(io.Discard)
 		providerSlug := flags.String("provider", "", "provider slug")
 		keyID := flags.String("key-id", "", "exact opaque key id")
-		parameter := flags.String("parameter", "", "exact reviewed SecureString handoff path")
+		parameter := flags.String("parameter", "", "legacy SecureString path")
 		class := flags.String("class", "", "free, paid, or empty")
 		budget := flags.String("budget-usd", "", "optional budget metadata")
 		position := flags.Int("position", 0, "1-based pool order")
@@ -155,7 +155,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 			BudgetUSD: budgetValue,
 			Position:  *position,
 		}
-		if err := store.ImportSSMHandoff(ctx, input, secret, mutationActor); err != nil {
+		if err := store.ImportLegacy(ctx, input, secret, mutationActor); err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(stdout, "imported %s/%s\n", input.Provider, input.KeyID)

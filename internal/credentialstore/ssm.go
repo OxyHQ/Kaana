@@ -25,18 +25,6 @@ var legacyProviderParameters = map[string]Scope{
 	"/oxy/relay/RELAY_PROVIDER_XAI_API_KEY":        {Provider: "xai", KeyID: "relay-xai-20260902"},
 }
 
-// temporaryProviderCredentialHandoffs is a closed, removable bridge for the
-// 2026-09-11 operator handoff. It is deliberately separate from the frozen
-// legacy allow-list: deleting these entries after verification removes the
-// capability without broadening historical migration authority.
-var temporaryProviderCredentialHandoffs = map[string]Scope{
-	"/oxy/kaana/provider-key-handoff/20260911/cheaperinference": {Provider: "cheaperinference", KeyID: "e97a886e-ab58-4492-b250-84a944e44276"},
-	"/oxy/kaana/provider-key-handoff/20260911/mistral":          {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
-	"/oxy/kaana/provider-key-handoff/20260911/cohere":           {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
-	"/oxy/kaana/provider-key-handoff/20260911/cohere-2":         {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
-	"/oxy/kaana/provider-key-handoff/20260911/openai":           {Provider: "openai", KeyID: "610adcc8-4a29-4ab1-a1c8-fca191a1fadd"},
-}
-
 type ssmClient interface {
 	GetParameter(context.Context, *ssm.GetParameterInput, ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
 }
@@ -113,18 +101,6 @@ func legacyProviderCredentialScope(scope Scope) bool {
 }
 
 func reviewedProviderCredentialHandoff(name string) (Scope, bool) {
-	if scope, ok := temporaryProviderCredentialHandoffs[name]; ok {
-		return scope, true
-	}
 	scope, ok := legacyProviderParameters[name]
 	return scope, ok
-}
-
-func reviewedProviderCredentialHandoffScope(scope Scope) bool {
-	for _, expected := range temporaryProviderCredentialHandoffs {
-		if scope == expected {
-			return true
-		}
-	}
-	return legacyProviderCredentialScope(scope)
 }
