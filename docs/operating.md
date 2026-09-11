@@ -189,6 +189,38 @@ The migration is idempotent. Runtime never applies DDL at startup; granting a
 serving process schema authority to make deployment convenient would make every
 request-serving task a migration principal.
 
+Migration `0011` adds credential runtime state, cross-replica recovery leases
+and append-only attempt evidence. Apply it before deploying a binary that reads
+the joined state. The runtime role receives only `EXECUTE` on the two
+`SECURITY DEFINER` functions; it has no table DML. Verify the migration ledger,
+then deploy the services and send a real inference request through a reviewed
+provider/model route: exactly one task may hold a recovery lease and every
+credential tried must produce one event with opaque IDs only. The current ECS
+workflow performs a monitored rolling service update; it does not provide an
+isolated one-task canary, so do not describe the post-rollout check as one.
+The migration sets a five-second local lock timeout. Creating the trigger takes
+a brief metadata lock on `provider_credentials`, but performs no table rewrite
+or historical-row scan; contention fails and rolls the migration transaction
+back instead of waiting behind production traffic.
+
+`KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE` is a literal repository
+deployment gate. Leave it absent or not `true` while the release image is built
+and pinned by digest and source commit into
+`.github/credential-admin-operations.json` in a second reviewed main commit.
+Run `credential-admin.yml` with operation `migrate` from `main`, require its
+fixed success output (which includes the migration-ledger checksum check), then
+set the gate to exact `true` and dispatch `deploy-aws.yml` with `mode=deploy`.
+A merge cannot therefore restart serving tasks against a schema that has not
+been applied. `bootstrap-platform-control` is not part of this rollout: using it
+would rotate the control login while solving no migration prerequisite.
+
+There is no destructive down migration. Rolling the application back is unsafe
+while a credential is retired because an older binary ignores the durable
+state. Keep the `0011` schema, stop the rollout, and either restore the current
+binary or disable the affected credential rows before starting an older one.
+The tables are additive and inert to old administration code; never drop them
+while a current task may still be recording an attempt.
+
 Platform credential control is bootstrapped by the reviewed
 `bootstrap-platform-control` operation in `credential-admin.yml`. Its immutable
 migrator task receives two exact SecureStrings from its execution role:

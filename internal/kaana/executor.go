@@ -310,6 +310,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			_ = emit.finishWithError(failure)
 			return Result{Failure: failure}
 		}
+		call.RequestID = requestID
 
 		if abandoned != nil {
 			err := emit.routeSwitch(

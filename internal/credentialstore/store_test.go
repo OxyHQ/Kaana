@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
@@ -175,6 +176,24 @@ func TestLoadReturnsOrderedProviderPools(t *testing.T) {
 	}
 	if len(budgets) != 1 || budgets[0] != "openrouter/paid" {
 		t.Fatalf("budgets = %v", budgets)
+	}
+}
+
+func TestLoadHydratesExactCredentialRuntimeState(t *testing.T) {
+	until := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+	stored := row("groq", "exact-key", 1, provider.KeyClassFree, nil, "groq-secret")
+	stored.Runtime = provider.CredentialRuntimeState{Reason: provider.KeyRejected, RetiredUntil: until}
+	store, err := credentialstore.New(&fakeRepository{rows: []credentialstore.EncryptedCredential{stored}}, contextualCipher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pools, _, err := store.Load(context.Background(), []contract.ProviderSlug{"groq"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := pools["groq"][0].State
+	if got.Reason != provider.KeyRejected || !got.RetiredUntil.Equal(until) {
+		t.Fatalf("runtime state = %+v", got)
 	}
 }
 

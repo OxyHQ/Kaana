@@ -81,7 +81,10 @@ type Route struct {
 // builds the HTTP request, and nothing that could be logged, echoed into an
 // error or written to a usage record ever holds one.
 type Call struct {
-	Route Route
+	// RequestID and Route identify credential-attempt telemetry. Neither contains
+	// credential material.
+	RequestID contract.RequestID
+	Route     Route
 	// Method and URL are recorded so a failure can name the endpoint that
 	// failed without reconstructing it from adapter internals.
 	Method string

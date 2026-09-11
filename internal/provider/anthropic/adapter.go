@@ -267,7 +267,7 @@ func (a *Adapter) Health(ctx context.Context) provider.Health {
 	}
 
 	attempt := a.credentials.Begin()
-	key, leased := attempt.Next(now)
+	key, leased := attempt.NextProbe(now)
 	if !leased {
 		// Keys are declared and none of them can be used. There is nothing to
 		// probe with, and the cause is one an operator can act on.

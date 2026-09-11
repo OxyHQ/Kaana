@@ -23,6 +23,15 @@ document; `AGENTS.md` is the one-line index to them.
 
 ## The Oxy-facing surface
 
+Provider-key runtime evidence remains Kaana-owned: exact opaque key identity,
+upstream verdict, evidence source, observation time and recovery lease. Oxy may
+ingest that projection for scheduling, but owns funding class, promotional or
+prepaid allocation, balance, expiry, commercial-use policy and cross-provider
+ordering. Kaana does not infer those fields from a credential or turn its
+technical state table into a wallet. The shared contract must carry a
+versioned, opaque funding binding and freshness when that control-plane feature
+is introduced; it is not hardcoded into credential custody.
+
 ```
 POST /internal/v1/inference    signed envelope in, normalized event stream out
 GET  /internal/v1/health       signed; the customer-safe provider projection

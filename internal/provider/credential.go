@@ -83,9 +83,9 @@ const (
 	// CredentialRejected means the provider refused this credential: revoked,
 	// invalid, or lacking access somebody has to grant it.
 	//
-	// It retires the exact key and moves the request to the next one. Authentication
-	// is a property of the credential that was sent, not evidence about its
-	// neighbours; the request-scoped attempt set bounds this to one call per key.
+	// It retires the exact key and moves the request to the next one.
+	// Authentication is a property of the credential sent, not evidence about
+	// its neighbours; the attempt set still bounds this to one call per key.
 	CredentialRejected CredentialVerdict = "rejected"
 	// CredentialRequestFault means the request is what was refused. No key can
 	// fix it, so it retires nothing and is retried nowhere: the next credential
@@ -302,6 +302,8 @@ type Key struct {
 
 	secret        string
 	customerOwned bool
+	runtime       CredentialRuntime
+	recovery      bool
 }
 
 // Secret is the credential itself. Every call site is an adapter applying
@@ -348,7 +350,44 @@ type KeyDeclaration struct {
 	// Secret is the credential.
 	Secret string
 	// Class is what spending on it costs. See KeyClass.
-	Class KeyClass
+	Class   KeyClass
+	Runtime CredentialRuntime
+	State   CredentialRuntimeState
+}
+
+// CredentialRuntime is the durable coordination boundary shared by serving
+// replicas. It records only opaque identities and outcomes from real requests.
+type CredentialRuntime interface {
+	ClaimCredentialRecovery(context.Context, contract.ProviderSlug, string, time.Time, time.Time) (CredentialRecoveryDecision, error)
+	RecordCredentialAttempt(context.Context, CredentialAttempt) error
+}
+
+type CredentialRecoveryDecision string
+
+const (
+	CredentialRecoveryClaimed CredentialRecoveryDecision = "claimed"
+	CredentialRecoveryBusy    CredentialRecoveryDecision = "busy"
+	CredentialRecoveryUsable  CredentialRecoveryDecision = "usable"
+)
+
+type CredentialRuntimeState struct {
+	Reason       KeyRetirement
+	Evidence     string
+	ObservedAt   time.Time
+	RetiredUntil time.Time
+	LeaseUntil   time.Time
+}
+
+type CredentialAttempt struct {
+	RequestID    contract.RequestID
+	DeploymentID contract.DeploymentID
+	Index        int
+	Provider     contract.ProviderSlug
+	KeyID        string
+	Outcome      string
+	Evidence     string
+	OccurredAt   time.Time
+	RetiredUntil time.Time
 }
 
 // DeclareKeys turns a bare secret list into declarations, which is what the
@@ -405,6 +444,9 @@ type pooledKey struct {
 	// never left.
 	retiredUntil time.Time
 	reason       KeyRetirement
+	runtime      CredentialRuntime
+	evidence     string
+	observedAt   time.Time
 }
 
 // NewKeyPool builds a pool from the credentials declared for one provider.
@@ -505,10 +547,28 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 		default:
 			return nil, fmt.Errorf("provider: %s declares key %q with class %q; it is one of %q, %q, or unstated", slug, keyID, declaration.Class, KeyClassFree, KeyClassPaid)
 		}
+		switch declaration.State.Reason {
+		case "":
+			if !declaration.State.RetiredUntil.IsZero() || !declaration.State.LeaseUntil.IsZero() {
+				return nil, fmt.Errorf("provider: %s key %q has runtime times without a retirement", slug, keyID)
+			}
+		case KeyRejected, KeyExhausted:
+			if declaration.State.RetiredUntil.IsZero() {
+				return nil, fmt.Errorf("provider: %s key %q has a retirement without an expiry", slug, keyID)
+			}
+		default:
+			return nil, fmt.Errorf("provider: %s key %q has unknown runtime state %q", slug, keyID, declaration.State.Reason)
+		}
 
 		// Position is the operator's line, not the slot this key ends up in.
 		// Every error above and every message below names what they wrote.
-		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: secret}
+		retiredUntil := declaration.State.RetiredUntil
+		if declaration.State.LeaseUntil.After(retiredUntil) {
+			retiredUntil = declaration.State.LeaseUntil
+		}
+		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: secret,
+			reason: declaration.State.Reason, retiredUntil: retiredUntil, runtime: declaration.Runtime,
+			evidence: declaration.State.Evidence, observedAt: declaration.State.ObservedAt}
 		if declaration.Class == KeyClassFree {
 			free = append(free, key)
 			continue
@@ -556,7 +616,27 @@ func (p *KeyPool) Retire(key Key, reason KeyRetirement, at time.Time, until time
 		}
 		candidate.retiredUntil = until
 		candidate.reason = reason
+		candidate.evidence = "provider_error"
+		candidate.observedAt = at
 		return
+	}
+}
+
+func (p *KeyPool) recover(key Key) {
+	p.markUsable(key, "", time.Time{})
+}
+
+func (p *KeyPool) markUsable(key Key, evidence string, at time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, candidate := range p.keys {
+		if candidate.position == key.Position {
+			candidate.reason = ""
+			candidate.evidence = evidence
+			candidate.observedAt = at
+			candidate.retiredUntil = time.Time{}
+			return
+		}
 	}
 }
 
@@ -567,9 +647,27 @@ func (p *KeyPool) Retire(key Key, reason KeyRetirement, at time.Time, until time
 // learn about it from the refusal. Only QuotaExhausted does anything: healthy,
 // unavailable and unknown all leave the key exactly as it was.
 func (p *KeyPool) Observe(key Key, header http.Header, at time.Time) {
+	p.observe(key, header, at)
+}
+
+func (p *KeyPool) observe(key Key, header http.Header, at time.Time) (bool, time.Time) {
 	if observation := p.signals.Read(header); observation.State == QuotaExhausted {
 		p.Retire(key, KeyExhausted, at, observation.ResetAt)
+		p.mu.Lock()
+		for _, candidate := range p.keys {
+			if candidate.position == key.Position {
+				candidate.evidence = "quota_header"
+				break
+			}
+		}
+		p.mu.Unlock()
+		until := observation.ResetAt
+		if !until.After(at) {
+			until = at.Add(p.policy.Retirement)
+		}
+		return true, until
 	}
+	return false, time.Time{}
 }
 
 // NoUsableCredential is the failure for a request that cannot be sent at all,
@@ -640,6 +738,7 @@ type KeyAttempt struct {
 	// throttleRotations counts the rotations spent on a transient throttle,
 	// which retires nothing and would otherwise repeat on every request.
 	throttleRotations int
+	index             int
 }
 
 // Next leases the next usable credential this request has not already used.
@@ -650,6 +749,17 @@ type KeyAttempt struct {
 // spreading load over all of them arrives at every key being nearly spent at
 // once.
 func (a *KeyAttempt) Next(at time.Time) (Key, bool) {
+	return a.next(at, true)
+}
+
+// NextProbe leases only a credential that has never entered recovery. Health
+// checks must not consume the cross-replica half-open lease: recovery is proved
+// by one real inference request, not by a model-listing probe.
+func (a *KeyAttempt) NextProbe(at time.Time) (Key, bool) {
+	return a.next(at, false)
+}
+
+func (a *KeyAttempt) next(at time.Time, allowRecovery bool) (Key, bool) {
 	a.pool.mu.Lock()
 	defer a.pool.mu.Unlock()
 
@@ -660,6 +770,9 @@ func (a *KeyAttempt) Next(at time.Time) (Key, bool) {
 		if key.retiredUntil.After(at) {
 			continue
 		}
+		if key.reason != "" && !allowRecovery {
+			continue
+		}
 		a.tried[key.position] = true
 		return Key{
 			Position:      key.position,
@@ -667,6 +780,8 @@ func (a *KeyAttempt) Next(at time.Time) (Key, bool) {
 			Class:         key.class,
 			secret:        key.secret,
 			customerOwned: a.pool.customerOwned,
+			runtime:       key.runtime,
+			recovery:      key.reason != "",
 		}, true
 	}
 	return Key{}, false
@@ -758,21 +873,59 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// retired by an earlier one.
 			return nil, Key{}, pool.NoUsableCredential(now)
 		}
+		if key.recovery && key.runtime != nil {
+			decision, err := key.runtime.ClaimCredentialRecovery(ctx, pool.provider, key.ID, now, now.Add(time.Minute))
+			if err != nil {
+				return nil, key, fmt.Errorf("provider: claiming credential recovery: %w", err)
+			}
+			switch decision {
+			case CredentialRecoveryClaimed:
+			case CredentialRecoveryUsable:
+				pool.recover(key)
+				key.recovery = false
+			case CredentialRecoveryBusy:
+				continue
+			default:
+				return nil, key, fmt.Errorf("provider: credential recovery returned %q", decision)
+			}
+		}
 
+		attemptIndex := attempt.index
+		attempt.index++
 		response, err := sender.Send(ctx, call, key)
+		observedAt := time.Now()
 		if err != nil {
 			// A transport failure says nothing about the credential: delivery is
 			// uncertain and nobody returned a credential verdict. The key still
 			// names the attempted upstream expense for operator reconciliation.
-			return nil, key, sender.TransportFailure(ctx, err)
+			failure := sender.TransportFailure(ctx, err)
+			if recordErr := recordCredentialAttempt(ctx, call, key, attemptIndex, "transport_failure", "transport", observedAt, time.Time{}); recordErr != nil {
+				return nil, key, recordErr
+			}
+			return nil, key, failure
 		}
 
 		// Applied to every response, successful ones included: a proactive
 		// quota signal earns its place by skipping a key that is about to
 		// refuse, not by explaining a refusal that already happened.
-		pool.Observe(key, response.Header, now)
+		headerExhausted, headerRetiredUntil := pool.observe(key, response.Header, observedAt)
 
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			outcome, retiredUntil := "accepted", time.Time{}
+			if headerExhausted {
+				outcome, retiredUntil = "exhausted", headerRetiredUntil
+			}
+			evidence := "response_status"
+			if headerExhausted {
+				evidence = "quota_header"
+			}
+			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
+				_ = response.Body.Close()
+				return nil, key, err
+			}
+			if !headerExhausted {
+				pool.markUsable(key, evidence, observedAt)
+			}
 			return response, key, nil
 		}
 
@@ -783,7 +936,10 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// The provider reported that this key's account has nothing left.
 			// The next key is a different account, so the request moves and the
 			// customer never learns this happened.
-			pool.Retire(key, KeyExhausted, now, time.Time{})
+			pool.Retire(key, KeyExhausted, observedAt, time.Time{})
+			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, "exhausted", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement)); err != nil {
+				return nil, key, err
+			}
 			refused = failure
 			refusedKey = key
 
@@ -792,16 +948,35 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// next key in the same provider pool: authentication is a property
 			// of the key that was sent, not evidence about its neighbours. The
 			// request-scoped attempt set still bounds this to one call per key.
-			pool.Retire(key, KeyRejected, now, time.Time{})
+			pool.Retire(key, KeyRejected, observedAt, time.Time{})
+			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, "rejected", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement)); err != nil {
+				return nil, key, err
+			}
 			refused = failure
 			refusedKey = key
 
 		case CredentialRequestFault:
 			// The request is what was refused, and it would be refused
 			// identically by every other credential. Retried nowhere.
+			outcome, retiredUntil := attemptOutcome("request_fault", headerExhausted, headerRetiredUntil)
+			evidence := "provider_error"
+			if headerExhausted {
+				evidence = "quota_header"
+			}
+			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
+				return nil, key, err
+			}
 			return nil, key, failure
 
 		case CredentialHealthy:
+			outcome, retiredUntil := attemptOutcome("healthy_failure", headerExhausted, headerRetiredUntil)
+			evidence := "provider_error"
+			if headerExhausted {
+				evidence = "quota_header"
+			}
+			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
+				return nil, key, err
+			}
 			// The failure says nothing about this key, so nothing is retired.
 			// A throttle is the one case another key could survive, and only
 			// where the operator has stated the pool's keys sit on separate
@@ -820,19 +995,38 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 	}
 }
 
+func attemptOutcome(fallback string, headerExhausted bool, retiredUntil time.Time) (string, time.Time) {
+	if headerExhausted {
+		return "exhausted", retiredUntil
+	}
+	return fallback, time.Time{}
+}
+
+func recordCredentialAttempt(ctx context.Context, call *Call, key Key, index int, outcome, evidence string, at, retiredUntil time.Time) error {
+	if key.runtime == nil || call.RequestID == "" {
+		return nil
+	}
+	if err := key.runtime.RecordCredentialAttempt(ctx, CredentialAttempt{RequestID: call.RequestID, DeploymentID: call.Route.DeploymentID,
+		Index: index, Provider: call.Route.Provider, KeyID: key.ID, Outcome: outcome, Evidence: evidence, OccurredAt: at, RetiredUntil: retiredUntil}); err != nil {
+		return fmt.Errorf("provider: recording credential attempt: %w", err)
+	}
+	return nil
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Health projection                                                         */
 /* -------------------------------------------------------------------------- */
 
 // KeyHealth is one credential's state, with nothing derived from its secret.
 type KeyHealth struct {
-	// KeyID is the immutable opaque PostgreSQL identity an operator can act on.
 	KeyID    string `json:"keyId"`
 	Position int    `json:"position"`
 	// State is `usable`, or the KeyRetirement that took it out.
 	State string `json:"state"`
 	// RetiredUntil is when it returns, present only while it is out.
-	RetiredUntil *contract.Timestamp `json:"retiredUntil,omitempty"`
+	RetiredUntil   *contract.Timestamp `json:"retiredUntil,omitempty"`
+	EvidenceSource string              `json:"evidenceSource,omitempty"`
+	ObservedAt     *contract.Timestamp `json:"observedAt,omitempty"`
 }
 
 // KeyPoolHealth is the operator-facing projection of a pool.
@@ -854,6 +1048,11 @@ func (p *KeyPool) Projection(at time.Time) KeyPoolHealth {
 	health := KeyPoolHealth{Declared: len(p.keys), Keys: make([]KeyHealth, 0, len(p.keys))}
 	for _, key := range p.keys {
 		projected := KeyHealth{KeyID: key.keyID, Position: key.position, State: "usable"}
+		projected.EvidenceSource = key.evidence
+		if !key.observedAt.IsZero() {
+			observed := contract.NewTimestamp(key.observedAt)
+			projected.ObservedAt = &observed
+		}
 		if key.retiredUntil.After(at) {
 			projected.State = string(key.reason)
 			retiredUntil := contract.NewTimestamp(key.retiredUntil)
