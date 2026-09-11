@@ -1,15 +1,38 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
+
+type credentialWalkSender struct {
+	rejected map[string]bool
+	sent     []string
+}
+
+func (s *credentialWalkSender) Send(_ context.Context, _ *Call, key Key) (*http.Response, error) {
+	s.sent = append(s.sent, key.ID)
+	status := http.StatusOK
+	if s.rejected[key.ID] {
+		status = http.StatusUnauthorized
+	}
+	return &http.Response{StatusCode: status, Header: make(http.Header), Body: http.NoBody}, nil
+}
+
+func (s *credentialWalkSender) Refuse(response *http.Response, _ Key) error {
+	_ = response.Body.Close()
+	return upstreamFailure(contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication)
+}
+
+func (s *credentialWalkSender) TransportFailure(_ context.Context, err error) error { return err }
 
 const (
 	// The credentials below are test strings and nothing else. They avoid every
@@ -254,6 +277,68 @@ func TestARetiredKeyIsServedByTheNextOne(t *testing.T) {
 	}
 	if next.Secret() != secondCredential {
 		t.Error("the second lease returned the wrong credential")
+	}
+}
+
+func TestARejectedCredentialContinuesWithTheNextExactProviderKey(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "invalid-key", Secret: firstCredential},
+		{KeyID: "working-key", Secret: secondCredential},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("building the pool: %v", err)
+	}
+	sender := &credentialWalkSender{rejected: map[string]bool{"invalid-key": true}}
+
+	response, key, err := Walk(context.Background(), pool, &Call{}, sender)
+	if err != nil {
+		t.Fatalf("walking the pool: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := response.Body.Close(); err != nil {
+			t.Errorf("closing successful response: %v", err)
+		}
+	})
+	if key.ID != "working-key" {
+		t.Fatalf("served with key %q, expected the working key", key.ID)
+	}
+	if !slices.Equal(sender.sent, []string{"invalid-key", "working-key"}) {
+		t.Fatalf("attempted keys = %v", sender.sent)
+	}
+	projection := pool.Projection(time.Now())
+	if projection.Usable != 1 || projection.Keys[0].State != string(KeyRejected) || projection.Keys[1].State != "usable" {
+		t.Fatalf("pool health after rotation = %+v", projection)
+	}
+}
+
+func TestAllRejectedCredentialsAreTriedOnceAndReturnTheLastProviderRefusal(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "invalid-one", Secret: firstCredential},
+		{KeyID: "invalid-two", Secret: secondCredential},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("building the pool: %v", err)
+	}
+	sender := &credentialWalkSender{rejected: map[string]bool{"invalid-one": true, "invalid-two": true}}
+
+	response, key, err := Walk(context.Background(), pool, &Call{}, sender)
+	if response != nil {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("closing rejected response: %v", closeErr)
+		}
+	}
+	if err == nil {
+		t.Fatal("an entirely rejected pool returned success")
+	}
+	if key.ID != "invalid-two" {
+		t.Fatalf("failure attributed to key %q, expected the last attempted key", key.ID)
+	}
+	if !slices.Equal(sender.sent, []string{"invalid-one", "invalid-two"}) {
+		t.Fatalf("attempted keys = %v", sender.sent)
+	}
+	var upstream ErrUpstream
+	if !errors.As(err, &upstream) || upstream.Code != contract.CodeProviderCredentialInvalid {
+		t.Fatalf("last refusal = %T %v", err, err)
 	}
 }
 
