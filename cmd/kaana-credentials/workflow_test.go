@@ -51,6 +51,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"import-handoff-mistral":          {"import-ssm", "--provider", "mistral", "--key-id", "fcb72e20-6b68-418f-bf34-50b58e59744e", "--position", "1", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/mistral"},
 		"import-handoff-cohere":           {"import-ssm", "--provider", "cohere", "--key-id", "3574baf0-c7b8-4985-bc5f-94d29b72eafb", "--position", "1", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/cohere", "--class", "free"},
 		"import-handoff-cohere-2":         {"import-ssm", "--provider", "cohere", "--key-id", "5db11d45-b08a-4b2a-a318-3f88f5d8466a", "--position", "2", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/cohere-2", "--class", "free"},
+		"import-handoff-openai":           {"import-ssm", "--provider", "openai", "--key-id", "610adcc8-4a29-4ab1-a1c8-fca191a1fadd", "--position", "1", "--parameter", "/oxy/kaana/provider-key-handoff/20260911/openai", "--class", "paid", "--budget-usd", "0"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",
@@ -136,6 +137,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"import-handoff-mistral":          true,
 		"import-handoff-cohere":           true,
 		"import-handoff-cohere-2":         true,
+		"import-handoff-openai":           true,
 	}
 	for operationName, command := range manifest.Operations {
 		joined := strings.Join(command, " ")
@@ -218,7 +220,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"list": "admin", "migrate": "migrator",
 			"import-handoff-cheaperinference": "admin", "import-handoff-mistral": "admin",
 			"import-handoff-cohere": "admin", "import-handoff-cohere-2": "admin",
-			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
+			"import-handoff-openai": "admin",
+			"deduplicate-groq":      "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
 			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
 			"rekey-elevenlabs-primary": "admin", "rekey-groq-secondary-if-different": "admin",
@@ -249,6 +252,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
           - import-handoff-mistral
           - import-handoff-cohere
           - import-handoff-cohere-2
+          - import-handoff-openai
           - deduplicate-groq
           - deduplicate-openrouter
           - deduplicate-xai
