@@ -133,6 +133,9 @@ func run(logger *slog.Logger) error {
 	if err := registry.ReplaceGeneration(bindings, adapters...); err != nil {
 		return err
 	}
+	if err := requireStartupDeploymentBindings(inventoryStore.Current(), registry); err != nil {
+		return err
+	}
 
 	// A snapshot naming a provider this process does not serve is a
 	// degradation, not a reason to stop.
@@ -373,6 +376,28 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 		ids = append(ids, endpoint.DeploymentID)
 	}
 	return ids
+}
+
+// requireStartupDeploymentBindings is the serving cutover gate for schema
+// 0013. ECS keeps the previous healthy revision in service when a candidate
+// cannot start, so checking the mounted production snapshot here prevents a
+// freshly migrated but unpopulated binding table from turning a release into
+// an inference outage. Providers this process deliberately does not serve stay
+// a per-route degradation, as they were before exact bindings existed.
+func requireStartupDeploymentBindings(current *inventory.Inventory, registry *provider.Registry) error {
+	configured := make(map[contract.ProviderSlug]struct{})
+	for _, adapter := range registry.All() {
+		configured[adapter.Provider()] = struct{}{}
+	}
+	for _, deployment := range current.Deployments() {
+		if _, served := configured[deployment.Provider]; !served {
+			continue
+		}
+		if _, _, err := registry.ResolveExecution(deployment.DeploymentID, deployment.Provider, true); err != nil {
+			return fmt.Errorf("startup credential binding gate: deployment %q (%s): %w", deployment.DeploymentID, deployment.Provider, err)
+		}
+	}
+	return nil
 }
 
 // Provider configuration.

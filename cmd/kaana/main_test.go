@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -477,6 +478,32 @@ func newTestRegistry(t *testing.T, slug contract.ProviderSlug) *provider.Registr
 		t.Fatalf("registering the %s adapter: %v", slug, err)
 	}
 	return registry
+}
+
+func TestStartupDeploymentBindingsGate(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store := newTestStore(t, "test-provider", logger)
+	registry := newTestRegistry(t, "test-provider")
+
+	if err := registry.ReplaceGeneration(nil, registry.All()...); err != nil {
+		t.Fatalf("enabling exact bindings: %v", err)
+	}
+	if err := requireStartupDeploymentBindings(store.Current(), registry); err == nil || !strings.Contains(err.Error(), `deployment "dep_test"`) {
+		t.Fatalf("empty binding table passed startup gate: %v", err)
+	}
+}
+
+func TestStartupDeploymentBindingsGateAllowsUnservedProvider(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store := newTestStore(t, "other-provider", logger)
+	registry := newTestRegistry(t, "test-provider")
+	if err := registry.ReplaceGeneration(nil, registry.All()...); err != nil {
+		t.Fatalf("enabling exact bindings: %v", err)
+	}
+
+	if err := requireStartupDeploymentBindings(store.Current(), registry); err != nil {
+		t.Fatalf("an intentionally unserved provider blocked every route: %v", err)
+	}
 }
 
 // newTestStore publishes a snapshot naming one deployment of one provider.

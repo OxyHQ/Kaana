@@ -296,6 +296,48 @@ kaana-credentials list-deployment-bindings
 Only the credential-admin database role may read this operator projection; the
 runtime role can read the binding table but not its operation history.
 
+### Schema 0013 staged rollout
+
+Do not turn a schema migration into a serving cutover. The release workflow
+will not update ECS until the repository variable
+`KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is exactly `true`, and the new
+serving process independently refuses to start unless every deployment in its
+mounted production inventory whose provider it serves resolves to one exact,
+active credential. ECS therefore retains the previous healthy revision if the
+database is empty, incomplete, names the wrong provider, or points at a disabled
+key.
+
+Roll out in this order:
+
+1. Build the reviewed main image without deploying it. Pin that digest and
+   source commit in `.github/credential-admin-operations.json` through review.
+2. Run the `migrate` credential-administration operation and verify migration
+   `0013` was applied. This changes schema only; leave the repository cutover
+   variable unset.
+3. Obtain the exact deployment IDs and provider slugs from the current signed
+   production inventory and the exact active key IDs from the credential-admin
+   readback. The mapping must come from Oxy's authoritative deployment
+   configuration; never choose the first pool row or infer a key from price,
+   position, a secret value, or a provider name.
+4. Apply one idempotent `bind-deployment` operation per deployment, with a
+   unique `kdb_*` operation ID and an explicit actor. Read back
+   `list-deployment-bindings` and compare the complete set to that authoritative
+   mapping. Neither output contains secret material.
+5. Canary the candidate task definition against the same mounted inventory. It
+   must remain running and make a real signed request through every distinct
+   `(deploymentId, provider, keyId)` binding class. A missing binding fails at
+   process startup; an unusable exact key fails its canary and is never replaced
+   by another key from the provider pool.
+6. Only after the set comparison and canaries pass, set
+   `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE=true` and manually dispatch
+   `Deploy to AWS` in `deploy` mode. Confirm the registered digest, ECS steady
+   state, and a signed production request before allowing later main pushes to
+   auto-deploy.
+
+If any proof fails, leave the variable false and the old serving revision in
+place. Rebinding is an explicit audited mutation; do not weaken the startup gate
+or add an ambient provider-pool fallback to get a candidate healthy.
+
 The source command must write the value only to its stdout. The CLI has no value
 flag and no provider-secret environment variable, so the key cannot land in
 argv, shell history, a task definition or a GitHub Actions environment.
