@@ -11,18 +11,19 @@ import (
 
 const platformControlLogin = "kaana_platform_credential_control_login"
 
-// BootstrapPlatformCredentialControl creates the two deliberately unprivileged
-// database identities and applies every migration in one transaction. The
-// control URL supplies only the login identity and password; all SQL runs over
-// the already-open administrative connection.
-func (p *Postgres) BootstrapPlatformCredentialControl(ctx context.Context, controlDatabaseURL string) error {
+// CreatePlatformCredentialControlRoles creates the two deliberately
+// unprivileged database identities. It is a master-authority one-shot and is
+// deliberately separate from schema migration, which must run as the migrator
+// without CREATEROLE. The control URL supplies only the login password; all SQL
+// runs over the already-open master connection.
+func (p *Postgres) CreatePlatformCredentialControlRoles(ctx context.Context, controlDatabaseURL string) error {
 	password, err := platformControlPassword(controlDatabaseURL, p.databaseIdentity)
 	if err != nil {
 		return err
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("credential store: beginning platform control bootstrap: %w", err)
+		return fmt.Errorf("credential store: beginning platform control role creation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -86,11 +87,8 @@ $platform_control_bootstrap$;`); err != nil {
 		// InternalQuery. Never wrap that error: it could contain the verifier.
 		return errors.New("credential store: creating platform control roles failed")
 	}
-	if err := migratePostgres(ctx, tx); err != nil {
-		return err
-	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("credential store: committing platform control bootstrap: %w", err)
+		return fmt.Errorf("credential store: committing platform control role creation: %w", err)
 	}
 	return nil
 }

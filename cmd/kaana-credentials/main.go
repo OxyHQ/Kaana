@@ -60,21 +60,21 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		_, err = fmt.Fprintln(stdout, "Kaana credential schema is current")
 		return err
 
-	case "bootstrap-platform-control":
-		flags := flag.NewFlagSet("bootstrap-platform-control", flag.ContinueOnError)
+	case "create-platform-control-roles":
+		flags := flag.NewFlagSet("create-platform-control-roles", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
-			return errors.New("usage: kaana-credentials bootstrap-platform-control")
+			return errors.New("usage: kaana-credentials create-platform-control-roles")
 		}
 		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
 		if err != nil {
 			return err
 		}
 		defer repository.Close()
-		if err := repository.BootstrapPlatformCredentialControl(ctx, strings.TrimSpace(getenv("KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL"))); err != nil {
+		if err := repository.CreatePlatformCredentialControlRoles(ctx, strings.TrimSpace(getenv("KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL"))); err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(stdout, "Kaana platform credential control database boundary is current")
+		_, err = fmt.Fprintln(stdout, "Kaana platform credential control roles are current")
 		return err
 
 	case "put":
@@ -341,5 +341,5 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|bootstrap-platform-control|put|import-ssm|disable|rekey-id|deduplicate|list>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|rekey-id|deduplicate|list>")
 }

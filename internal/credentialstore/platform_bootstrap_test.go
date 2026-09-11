@@ -36,18 +36,20 @@ func TestPlatformControlURLMustMatchExactDatabaseAndLogin(t *testing.T) {
 	}
 }
 
-func TestPlatformBootstrapSQLNeverEmbedsASecretValue(t *testing.T) {
+func TestPlatformRoleCreationSQLNeverEmbedsASecretOrRunsMigrations(t *testing.T) {
 	source := readSourceFile(t, "platform_bootstrap.go")
 	for _, required := range []string{
 		"pg_catalog.set_config('kaana.platform_control_password', $1, true)",
 		"CREATE ROLE kaana_platform_credential_control NOLOGIN NOINHERIT",
 		"CREATE ROLE kaana_platform_credential_control_login LOGIN INHERIT",
 		"GRANT kaana_platform_credential_control TO kaana_platform_credential_control_login",
-		"migratePostgres(ctx, tx)",
 	} {
 		if !strings.Contains(source, required) {
 			t.Errorf("bootstrap lost %q", required)
 		}
+	}
+	if strings.Contains(source, "migratePostgres(ctx, tx)") {
+		t.Fatal("master-only role creation must not run schema migrations")
 	}
 	for _, forbidden := range []string{"os.Args", "slog.", "fmt.Println", "PASSWORD $1"} {
 		if strings.Contains(source, forbidden) {

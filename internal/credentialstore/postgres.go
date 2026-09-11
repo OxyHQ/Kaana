@@ -122,8 +122,8 @@ func requireVerifiedPostgresTLS(config *pgxpool.Config) error {
 // Close releases the pool.
 func (p *Postgres) Close() { p.pool.Close() }
 
-// Migrate creates the credentials table. It is deliberately an operator
-// action: the serving role needs SELECT, not DDL authority.
+// Migrate applies schema and grants with the dedicated migrator identity. Role
+// creation and password rotation are a separate master-authority one-shot.
 func (p *Postgres) Migrate(ctx context.Context) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
