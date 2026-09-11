@@ -353,7 +353,9 @@ func reloadSnapshots(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := store.Reload(); err != nil {
+			if err := store.ReloadValidated(func(candidate *inventory.Inventory) error {
+				return requireStartupDeploymentBindings(candidate, adapters)
+			}); err != nil {
 				// Already logged by the store, together with the snapshot it is
 				// still serving.
 				continue

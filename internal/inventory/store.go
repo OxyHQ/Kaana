@@ -115,6 +115,12 @@ func (s *Store) Current() *Inventory {
 // the whole behaviour under a publishing-pipeline outage, and it is why the swap
 // happens after the parse rather than during it.
 func (s *Store) Reload() error {
+	return s.ReloadValidated(nil)
+}
+
+// ReloadValidated lets a consumer reject a structurally valid candidate before
+// it becomes routable. The current snapshot remains installed on rejection.
+func (s *Store) ReloadValidated(validate func(*Inventory) error) error {
 	raw, err := os.ReadFile(s.path)
 	if err != nil {
 		return s.reloadFailed(fmt.Errorf("inventory: reading %s: %w", s.path, err),
@@ -125,6 +131,11 @@ func (s *Store) Reload() error {
 		// A parse error names fields and values, never the path, so it is safe
 		// to project as it stands — and it is the one an operator most needs.
 		return s.reloadFailed(err, contract.SafeErrorText(err.Error()))
+	}
+	if validate != nil {
+		if err := validate(loaded); err != nil {
+			return s.reloadFailed(err, contract.SafeErrorText(err.Error()))
+		}
 	}
 
 	s.mu.Lock()

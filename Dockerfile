@@ -121,6 +121,12 @@ RUN mkdir -p /out/etc/kaana && chown -R 65532:65532 /out/etc/kaana
 RUN mkdir -p /out/etc/kaana-publisher && cp configs/model-attribution.json /out/etc/kaana-publisher/ \
     && chown -R 65532:65532 /out/etc/kaana-publisher
 
+# Reviewed, non-secret, one-time exact assignment. It is baked by exact name so
+# an unreviewed cutover file can never enter the credential-admin image.
+RUN mkdir -p /out/etc/kaana-cutovers \
+    && cp configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json /out/etc/kaana-cutovers/ \
+    && chown -R 65532:65532 /out/etc/kaana-cutovers
+
 RUN mkdir -p /out/etc/ssl/certs \
     && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
@@ -137,6 +143,7 @@ COPY --from=build /out/kaana-credential-control /usr/local/bin/kaana-credential-
 COPY --from=build /out/kaana-platform-credential-control /usr/local/bin/kaana-platform-credential-control
 COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
 COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
+COPY --from=build --chown=65532:65532 /out/etc/kaana-cutovers /etc/kaana-cutovers
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own

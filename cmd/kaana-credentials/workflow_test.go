@@ -45,10 +45,12 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	}
 
 	expectedOperations := map[string][]string{
-		"list":                     {"list"},
-		"list-deployment-bindings": {"list-deployment-bindings"},
-		"migrate":                  {"migrate"},
-		"bind-deployment":          {"bind-deployment"},
+		"list":                                  {"list"},
+		"list-deployment-bindings":              {"list-deployment-bindings"},
+		"migrate":                               {"migrate"},
+		"bind-deployment":                       {"bind-deployment"},
+		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_dfd6904a99d6313b.json"},
+		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_dfd6904a99d6313b.json"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",
@@ -131,7 +133,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
 		}
-		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" {
+		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" || strings.Contains(operationName, "production-deployment-bindings") {
 			continue
 		}
 		if !strings.Contains(runbook, joined) {
@@ -202,7 +204,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			},
 		},
 		OperationTaskProfiles: map[string]string{
-			"list": "admin", "list-deployment-bindings": "admin", "migrate": "migrator", "bind-deployment": "admin",
+			"list": "admin", "list-deployment-bindings": "admin", "migrate": "migrator", "bind-deployment": "admin", "apply-production-deployment-bindings": "admin", "verify-production-deployment-bindings": "admin",
 			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
 			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
@@ -232,6 +234,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
           - list-deployment-bindings
           - migrate
           - bind-deployment
+          - apply-production-deployment-bindings
+          - verify-production-deployment-bindings
           - deduplicate-groq
           - deduplicate-openrouter
           - deduplicate-xai

@@ -28,6 +28,7 @@
 # and the publisher cannot start without it. A second file added to `configs/`
 # still does not enter the image.
 !configs/model-attribution.json
+!configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json
 
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the

@@ -318,14 +318,14 @@ Roll out in this order:
    using its new administration commands.
 2. Leave the repository cutover variable unset while bindings are populated.
 3. Obtain the exact deployment IDs and provider slugs from the current signed
-   production inventory and the exact active key IDs from the credential-admin
-   readback. The mapping must come from Oxy's authoritative deployment
-   configuration; never choose the first pool row or infer a key from price,
-   position, a secret value, or a provider name.
-4. Apply one idempotent `bind-deployment` operation per deployment, with a
-   unique `kdb_*` operation ID and an explicit actor. Read back
-   `list-deployment-bindings` and compare the complete set to that authoritative
-   mapping. Neither output contains secret material.
+   production readback and the exact active key IDs from the credential-admin
+   readback. Kaana's reviewed cutover manifest is the authority for the exact
+   assignment; never choose the first pool row or infer a key at runtime from
+   price, position, a secret value, or provider name.
+4. Run the single `apply-production-deployment-bindings` operation. It applies
+   every row with its unique `kdb_*` operation ID and the workflow actor, then
+   compares complete readback to the manifest. Neither output contains secret
+   material.
 5. Canary the candidate task definition against the same mounted inventory. It
    must remain running and make a real signed request through every distinct
    `(deploymentId, provider, keyId)` binding class. A missing binding fails at
@@ -340,6 +340,37 @@ Roll out in this order:
 If any proof fails, leave the variable false and the old serving revision in
 place. Rebinding is an explicit audited mutation; do not weaken the startup gate
 or add an ambient provider-pool fallback to get a candidate healthy.
+
+The first production assignment is the reviewed
+`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`. It contains
+all 340 explicit rows and their unique idempotency IDs. Its inventory provenance
+is an immutable S3 `VersionId`, ETag and locally computed SHA-256. The raw S3
+inventory document is IAM-controlled but is **not cryptographically signed**;
+do not describe it as signed. Before either batch apply or verify, the admin
+workflow downloads that exact immutable object and compares its content hash,
+snapshot ID, count, and complete sorted `(deploymentId, provider)` set to the
+manifest. The database mutation still independently refuses a missing,
+disabled, or wrong-provider key. `apply-production-deployment-bindings` applies
+the reviewed idempotent set and then requires exact complete readback;
+`verify-production-deployment-bindings` performs the same readback without a
+mutation.
+
+The signing key remains exclusively in Oxy. After exact readback, run on Oxy
+main, in order:
+
+1. `Kaana signed deployment readback`, pinned to the exact live oxy-api task
+   definition and image digest. Its result must name
+   `snap_dfd6904a99d6313b` and 340 exact descriptors with zero provider requests
+   and zero ledger writes.
+2. `Kaana signed production canary` for a reviewed deployment from each of the
+   four distinct provider/key classes in the manifest. Supply the exact live
+   task/image, snapshot ID, deployment ID, routing profile/policy revision and
+   billing identities required by that workflow. Each receipt must report six
+   passed cases, exactly two one-token provider requests and zero ledger writes.
+
+Kaana's cutover variable may be enabled only after those Oxy workflow runs and
+the batch verifier are green. No signing private key is copied into this
+repository, GitHub Actions or a Kaana task.
 
 The source command must write the value only to its stdout. The CLI has no value
 flag and no provider-secret environment variable, so the key cannot land in
