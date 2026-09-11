@@ -139,6 +139,7 @@ jobs:
         if: >-
           vars.KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE == 'true' &&
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE == 'true' &&
+          vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE == 'true' &&
           (github.event_name == 'push' || inputs.mode == 'deploy')
         env:
           IMAGE: ${{ steps.image.outputs.image }}

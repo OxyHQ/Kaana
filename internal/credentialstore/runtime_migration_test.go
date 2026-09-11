@@ -28,3 +28,22 @@ func TestRuntimeMigrationHasExactKeyStateLeaseAndAttemptAuthorities(t *testing.T
 		}
 	}
 }
+
+func TestRuntimeStateReadAuthorityIsNarrow(t *testing.T) {
+	for _, required := range []string{
+		"SET LOCAL lock_timeout = '5s'",
+		"GRANT SELECT ON provider_credential_runtime_state TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0012, required) {
+			t.Errorf("runtime state read-authority migration lost %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"provider_credential_attempt_events",
+		"GRANT INSERT", "GRANT UPDATE", "GRANT DELETE", "GRANT ALL",
+	} {
+		if strings.Contains(migration0012, forbidden) {
+			t.Errorf("runtime state read-authority migration contains forbidden authority %q", forbidden)
+		}
+	}
+}

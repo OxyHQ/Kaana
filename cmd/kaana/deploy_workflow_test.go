@@ -37,13 +37,15 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 	deployGate := `        if: >-
           vars.KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE == 'true' &&
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE == 'true' &&
+          vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE == 'true' &&
           (github.event_name == 'push' || inputs.mode == 'deploy')`
 	if strings.Count(workflow, deployGate) != 1 {
 		t.Fatal("the ECS step does not require both the exact cutover gate and an explicit deploy-capable event")
 	}
 	between := workflow[build:deploy]
 	if strings.Contains(between, "KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE") ||
-		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE") || strings.Contains(between, "inputs.mode") {
+		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE") ||
+		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE") || strings.Contains(between, "inputs.mode") {
 		t.Fatal("the immutable build is incorrectly hidden behind the deployment gate")
 	}
 	for _, bypass := range []string{
@@ -51,6 +53,8 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 		"KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE ||",
 		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE != 'false'",
 		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE ||",
+		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE != 'false'",
+		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE ||",
 		"github.event_name == 'workflow_dispatch' ||",
 		"inputs.mode == 'build-only' ||",
 	} {
