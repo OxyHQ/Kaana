@@ -95,6 +95,45 @@ func TestCheckedInAttributionCanStillRefuse(t *testing.T) {
 	}
 }
 
+func TestOpenAIAttributionPublishesOnlyReviewedChatModels(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+
+	want := map[string]contract.ModelID{
+		"gpt-5.6-luna":  "openai/gpt-5.6-luna",
+		"gpt-5.6-sol":   "openai/gpt-5.6-sol",
+		"gpt-5.6-terra": "openai/gpt-5.6-terra",
+		"gpt-6-astra":   "openai/gpt-6-astra",
+	}
+	if got := len(table.byProvider["openai"]); got != len(want) {
+		t.Fatalf("OpenAI has %d direct attributions, want exactly %d reviewed chat models", got, len(want))
+	}
+	for upstreamModelID, modelLine := range want {
+		got, ok := table.ModelLine("openai", upstreamModelID)
+		if !ok || got != modelLine {
+			t.Errorf("openai/%s = %q, %t; want %q", upstreamModelID, got, ok, modelLine)
+		}
+	}
+
+	for _, excluded := range []string{
+		"gpt-5.6",
+		"gpt-realtime-2.1",
+		"gpt-realtime-2.1-mini",
+		"gpt-realtime-2",
+		"gpt-realtime-translate",
+		"gpt-live-transcribe",
+		"gpt-realtime-whisper",
+		"gpt-realtime-1.5",
+		"gpt-audio-1.5",
+	} {
+		if _, ok := table.ModelLine("openai", excluded); ok {
+			t.Errorf("OpenAI specialized or moving model %q is published through the chat-only contract", excluded)
+		}
+	}
+}
+
 func TestExternalRadarDoesNotCreateGatewayOrUnverifiedProviderAttribution(t *testing.T) {
 	table, err := LoadAttribution("../../configs/model-attribution.json")
 	if err != nil {
