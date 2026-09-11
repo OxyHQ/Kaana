@@ -68,30 +68,20 @@ func TestSSMImportRequestsDecryptionAndReturnsNoMetadata(t *testing.T) {
 	}
 }
 
-func TestTemporarySSMHandoffsAreExactAndKeepBothCohereIdentities(t *testing.T) {
-	parameters := map[string]Scope{
-		"/oxy/kaana/provider-key-handoff/20260911/cheaperinference": {Provider: "cheaperinference", KeyID: "e97a886e-ab58-4492-b250-84a944e44276"},
-		"/oxy/kaana/provider-key-handoff/20260911/mistral":          {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
-		"/oxy/kaana/provider-key-handoff/20260911/cohere":           {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
-		"/oxy/kaana/provider-key-handoff/20260911/cohere-2":         {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
-		"/oxy/kaana/provider-key-handoff/20260911/openai":           {Provider: "openai", KeyID: "610adcc8-4a29-4ab1-a1c8-fca191a1fadd"},
-	}
-	if len(temporaryProviderCredentialHandoffs) != 5 {
-		t.Fatalf("temporary handoff count = %d, want 5", len(temporaryProviderCredentialHandoffs))
-	}
-	for parameter, scope := range parameters {
-		if actual, ok := reviewedProviderCredentialHandoff(parameter); !ok || actual != scope {
-			t.Errorf("handoff %q = %+v/%v, want %+v/true", parameter, actual, ok, scope)
+func TestCompletedTemporarySSMHandoffsAreRefused(t *testing.T) {
+	for _, provider := range []string{"cheaperinference", "mistral", "cohere", "cohere-2", "openai"} {
+		parameter := "/oxy/kaana/provider-key-handoff/" + "20260911/" + provider
+		client := &fakeSSMClient{value: "provider-secret"}
+		source, err := NewSSMSource(client)
+		if err != nil {
+			t.Fatalf("NewSSMSource: %v", err)
 		}
-		if !validOpaqueCredentialID(scope.KeyID) {
-			t.Errorf("handoff %q key ID is not an exact lowercase UUIDv4", parameter)
+		if _, err := source.ReadSecureString(context.Background(), parameter, Scope{}); err == nil {
+			t.Fatalf("completed temporary handoff %q was accepted", provider)
 		}
-	}
-	if parameters["/oxy/kaana/provider-key-handoff/20260911/cohere"].KeyID == parameters["/oxy/kaana/provider-key-handoff/20260911/cohere-2"].KeyID {
-		t.Fatal("the two Cohere credentials share an identity")
-	}
-	if _, ok := reviewedProviderCredentialHandoff("/oxy/kaana/provider-key-handoff/20260911/cohere/extra"); ok {
-		t.Fatal("temporary handoff prefix expansion was accepted")
+		if client.input != nil {
+			t.Fatalf("completed temporary handoff %q reached SSM", provider)
+		}
 	}
 }
 
