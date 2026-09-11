@@ -185,6 +185,63 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		_, err = fmt.Fprintf(stdout, "disabled %s/%s\n", scope.Provider, scope.KeyID)
 		return err
 
+	case "bind-deployment":
+		flags := flag.NewFlagSet("bind-deployment", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		operationID := flags.String("operation-id", "", "exact idempotency id")
+		deploymentID := flags.String("deployment-id", "", "exact opaque deployment id")
+		providerSlug := flags.String("provider", "", "provider slug")
+		keyID := flags.String("key-id", "", "exact opaque key id")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return errors.New("usage: kaana-credentials bind-deployment --operation-id <kdb_id> --deployment-id <id> --provider <slug> --key-id <id>")
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		binding := provider.CredentialBinding{DeploymentID: contract.DeploymentID(*deploymentID), Provider: contract.ProviderSlug(*providerSlug), KeyID: *keyID}
+		outcome, err := repository.BindDeployment(ctx, *operationID, binding, mutationActor)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "%s %s -> %s/%s\n", outcome, binding.DeploymentID, binding.Provider, binding.KeyID)
+		return err
+
+	case "apply-deployment-bindings", "verify-deployment-bindings":
+		flags := flag.NewFlagSet(arguments[0], flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		manifestPath := flags.String("manifest", "", "reviewed exact binding manifest")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return fmt.Errorf("usage: kaana-credentials %s --manifest <path>", arguments[0])
+		}
+		manifest, err := readBindingManifest(*manifestPath)
+		if err != nil {
+			return err
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		if arguments[0] == "apply-deployment-bindings" {
+			if mutationActor == "" {
+				return errors.New("KAANA_CREDENTIAL_ACTOR is required")
+			}
+			if err := applyBindingManifest(ctx, repository, manifest, mutationActor); err != nil {
+				return err
+			}
+		}
+		metadata, err := repository.ListDeploymentBindings(ctx)
+		if err != nil {
+			return err
+		}
+		if err := verifyBindingManifest(metadata, manifest); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "verified %d exact deployment bindings for %s (%s)\n", len(manifest.Assignments), manifest.Inventory.SnapshotID, manifest.Inventory.ContentSHA256)
+		return err
+
 	case "rekey-id":
 		operation, err := parseRekeyOperation(arguments[1:], mutationActor)
 		if err != nil {
@@ -231,6 +288,24 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		}
 		defer repository.Close()
 		metadata, err := repository.ListMetadata(ctx)
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(metadata)
+	case "list-deployment-bindings":
+		flags := flag.NewFlagSet("list-deployment-bindings", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return errors.New("usage: kaana-credentials list-deployment-bindings")
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		metadata, err := repository.ListDeploymentBindings(ctx)
 		if err != nil {
 			return err
 		}
@@ -341,5 +416,5 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|rekey-id|deduplicate|list>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings>")
 }

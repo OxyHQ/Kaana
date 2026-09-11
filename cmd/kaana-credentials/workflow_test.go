@@ -45,8 +45,12 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	}
 
 	expectedOperations := map[string][]string{
-		"list":    {"list"},
-		"migrate": {"migrate"},
+		"list":                                  {"list"},
+		"list-deployment-bindings":              {"list-deployment-bindings"},
+		"migrate":                               {"migrate"},
+		"bind-deployment":                       {"bind-deployment"},
+		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_dfd6904a99d6313b.json"},
+		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_dfd6904a99d6313b.json"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",
@@ -129,7 +133,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
 		}
-		if operationName == "list" || operationName == "migrate" {
+		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" || strings.Contains(operationName, "production-deployment-bindings") {
 			continue
 		}
 		if !strings.Contains(runbook, joined) {
@@ -200,7 +204,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			},
 		},
 		OperationTaskProfiles: map[string]string{
-			"list": "admin", "migrate": "migrator",
+			"list": "admin", "list-deployment-bindings": "admin", "migrate": "migrator", "bind-deployment": "admin", "apply-production-deployment-bindings": "admin", "verify-production-deployment-bindings": "admin",
 			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
 			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
@@ -227,7 +231,11 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	workflow := string(workflowBytes)
 	expectedOperationChoices := `        options:
           - list
+          - list-deployment-bindings
           - migrate
+          - bind-deployment
+          - apply-production-deployment-bindings
+          - verify-production-deployment-bindings
           - deduplicate-groq
           - deduplicate-openrouter
           - deduplicate-xai
@@ -273,7 +281,6 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"aws ssm get-parameter",
 		"aws ssm put-parameter",
 		"aws ecs update-service",
-		"type: string",
 		"bootstrap-platform-control",
 		"create-platform-control-roles",
 		"KAANA_PLATFORM_CREDENTIAL_CONTROL_DATABASE_URL",
@@ -281,6 +288,22 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("credential workflow contains forbidden capability %q", forbidden)
+		}
+	}
+	for _, bindingBoundary := range []string{
+		"BINDING_OPERATION_ID: ${{ inputs.binding_operation_id }}",
+		"DEPLOYMENT_ID: ${{ inputs.deployment_id }}",
+		"PROVIDER: ${{ inputs.provider }}",
+		"KEY_ID: ${{ inputs.key_id }}",
+		`^kdb_[0-9a-f]{32}$`,
+		`command=$(jq -cn`,
+		`binding identity inputs are accepted only by bind-deployment`,
+		`expected_etag=$(jq -r '.inventory.etag' "$manifest")`,
+		`actual_etag=$(jq -r '.ETag | sub("^\\\""; "") | sub("\\\"$"; "")' <<<"$object")`,
+		`if [ "$actual_etag" != "$expected_etag" ]; then`,
+	} {
+		if !strings.Contains(workflow, bindingBoundary) {
+			t.Errorf("credential workflow lost dynamic binding boundary %q", bindingBoundary)
 		}
 	}
 }

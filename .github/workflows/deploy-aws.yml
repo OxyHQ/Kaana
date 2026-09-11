@@ -131,6 +131,52 @@ jobs:
           echo "image=$IMG@$DIGEST" >> "$GITHUB_OUTPUT"
           echo "pushed $IMG@$DIGEST"
 
+      - name: Prepare credential schema 0013 without changing serving traffic
+        if: vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          profile=$(jq -ce '.taskProfiles.migrator' .github/credential-admin-operations.json)
+          family=$(jq -r '.taskDefinitionFamily' <<<"$profile")
+          container=$(jq -r '.containerName' <<<"$profile")
+          base=$(aws ecs describe-task-definition --task-definition "$family" --query taskDefinition)
+          matches=$(jq --arg container "$container" '[.containerDefinitions[] | select(.name == $container)] | length' <<<"$base")
+          if [ "$matches" != 1 ]; then
+            echo "::error::$family has $matches reviewed migrator containers"
+            exit 1
+          fi
+          jq --arg container "$container" --arg image "$IMAGE" '
+            del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+            | .containerDefinitions |= map(if .name == $container then .image = $image else . end)
+          ' <<<"$base" >/tmp/kaana-0013-migrator.json
+          task_definition=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/kaana-0013-migrator.json \
+            --query taskDefinition.taskDefinitionArn --output text)
+          security_group=$(jq -r '.securityGroupId' <<<"$profile")
+          network=$(jq -c --arg security_group "$security_group" \
+            '{awsvpcConfiguration:{subnets:.subnetIds,securityGroups:[$security_group],assignPublicIp:"ENABLED"}}' \
+            .github/credential-admin-operations.json)
+          overrides=$(jq -cn --arg container "$container" \
+            '{containerOverrides:[{name:$container,command:["migrate"]}]}')
+          result=$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$task_definition" \
+            --count 1 --launch-type FARGATE --network-configuration "$network" \
+            --overrides "$overrides" --output json)
+          if [ "$(jq '.failures | length' <<<"$result")" != 0 ]; then
+            jq '.failures' <<<"$result"
+            exit 1
+          fi
+          task=$(jq -r '.tasks[0].taskArn' <<<"$result")
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$task"
+          exit_code=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" \
+            --query "tasks[0].containers[?name=='$container'].exitCode | [0]" --output text)
+          if [ "$exit_code" != 0 ]; then
+            echo "::error::schema preparation task exited $exit_code"
+            exit 1
+          fi
+          echo "schema 0013 prepared with $IMAGE; serving ECS services were not updated"
+
       - name: Deploy to ECS (skipped until a service exists)
         # A main push builds an immutable candidate even while the cutover gate
         # is false. ECS changes require both literal repository gates and an
@@ -140,6 +186,7 @@ jobs:
           vars.KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE == 'true' &&
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE == 'true' &&
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE == 'true' &&
+          vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE == 'true' &&
           (github.event_name == 'push' || inputs.mode == 'deploy')
         env:
           IMAGE: ${{ steps.image.outputs.image }}

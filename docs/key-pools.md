@@ -19,10 +19,12 @@ The Messages API is refused under any slug but `anthropic`: that adapter reports
 its slug as a constant, so serving it under another name would attribute every
 event and every usage record to a provider the inventory did not route to.
 
-**A credential is a pool, not a value.** One provider account's capacity is not
-one provider's capacity. When the account behind a key has nothing left, the
-next key is a different account that does, and the request is served without the
-customer learning anything happened.
+**A provider owns a pool, but a deployment binds one exact key.** The pool is
+the custody, reload and health container. Execution resolves the signed opaque
+`deploymentId` through `provider_deployment_credential_bindings` to one exact
+`(provider, keyId)` row. It never walks into a second platform key: Oxy exposes
+that capacity as another deployment and orders it explicitly. A missing,
+disabled or provider-mismatched binding fails before an upstream call.
 
 ### The distinction the design turns on
 
@@ -37,13 +39,16 @@ status:
 | Verdict | What it means | What happens |
 |---|---|---|
 | `healthy` | the failure says nothing about the key — a timeout, a network failure, a provider 5xx, a throttle | the key stays; the request does not move |
-| `exhausted` | the provider reported that this key's account has nothing left | the key is retired **and the request moves to the next key** |
-| `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the key is retired **and the request moves to the next key** |
+| `exhausted` | the provider reported that this key's account has nothing left | the exact key is retired; a platform request cannot escape its deployment binding |
+| `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the exact key is retired; a platform request cannot escape its deployment binding |
 | `request_fault` | the request is what was refused | nothing is retired and nothing is retried |
 
-**An exhausted or refused key rotates; a request fault does not.** Each exact
-key is tried at most once. Authentication rejection belongs to the credential
-that was sent, while a malformed request would fail identically on every key.
+**An exhausted or refused key retires; a request fault does not.** The generic
+pool walker remains covered for discovery and adapter conformance, but the
+production executor supplies a one-key exact view, so another platform key can
+only be reached through another Oxy-signed deployment. Authentication rejection
+belongs to the credential sent, while a malformed request would fail identically
+on every key.
 
 **A request fault is retried nowhere.** The next credential would be refused
 identically, so a rotation turns one customer error into several upstream calls
@@ -111,35 +116,17 @@ alone would be the same guess in a more expensive form.
 
 ### What a key pool is not
 
-**It is not a route.** A rotation stays inside one deployment: same provider,
-same endpoint, same upstream model, same weights, a different credential.
-Nothing the customer was told about their route has changed, so no `route_switch`
-is emitted and `routeSwitches` stays zero — asserted in the conformance suite,
-which fails on a route switch appearing at all.
+**It is not a route.** The pool stores and observes keys; its exact bound view
+contains only the key named by the deployment. Reaching another platform key is
+a route change to another signed deployment and emits `route_switch`, including
+when both deployments use the same provider slug.
 
-It therefore needs no additional routing-policy authorization. Choosing among
-DEPLOYMENTS is permitted only by entries in the signed `authorizedRoutes` list;
-choosing among credentials of one deployment is governed by nothing published,
-because the customer-visible route does not change. They are different axes.
+Choosing among deployments is permitted only by `authorizedRoutes`. Kaana
+never uses provider, pool position or class to escape an exact binding.
 
-**A refused credential is not retried on another deployment of the same
-provider either.** The refusal is attributable, so the breaker takes the route
-out of rotation and a failover to a deployment holding a DIFFERENT credential
-stays possible — but two deployments of one provider slug resolve to one adapter
-and therefore to one pool, so within a slug there is no different credential to
-reach. Failing over there would reproduce, one deployment at a time, exactly the
-walk the pool refuses to make: a key burnt per deployment on a single
-provider-side authentication blip. The executor reads the same
-`CredentialVerdictFor` the pool does, so the two cannot come to disagree, and a
-candidate served by a different provider is still tried.
-
-**A rotation can only happen before anything has been streamed.** The walk lives
-entirely in front of the response body: not one byte has reached the customer,
-so moving to another credential replaces the request instead of splicing two
-answers together. Once a body is being read the request is committed to the key
-that opened it — which is why a failure arriving mid-stream, after a 200, rotates
-nothing. It is the same rule the executor applies to a route switch, arrived at
-for the same reason.
+**A route switch can only happen before anything has been streamed.** Once a
+body is being read the request is committed to the exact deployment/key that
+opened it; a mid-stream failure never moves to another credential.
 
 **A request makes at most as many upstream calls as the pool has keys**, because
 a key is never leased twice for one request. Nobody configured that ceiling; it
@@ -173,17 +160,11 @@ header at all, and its account endpoint answered `total_credits: 0` while a
 completion on the same key really was billed. Nothing observable separates a
 free-tier key from a funded one.
 
-Keys stated `free` are tried first. Everything else keeps the order it was
-declared in — **unstated is not a synonym for paid**, because every deployment
-predating this field relies on the declared order, and treating unstated as
-paid would silently reorder a live pool the first time somebody classified one
-key.
-
-That ordering is the whole mechanism, and it is enough because the walk already
-prefers the first usable key and already skips a retired one: a free key that is
-out costs one iteration, not a request. It is an ORDER, not a budget. It cannot
-cap spend, and a pool whose free keys are all retired spends money — which is
-the correct outcome and the reason a budget is a separate thing.
+Class remains protected operator metadata and every live/cost observation is
+attributed to the exact key. It does not select a key during platform execution:
+Oxy orders compatible free, discounted, promotional and paid deployments, then
+Kaana executes each exact deployment/key binding. Unstated remains distinct
+from paid so telemetry never invents an economic fact.
 
 `Key.ID` is the immutable opaque identity of one database row and is what a log
 or health projection should use when an operator must act on that exact row.
@@ -271,18 +252,15 @@ change to.
   provider's declared mapping says means remaining credits, reading zero.
   `unknown` is not `exhausted`, `unavailable` is not `exhausted`, and every
   failure nobody classified leaves the key exactly as it was.
-- **An exhausted or REFUSED key rotates to the next exact key**, at most once
-  per key and request.
+- **An exhausted or REFUSED key is retired.** Production does not walk from its
+  exact deployment binding to another key.
 - **A request fault is retried on nothing.** The next credential would be
   refused identically.
 - **The verdict is read from the code the ADAPTER chose, never from a status.**
   `CredentialVerdictFor` is the one function, as `AttributableCategory` is for
   the deployment; the two answer different questions and disagree on purpose.
-- **Key rotation is not a route switch** — same deployment, no `route_switch`,
-  and no additional routing-policy authorization.
-- **A refused credential is not failed over onto the same provider slug.** One
-  slug is one adapter and one pool, so "another deployment holds a different
-  credential" is true across slugs and false within one.
+- **Another key requires another signed deployment and a route switch.** A
+  shared provider slug does not imply a shared credential identity.
 - **A rotation happens only before the response body is read**, so a failure
   arriving mid-stream rotates nothing: the request is committed to the key that
   opened the stream.

@@ -183,9 +183,9 @@ response started** · **the configured credential never reaching the customer**,
 control asserting the upstream actually echoed it AND that the customer still
 receives the upstream's diagnostic rather than losing it to the contract's
 refusal · one refusal per class, each
-spending nothing upstream and naming the field at fault · **an exhausted
-credential served by the next key in the pool**, with no route switch and the
-units still partitioning the request · **a refused credential NOT walking the
+spending nothing upstream and naming the field at fault · the generic pool
+walker's bounded exhaustion semantics (production supplies an exact one-key
+view) · **a refused credential NOT walking the
 pool** · **a request the provider itself refused retried nowhere** · **each
 credential spent at most once** on a pool where every key is exhausted ·
 cancellation, with its control · health with and without a credential.

@@ -80,6 +80,11 @@ Kaana itself never issues a credential to anyone. Upstream provider keys are dif
 as KMS ciphertext in its PostgreSQL credential store, including customer BYOK,
 and never receives one through environment variables.
 
+Each platform `deploymentId` is bound in PostgreSQL to one exact opaque
+`(provider, keyId)` identity. Kaana fails closed when that binding is absent or
+mismatched; provider pools are custody and health containers, not an economic
+fallback behind an Oxy-ordered deployment.
+
 So the split is:
 
 | Kaana (this repo) | Oxy |

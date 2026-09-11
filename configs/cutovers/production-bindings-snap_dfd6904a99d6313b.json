@@ -1,0 +1,2066 @@
+{
+  "schemaVersion": 1,
+  "authority": "reviewed-exact-kaana-deployment-credential-assignment",
+  "inventory": {
+    "bucket": "oxy-kaana-inventory-usw2-237343248947",
+    "key": "inventory/current.json",
+    "snapshotId": "snap_dfd6904a99d6313b",
+    "issuedAt": "2026-09-11T06:52:55.959Z",
+    "s3VersionId": "UewtBRK5jtTGj23NHUBrIt.RFdIrPq3S",
+    "etag": "5a3dcfa3c6af9a64baede03e5310451e",
+    "contentSha256": "18ef56a8240a4dd749759cd8783ba402464e7f0402412252acdae6cfa496df17",
+    "deploymentCount": 340
+  },
+  "credentialReadback": {
+    "taskArn": "arn:aws:ecs:us-west-2:237343248947:task/oxy-cluster/7267329169534023979699adae30c175",
+    "logStream": "kaana-credential-admin/kaana-credential-admin/7267329169534023979699adae30c175",
+    "observedEnabledCardinality": {
+      "cerebras": 1,
+      "groq": 1,
+      "openrouter": 1,
+      "xai": 1
+    }
+  },
+  "assignments": [
+    {
+      "operationId": "kdb_00000000000000000000000000000001",
+      "deploymentId": "dep_cerebras_gemma_4_31b_observed_2026_09_01",
+      "provider": "cerebras",
+      "keyId": "43405cea-a7d1-49c2-ba73-5a84536d3abf"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000002",
+      "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_09_01",
+      "provider": "cerebras",
+      "keyId": "43405cea-a7d1-49c2-ba73-5a84536d3abf"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000003",
+      "deploymentId": "dep_groq_allam_2_7b_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000004",
+      "deploymentId": "dep_groq_meta_llama_llama_prompt_guard_2_22m_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000005",
+      "deploymentId": "dep_groq_meta_llama_llama_prompt_guard_2_86m_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000006",
+      "deploymentId": "dep_groq_openai_gpt_oss_120b_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000007",
+      "deploymentId": "dep_groq_openai_gpt_oss_20b_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000008",
+      "deploymentId": "dep_groq_openai_gpt_oss_safeguard_20b_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000009",
+      "deploymentId": "dep_groq_qwen_qwen3_6_27b_observed_2026_09_01",
+      "provider": "groq",
+      "keyId": "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000010",
+      "deploymentId": "dep_openrouter_aion_labs_aion_2_0_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000011",
+      "deploymentId": "dep_openrouter_aion_labs_aion_3_0_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000012",
+      "deploymentId": "dep_openrouter_aion_labs_aion_3_0_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000013",
+      "deploymentId": "dep_openrouter_aion_labs_aion_rp_llama_3_1_8b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000014",
+      "deploymentId": "dep_openrouter_amazon_nova_2_lite_v1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000015",
+      "deploymentId": "dep_openrouter_amazon_nova_lite_v1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000016",
+      "deploymentId": "dep_openrouter_amazon_nova_micro_v1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000017",
+      "deploymentId": "dep_openrouter_amazon_nova_premier_v1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000018",
+      "deploymentId": "dep_openrouter_amazon_nova_pro_v1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000019",
+      "deploymentId": "dep_openrouter_anthracite_org_magnum_v4_72b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000020",
+      "deploymentId": "dep_openrouter_anthropic_claude_3_haiku_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000021",
+      "deploymentId": "dep_openrouter_anthropic_claude_fable_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000022",
+      "deploymentId": "dep_openrouter_anthropic_claude_haiku_4_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000023",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000024",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000025",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_6_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000026",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_7_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000027",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_8_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000028",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000029",
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000030",
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000031",
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_6_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000032",
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000033",
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000034",
+      "deploymentId": "dep_openrouter_arcee_ai_trinity_large_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000035",
+      "deploymentId": "dep_openrouter_baidu_ernie_4_5_vl_424b_a47b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000036",
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_1_6_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000037",
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_1_6_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000038",
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_code_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000039",
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_lite_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000040",
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000041",
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_1_turbo_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000042",
+      "deploymentId": "dep_openrouter_bytedance_ui_tars_1_5_7b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000043",
+      "deploymentId": "dep_openrouter_cognitivecomputations_dolphin_mistral_24b_venice_edition_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000044",
+      "deploymentId": "dep_openrouter_cohere_command_a_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000045",
+      "deploymentId": "dep_openrouter_cohere_command_r7b_12_2024_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000046",
+      "deploymentId": "dep_openrouter_cohere_command_r_08_2024_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000047",
+      "deploymentId": "dep_openrouter_cohere_command_r_plus_08_2024_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000048",
+      "deploymentId": "dep_openrouter_cohere_north_mini_code_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000049",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000050",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_v3_0324_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000051",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_v3_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000052",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_0528_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000053",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_distill_llama_70b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000054",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000055",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_1_terminus_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000056",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_2_exp_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000057",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000058",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000059",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000060",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_vision_exp_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000061",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_pro_0813_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000062",
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000063",
+      "deploymentId": "dep_openrouter_dots_studio_dots_3_note_preview_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000064",
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_image_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000065",
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_lite_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000066",
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000067",
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000068",
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_preview_05_06_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000069",
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000070",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_image_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000071",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_image_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000072",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_image_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000073",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000074",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000075",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_pro_preview_customtools_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000076",
+      "deploymentId": "dep_openrouter_google_gemini_3_1_pro_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000077",
+      "deploymentId": "dep_openrouter_google_gemini_3_5_flash_lite_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000078",
+      "deploymentId": "dep_openrouter_google_gemini_3_5_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000079",
+      "deploymentId": "dep_openrouter_google_gemini_3_6_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000080",
+      "deploymentId": "dep_openrouter_google_gemini_3_7_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000081",
+      "deploymentId": "dep_openrouter_google_gemini_3_flash_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000082",
+      "deploymentId": "dep_openrouter_google_gemini_3_pro_image_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000083",
+      "deploymentId": "dep_openrouter_google_gemini_3_pro_image_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000084",
+      "deploymentId": "dep_openrouter_google_gemma_2_27b_it_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000085",
+      "deploymentId": "dep_openrouter_google_gemma_3_12b_it_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000086",
+      "deploymentId": "dep_openrouter_google_gemma_3_27b_it_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000087",
+      "deploymentId": "dep_openrouter_google_gemma_3_4b_it_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000088",
+      "deploymentId": "dep_openrouter_google_gemma_4_26b_a4b_it_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000089",
+      "deploymentId": "dep_openrouter_google_gemma_4_26b_a4b_it_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000090",
+      "deploymentId": "dep_openrouter_google_gemma_4_31b_it_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000091",
+      "deploymentId": "dep_openrouter_google_gemma_4_31b_it_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000092",
+      "deploymentId": "dep_openrouter_google_lyria_3_clip_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000093",
+      "deploymentId": "dep_openrouter_google_lyria_3_pro_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000094",
+      "deploymentId": "dep_openrouter_gryphe_mythomax_l2_13b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000095",
+      "deploymentId": "dep_openrouter_ibm_granite_granite_4_0_h_micro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000096",
+      "deploymentId": "dep_openrouter_ibm_granite_granite_4_2_8b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000097",
+      "deploymentId": "dep_openrouter_inception_mercury_2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000098",
+      "deploymentId": "dep_openrouter_inclusionai_ling_3_0_flash_fin_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000099",
+      "deploymentId": "dep_openrouter_inclusionai_ling_3_0_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000100",
+      "deploymentId": "dep_openrouter_kwaipilot_kat_coder_pro_v2_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000101",
+      "deploymentId": "dep_openrouter_kwaipilot_kat_coder_pro_v2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000102",
+      "deploymentId": "dep_openrouter_liquid_lfm_2_5_2_6b_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000103",
+      "deploymentId": "dep_openrouter_mancer_weaver_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000104",
+      "deploymentId": "dep_openrouter_meituan_longcat_2_0_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000105",
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_1_70b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000106",
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_1_8b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000107",
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_2_1b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000108",
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_2_3b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000109",
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_3_70b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000110",
+      "deploymentId": "dep_openrouter_meta_llama_llama_4_maverick_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000111",
+      "deploymentId": "dep_openrouter_meta_llama_llama_4_scout_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000112",
+      "deploymentId": "dep_openrouter_meta_llama_llama_guard_4_12b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000113",
+      "deploymentId": "dep_openrouter_meta_muse_glimmer_30b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000114",
+      "deploymentId": "dep_openrouter_meta_muse_spark_1_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000115",
+      "deploymentId": "dep_openrouter_meta_muse_spark_1_2_contributor_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000116",
+      "deploymentId": "dep_openrouter_meta_muse_spark_1_2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000117",
+      "deploymentId": "dep_openrouter_microsoft_phi_4_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000118",
+      "deploymentId": "dep_openrouter_microsoft_wizardlm_2_8x22b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000119",
+      "deploymentId": "dep_openrouter_minimax_minimax_01_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000120",
+      "deploymentId": "dep_openrouter_minimax_minimax_m1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000121",
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000122",
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000123",
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_7_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000124",
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_her_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000125",
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000126",
+      "deploymentId": "dep_openrouter_minimax_minimax_m3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000127",
+      "deploymentId": "dep_openrouter_mistralai_codestral_2508_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000128",
+      "deploymentId": "dep_openrouter_mistralai_devstral_2512_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000129",
+      "deploymentId": "dep_openrouter_mistralai_ministral_14b_2512_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000130",
+      "deploymentId": "dep_openrouter_mistralai_ministral_3b_2512_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000131",
+      "deploymentId": "dep_openrouter_mistralai_ministral_8b_2512_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000132",
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_2407_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000133",
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_2512_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000134",
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000135",
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000136",
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000137",
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000138",
+      "deploymentId": "dep_openrouter_mistralai_mistral_nemo_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000139",
+      "deploymentId": "dep_openrouter_mistralai_mistral_saba_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000140",
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_24b_instruct_2501_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000141",
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_2603_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000142",
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_3_1_24b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000143",
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_3_2_24b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000144",
+      "deploymentId": "dep_openrouter_mistralai_mixtral_8x22b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000145",
+      "deploymentId": "dep_openrouter_mistralai_voxtral_small_24b_2507_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000146",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_0905_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000147",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000148",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_6_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000149",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_7_code_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000150",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000151",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000152",
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000153",
+      "deploymentId": "dep_openrouter_morph_morph_v3_fast_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000154",
+      "deploymentId": "dep_openrouter_morph_morph_v3_large_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000155",
+      "deploymentId": "dep_openrouter_nousresearch_hermes_3_llama_3_1_405b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000156",
+      "deploymentId": "dep_openrouter_nousresearch_hermes_3_llama_3_1_70b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000157",
+      "deploymentId": "dep_openrouter_nousresearch_hermes_4_405b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000158",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_content_safety_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000159",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_lightning_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000160",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_lightning_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000161",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_nano_30b_a3b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000162",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_nano_omni_30b_a3b_reasoning_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000163",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_super_120b_a12b_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000164",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_super_120b_a12b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000165",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_ultra_550b_a55b_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000166",
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_ultra_550b_a55b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000167",
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_0613_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000168",
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_16k_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000169",
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000170",
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000171",
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000172",
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_nano_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000173",
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000174",
+      "deploymentId": "dep_openrouter_openai_gpt_4_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000175",
+      "deploymentId": "dep_openrouter_openai_gpt_4_turbo_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000176",
+      "deploymentId": "dep_openrouter_openai_gpt_4_turbo_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000177",
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_05_13_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000178",
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_08_06_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000179",
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_11_20_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000180",
+      "deploymentId": "dep_openrouter_openai_gpt_4o_mini_2024_07_18_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000181",
+      "deploymentId": "dep_openrouter_openai_gpt_4o_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000182",
+      "deploymentId": "dep_openrouter_openai_gpt_4o_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000183",
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_max_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000184",
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000185",
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000186",
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000187",
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_chat_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000188",
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_codex_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000189",
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000190",
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000191",
+      "deploymentId": "dep_openrouter_openai_gpt_5_3_codex_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000192",
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_image_2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000193",
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000194",
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_nano_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000195",
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000196",
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000197",
+      "deploymentId": "dep_openrouter_openai_gpt_5_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000198",
+      "deploymentId": "dep_openrouter_openai_gpt_5_5_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000199",
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_luna_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000200",
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_luna_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000201",
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_sol_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000202",
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_sol_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000203",
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_terra_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000204",
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_terra_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000205",
+      "deploymentId": "dep_openrouter_openai_gpt_5_image_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000206",
+      "deploymentId": "dep_openrouter_openai_gpt_5_image_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000207",
+      "deploymentId": "dep_openrouter_openai_gpt_5_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000208",
+      "deploymentId": "dep_openrouter_openai_gpt_5_nano_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000209",
+      "deploymentId": "dep_openrouter_openai_gpt_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000210",
+      "deploymentId": "dep_openrouter_openai_gpt_5_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000211",
+      "deploymentId": "dep_openrouter_openai_gpt_audio_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000212",
+      "deploymentId": "dep_openrouter_openai_gpt_audio_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000213",
+      "deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000214",
+      "deploymentId": "dep_openrouter_openai_gpt_oss_20b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000215",
+      "deploymentId": "dep_openrouter_openai_gpt_oss_safeguard_20b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000216",
+      "deploymentId": "dep_openrouter_openai_o1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000217",
+      "deploymentId": "dep_openrouter_openai_o1_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000218",
+      "deploymentId": "dep_openrouter_openai_o3_mini_high_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000219",
+      "deploymentId": "dep_openrouter_openai_o3_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000220",
+      "deploymentId": "dep_openrouter_openai_o3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000221",
+      "deploymentId": "dep_openrouter_openai_o3_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000222",
+      "deploymentId": "dep_openrouter_openai_o4_mini_high_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000223",
+      "deploymentId": "dep_openrouter_openai_o4_mini_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000224",
+      "deploymentId": "dep_openrouter_perceptron_perceptron_mk1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000225",
+      "deploymentId": "dep_openrouter_perplexity_sonar_deep_research_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000226",
+      "deploymentId": "dep_openrouter_perplexity_sonar_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000227",
+      "deploymentId": "dep_openrouter_perplexity_sonar_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000228",
+      "deploymentId": "dep_openrouter_perplexity_sonar_pro_search_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000229",
+      "deploymentId": "dep_openrouter_perplexity_sonar_reasoning_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000230",
+      "deploymentId": "dep_openrouter_poolside_laguna_s_2_1_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000231",
+      "deploymentId": "dep_openrouter_poolside_laguna_s_2_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000232",
+      "deploymentId": "dep_openrouter_poolside_laguna_xs_2_1_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000233",
+      "deploymentId": "dep_openrouter_poolside_laguna_xs_2_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000234",
+      "deploymentId": "dep_openrouter_qwen_qwen2_5_vl_72b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000235",
+      "deploymentId": "dep_openrouter_qwen_qwen3_14b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000236",
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_2507_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000237",
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000238",
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_thinking_2507_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000239",
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_instruct_2507_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000240",
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000241",
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_thinking_2507_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000242",
+      "deploymentId": "dep_openrouter_qwen_qwen3_32b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000243",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_122b_a10b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000244",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_27b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000245",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_35b_a3b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000246",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_397b_a17b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000247",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_9b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000248",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_flash_02_23_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000249",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_plus_02_15_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000250",
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_plus_20260420_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000251",
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_27b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000252",
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_35b_a3b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000253",
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000254",
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_max_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000255",
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_plus_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000256",
+      "deploymentId": "dep_openrouter_qwen_qwen3_7_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000257",
+      "deploymentId": "dep_openrouter_qwen_qwen3_7_max_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000258",
+      "deploymentId": "dep_openrouter_qwen_qwen3_7_plus_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000259",
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_27b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000260",
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_2_4t_a95b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000261",
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000262",
+      "deploymentId": "dep_openrouter_qwen_qwen3_8b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000263",
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_30b_a3b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000264",
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000265",
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_next_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000266",
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000267",
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_plus_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000268",
+      "deploymentId": "dep_openrouter_qwen_qwen3_max_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000269",
+      "deploymentId": "dep_openrouter_qwen_qwen3_max_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000270",
+      "deploymentId": "dep_openrouter_qwen_qwen3_next_80b_a3b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000271",
+      "deploymentId": "dep_openrouter_qwen_qwen3_next_80b_a3b_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000272",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_235b_a22b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000273",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_235b_a22b_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000274",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_30b_a3b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000275",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_30b_a3b_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000276",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_32b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000277",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_8b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000278",
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_8b_thinking_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000279",
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_72b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000280",
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_7b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000281",
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_coder_32b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000282",
+      "deploymentId": "dep_openrouter_qwen_qwen_plus_2025_07_28_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000283",
+      "deploymentId": "dep_openrouter_qwen_qwen_plus_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000284",
+      "deploymentId": "dep_openrouter_rekaai_reka_edge_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000285",
+      "deploymentId": "dep_openrouter_rekaai_reka_flash_3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000286",
+      "deploymentId": "dep_openrouter_relace_relace_apply_3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000287",
+      "deploymentId": "dep_openrouter_relace_relace_search_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000288",
+      "deploymentId": "dep_openrouter_sakana_fugu_ultra_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000289",
+      "deploymentId": "dep_openrouter_sakana_sakana_namazu_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000290",
+      "deploymentId": "dep_openrouter_sao10k_l3_1_euryale_70b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000291",
+      "deploymentId": "dep_openrouter_sao10k_l3_3_euryale_70b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000292",
+      "deploymentId": "dep_openrouter_sao10k_l3_lunaris_8b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000293",
+      "deploymentId": "dep_openrouter_stepfun_step_3_5_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000294",
+      "deploymentId": "dep_openrouter_stepfun_step_3_7_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000295",
+      "deploymentId": "dep_openrouter_tencent_hunyuan_a13b_instruct_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000296",
+      "deploymentId": "dep_openrouter_tencent_hy3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000297",
+      "deploymentId": "dep_openrouter_tencent_hy3_preview_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000298",
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_1_8b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000299",
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_30b_a3b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000300",
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_7b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000301",
+      "deploymentId": "dep_openrouter_thedrummer_cydonia_24b_v4_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000302",
+      "deploymentId": "dep_openrouter_thedrummer_skyfall_36b_v2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000303",
+      "deploymentId": "dep_openrouter_thedrummer_unslopnemo_12b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000304",
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000305",
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000306",
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_small_free_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000307",
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_small_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000308",
+      "deploymentId": "dep_openrouter_undi95_remm_slerp_l2_13b_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000309",
+      "deploymentId": "dep_openrouter_upstage_solar_pro4_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000310",
+      "deploymentId": "dep_openrouter_upstage_solar_pro_3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000311",
+      "deploymentId": "dep_openrouter_writer_palmyra_x5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000312",
+      "deploymentId": "dep_openrouter_x_ai_grok_4_20_multi_agent_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000313",
+      "deploymentId": "dep_openrouter_x_ai_grok_4_20_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000314",
+      "deploymentId": "dep_openrouter_x_ai_grok_4_3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000315",
+      "deploymentId": "dep_openrouter_x_ai_grok_4_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000316",
+      "deploymentId": "dep_openrouter_x_ai_grok_4_6_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000317",
+      "deploymentId": "dep_openrouter_x_ai_grok_build_0_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000318",
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000319",
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_5_pro_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000320",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5_air_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000321",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000322",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5v_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000323",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_6_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000324",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_6v_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000325",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_7_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000326",
+      "deploymentId": "dep_openrouter_z_ai_glm_4_7_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000327",
+      "deploymentId": "dep_openrouter_z_ai_glm_5_1_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000328",
+      "deploymentId": "dep_openrouter_z_ai_glm_5_2_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000329",
+      "deploymentId": "dep_openrouter_z_ai_glm_5_3_flash_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000330",
+      "deploymentId": "dep_openrouter_z_ai_glm_5_3_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000331",
+      "deploymentId": "dep_openrouter_z_ai_glm_5_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000332",
+      "deploymentId": "dep_openrouter_z_ai_glm_5_turbo_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000333",
+      "deploymentId": "dep_openrouter_z_ai_glm_5v_turbo_observed_2026_09_01",
+      "provider": "openrouter",
+      "keyId": "b8090dce-82f2-4077-9fc1-fd831a53ca27"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000334",
+      "deploymentId": "dep_xai_grok_4_20_0309_non_reasoning_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000335",
+      "deploymentId": "dep_xai_grok_4_20_0309_reasoning_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000336",
+      "deploymentId": "dep_xai_grok_4_20_multi_agent_0309_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000337",
+      "deploymentId": "dep_xai_grok_4_3_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000338",
+      "deploymentId": "dep_xai_grok_4_5_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000339",
+      "deploymentId": "dep_xai_grok_4_6_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    },
+    {
+      "operationId": "kdb_00000000000000000000000000000340",
+      "deploymentId": "dep_xai_grok_build_0_1_observed_2026_09_01",
+      "provider": "xai",
+      "keyId": "1d72d527-81ca-41e5-9644-2d81a4b126ec"
+    }
+  ]
+}

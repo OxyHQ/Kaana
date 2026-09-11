@@ -97,6 +97,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	declarations, unenforcedBudgets, err := credentialStore.Load(credentialContext, providerSlugsFrom(providerConfigs))
+	if err != nil {
+		cancelCredentialLoad()
+		credentialDatabase.Close()
+		return err
+	}
+	bindings, err := credentialDatabase.LoadDeploymentBindings(credentialContext)
 	cancelCredentialLoad()
 	if err != nil {
 		credentialDatabase.Close()
@@ -122,6 +128,12 @@ func run(logger *slog.Logger) error {
 	}
 	registry, err := provider.NewRegistry(adapters...)
 	if err != nil {
+		return err
+	}
+	if err := registry.ReplaceGeneration(bindings, adapters...); err != nil {
+		return err
+	}
+	if err := requireStartupDeploymentBindings(inventoryStore.Current(), registry); err != nil {
 		return err
 	}
 
@@ -234,7 +246,18 @@ func run(logger *slog.Logger) error {
 		"costMeasured", costs != nil,
 	)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	lifetimeContext := context.Background()
+	cancelLifetime := func() {}
+	if rawLifetime := strings.TrimSpace(os.Getenv("KAANA_CANDIDATE_MAX_LIFETIME")); rawLifetime != "" {
+		lifetime, parseErr := time.ParseDuration(rawLifetime)
+		if parseErr != nil || lifetime < 10*time.Minute || lifetime > 20*time.Minute {
+			return errors.New("KAANA_CANDIDATE_MAX_LIFETIME must be between 10m and 20m")
+		}
+		lifetimeContext, cancelLifetime = context.WithTimeout(context.Background(), lifetime)
+		logger.Info("isolated candidate lifetime armed", "lifetime", lifetime)
+	}
+	defer cancelLifetime()
+	ctx, stop := signal.NotifyContext(lifetimeContext, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
@@ -286,9 +309,15 @@ func reloadCredentialPools(
 		case <-ticker.C:
 			loadContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 			declarations, unenforcedBudgets, err := store.Load(loadContext, providerSlugsFrom(configs))
+			if err != nil {
+				cancel()
+				logger.Error("provider credentials could not be reloaded; keeping the last complete pools", "error", err)
+				continue
+			}
+			bindings, err := store.LoadDeploymentBindings(loadContext)
 			cancel()
 			if err != nil {
-				logger.Error("provider credentials could not be reloaded; keeping the last complete pools", "error", err)
+				logger.Error("deployment credential bindings could not be reloaded; keeping the last complete generation", "error", err)
 				continue
 			}
 			replacementConfigs := append([]providerConfig(nil), configs...)
@@ -300,7 +329,7 @@ func reloadCredentialPools(
 				logger.Error("reloaded provider credentials could not build a complete adapter set; keeping the previous pools", "error", err)
 				continue
 			}
-			if err := registry.Replace(adapters...); err != nil {
+			if err := registry.ReplaceGeneration(bindings, adapters...); err != nil {
 				logger.Error("reloaded provider credentials could not replace the adapter registry; keeping the previous pools", "error", err)
 				continue
 			}
@@ -335,7 +364,9 @@ func reloadSnapshots(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := store.Reload(); err != nil {
+			if err := store.ReloadValidated(func(candidate *inventory.Inventory) error {
+				return requireStartupDeploymentBindings(candidate, adapters)
+			}); err != nil {
 				// Already logged by the store, together with the snapshot it is
 				// still serving.
 				continue
@@ -358,6 +389,28 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 		ids = append(ids, endpoint.DeploymentID)
 	}
 	return ids
+}
+
+// requireStartupDeploymentBindings is the serving cutover gate for schema
+// 0013. ECS keeps the previous healthy revision in service when a candidate
+// cannot start, so checking the mounted production snapshot here prevents a
+// freshly migrated but unpopulated binding table from turning a release into
+// an inference outage. Providers this process deliberately does not serve stay
+// a per-route degradation, as they were before exact bindings existed.
+func requireStartupDeploymentBindings(current *inventory.Inventory, registry *provider.Registry) error {
+	configured := make(map[contract.ProviderSlug]struct{})
+	for _, adapter := range registry.All() {
+		configured[adapter.Provider()] = struct{}{}
+	}
+	for _, deployment := range current.Deployments() {
+		if _, served := configured[deployment.Provider]; !served {
+			continue
+		}
+		if _, _, err := registry.ResolveExecution(deployment.DeploymentID, deployment.Provider, true); err != nil {
+			return fmt.Errorf("startup credential binding gate: deployment %q (%s): %w", deployment.DeploymentID, deployment.Provider, err)
+		}
+	}
+	return nil
 }
 
 // Provider configuration.

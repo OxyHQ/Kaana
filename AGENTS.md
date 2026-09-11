@@ -37,7 +37,8 @@ Inventory — docs/inventory.md#rules-a-reviewer-applies
 
 Credentials — docs/key-pools.md#rules-a-reviewer-applies
 - PostgreSQL KMS ciphertext is the only key store; plaintext only on stdin.
-- Rotate on reported exhaustion or rejection; a request fault never walks the pool.
+- Every platform deployment binds one exact opaque key id; no provider-pool fallback.
+- Retire on reported exhaustion or rejection; a platform request never escapes its exact binding.
 - Verdicts come from the adapter's code, never a status; a 402 retires the key.
 - BYOK: same custody, inverse authorities, one exact operation id —
   docs/customer-provider-credentials.md#rules-a-reviewer-applies

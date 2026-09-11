@@ -77,6 +77,8 @@ ENV GOFLAGS=-p=2
 # and survives both.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/kaana ./cmd/kaana
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-probe ./cmd/kaana-probe
 
 # The inventory publisher ships in the SAME image and runs as a different task.
 # One image because they are one module built from one commit, and a publisher
@@ -121,6 +123,12 @@ RUN mkdir -p /out/etc/kaana && chown -R 65532:65532 /out/etc/kaana
 RUN mkdir -p /out/etc/kaana-publisher && cp configs/model-attribution.json /out/etc/kaana-publisher/ \
     && chown -R 65532:65532 /out/etc/kaana-publisher
 
+# Reviewed, non-secret, one-time exact assignment. It is baked by exact name so
+# an unreviewed cutover file can never enter the credential-admin image.
+RUN mkdir -p /out/etc/kaana-cutovers \
+    && cp configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json /out/etc/kaana-cutovers/ \
+    && chown -R 65532:65532 /out/etc/kaana-cutovers
+
 RUN mkdir -p /out/etc/ssl/certs \
     && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
@@ -131,12 +139,14 @@ RUN mkdir -p /out/etc/ssl/certs \
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS runtime
 
 COPY --from=build /out/kaana /usr/local/bin/kaana
+COPY --from=build /out/kaana-probe /usr/local/bin/kaana-probe
 COPY --from=build /out/kaana-publisher /usr/local/bin/kaana-publisher
 COPY --from=build /out/kaana-credentials /usr/local/bin/kaana-credentials
 COPY --from=build /out/kaana-credential-control /usr/local/bin/kaana-credential-control
 COPY --from=build /out/kaana-platform-credential-control /usr/local/bin/kaana-platform-credential-control
 COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
 COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
+COPY --from=build --chown=65532:65532 /out/etc/kaana-cutovers /etc/kaana-cutovers
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own

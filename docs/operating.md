@@ -270,6 +270,108 @@ Plaintext is accepted only on standard input:
 Set `KAANA_CREDENTIAL_ACTOR` to the non-secret operator or automation identity
 for `put`, `import-ssm` and `disable`; a mutation without one is refused.
 
+Bind every published opaque deployment to exactly one active key before its
+serving candidate is enabled:
+
+```bash
+kaana-credentials bind-deployment \
+  --operation-id kdb_0123456789abcdef0123456789abcdef \
+  --deployment-id dep_exact \
+  --provider openrouter \
+  --key-id 123e4567-e89b-42d3-a456-426614174000
+```
+
+This non-secret mutation is idempotent and conflict-checked. Runtime reloads
+bindings and decrypted pools as one generation. An unbound deployment never
+falls back to the provider pool; exact readback and a real canary gate ambient
+execution.
+
+Read back the protected, non-secret mapping and its immutable operation/database
+actors before the canary:
+
+```bash
+kaana-credentials list-deployment-bindings
+```
+
+Only the credential-admin database role may read this operator projection; the
+runtime role can read the binding table but not its operation history.
+
+### Schema 0013 staged rollout
+
+Do not turn a schema migration into a serving cutover. The release workflow
+will not update ECS until the repository variable
+`KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is exactly `true`, and the new
+serving process independently refuses to start unless every deployment in its
+mounted production inventory whose provider it serves resolves to one exact,
+active credential. ECS therefore retains the previous healthy revision if the
+database is empty, incomplete, names the wrong provider, or points at a disabled
+key.
+
+Roll out in this order:
+
+1. Push the reviewed commit to main. The release workflow builds its immutable
+   candidate and, while the 0013 completeness variable is false or absent,
+   runs that candidate's migrator as a one-shot. It does not call
+   `update-service`, and completes successfully after schema preparation.
+   Verify the migration task's clean exit. Pin that candidate digest and source
+   commit in `.github/credential-admin-operations.json` through review before
+   using its new administration commands.
+2. Leave the repository cutover variable unset while bindings are populated.
+3. Obtain the exact deployment IDs and provider slugs from the current signed
+   production readback and the exact active key IDs from the credential-admin
+   readback. Kaana's reviewed cutover manifest is the authority for the exact
+   assignment; never choose the first pool row or infer a key at runtime from
+   price, position, a secret value, or provider name.
+4. Run the single `apply-production-deployment-bindings` operation. It applies
+   every row with its unique `kdb_*` operation ID and the workflow actor, then
+   compares complete readback to the manifest. Neither output contains secret
+   material.
+5. Canary the candidate task definition against the same mounted inventory. It
+   must remain running and make a real signed request through every distinct
+   `(deploymentId, provider, keyId)` binding class. A missing binding fails at
+   process startup; an unusable exact key fails its canary and is never replaced
+   by another key from the provider pool.
+6. Only after the set comparison and canaries pass, set
+   `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE=true` and manually dispatch
+   `Deploy to AWS` in `deploy` mode. Confirm the registered digest, ECS steady
+   state, and a signed production request before allowing later main pushes to
+   auto-deploy.
+
+If any proof fails, leave the variable false and the old serving revision in
+place. Rebinding is an explicit audited mutation; do not weaken the startup gate
+or add an ambient provider-pool fallback to get a candidate healthy.
+
+The first production assignment is the reviewed
+`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`. It contains
+all 340 explicit rows and their unique idempotency IDs. Its inventory provenance
+is an immutable S3 `VersionId`, ETag and locally computed SHA-256. The raw S3
+inventory document is IAM-controlled but is **not cryptographically signed**;
+do not describe it as signed. Before either batch apply or verify, the admin
+workflow downloads that exact immutable object and compares its content hash,
+snapshot ID, count, and complete sorted `(deploymentId, provider)` set to the
+manifest. The database mutation still independently refuses a missing,
+disabled, or wrong-provider key. `apply-production-deployment-bindings` applies
+the reviewed idempotent set and then requires exact complete readback;
+`verify-production-deployment-bindings` performs the same readback without a
+mutation.
+
+The signing key remains exclusively in Oxy. After exact readback, run on Oxy
+main, in order:
+
+1. `Kaana signed deployment readback`, pinned to the exact live oxy-api task
+   definition and image digest. Its result must name
+   `snap_dfd6904a99d6313b` and 340 exact descriptors with zero provider requests
+   and zero ledger writes.
+2. `Kaana signed production canary` for a reviewed deployment from each of the
+   four distinct provider/key classes in the manifest. Supply the exact live
+   task/image, snapshot ID, deployment ID, routing profile/policy revision and
+   billing identities required by that workflow. Each receipt must report six
+   passed cases, exactly two one-token provider requests and zero ledger writes.
+
+Kaana's cutover variable may be enabled only after those Oxy workflow runs and
+the batch verifier are green. No signing private key is copied into this
+repository, GitHub Actions or a Kaana task.
+
 The source command must write the value only to its stdout. The CLI has no value
 flag and no provider-secret environment variable, so the key cannot land in
 argv, shell history, a task definition or a GitHub Actions environment.
@@ -369,7 +471,7 @@ reference it.
 `cmd/kaana-publisher` reads the same non-secret provider configuration and the
 same encrypted database pools as the serving process. It uses the one active
 credential selected by an exact, non-secret PostgreSQL key id for the complete
-catalogue traversal; serving owns pool order and rotation.
+catalogue traversal; serving resolves each deployment's exact database binding.
 
 | Variable | Required | Meaning |
 |---|---|---|

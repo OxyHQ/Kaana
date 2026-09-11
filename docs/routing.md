@@ -87,11 +87,10 @@ the two can never drift apart.
 
 ## Circuit breakers and health scoring
 
-There are two rotations in this repository and they are different axes. This one
-takes a DEPLOYMENT out when the deployment is failing. The other takes a
-CREDENTIAL out when a provider has said something about that credential, and the
-deployment goes on being served by the next key in the pool — see "Several
-providers, and a key pool for each".
+There are two state machines in this repository and they are different axes.
+This one takes a DEPLOYMENT out when the deployment is failing. Credential
+health retires the exact key a deployment binds; production execution does not
+escape that binding. Oxy may then attempt the next signed deployment.
 
 One breaker and one health score per **deployment**. The unit is the deployment
 rather than the provider because a provider is usually several deployments in

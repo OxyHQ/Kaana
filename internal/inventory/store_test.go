@@ -1,6 +1,7 @@
 package inventory_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,22 @@ func write(t *testing.T, path string, document []byte) {
 	t.Helper()
 	if err := os.WriteFile(path, document, 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+func TestRejectedValidatedReloadKeepsPreviousSnapshot(t *testing.T) {
+	now := time.Now()
+	built, path := store(t, issued(now, twoRevisions), func() time.Time { return now })
+	previous := built.Current().SnapshotID()
+	write(t, path, issued(now.Add(time.Second), twoDeploymentsOfOneRevision))
+
+	if err := built.ReloadValidated(func(*inventory.Inventory) error {
+		return errors.New("candidate contains an unbound deployment")
+	}); err == nil {
+		t.Fatal("governance rejection was ignored")
+	}
+	if got := built.Current().SnapshotID(); got != previous {
+		t.Fatalf("rejected candidate replaced %q with %q", previous, got)
 	}
 }
 

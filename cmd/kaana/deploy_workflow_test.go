@@ -38,6 +38,7 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
           vars.KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE == 'true' &&
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE == 'true' &&
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE == 'true' &&
+          vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE == 'true' &&
           (github.event_name == 'push' || inputs.mode == 'deploy')`
 	if strings.Count(workflow, deployGate) != 1 {
 		t.Fatal("the ECS step does not require both the exact cutover gate and an explicit deploy-capable event")
@@ -48,6 +49,19 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE") || strings.Contains(between, "inputs.mode") {
 		t.Fatal("the immutable build is incorrectly hidden behind the deployment gate")
 	}
+	for _, preparationBoundary := range []string{
+		"Prepare credential schema 0013 without changing serving traffic",
+		"vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true'",
+		`command:["migrate"]`,
+		"schema 0013 prepared with $IMAGE; serving ECS services were not updated",
+	} {
+		if !strings.Contains(between, preparationBoundary) {
+			t.Errorf("schema-only preparation lost boundary %q", preparationBoundary)
+		}
+	}
+	if strings.Contains(between, "aws ecs update-service") {
+		t.Fatal("schema preparation can change serving traffic")
+	}
 	for _, bypass := range []string{
 		"KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE != 'false'",
 		"KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE ||",
@@ -55,12 +69,47 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE ||",
 		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE != 'false'",
 		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE ||",
+		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'false'",
+		"KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE ||",
 		"github.event_name == 'workflow_dispatch' ||",
 		"inputs.mode == 'build-only' ||",
 	} {
 		if strings.Contains(workflow, bypass) {
 			t.Fatalf("the AWS deploy workflow contains cutover bypass %q", bypass)
 		}
+	}
+}
+
+func TestCandidateCanaryIsIsolatedBoundedAndAlwaysCleanedUp(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../../.github/workflows/candidate-canary.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{
+		"if: github.ref == 'refs/heads/main'",
+		"oxy-kaana-candidate",
+		`source_digest" != "$DIGEST`,
+		"aws ecs wait tasks-running",
+		"privateIPv4Address",
+		`observed_digest" = "$DIGEST`,
+		"trap cleanup EXIT",
+		"aws ecs stop-task",
+		"aws ecs wait tasks-stopped",
+		"aws ecs deregister-task-definition",
+		"OxyOperation,value=KaanaCandidateCanary",
+		"KAANA_CANDIDATE_MAX_LIFETIME",
+		"assignPublicIp' <<<\"$network\")\" != DISABLED",
+		"/usr/local/bin/kaana-probe",
+		"candidate loopback /livez probe failed",
+		"candidatePrivateIp=$private_ip",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("candidate workflow lost boundary %q", required)
+		}
+	}
+	if strings.Contains(workflow, "aws ecs update-service") || strings.Contains(workflow, "assignPublicIp: ENABLED") {
+		t.Fatal("candidate workflow can change serving traffic or request a public address")
 	}
 }
 
