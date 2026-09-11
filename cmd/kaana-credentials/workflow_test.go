@@ -298,6 +298,9 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		`^kdb_[0-9a-f]{32}$`,
 		`command=$(jq -cn`,
 		`binding identity inputs are accepted only by bind-deployment`,
+		`expected_etag=$(jq -r '.inventory.etag' "$manifest")`,
+		`actual_etag=$(jq -r '.ETag | sub("^\\\""; "") | sub("\\\"$"; "")' <<<"$object")`,
+		`if [ "$actual_etag" != "$expected_etag" ]; then`,
 	} {
 		if !strings.Contains(workflow, bindingBoundary) {
 			t.Errorf("credential workflow lost dynamic binding boundary %q", bindingBoundary)
