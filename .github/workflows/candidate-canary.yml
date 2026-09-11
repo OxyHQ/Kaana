@@ -100,6 +100,26 @@ jobs:
             stopped=$(aws ecs describe-tasks --cluster oxy-cluster --tasks "$candidate_task" --query 'tasks[0]' --output json)
             echo '──────── isolated candidate start failure (operator-safe) ────────'
             jq '{taskArn,taskDefinitionArn,lastStatus,stopCode,stoppedReason,containers:[.containers[]|{name,lastStatus,exitCode,reason}]}' <<<"$stopped"
+            log_group=$(jq -er '.containerDefinitions[]|select(.name=="kaana")|.logConfiguration.options["awslogs-group"]' <<<"$base")
+            log_prefix=$(jq -er '.containerDefinitions[]|select(.name=="kaana")|.logConfiguration.options["awslogs-stream-prefix"]' <<<"$base")
+            task_id=${candidate_task##*/}
+            startup_error=''
+            for _ in 1 2 3 4 5 6; do
+              log_events=$(aws logs get-log-events \
+                --log-group-name "$log_group" \
+                --log-stream-name "$log_prefix/kaana/$task_id" \
+                --limit 50 \
+                --query 'events[].message' \
+                --output json 2>/dev/null || true)
+              startup_error=$(jq -cr '[.[]|fromjson?|select(.msg=="kaana could not start")|{msg,error}]|if length==1 then .[0] else empty end' <<<"${log_events:-[]}")
+              [ -n "$startup_error" ] && break
+              sleep 5
+            done
+            if [ -z "$startup_error" ]; then
+              echo '::error::exact candidate startup error was not available in its scoped log stream'
+              exit 1
+            fi
+            jq -n --argjson startupError "$startup_error" '{startupError:$startupError}'
             echo '─────────────────────────────────────────────────────────────────'
             exit 1
           fi
