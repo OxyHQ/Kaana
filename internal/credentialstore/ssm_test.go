@@ -68,6 +68,32 @@ func TestSSMImportRequestsDecryptionAndReturnsNoMetadata(t *testing.T) {
 	}
 }
 
+func TestTemporarySSMHandoffsAreExactAndKeepBothCohereIdentities(t *testing.T) {
+	parameters := map[string]Scope{
+		"/oxy/kaana/provider-key-handoff/20260911/cheaperinference": {Provider: "cheaperinference", KeyID: "e97a886e-ab58-4492-b250-84a944e44276"},
+		"/oxy/kaana/provider-key-handoff/20260911/mistral":          {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
+		"/oxy/kaana/provider-key-handoff/20260911/cohere":           {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
+		"/oxy/kaana/provider-key-handoff/20260911/cohere-2":         {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
+	}
+	if len(temporaryProviderCredentialHandoffs) != 4 {
+		t.Fatalf("temporary handoff count = %d, want 4", len(temporaryProviderCredentialHandoffs))
+	}
+	for parameter, scope := range parameters {
+		if actual, ok := reviewedProviderCredentialHandoff(parameter); !ok || actual != scope {
+			t.Errorf("handoff %q = %+v/%v, want %+v/true", parameter, actual, ok, scope)
+		}
+		if !validOpaqueCredentialID(scope.KeyID) {
+			t.Errorf("handoff %q key ID is not an exact lowercase UUIDv4", parameter)
+		}
+	}
+	if parameters["/oxy/kaana/provider-key-handoff/20260911/cohere"].KeyID == parameters["/oxy/kaana/provider-key-handoff/20260911/cohere-2"].KeyID {
+		t.Fatal("the two Cohere credentials share an identity")
+	}
+	if _, ok := reviewedProviderCredentialHandoff("/oxy/kaana/provider-key-handoff/20260911/cohere/extra"); ok {
+		t.Fatal("temporary handoff prefix expansion was accepted")
+	}
+}
+
 func TestSSMImportRefusesUnsafeInputsWithoutEchoingSecrets(t *testing.T) {
 	for _, name := range []string{
 		"",
