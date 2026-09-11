@@ -34,6 +34,7 @@ var temporaryProviderCredentialHandoffs = map[string]Scope{
 	"/oxy/kaana/provider-key-handoff/20260911/mistral":          {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
 	"/oxy/kaana/provider-key-handoff/20260911/cohere":           {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
 	"/oxy/kaana/provider-key-handoff/20260911/cohere-2":         {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
+	"/oxy/kaana/provider-key-handoff/20260911/openai":           {Provider: "openai", KeyID: "610adcc8-4a29-4ab1-a1c8-fca191a1fadd"},
 }
 
 type ssmClient interface {

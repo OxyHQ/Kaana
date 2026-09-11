@@ -291,7 +291,7 @@ the value under Kaana's KMS key, and never writes it to stdout, argv, an
 environment variable, or a file. It accepts only `SecureString` values under
 the four exact historical Alia handoff paths for ElevenLabs, Groq, OpenRouter
 and xAI plus four exact historical Relay paths for Cerebras, Groq, OpenRouter
-and xAI. A separate temporary map contains only the four UUID-bound 2026-09-11
+and xAI. A separate temporary map contains only the five UUID-bound 2026-09-11
 handoffs documented in `provider-credential-handoff-20260911.md`; it must be
 removed after verification. The importer accepts no prefix, wildcard or other
 provider. Every path is bound
@@ -322,7 +322,7 @@ not proof that the account can invoke a model.
 `(provider, keyId)` encrypts new plaintext and atomically rotates that row.
 Adding another key is another opaque row and does not register a task
 definition. Only the eight frozen historical handoffs may bypass the UUID rule;
-the four temporary handoffs use normal UUIDv4 identities. Serving reloads the complete set atomically every
+the five temporary handoffs use normal UUIDv4 identities. Serving reloads the complete set atomically every
 `KAANA_CREDENTIAL_RELOAD_INTERVAL`: a partial or failed load leaves the previous
 generation serving. Revoke the old credential upstream first when immediate
 revocation matters; a database disable converges within the configured interval.
