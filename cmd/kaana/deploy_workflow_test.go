@@ -99,6 +99,10 @@ func TestCandidateCanaryIsIsolatedBoundedAndAlwaysCleanedUp(t *testing.T) {
 		"aws ecs deregister-task-definition",
 		"OxyOperation,value=KaanaCandidateCanary",
 		"KAANA_CANDIDATE_MAX_LIFETIME",
+		"assignPublicIp' <<<\"$network\")\" != DISABLED",
+		"/usr/local/bin/kaana-probe",
+		"candidate loopback /livez probe failed",
+		"candidatePrivateIp=$private_ip",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("candidate workflow lost boundary %q", required)

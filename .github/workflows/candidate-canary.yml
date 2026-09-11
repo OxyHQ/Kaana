@@ -63,14 +63,20 @@ jobs:
           fi
           service=$(aws ecs describe-services --cluster oxy-cluster --services kaana --query 'services[0]' --output json)
           network=$(jq -ec '.networkConfiguration' <<<"$service")
+          if [ "$(jq -r '.awsvpcConfiguration.assignPublicIp' <<<"$network")" != DISABLED ]; then
+            echo '::error::candidate must inherit an exact private-only network configuration'
+            exit 1
+          fi
           live_td=$(jq -er '.taskDefinition' <<<"$service")
           base=$(aws ecs describe-task-definition --task-definition "$live_td" --query taskDefinition --output json)
           jq --arg image "$repository@$DIGEST" --arg lifetime "${HOLD_MINUTES}m" '
-            .family="oxy-kaana-candidate"
+            (.containerDefinitions[] | select(.name=="kaana") | .logConfiguration) as $logs
+            | .family="oxy-kaana-candidate"
             | .containerDefinitions |= map(if .name == "kaana" then
                 .image=$image
                 | .environment = (((.environment // []) | map(select(.name != "KAANA_CANDIDATE_MAX_LIFETIME"))) + [{name:"KAANA_CANDIDATE_MAX_LIFETIME",value:$lifetime}])
               else . end)
+            | .containerDefinitions += [{name:"kaana-candidate-probe",image:$image,essential:false,entryPoint:["/usr/local/bin/kaana-probe"],command:[],environment:[],secrets:[],logConfiguration:$logs,dependsOn:[{containerName:"kaana",condition:"START"}]}]
             | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy,.deregisteredAt)
           ' <<<"$base" >/tmp/candidate-task.json
           candidate_td=$(aws ecs register-task-definition --cli-input-json file:///tmp/candidate-task.json \
@@ -94,9 +100,23 @@ jobs:
           private_ip=$(jq -er '[.attachments[].details[]|select(.name=="privateIPv4Address")|.value]|unique|if length==1 then .[0] else error("private IP is not singular") end' <<<"$observed")
           observed_digest=$(jq -er '.containers[]|select(.name=="kaana")|.imageDigest' <<<"$observed")
           [ "$observed_digest" = "$DIGEST" ] || { echo '::error::running candidate digest differs'; exit 1; }
+          health_deadline=$(( $(date +%s) + 120 ))
+          while :; do
+            observed=$(aws ecs describe-tasks --cluster oxy-cluster --tasks "$candidate_task" --query 'tasks[0]' --output json)
+            probe_status=$(jq -r '.containers[]|select(.name=="kaana-candidate-probe")|.lastStatus' <<<"$observed")
+            probe_exit=$(jq -r '.containers[]|select(.name=="kaana-candidate-probe")|.exitCode // -1' <<<"$observed")
+            main_status=$(jq -r '.containers[]|select(.name=="kaana")|.lastStatus' <<<"$observed")
+            if [ "$probe_status" = STOPPED ] && [ "$probe_exit" = 0 ] && [ "$main_status" = RUNNING ]; then break; fi
+            if [ "$probe_status" = STOPPED ] || [ "$(date +%s)" -gt "$health_deadline" ]; then
+              echo "::error::candidate loopback /livez probe failed (status=$probe_status exit=$probe_exit main=$main_status)"
+              exit 1
+            fi
+            sleep 5
+          done
           echo "candidateTaskArn=$candidate_task"
           echo "candidateTaskDefinitionArn=$candidate_td"
           echo "candidateImageDigest=$observed_digest"
+          echo "candidatePrivateIp=$private_ip"
           echo "candidatePrivateOrigin=http://$private_ip:8080"
           echo "expectedSnapshotId=$SNAPSHOT"
           echo "Run OxyHQServices / Kaana signed production canary with these exact values before this ${HOLD_MINUTES}-minute window closes."

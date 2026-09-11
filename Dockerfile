@@ -77,6 +77,8 @@ ENV GOFLAGS=-p=2
 # and survives both.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/kaana ./cmd/kaana
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-probe ./cmd/kaana-probe
 
 # The inventory publisher ships in the SAME image and runs as a different task.
 # One image because they are one module built from one commit, and a publisher
@@ -137,6 +139,7 @@ RUN mkdir -p /out/etc/ssl/certs \
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS runtime
 
 COPY --from=build /out/kaana /usr/local/bin/kaana
+COPY --from=build /out/kaana-probe /usr/local/bin/kaana-probe
 COPY --from=build /out/kaana-publisher /usr/local/bin/kaana-publisher
 COPY --from=build /out/kaana-credentials /usr/local/bin/kaana-credentials
 COPY --from=build /out/kaana-credential-control /usr/local/bin/kaana-credential-control
