@@ -92,10 +92,17 @@ jobs:
           trap cleanup EXIT
           run=$(aws ecs run-task --cluster oxy-cluster --task-definition "$candidate_td" --count 1 \
             --launch-type FARGATE --network-configuration "$network" \
+            --started-by "gh-kaana-candidate-${GITHUB_RUN_ID}" \
             --tags key=OxyOperation,value=KaanaCandidateCanary --output json)
           [ "$(jq '.failures|length' <<<"$run")" = 0 ] || { jq '.failures' <<<"$run"; exit 1; }
           candidate_task=$(jq -er '.tasks[0].taskArn' <<<"$run")
-          aws ecs wait tasks-running --cluster oxy-cluster --tasks "$candidate_task"
+          if ! aws ecs wait tasks-running --cluster oxy-cluster --tasks "$candidate_task"; then
+            stopped=$(aws ecs describe-tasks --cluster oxy-cluster --tasks "$candidate_task" --query 'tasks[0]' --output json)
+            echo '──────── isolated candidate start failure (operator-safe) ────────'
+            jq '{taskArn,taskDefinitionArn,lastStatus,stopCode,stoppedReason,containers:[.containers[]|{name,lastStatus,exitCode,reason}]}' <<<"$stopped"
+            echo '─────────────────────────────────────────────────────────────────'
+            exit 1
+          fi
           observed=$(aws ecs describe-tasks --cluster oxy-cluster --tasks "$candidate_task" --query 'tasks[0]' --output json)
           private_ip=$(jq -er '[.attachments[].details[]|select(.name=="privateIPv4Address")|.value]|unique|if length==1 then .[0] else error("private IP is not singular") end' <<<"$observed")
           observed_digest=$(jq -er '.containers[]|select(.name=="kaana")|.imageDigest' <<<"$observed")
