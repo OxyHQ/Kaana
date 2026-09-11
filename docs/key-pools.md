@@ -41,11 +41,9 @@ status:
 | `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the key is retired **and the request moves to the next key** |
 | `request_fault` | the request is what was refused | nothing is retired and nothing is retried |
 
-**An exhausted or refused key rotates; a request fault does not.** Exhaustion
-means the next account may still have capacity. Rejection is a fact about the
-exact credential that was sent, not evidence about its neighbours, so each key
-is attempted at most once. A request fault would be reproduced by every key and
-is retried nowhere.
+**An exhausted or refused key rotates; a request fault does not.** Each exact
+key is tried at most once. Authentication rejection belongs to the credential
+that was sent, while a malformed request would fail identically on every key.
 
 **A request fault is retried nowhere.** The next credential would be refused
 identically, so a rotation turns one customer error into several upstream calls
@@ -221,6 +219,16 @@ previous complete generation, so no request observes a pool assembled across
 two credential revisions. A restart is required for provider-set or adapter
 configuration changes, not for an ordinary database credential rotation.
 
+Retirement state is durable by exact `(provider, keyId)`. Every real upstream
+attempt records only its opaque request, deployment and key identities, verdict
+and observation time; no secret or request content enters that record. When a
+retirement expires, PostgreSQL grants one short recovery lease across all Kaana
+replicas. Only the real inference request holding that lease may prove recovery;
+health and catalogue probes never consume it. A successful request writes a
+`usable` watermark, so an older failure arriving late cannot resurrect a stale
+retirement; another exhaustion or rejection renews it. Rotating the ciphertext
+under the same key ID clears the old generation's state atomically.
+
 ## Rules a reviewer applies
 
 A credential is a POOL per provider, and the pool is a different rotation from
@@ -263,8 +271,8 @@ change to.
   provider's declared mapping says means remaining credits, reading zero.
   `unknown` is not `exhausted`, `unavailable` is not `exhausted`, and every
   failure nobody classified leaves the key exactly as it was.
-- **An exhausted or REFUSED key rotates the request to the next one.** The
-  request-scoped attempt set bounds the walk to one attempt per exact key.
+- **An exhausted or REFUSED key rotates to the next exact key**, at most once
+  per key and request.
 - **A request fault is retried on nothing.** The next credential would be
   refused identically.
 - **The verdict is read from the code the ADAPTER chose, never from a status.**

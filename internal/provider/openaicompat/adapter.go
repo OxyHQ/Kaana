@@ -308,7 +308,7 @@ func (a *Adapter) Health(ctx context.Context) provider.Health {
 	}
 
 	attempt := a.credentials.Begin()
-	key, leased := attempt.Next(now)
+	key, leased := attempt.NextProbe(now)
 	if !leased {
 		// Keys are declared and none of them can be used. That is a real
 		// unavailability with a cause an operator can act on, and it is not

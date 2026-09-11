@@ -189,6 +189,21 @@ The migration is idempotent. Runtime never applies DDL at startup; granting a
 serving process schema authority to make deployment convenient would make every
 request-serving task a migration principal.
 
+Migration `0011` adds credential runtime state, cross-replica recovery leases
+and append-only attempt evidence. Apply it before deploying a binary that reads
+the joined state. The runtime role receives only `EXECUTE` on the two
+`SECURITY DEFINER` functions; it has no table DML. Verify the migration ledger,
+then deploy one task and send a real inference request through a deliberately
+retired test key: exactly one task may hold the recovery lease and every
+credential tried must produce one event with opaque IDs only.
+
+There is no destructive down migration. Rolling the application back is unsafe
+while a credential is retired because an older binary ignores the durable
+state. Keep the `0011` schema, stop the rollout, and either restore the current
+binary or disable the affected credential rows before starting an older one.
+The tables are additive and inert to old administration code; never drop them
+while a current task may still be recording an attempt.
+
 Platform credential control is bootstrapped by the reviewed
 `bootstrap-platform-control` operation in `credential-admin.yml`. Its immutable
 migrator task receives two exact SecureStrings from its execution role:

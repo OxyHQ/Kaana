@@ -18,6 +18,22 @@ type credentialWalkSender struct {
 	sent     []string
 }
 
+type credentialRuntimeFake struct {
+	decision CredentialRecoveryDecision
+	claims   int
+	attempts []CredentialAttempt
+}
+
+func (r *credentialRuntimeFake) ClaimCredentialRecovery(context.Context, contract.ProviderSlug, string, time.Time, time.Time) (CredentialRecoveryDecision, error) {
+	r.claims++
+	return r.decision, nil
+}
+
+func (r *credentialRuntimeFake) RecordCredentialAttempt(_ context.Context, attempt CredentialAttempt) error {
+	r.attempts = append(r.attempts, attempt)
+	return nil
+}
+
 func (s *credentialWalkSender) Send(_ context.Context, _ *Call, key Key) (*http.Response, error) {
 	s.sent = append(s.sent, key.ID)
 	status := http.StatusOK
@@ -342,6 +358,68 @@ func TestAllRejectedCredentialsAreTriedOnceAndReturnTheLastProviderRefusal(t *te
 	var upstream ErrUpstream
 	if !errors.As(err, &upstream) || upstream.Code != contract.CodeProviderCredentialInvalid {
 		t.Fatalf("last refusal = %T %v", err, err)
+	}
+}
+
+func TestWalkPersistsEveryExactCredentialAttempt(t *testing.T) {
+	runtime := &credentialRuntimeFake{decision: CredentialRecoveryClaimed}
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "invalid-key", Secret: firstCredential, Runtime: runtime},
+		{KeyID: "working-key", Secret: secondCredential, Runtime: runtime},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &credentialWalkSender{rejected: map[string]bool{"invalid-key": true}}
+	call := &Call{RequestID: "req-runtime", Route: Route{Provider: "test-provider", DeploymentID: "dep-runtime"}}
+	response, _, err := Walk(context.Background(), pool, call, sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if len(runtime.attempts) != 2 || runtime.attempts[0].KeyID != "invalid-key" || runtime.attempts[0].Outcome != "rejected" ||
+		runtime.attempts[1].KeyID != "working-key" || runtime.attempts[1].Outcome != "accepted" {
+		t.Fatalf("credential attempts = %+v", runtime.attempts)
+	}
+}
+
+func TestExpiredRetirementRequiresOneDurableRecoveryLease(t *testing.T) {
+	runtime := &credentialRuntimeFake{decision: CredentialRecoveryClaimed}
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{{
+		KeyID: "recovering-key", Secret: firstCredential, Runtime: runtime,
+		State: CredentialRuntimeState{Reason: KeyRejected, RetiredUntil: time.Now().Add(-time.Minute)},
+	}}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := &Call{RequestID: "req-recovery", Route: Route{Provider: "test-provider", DeploymentID: "dep-recovery"}}
+	response, _, err := Walk(context.Background(), pool, call, &credentialWalkSender{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if runtime.claims != 1 || len(runtime.attempts) != 1 || runtime.attempts[0].Outcome != "accepted" {
+		t.Fatalf("claims/attempts = %d/%+v", runtime.claims, runtime.attempts)
+	}
+	if projection := pool.Projection(time.Now()); projection.Usable != 1 || projection.Keys[0].State != "usable" {
+		t.Fatalf("recovered projection = %+v", projection)
+	}
+}
+
+func TestHealthProbeCannotConsumeARecoveryLease(t *testing.T) {
+	runtime := &credentialRuntimeFake{decision: CredentialRecoveryClaimed}
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{{
+		KeyID: "recovering-key", Secret: firstCredential, Runtime: runtime,
+		State: CredentialRuntimeState{Reason: KeyRejected, RetiredUntil: time.Now().Add(-time.Minute)},
+	}}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, leased := pool.Begin().NextProbe(time.Now()); leased {
+		t.Fatal("health probe leased a key awaiting a real recovery request")
+	}
+	if runtime.claims != 0 {
+		t.Fatalf("health probe claimed %d recovery leases", runtime.claims)
 	}
 }
 

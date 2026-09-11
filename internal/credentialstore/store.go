@@ -32,6 +32,11 @@ type EncryptedCredential struct {
 	Class      provider.KeyClass
 	BudgetUSD  *float64
 	Position   int
+	Runtime    provider.CredentialRuntimeState
+}
+
+type runtimeRepository interface {
+	provider.CredentialRuntime
 }
 
 // Metadata is the non-secret projection an operator may list.
@@ -143,7 +148,11 @@ func (s *Store) Load(ctx context.Context, requested []contract.ProviderSlug) (ma
 			KeyID:  row.KeyID,
 			Secret: secret,
 			Class:  row.Class,
+			State:  row.Runtime,
 		})
+		if runtime, ok := s.repository.(runtimeRepository); ok {
+			declarations[row.Provider][len(declarations[row.Provider])-1].Runtime = runtime
+		}
 		if row.BudgetUSD != nil {
 			budgets = append(budgets, string(row.Provider)+"/"+row.KeyID)
 		}

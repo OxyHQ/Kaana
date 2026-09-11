@@ -46,6 +46,9 @@ var migration0008 string
 //go:embed migrations/0009_platform_provider_credential_operations.sql
 var migration0009 string
 
+//go:embed migrations/0011_provider_credential_runtime.sql
+var migration0011 string
+
 //go:embed migrations/0010_provider_cost_event_batches.sql
 var migration0010 string
 
@@ -165,6 +168,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0008", body: migration0008},
 		{version: "0009", body: migration0009},
 		{version: "0010", body: migration0010},
+		{version: "0011", body: migration0011},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -277,8 +281,10 @@ func (p *Postgres) ListEnabled(ctx context.Context, providers []contract.Provide
 	}
 	rows, err := p.pool.Query(ctx, `
 		SELECT provider_slug, key_id, encrypted_secret, kms_key_arn,
-		       key_class, budget_usd::double precision, position
-		FROM active_provider_credentials
+		       key_class, budget_usd::double precision, position,
+		       runtime.state, runtime.evidence_source, runtime.observed_at, runtime.retired_until, runtime.lease_until
+		FROM active_provider_credentials AS credential
+		LEFT JOIN provider_credential_runtime_state AS runtime USING (provider_slug, key_id)
 		WHERE provider_slug = ANY($1::text[])
 		ORDER BY provider_slug, position, key_id`, names)
 	if err != nil {
@@ -293,8 +299,13 @@ func (p *Postgres) ListEnabled(ctx context.Context, providers []contract.Provide
 			providerSlug string
 			class        string
 			budget       pgtype.Float8
+			state        pgtype.Text
+			evidence     pgtype.Text
+			observedAt   pgtype.Timestamptz
+			retiredUntil pgtype.Timestamptz
+			leaseUntil   pgtype.Timestamptz
 		)
-		if err := rows.Scan(&providerSlug, &row.KeyID, &row.Ciphertext, &row.KMSKeyARN, &class, &budget, &row.Position); err != nil {
+		if err := rows.Scan(&providerSlug, &row.KeyID, &row.Ciphertext, &row.KMSKeyARN, &class, &budget, &row.Position, &state, &evidence, &observedAt, &retiredUntil, &leaseUntil); err != nil {
 			return nil, err
 		}
 		row.Provider = contract.ProviderSlug(providerSlug)
@@ -303,12 +314,46 @@ func (p *Postgres) ListEnabled(ctx context.Context, providers []contract.Provide
 			value := budget.Float64
 			row.BudgetUSD = &value
 		}
+		if state.Valid {
+			if state.String != "usable" {
+				row.Runtime.Reason = provider.KeyRetirement(state.String)
+			}
+		}
+		if evidence.Valid {
+			row.Runtime.Evidence = evidence.String
+		}
+		if observedAt.Valid {
+			row.Runtime.ObservedAt = observedAt.Time
+		}
+		if retiredUntil.Valid {
+			row.Runtime.RetiredUntil = retiredUntil.Time
+		}
+		if leaseUntil.Valid {
+			row.Runtime.LeaseUntil = leaseUntil.Time
+		}
 		credentials = append(credentials, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return credentials, nil
+}
+
+func (p *Postgres) ClaimCredentialRecovery(ctx context.Context, slug contract.ProviderSlug, keyID string, at, until time.Time) (provider.CredentialRecoveryDecision, error) {
+	var decision string
+	err := p.pool.QueryRow(ctx, `SELECT kaana_claim_provider_credential_recovery($1,$2,$3,$4)`, slug, keyID, at, until).Scan(&decision)
+	return provider.CredentialRecoveryDecision(decision), err
+}
+
+func (p *Postgres) RecordCredentialAttempt(ctx context.Context, attempt provider.CredentialAttempt) error {
+	var retired any
+	if !attempt.RetiredUntil.IsZero() {
+		retired = attempt.RetiredUntil
+	}
+	_, err := p.pool.Exec(ctx, `SELECT kaana_record_provider_credential_attempt($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		attempt.RequestID, attempt.DeploymentID, attempt.Index, attempt.Provider, attempt.KeyID,
+		attempt.Outcome, attempt.Evidence, attempt.OccurredAt, retired)
+	return err
 }
 
 // Put atomically creates or rotates a named credential through the only
