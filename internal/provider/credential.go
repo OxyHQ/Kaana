@@ -790,14 +790,13 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			refusedKey = key
 
 		case CredentialRejected:
-			// The credential was refused. The key leaves rotation so no later
-			// request pays for it again, and this request does NOT walk the
-			// rest of the pool: under a provider-side auth failure every
-			// remaining key is refused identically, so walking would multiply
-			// one failure into a call per key and retire the whole pool on a
-			// blip.
+			// The provider refused this exact credential. Retire it and try the
+			// next key in the same provider pool: authentication is a property
+			// of the key that was sent, not evidence about its neighbours. The
+			// request-scoped attempt set still bounds this to one call per key.
 			pool.Retire(key, KeyRejected, now, time.Time{})
-			return nil, key, failure
+			refused = failure
+			refusedKey = key
 
 		case CredentialRequestFault:
 			// The request is what was refused, and it would be refused

@@ -100,7 +100,7 @@ func startFakeUpstream(t *testing.T, scenario conformance.Scenario) *conformance
 
 func totalChunksFor(scenario conformance.Scenario) int {
 	switch scenario {
-	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage, conformance.ScenarioFirstCredentialExhausted:
+	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage, conformance.ScenarioFirstCredentialExhausted, conformance.ScenarioFirstCredentialRefused:
 		return 3
 	case conformance.ScenarioSlowStream:
 		return 6
@@ -151,6 +151,20 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// says it on a 429 — which is why the adapter classifies from the
 			// error type and the invariant is the same for both.
 			writeUpstreamError(w, http.StatusPaymentRequired, errorBilling, "your credit balance is too low to access the API")
+			return
+		}
+		f.writeStream(w, r)
+		return
+	}
+	if f.scenario == conformance.ScenarioFirstCredentialRefused {
+		f.mutex.Lock()
+		if f.firstCredential == "" {
+			f.firstCredential = apiKey
+		}
+		refused := apiKey == f.firstCredential
+		f.mutex.Unlock()
+		if refused {
+			writeUpstreamError(w, http.StatusUnauthorized, errorAuthentication, "invalid x-api-key")
 			return
 		}
 		f.writeStream(w, r)

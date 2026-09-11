@@ -86,6 +86,10 @@ const (
 	// seen. It is a different failure from every other one here: nothing the
 	// client does fixes it, and nothing about the request is wrong.
 	ScenarioCredentialRefused Scenario = "credential_refused"
+	// ScenarioFirstCredentialRefused refuses only the first platform key and
+	// accepts the next one. It proves authentication failures are scoped to the
+	// exact credential that was sent rather than poisoning its provider pool.
+	ScenarioFirstCredentialRefused Scenario = "first_credential_refused"
 	// ScenarioCredentialEchoed refuses with an error whose text echoes the
 	// credential the caller sent. Providers really do this, and it is the
 	// single most likely way an upstream key reaches a customer.
@@ -504,21 +508,24 @@ func Run(t *testing.T, subject Subject) {
 		assertNoCredentialInStream(t, subject, run)
 	})
 
-	t.Run("does not walk the pool when a credential is refused", func(t *testing.T) {
-		// A refused credential and an exhausted one are opposite decisions
-		// about the pool, which is why this check and the one above it are a
-		// matched pair: a build that never rotates passes this one and fails
-		// that one, and a build that always rotates passes that one and fails
-		// this one.
-		//
-		// Walking here would be wrong twice over. Under a provider-side auth
-		// failure every remaining key is refused identically, so the walk turns
-		// one failure into a call per key AND retires the whole pool on a blip.
+	t.Run("serves a refused credential from the next key in the pool", func(t *testing.T) {
+		run := execute(t, subject, ScenarioFirstCredentialRefused, streamingRequest(subject), nil)
+		assertWellFramedStream(t, run)
+		assertTerminal(t, run, contract.EventDone)
+		assertReport(t, run, contract.OutcomeCompleted)
+		if got := run.upstream.RequestCount(); got != 2 {
+			t.Errorf("the upstream received %d requests; the first key was refused and the second should serve", got)
+		}
+		if run.report.RouteSwitches != 0 {
+			t.Errorf("the usage report counts %d route switches for a key rotation inside one deployment", run.report.RouteSwitches)
+		}
+	})
+
+	t.Run("tries every exact key once when the whole pool is refused", func(t *testing.T) {
 		run := execute(t, subject, ScenarioCredentialRefused, streamingRequest(subject), nil)
 		_ = assertFailure(t, run)
-		if got := run.upstream.RequestCount(); got != 1 {
-			t.Errorf("the upstream received %d requests for one refused credential; %d keys were declared and none of the others could have been accepted",
-				got, len(subject.APIKeys))
+		if got := run.upstream.RequestCount(); got != len(subject.APIKeys) {
+			t.Errorf("the upstream received %d requests for an entirely rejected pool of %d keys", got, len(subject.APIKeys))
 		}
 	})
 

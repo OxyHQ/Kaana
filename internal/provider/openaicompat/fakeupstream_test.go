@@ -70,7 +70,7 @@ func startFakeUpstream(t *testing.T, scenario conformance.Scenario) *conformance
 
 func totalChunksFor(scenario conformance.Scenario) int {
 	switch scenario {
-	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage, conformance.ScenarioFirstCredentialExhausted:
+	case conformance.ScenarioStreaming, conformance.ScenarioNoUsage, conformance.ScenarioFirstCredentialExhausted, conformance.ScenarioFirstCredentialRefused:
 		return 3
 	case conformance.ScenarioSlowStream:
 		return 6
@@ -106,6 +106,14 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// that arrives as a 429 that a burst limit also uses, which is
 			// exactly why the adapter classifies from the error type.
 			writeUpstreamError(w, http.StatusTooManyRequests, "insufficient_quota", "you exceeded your current quota")
+			return
+		}
+		f.writeStream(w, r)
+		return
+	}
+	if f.scenario == conformance.ScenarioFirstCredentialRefused {
+		if authorization == firstCredential {
+			writeUpstreamError(w, http.StatusUnauthorized, "invalid_api_key", "incorrect api key provided")
 			return
 		}
 		f.writeStream(w, r)
