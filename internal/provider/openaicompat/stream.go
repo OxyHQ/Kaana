@@ -560,6 +560,15 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 	case parsed.Error.Type == "content_filter" || parsed.Error.Type == "content_policy_violation":
 		failure.Code, failure.Category = contract.CodeUpstreamContentFiltered, contract.UpstreamContentFilter
 		failure.Detail = "the provider's content filter rejected this request"
+	case a.config.Provider == "groq" && status == http.StatusRequestEntityTooLarge &&
+		parsed.Error.Type == "tokens" && parsed.Error.Code == "rate_limit_exceeded":
+		// Groq uses 413 when one request exceeds the account's TPM capacity.
+		// This is a route/account limit, not the model's context window or a
+		// malformed payload. Authorized alternatives may accept the same input.
+		// Keep other 413s below terminal; never classify from message text.
+		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
+		failure.Detail = "groq's token-rate capacity cannot serve this request"
+		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
 	case status == http.StatusRequestEntityTooLarge:
 		failure.Code, failure.Category = contract.CodeRequestTooLarge, contract.UpstreamInvalidReq
 		failure.Detail = "the request is larger than the provider accepts"
