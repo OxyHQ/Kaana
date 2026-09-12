@@ -1,0 +1,157 @@
+diff --git a/internal/kaana/groq_capacity_test.go b/internal/kaana/groq_capacity_test.go
+new file mode 100644
+index 0000000..fc4553e
+--- /dev/null
++++ b/internal/kaana/groq_capacity_test.go
+@@ -0,0 +1,68 @@
++package kaana_test
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++
++	"github.com/OxyHQ/Kaana/internal/contract"
++	"github.com/OxyHQ/Kaana/internal/provider"
++	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
++)
++
++func TestGroqCapacityUsesOnlyTheAuthorizedAlternative(t *testing.T) {
++	for _, tc := range []struct {
++		name, body string
++		backup     bool
++		success    bool
++	}{
++		{"capacity fallback", `{"error":{"type":"tokens","code":"rate_limit_exceeded"}}`, true, true},
++		{"capacity without authorization", `{"error":{"type":"tokens","code":"rate_limit_exceeded"}}`, false, false},
++		{"real oversized payload", `{"error":{"type":"invalid_request_error","code":"request_too_large"}}`, true, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			var attempts atomic.Int32
++			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++				attempts.Add(1)
++				w.Header().Set("Content-Type", "application/json")
++				w.WriteHeader(http.StatusRequestEntityTooLarge)
++				_, _ = w.Write([]byte(tc.body))
++			}))
++			t.Cleanup(upstream.Close)
++			primary, err := openaicompat.New(openaicompat.Config{Provider: "groq", BaseURL: upstream.URL, Declarations: []provider.KeyDeclaration{{KeyID: "groq-test", Secret: "groq-capacity-test-secret"}}})
++			if err != nil {
++				t.Fatal(err)
++			}
++			backup := succeedingAdapter("backup", 7)
++			req := authorizedRequest()
++			req.AuthorizedRoutes[0].Provider = "groq"
++			if !tc.backup {
++				req.AuthorizedRoutes = req.AuthorizedRoutes[:1]
++			}
++			deployments := strings.ReplaceAll(twoDeploymentsOfOneRevision, `"provider":"stub"`, `"provider":"groq"`)
++			events, result := harness{deployments: deployments, adapters: []provider.Adapter{primary, backup}}.run(t, req)
++			if attempts.Load() != 1 {
++				t.Fatalf("primary attempts = %d, want exactly one", attempts.Load())
++			}
++			wantBackup := 0
++			if tc.success {
++				wantBackup = 1
++			}
++			if backup.attempts() != wantBackup {
++				t.Fatalf("backup attempts = %d, want %d", backup.attempts(), wantBackup)
++			}
++			if len(eventsOfType(events, contract.EventRouteSwitch)) != wantBackup {
++				t.Fatal("route switch did not match the actual authorized attempt")
++			}
++			if tc.success {
++				if result.Failure != nil || result.Report == nil || result.Report.Outcome != contract.OutcomeCompleted {
++					t.Fatalf("fallback failed: %+v", result)
++				}
++			} else if result.Failure == nil {
++				t.Fatal("terminal control succeeded")
++			}
++		})
++	}
++}
+diff --git a/internal/provider/openaicompat/groq_capacity_test.go b/internal/provider/openaicompat/groq_capacity_test.go
+new file mode 100644
+index 0000000..c98cd3e
+--- /dev/null
++++ b/internal/provider/openaicompat/groq_capacity_test.go
+@@ -0,0 +1,57 @@
++package openaicompat
++
++import (
++	"errors"
++	"io"
++	"net/http"
++	"strings"
++	"testing"
++
++	"github.com/OxyHQ/Kaana/internal/contract"
++	"github.com/OxyHQ/Kaana/internal/provider"
++)
++
++func TestGroqTokenCapacityRefusalIsNotAnInvalidRequest(t *testing.T) {
++	cases := []struct {
++		name   string
++		slug   contract.ProviderSlug
++		status int
++		body   string
++		want   contract.ErrorCode
++	}{
++		{"token capacity", "groq", 413, `{"error":{"type":"tokens","code":"rate_limit_exceeded","message":"Request exceeds tokens per minute (TPM): Limit 8000, Requested 11305"}}`, contract.CodeRateLimited},
++		{"generic payload", "groq", 413, `{"error":{"type":"invalid_request_error","code":"request_too_large"}}`, contract.CodeRequestTooLarge},
++		{"context length", "groq", 413, `{"error":{"type":"tokens","code":"context_length_exceeded"}}`, contract.CodeRequestTooLarge},
++		{"untyped payload", "groq", 413, `{}`, contract.CodeRequestTooLarge},
++		{"another provider", "openai", 413, `{"error":{"type":"tokens","code":"rate_limit_exceeded"}}`, contract.CodeRequestTooLarge},
++		{"non scalar code", "groq", 413, `{"error":{"type":"tokens","code":{"kind":"rate_limit_exceeded"}}}`, contract.CodeRequestTooLarge},
++		{"malformed request", "groq", 400, `{"error":{"type":"tokens","code":"rate_limit_exceeded"}}`, contract.CodeInvalidRequest},
++		{"message alone", "groq", 413, `{"error":{"message":"rate_limit_exceeded tokens per minute (TPM)"}}`, contract.CodeRequestTooLarge},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			a, err := New(Config{Provider: tc.slug, BaseURL: "https://example.invalid", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
++			if err != nil {
++				t.Fatal(err)
++			}
++			err = a.Refuse(&http.Response{StatusCode: tc.status, Header: http.Header{"Retry-After": []string{"2"}}, Body: io.NopCloser(strings.NewReader(tc.body))}, provider.Key{})
++			var failure provider.ErrUpstream
++			if !errors.As(err, &failure) {
++				t.Fatalf("failure %T: %v", err, err)
++			}
++			if failure.Code != tc.want {
++				t.Fatalf("code = %s, want %s", failure.Code, tc.want)
++			}
++			if tc.want == contract.CodeRateLimited {
++				if failure.Category != contract.UpstreamRateLimit || !provider.AttributableCategory(failure.Category) {
++					t.Fatalf("capacity did not permit authorized failover: %+v", failure)
++				}
++				if failure.RetryAfterMs != 2000 {
++					t.Fatalf("retry delay = %v", failure.RetryAfterMs)
++				}
++			} else if provider.AttributableCategory(failure.Category) {
++				t.Fatal("invalid payload became attributable/retryable")
++			}
++		})
++	}
++}
+diff --git a/internal/provider/openaicompat/stream.go b/internal/provider/openaicompat/stream.go
+index 4a16b2a..24ff0d2 100644
+--- a/internal/provider/openaicompat/stream.go
++++ b/internal/provider/openaicompat/stream.go
+@@ -560,6 +560,15 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
+ 	case parsed.Error.Type == "content_filter" || parsed.Error.Type == "content_policy_violation":
+ 		failure.Code, failure.Category = contract.CodeUpstreamContentFiltered, contract.UpstreamContentFilter
+ 		failure.Detail = "the provider's content filter rejected this request"
++	case a.config.Provider == "groq" && status == http.StatusRequestEntityTooLarge &&
++		parsed.Error.Type == "tokens" && parsed.Error.Code == "rate_limit_exceeded":
++		// Groq uses 413 when one request exceeds the account's TPM capacity.
++		// This is a route/account limit, not the model's context window or a
++		// malformed payload. Authorized alternatives may accept the same input.
++		// Keep other 413s below terminal; never classify from message text.
++		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
++		failure.Detail = "groq's token-rate capacity cannot serve this request"
++		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
+ 	case status == http.StatusRequestEntityTooLarge:
+ 		failure.Code, failure.Category = contract.CodeRequestTooLarge, contract.UpstreamInvalidReq
+ 		failure.Detail = "the request is larger than the provider accepts"

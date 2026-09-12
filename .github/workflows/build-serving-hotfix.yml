@@ -1,0 +1,81 @@
+name: Build serving Groq capacity hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/serving-hotfixes/groq-token-capacity.patch
+      - .github/serving-hotfixes/groq-token-capacity.json
+      - .github/workflows/build-serving-hotfix.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: build-serving-groq-capacity-hotfix
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.7'
+      - name: Reconstruct the reviewed serving backport
+        env:
+          CONTEXT: ${{ runner.temp }}/kaana-serving-hotfix
+        run: |
+          set -euo pipefail
+          MANIFEST=.github/serving-hotfixes/groq-token-capacity.json
+          PATCH=.github/serving-hotfixes/groq-token-capacity.patch
+          BASE=$(jq -er '.baseCommit' "$MANIFEST")
+          EXPECTED=$(jq -er '.patchSha256' "$MANIFEST")
+          test "$BASE" = df1fa39728b9377f1e00be038d0c4769f6bcb446
+          test "$(sha256sum "$PATCH" | cut -d ' ' -f 1)" = "$EXPECTED"
+          git worktree add --detach "$CONTEXT" "$BASE"
+          git -C "$CONTEXT" apply --check "$GITHUB_WORKSPACE/$PATCH"
+          git -C "$CONTEXT" apply --index "$GITHUB_WORKSPACE/$PATCH"
+          diff -u <(jq -r '.paths[]' "$MANIFEST" | sort) <(git -C "$CONTEXT" diff --cached --name-only | sort)
+          echo "HOTFIX_PATCH_SHA=$EXPECTED" >> "$GITHUB_ENV"
+          echo "HOTFIX_TREE=$(git -C "$CONTEXT" write-tree)" >> "$GITHUB_ENV"
+      - name: Validate the actual serving source
+        working-directory: ${{ runner.temp }}/kaana-serving-hotfix
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
+          go build ./...
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::237343248947:role/oxy-kaana-github-deploy
+          aws-region: us-west-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - name: Publish immutable backport image only
+        env:
+          CONTEXT: ${{ runner.temp }}/kaana-serving-hotfix
+          IMAGE: 237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/arm64 \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "io.kaana.serving-base=df1fa39728b9377f1e00be038d0c4769f6bcb446" \
+            --label "io.kaana.hotfix-patch=$HOTFIX_PATCH_SHA" \
+            --label "io.kaana.hotfix-tree=$HOTFIX_TREE" \
+            -t "$IMAGE:$GITHUB_SHA-serving-hotfix" \
+            --push --metadata-file "$RUNNER_TEMP/hotfix-image.json" "$CONTEXT"
+          DIGEST=$(jq -er '."containerimage.digest"' "$RUNNER_TEMP/hotfix-image.json")
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'Serving base: `%s`\n\nPatch: `%s`\n\nTree: `%s`\n\nImage: `%s@%s`\n' \
+            df1fa39728b9377f1e00be038d0c4769f6bcb446 "$HOTFIX_PATCH_SHA" "$HOTFIX_TREE" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          # No ECS mutation and no credential-cutover gate change. Operators
+          # validate this backport against the recorded live revision first.

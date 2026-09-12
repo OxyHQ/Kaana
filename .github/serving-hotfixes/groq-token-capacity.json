@@ -1,0 +1,12 @@
+{
+  "baseCommit": "df1fa39728b9377f1e00be038d0c4769f6bcb446",
+  "servingTaskDefinition": "oxy-kaana:40",
+  "servingImageDigest": "sha256:cd202c32d705628666ac53a7493b3f4209fbad6e85484713ac8b305dca8290b8",
+  "patchSha256": "9d467ac4efd3592977b7c12bb87e30f4b1b340717cbda74cf91994f5796e596c",
+  "paths": [
+    "internal/provider/openaicompat/stream.go",
+    "internal/provider/openaicompat/groq_capacity_test.go",
+    "internal/kaana/groq_capacity_test.go"
+  ],
+  "purpose": "Backport the Groq 413 TPM classification fix without the pending provider credential identity cutover."
+}
