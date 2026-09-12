@@ -25,7 +25,7 @@ func TestDeploymentBindingPostgresLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	repository := &Postgres{pool: pool}
 	if err := repository.Migrate(ctx); err != nil {
 		t.Fatal(err)
@@ -104,10 +104,40 @@ func TestDeploymentBindingPostgresLifecycle(t *testing.T) {
 	if !found {
 		t.Fatal("binding readback missing")
 	}
+	// Exercise the query used at boot with the serving identity, not the
+	// migrator/superuser that created this fixture. A bare table-read probe
+	// misses permissions required by a join in LoadDeploymentBindings.
+	runtimeConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET SESSION AUTHORIZATION kaana_runtime`)
+		return err
+	}
+	runtimePool, err := pgxpool.NewWithConfig(ctx, runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtimePool.Close()
+	runtimeRepository := &Postgres{pool: runtimePool}
+	active, err := runtimeRepository.LoadDeploymentBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, item := range active {
+		if item == binding {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("runtime did not load the enabled exact binding")
+	}
 	if _, err := pool.Exec(ctx, `UPDATE provider_credentials SET enabled=false WHERE provider_slug=$1 AND key_id=$2`, providerSlug, keys[0]); err != nil {
 		t.Fatal(err)
 	}
-	live, err := repository.LoadDeploymentBindings(ctx)
+	live, err := runtimeRepository.LoadDeploymentBindings(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

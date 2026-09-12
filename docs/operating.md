@@ -295,6 +295,11 @@ kaana-credentials list-deployment-bindings
 
 Only the credential-admin database role may read this operator projection; the
 runtime role can read the binding table but not its operation history.
+The runtime loads executable bindings by joining the existing
+`active_provider_credentials` security-barrier view, which excludes disabled
+keys. It has no read grant on the underlying `provider_credentials` table.
+The PostgreSQL lifecycle test runs that exact loader as `kaana_runtime` and
+checks both an enabled binding and its exclusion after disabling the key.
 
 ### Schema 0013 staged rollout
 

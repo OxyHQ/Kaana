@@ -66,8 +66,8 @@ type Repository interface {
 func (p *Postgres) LoadDeploymentBindings(ctx context.Context) ([]provider.CredentialBinding, error) {
 	rows, err := p.pool.Query(ctx, `SELECT b.deployment_id, b.provider_slug, b.key_id
 		FROM provider_deployment_credential_bindings b
-		JOIN provider_credentials c ON c.provider_slug = b.provider_slug AND c.key_id = b.key_id
-		WHERE c.enabled = TRUE ORDER BY b.deployment_id`)
+		JOIN active_provider_credentials c ON c.provider_slug = b.provider_slug AND c.key_id = b.key_id
+		ORDER BY b.deployment_id`)
 	if err != nil {
 		return nil, fmt.Errorf("credential store: listing deployment bindings: %w", err)
 	}
