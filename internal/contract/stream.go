@@ -1,6 +1,6 @@
 package contract
 
-// The stream is one discriminated union of seven whole messages, each carrying
+// The stream is one discriminated union of eight whole messages, each carrying
 // its own schemaVersion, requestId and monotonic sequence.
 //
 // Unlike the request's inline unions, this one's variants are named shapes in
@@ -15,6 +15,7 @@ type StreamEventType string
 const (
 	EventStart       StreamEventType = "start"
 	EventDelta       StreamEventType = "delta"
+	EventAudio       StreamEventType = "audio"
 	EventToolCall    StreamEventType = "tool_call"
 	EventUsage       StreamEventType = "usage"
 	EventRouteSwitch StreamEventType = "route_switch"
@@ -23,7 +24,7 @@ const (
 )
 
 var streamEventTypeValues = []StreamEventType{
-	EventStart, EventDelta, EventToolCall, EventUsage, EventRouteSwitch, EventError, EventDone,
+	EventStart, EventDelta, EventAudio, EventToolCall, EventUsage, EventRouteSwitch, EventError, EventDone,
 }
 
 // StreamEvent is any event a normalized stream can carry.
@@ -183,3 +184,24 @@ type StreamDoneEvent struct {
 
 func (e *StreamDoneEvent) EventType() StreamEventType { return EventDone }
 func (e *StreamDoneEvent) Sequence() int              { return e.Seq }
+
+// StreamAudioEvent is an independently base64-encoded, bounded audio chunk.
+type StreamAudioEvent struct {
+	SchemaVersion int             `json:"schemaVersion"`
+	Type          StreamEventType `json:"type"`
+	RequestID     RequestID       `json:"requestId"`
+	Seq           int             `json:"sequence"`
+	OutputIndex   int             `json:"outputIndex"`
+	MediaType     AudioMediaType  `json:"mediaType"`
+	Data          string          `json:"data"`
+}
+
+func (e *StreamAudioEvent) EventType() StreamEventType { return EventAudio }
+func (e *StreamAudioEvent) Sequence() int              { return e.Seq }
+
+// AudioMediaType is the content type of a normalized audio event.
+type AudioMediaType string
+
+var audioMediaTypeValues = []AudioMediaType{"audio/mpeg", "audio/wav", "audio/ogg", "audio/aac", "audio/flac", "audio/pcm"}
+
+func (m AudioMediaType) Valid() bool { return isMember(m, audioMediaTypeValues) }
