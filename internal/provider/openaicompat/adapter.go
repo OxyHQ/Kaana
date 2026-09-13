@@ -151,6 +151,12 @@ func (a *Adapter) Provider() contract.ProviderSlug { return a.config.Provider }
 // the whole reason translation is a separate, pure method: a request this
 // protocol cannot express must cost nothing.
 func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if request.Client.APIFormat == contract.APIFormatAudioSpeech {
+		return a.translateSpeech(request, route)
+	}
+	if a.config.Provider == "xai" && route.UpstreamModelID == "tts" {
+		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the speech deployment requires audio_speech"}
+	}
 	if request.Modality == contract.ModalityEmbedding {
 		if a.config.Provider != "siliconflow" {
 			return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "this deployment does not expose an embeddings endpoint"}

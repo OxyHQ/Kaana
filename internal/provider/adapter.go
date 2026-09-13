@@ -351,3 +351,10 @@ func (r *Registry) Replace(adapters ...Adapter) error {
 	r.mu.Unlock()
 	return nil
 }
+
+// AudioEmitter extends semantic output for providers producing binary audio.
+// The executor owns framing and ordering, just as it does for text deltas.
+type AudioEmitter interface {
+	Emitter
+	Audio(outputIndex int, mediaType string, data []byte) error
+}

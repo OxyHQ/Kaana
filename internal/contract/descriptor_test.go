@@ -83,10 +83,12 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
-	"embeddingVectorSchema":  reflect.TypeOf(EmbeddingVector{}),
-	"embeddingUsageSchema":   reflect.TypeOf(EmbeddingUsage{}),
-	"embeddingSuccessSchema": reflect.TypeOf(EmbeddingSuccess{}),
-	"embeddingFailureSchema": reflect.TypeOf(EmbeddingFailure{}),
+	"inferenceSpeechParametersSchema": reflect.TypeOf(SpeechParameters{}),
+	"inferenceStreamAudioEventSchema": reflect.TypeOf(StreamAudioEvent{}),
+	"embeddingVectorSchema":           reflect.TypeOf(EmbeddingVector{}),
+	"embeddingUsageSchema":            reflect.TypeOf(EmbeddingUsage{}),
+	"embeddingSuccessSchema":          reflect.TypeOf(EmbeddingSuccess{}),
+	"embeddingFailureSchema":          reflect.TypeOf(EmbeddingFailure{}),
 	// The request envelope and everything it embeds.
 	"inferenceRequestSchema":       reflect.TypeOf(Request{}),
 	"inferenceAttributionSchema":   reflect.TypeOf(Attribution{}),
@@ -184,6 +186,7 @@ var goScalars = map[string]reflect.Type{
 // types, and the tool-choice union, which has no discriminator at all and
 // carries a hand-written codec.
 var goStreamEventVariants = map[string]reflect.Type{
+	"audio":        reflect.TypeOf(StreamAudioEvent{}),
 	"start":        reflect.TypeOf(StreamStartEvent{}),
 	"delta":        reflect.TypeOf(StreamDeltaEvent{}),
 	"tool_call":    reflect.TypeOf(StreamToolCallEvent{}),
@@ -901,6 +904,8 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 // through goEnums because they have no published name of their own, so they are
 // registered here and compared member for member exactly the same way.
 var inlineEnumBindings = []enumBinding{
+	bindEnum(speechFormatValues),
+	bindEnum(audioMediaTypeValues),
 	bindEnum(apiFormatValues),
 	bindEnum(imageDetailValues),
 	bindEnum(deltaChannelValues),

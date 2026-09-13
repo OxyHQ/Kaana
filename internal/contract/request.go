@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"unicode/utf16"
 )
 
 // The discriminated unions below are flattened: one Go struct per union,
@@ -335,7 +336,15 @@ type ClientRequestMetadata struct {
 }
 
 // Request is the canonical internal envelope Oxy's public edge forwards.
+// SpeechParameters selects the voice and encoding for audio_speech requests.
+type SpeechParameters struct {
+	Voice          string       `json:"voice"`
+	ResponseFormat SpeechFormat `json:"responseFormat"`
+	Speed          *float64     `json:"speed,omitempty"`
+}
+
 type Request struct {
+	Speech           *SpeechParameters      `json:"speech,omitempty"`
 	SchemaVersion    int                    `json:"schemaVersion"`
 	Attribution      Attribution            `json:"attribution"`
 	Target           RoutingTarget          `json:"target"`
@@ -360,6 +369,18 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
+	if r.Speech != nil {
+		if r.Client.APIFormat != APIFormatAudioSpeech || r.Modality != ModalityAudio || r.Input.Format != InputText || r.Stream {
+			return fmt.Errorf("contract: speech requires non-streaming audio_speech with text input")
+		}
+		if len(r.Speech.Voice) == 0 || len(utf16.Encode([]rune(r.Speech.Voice))) > 64 || !r.Speech.ResponseFormat.Valid() {
+			return fmt.Errorf("contract: invalid speech voice or response format")
+		}
+		if r.Speech.Speed != nil && (*r.Speech.Speed < 0.25 || *r.Speech.Speed > 4) {
+			return fmt.Errorf("contract: invalid speech speed")
+		}
+	}
+
 	if !SupportsRequestEnvelopeVersion(r.SchemaVersion) {
 		return fmt.Errorf("contract: envelope schemaVersion %d is not implemented by this build (accepted %d and %d)", r.SchemaVersion, LegacyRequestEnvelopeVersion, RequestEnvelopeVersion)
 	}
@@ -633,3 +654,10 @@ func isMember[T comparable](value T, allowed []T) bool {
 	}
 	return false
 }
+
+// SpeechFormat is the requested audio container.
+type SpeechFormat string
+
+var speechFormatValues = []SpeechFormat{"mp3", "opus", "aac", "flac", "wav", "pcm"}
+
+func (f SpeechFormat) Valid() bool { return isMember(f, speechFormatValues) }
