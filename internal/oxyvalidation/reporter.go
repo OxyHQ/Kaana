@@ -103,6 +103,7 @@ type Reporter struct {
 	pending   map[Verdict]struct{}
 	delivered map[verdictSelector]verdictState
 
+	tokenMu        sync.Mutex
 	token          string
 	tokenExpiresAt time.Time
 }
@@ -282,7 +283,14 @@ func (r *Reporter) report(ctx context.Context, verdict Verdict) error {
 	return nil
 }
 
+// ServiceToken shares the dedicated Kaana principal with operational publishers.
+func (r *Reporter) ServiceToken(ctx context.Context) (string, error) {
+	return r.serviceToken(ctx, false)
+}
+
 func (r *Reporter) serviceToken(ctx context.Context, force bool) (string, error) {
+	r.tokenMu.Lock()
+	defer r.tokenMu.Unlock()
 	if !force && r.token != "" && time.Now().Add(time.Minute).Before(r.tokenExpiresAt) {
 		return r.token, nil
 	}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,6 +27,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
+	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
@@ -122,7 +124,41 @@ func run(logger *slog.Logger) error {
 			"keys", unenforcedBudgets,
 			"meaning", "these keys will keep serving past the amount declared for them; nothing here holds them to it")
 	}
-	adapters, err := buildAdapters(providerConfigs)
+	validationReporter, err := oxyvalidation.New(oxyvalidation.Config{
+		BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+		APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
+		APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+		Environment: contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
+		Logger:      logger,
+		QueueSize:   intFromEnv("KAANA_OXY_VALIDATION_QUEUE_SIZE", 256),
+		Timeout:     durationFromEnv("KAANA_OXY_VALIDATION_TIMEOUT", 5*time.Second),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if closeErr := validationReporter.Close(closeContext); closeErr != nil {
+			logger.Error("customer credential validation reporter did not drain", "errorType", "validation_shutdown")
+		}
+	}()
+	var activity *platformactivity.Collector
+	var providerClient *http.Client
+	if os.Getenv("OXY_ECOSYSTEM_ACTIVITY_ENABLED") == "true" {
+		location := os.Getenv("KAANA_INFRASTRUCTURE_LABEL")
+		longitude, lonErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE"), 64)
+		latitude, latErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE"), 64)
+		if lonErr != nil || latErr != nil {
+			return errors.New("kaana activity requires infrastructure coordinates")
+		}
+		activity, err = platformactivity.New(platformactivity.Config{Region: os.Getenv("AWS_REGION"), Label: location, Coordinates: [2]float64{longitude, latitude}, BaseURL: envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"), Token: validationReporter.ServiceToken, Logger: logger})
+		if err != nil {
+			return err
+		}
+		providerClient = &http.Client{Transport: activity.Transport(nil)}
+	}
+	adapters, err := buildAdaptersWithClient(providerConfigs, providerClient)
 	if err != nil {
 		return err
 	}
@@ -162,25 +198,6 @@ func run(logger *slog.Logger) error {
 		MaxCooldown:      durationFromEnv("KAANA_BREAKER_MAX_COOLDOWN", 0),
 		SuccessesToClose: intFromEnv("KAANA_BREAKER_SUCCESSES_TO_CLOSE", 0),
 	}, nil)
-	validationReporter, err := oxyvalidation.New(oxyvalidation.Config{
-		BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
-		APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
-		APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
-		Environment: contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
-		Logger:      logger,
-		QueueSize:   intFromEnv("KAANA_OXY_VALIDATION_QUEUE_SIZE", 256),
-		Timeout:     durationFromEnv("KAANA_OXY_VALIDATION_TIMEOUT", 5*time.Second),
-	})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if closeErr := validationReporter.Close(closeContext); closeErr != nil {
-			logger.Error("customer credential validation reporter did not drain", "errorType", "validation_shutdown")
-		}
-	}()
 	probeTimeout, err := strictPositiveDurationFromEnv("KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT", 20*time.Second)
 	if err != nil {
 		return err
@@ -226,9 +243,13 @@ func run(logger *slog.Logger) error {
 	if address == "" {
 		address = ":8080"
 	}
+	handler := server.Handler()
+	if activity != nil {
+		handler = activity.Middleware(handler)
+	}
 	httpServer := &http.Server{
 		Addr:    address,
-		Handler: server.Handler(),
+		Handler: handler,
 		// No WriteTimeout: a generation legitimately runs longer than any value
 		// that would be safe here, and a write deadline would truncate the
 		// stream mid-answer. The request context, cancelled on client
@@ -263,11 +284,25 @@ func run(logger *slog.Logger) error {
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
 		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
 	go reloadCredentialPools(ctx, credentialStore, providerConfigs, registry, logger,
-		durationFromEnv("KAANA_CREDENTIAL_RELOAD_INTERVAL", time.Minute))
+		durationFromEnv("KAANA_CREDENTIAL_RELOAD_INTERVAL", time.Minute), providerClient)
 
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("kaana listener: %w", err)
+	}
+	if activity != nil {
+		go activity.Run()
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if activity.Close(closeCtx) != nil {
+				logger.Warn("platform activity shutdown timed out")
+			}
+		}()
+	}
 	failed := make(chan error, 1)
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			failed <- err
 		}
 	}()
@@ -299,6 +334,7 @@ func reloadCredentialPools(
 	registry *provider.Registry,
 	logger *slog.Logger,
 	every time.Duration,
+	clients ...*http.Client,
 ) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
@@ -324,7 +360,11 @@ func reloadCredentialPools(
 			for index := range replacementConfigs {
 				replacementConfigs[index].Declarations = declarations[replacementConfigs[index].Slug]
 			}
-			adapters, err := buildAdapters(replacementConfigs)
+			var client *http.Client
+			if len(clients) > 0 {
+				client = clients[0]
+			}
+			adapters, err := buildAdaptersWithClient(replacementConfigs, client)
 			if err != nil {
 				logger.Error("reloaded provider credentials could not build a complete adapter set; keeping the previous pools", "error", err)
 				continue
@@ -589,11 +629,16 @@ func durationOrZero(value string) time.Duration {
 // cannot support is an INVENTORY entry routing to a provider that was never
 // declared here, and the server refuses to start in that state.
 func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
+	return buildAdaptersWithClient(configs, nil)
+}
+
+func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]provider.Adapter, error) {
 	adapters := make([]provider.Adapter, 0, len(configs))
 	for _, config := range configs {
 		switch config.Protocol {
 		case providerconfig.ProtocolOpenAICompatible:
 			adapter, err := openaicompat.New(openaicompat.Config{
+				HTTPClient:   client,
 				Provider:     config.Slug,
 				BaseURL:      config.BaseURL,
 				Declarations: config.Declarations,
@@ -606,6 +651,7 @@ func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
 			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolAnthropicMessages:
 			adapter, err := anthropic.New(anthropic.Config{
+				HTTPClient:   client,
 				BaseURL:      config.BaseURL,
 				Declarations: config.Declarations,
 				Keys:         config.Keys,
