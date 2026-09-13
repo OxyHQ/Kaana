@@ -46,6 +46,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 	"github.com/OxyHQ/Kaana/internal/sse"
@@ -797,6 +798,7 @@ func (s *Server) readSignedBodyWith(w http.ResponseWriter, r *http.Request, veri
 		return nil, contract.NewError(newLocalRequestID(), contract.CodeAuthenticationFailed,
 			"the request is not a signed Oxy edge envelope")
 	}
+	platformactivity.MarkVerified(r.Context())
 	return body, nil
 }
 
