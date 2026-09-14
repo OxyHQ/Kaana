@@ -210,3 +210,50 @@ type discoveryRoundTripFunc func(*http.Request) (*http.Response, error)
 func (function discoveryRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
 }
+
+func TestXAISpeechDiscoveryRequiresTheAuthenticatedVoiceCatalogue(t *testing.T) {
+	for _, tc := range []struct {
+		name, voices string
+		wantSpeech   bool
+	}{
+		{"both voices", `{"voices":[{"voice_id":"eve"},{"voice_id":"rex"}]}`, true},
+		{"no voices", `{"voices":[]}`, false},
+		{"missing male", `{"voices":[{"voice_id":"eve"}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := []string{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls = append(calls, r.URL.Path)
+				if r.Header.Get("Authorization") != "Bearer test-key" {
+					t.Error("missing authenticated discovery")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v1/models":
+					_, _ = w.Write([]byte(`{"data":[{"id":"grok-4.6"}]}`))
+				case "/v1/tts/voices":
+					_, _ = w.Write([]byte(tc.voices))
+				default:
+					t.Error("unexpected discovery endpoint")
+				}
+			}))
+			defer server.Close()
+			models, err := publisher.Discover(context.Background(), server.Client(), publisher.Provider{Slug: "xai", BaseURL: server.URL + "/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryXAIModels})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(calls, []string{"/v1/models", "/v1/tts/voices"}) {
+				t.Fatalf("discovery calls = %v", calls)
+			}
+			speech := false
+			chat := false
+			for _, m := range models {
+				speech = speech || m.UpstreamModelID == "tts"
+				chat = chat || m.UpstreamModelID == "grok-4.6"
+			}
+			if speech != tc.wantSpeech || !chat {
+				t.Fatalf("discovered models = %+v", models)
+			}
+		})
+	}
+}

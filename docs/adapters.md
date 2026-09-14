@@ -275,3 +275,24 @@ changes, and the distinction matters:
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
 [openrouter-routing]: https://openrouter.ai/docs/guides/routing/provider-selection
+
+## xAI speech candidate
+
+The `openaicompat` adapter also translates the typed `audio_speech` request
+for xAI's `POST /v1/tts`. The exact authorized deployment must carry upstream
+endpoint identity `tts`; a chat deployment cannot be used for speech, and the
+speech endpoint cannot be used for chat. It currently supports MP3, speed
+0.7–1.5, and the reviewed voice IDs; product female/male map to eve/rex.
+The provider requires `language`, supplied as automatic language detection.
+
+Audio is bounded to 20 MiB, checked for MP3 framing, then emitted in independently
+base64-encoded chunks of at most 49,152 bytes. A successful provider response
+measures input characters using the same UTF-16 convention as Oxy's public
+input ceiling. Those units survive downstream cancellation/failure; byte counts
+are never treated as tokens. No audio is retained in usage or provider-cost logs.
+
+Primary wire specification: https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
+A real Spanish probe on 2026-09-13 returned a decodable MP3. Full production
+rollout is pending published contract 1.2.0, a reviewed catalogue binding and
+an exact-artifact product canary; the local descriptor currently reflects that
+candidate, while the registry dependency pin is deliberately still unchanged.

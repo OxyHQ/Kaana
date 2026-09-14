@@ -1,6 +1,7 @@
 package kaana
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -317,4 +318,29 @@ func (e *emitter) timeToFirstToken() time.Duration {
 		return 0
 	}
 	return e.firstOutputAt.Sub(e.admittedAt)
+}
+
+// Audio stamps one bounded audio event and records only delivery, never content.
+func (e *emitter) Audio(outputIndex int, mediaType string, data []byte) error {
+	if err := e.requireStarted(contract.EventAudio); err != nil {
+		return err
+	}
+	if outputIndex < 0 || len(data) == 0 || len(data) > 49152 {
+		return fmt.Errorf("kaana: invalid audio index or chunk size")
+	}
+	switch mediaType {
+	case "audio/mpeg", "audio/wav", "audio/ogg", "audio/aac", "audio/flac", "audio/pcm":
+	default:
+		return fmt.Errorf("kaana: unsupported audio media type")
+	}
+	err := e.send(&contract.StreamAudioEvent{SchemaVersion: contract.SchemaVersion,
+		Type: contract.EventAudio, RequestID: e.requestID, Seq: e.next(), OutputIndex: outputIndex,
+		MediaType: contract.AudioMediaType(mediaType), Data: base64.StdEncoding.EncodeToString(data)})
+	if err == nil {
+		e.estimate.outputDelivered = true
+		if e.firstOutputAt.IsZero() {
+			e.firstOutputAt = time.Now()
+		}
+	}
+	return err
 }

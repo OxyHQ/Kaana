@@ -293,3 +293,18 @@ reasoning; these are the lines a reviewer holds a change to.
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
+
+## xAI speech discovery candidate
+
+xAI's `/models` does not list its speech endpoint. The `xai_models_and_speech`
+profile also authenticates to `/tts/voices`; only successful discovery of both
+reviewed eve/rex voices adds the technical endpoint identity `tts`, attributed
+explicitly to `x-ai/text-to-speech`. It is an endpoint with provider-managed
+weights, using the existing first-observation revision semantics; it does not
+claim an immutable upstream model selector. An empty or incomplete voice list
+adds no speech deployment. A failed voice discovery fails that discovery cycle.
+Neither the discovered identity nor attribution grants Oxy routing authority.
+
+Specification: https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
+The reviewed 2026-09-13 real `/tts/voices` response contained both identities.
+This publisher change is not yet promoted to production.

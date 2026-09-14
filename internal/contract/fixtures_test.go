@@ -40,10 +40,10 @@ func TestWriteWireFixtures(t *testing.T) {
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
 	// reason the not-applicable list is exact.
-	// 21 wire variants plus the 6 credential-text strings the published schema
+	// 23 wire variants plus the 6 credential-text strings the published schema
 	// must ACCEPT; 12 controls plus the 6 it must REJECT.
-	if len(valid) != 27 {
-		t.Fatalf("expected 27 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 29 {
+		t.Fatalf("expected 29 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
 	if len(invalid) != 18 {
 		t.Fatalf("expected 18 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
@@ -233,6 +233,15 @@ func validFixtures(t *testing.T) []fixture {
 	textTarget.Modality = ModalityEmbedding
 	textTarget.ToolChoice = &ToolChoice{Mode: pointerTo(ToolChoiceAuto)}
 
+	speech := textTarget
+	speech.Modality = ModalityAudio
+	speech.Stream = false
+	speech.Client.APIFormat = APIFormatAudioSpeech
+	speech.Speech = &SpeechParameters{Voice: "female", ResponseFormat: "mp3", Speed: pointerTo(1.15)}
+	if err := speech.Validate(); err != nil {
+		t.Fatalf("invalid speech fixture: %v", err)
+	}
+
 	batch := textTarget
 	batch.Input = Input{Format: InputTextBatch, Texts: []string{"a", "b"}}
 
@@ -307,6 +316,7 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceRequestSchema", Case: "messages-with-every-optional-field", Value: request},
 		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile-id", Value: textTarget},
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
+		{Schema: "inferenceRequestSchema", Case: "speech-with-parameters", Value: speech},
 		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
 		{Schema: "normalizedUsageReportSchema", Case: "failed-with-nothing-measured", Value: failedReport},
 		{Schema: "inferenceErrorSchema", Case: "retryable-with-upstream", Value: failure},
@@ -314,6 +324,10 @@ func validFixtures(t *testing.T) []fixture {
 			SchemaVersion: SchemaVersion, Type: EventStart, RequestID: attribution.RequestID, Seq: 0,
 			GenerationID: attribution.GenerationID, ResolvedModelReference: "openai/gpt-5@2026-05-01",
 			ServingProvider: "openai", StartedAt: started,
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "audio", Value: &StreamAudioEvent{
+			SchemaVersion: SchemaVersion, Type: EventAudio, RequestID: "req_speech", Seq: 1,
+			OutputIndex: 0, MediaType: "audio/mpeg", Data: "SUQz",
 		}},
 		{Schema: "inferenceStreamEventSchema", Case: "delta", Value: &StreamDeltaEvent{
 			SchemaVersion: SchemaVersion, Type: EventDelta, RequestID: attribution.RequestID, Seq: 1,

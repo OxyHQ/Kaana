@@ -110,6 +110,34 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		return nil, fmt.Errorf("publisher: %s reports serving no models at all", target.Slug)
 	}
 
+	// xAI's speech endpoint has no model selector and is absent from /models.
+	// Its authenticated voice catalogue is the capability discovery authority.
+	// "tts" names that one endpoint; Translate refuses it as a chat deployment.
+	if target.Discovery == providerconfig.DiscoveryXAIModels {
+		if target.Slug != "xai" {
+			return nil, fmt.Errorf("publisher: xAI speech discovery requires the xai provider")
+		}
+		var voices struct {
+			Voices []struct {
+				ID string `json:"voice_id"`
+			} `json:"voices"`
+		}
+		endpoint := strings.TrimSuffix(target.BaseURL, "/") + "/tts/voices"
+		if err := readModelList(ctx, client, target, endpoint, "xAI speech voices", &voices); err != nil {
+			return nil, err
+		}
+		available := make(map[string]bool)
+		for _, voice := range voices.Voices {
+			available[voice.ID] = true
+		}
+		if available["eve"] && available["rex"] {
+			if _, duplicate := seen["tts"]; duplicate {
+				return nil, fmt.Errorf("publisher: xai returned a model that collides with its speech endpoint")
+			}
+			models = append(models, DiscoveredModel{UpstreamModelID: "tts"})
+		}
+	}
+
 	// Sorted so a snapshot's content — and therefore its id — does not change
 	// because a provider reordered its list.
 	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })
@@ -243,7 +271,7 @@ type alibabaModelListResponse struct {
 func discoveryEndpoint(target Provider, page int) (string, error) {
 	base := strings.TrimSuffix(target.BaseURL, "/")
 	switch target.Discovery {
-	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryMistralModels:
+	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryMistralModels:
 		return base + "/models", nil
 	case providerconfig.DiscoveryNebiusModels:
 		parsed, err := url.Parse(base + "/models")
