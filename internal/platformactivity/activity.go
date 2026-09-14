@@ -38,8 +38,12 @@ type Aggregate struct {
 	EmittedAt       string `json:"emittedAt"`
 }
 type Config struct {
-	Region      string
-	Label       string
+	Region string
+	Label  string
+	// Service names the process publishing activity, e.g. "kaana" or
+	// "kaana-publisher". It identifies which binary an aggregate came from and
+	// is never inferred from the credential, which several services share.
+	Service     string
 	Coordinates [2]float64
 	BaseURL     string
 	Token       func(context.Context) (string, error)
@@ -63,8 +67,8 @@ func New(config Config) (*Collector, error) {
 	if math.IsNaN(config.Coordinates[0]) || math.IsNaN(config.Coordinates[1]) || math.Abs(config.Coordinates[0]) > 180 || math.Abs(config.Coordinates[1]) > 90 {
 		return nil, errors.New("platform activity: invalid infrastructure coordinates")
 	}
-	if !regionPattern.MatchString(config.Region) || config.Label == "" || config.Token == nil {
-		return nil, errors.New("platform activity: region, location and service token are required")
+	if !regionPattern.MatchString(config.Region) || config.Label == "" || config.Service == "" || config.Token == nil {
+		return nil, errors.New("platform activity: region, location, service name and service token are required")
 	}
 	origin, err := url.Parse(config.BaseURL)
 	if err != nil || origin.User != nil || origin.RawQuery != "" || origin.Fragment != "" || (origin.String() != "https://api.oxy.so" && (origin.Scheme != "http" || (origin.Hostname() != "127.0.0.1" && origin.Hostname() != "localhost"))) {
@@ -91,7 +95,7 @@ func New(config Config) (*Collector, error) {
 func (c *Collector) Record(flow Flow) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	flow.Service = "kaana"
+	flow.Service = c.config.Service
 	flow.Region = c.config.Region
 	previous, exists := c.pending[flow]
 	if !exists && len(c.pending) >= 256 {
@@ -155,7 +159,7 @@ func (c *Collector) heartbeat(ctx context.Context, removed bool) error {
 		Coordinates [2]float64 `json:"coordinates"`
 		Status      string     `json:"status"`
 		Removed     bool       `json:"removed"`
-	}{c.instance, "kaana", c.config.Region, c.config.Label, c.config.Coordinates, "online", removed})
+	}{c.instance, c.config.Service, c.config.Region, c.config.Label, c.config.Coordinates, "online", removed})
 }
 
 // Run starts after the listener opens. One worker orders heartbeats and removal.
@@ -231,7 +235,7 @@ func (c *Collector) Middleware(next http.Handler) http.Handler {
 					peer = "edge-" + strings.ToLower(parts[1])
 				}
 			}
-			flow := Flow{SourceRegion: peer, TargetRegion: c.config.Region, SourceService: source, TargetService: "kaana", Scope: scope, Direction: "inbound", ActivityType: "ai"}
+			flow := Flow{SourceRegion: peer, TargetRegion: c.config.Region, SourceService: source, TargetService: c.config.Service, Scope: scope, Direction: "inbound", ActivityType: "ai"}
 			c.Record(flow)
 			if response.wrote {
 				flow.SourceRegion, flow.TargetRegion = flow.TargetRegion, flow.SourceRegion
@@ -278,7 +282,7 @@ func (c *Collector) Transport(base http.RoundTripper) http.RoundTripper {
 	return &transport{c, base}
 }
 func (t *transport) RoundTrip(r *http.Request) (*http.Response, error) {
-	flow := Flow{SourceRegion: t.collector.config.Region, TargetRegion: "unknown", SourceService: "kaana", Scope: "external", Direction: "outbound", ActivityType: "ai"}
+	flow := Flow{SourceRegion: t.collector.config.Region, TargetRegion: "unknown", SourceService: t.collector.config.Service, Scope: "external", Direction: "outbound", ActivityType: "ai"}
 	response, err := t.base.RoundTrip(r)
 	// A provider location is not inferred from its hostname, IP, or a user header.
 	t.collector.Record(flow)

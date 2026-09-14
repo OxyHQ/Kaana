@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +27,8 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
+	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/publisher"
@@ -73,6 +76,53 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	var activity *platformactivity.Collector
+	if os.Getenv("OXY_ECOSYSTEM_ACTIVITY_ENABLED") == "true" {
+		validationReporter, reporterErr := oxyvalidation.New(oxyvalidation.Config{
+			BaseURL:     environmentOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+			APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
+			APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+			Environment: contract.Environment(environmentOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
+			Logger:      logger,
+		})
+		if reporterErr != nil {
+			return reporterErr
+		}
+		defer func() {
+			closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if closeErr := validationReporter.Close(closeContext); closeErr != nil {
+				logger.Error("publisher activity reporter did not drain", "errorType", "validation_shutdown")
+			}
+		}()
+		location := os.Getenv("KAANA_INFRASTRUCTURE_LABEL")
+		longitude, lonErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE"), 64)
+		latitude, latErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE"), 64)
+		if lonErr != nil || latErr != nil {
+			return errors.New("kaana-publisher activity requires infrastructure coordinates")
+		}
+		activity, err = platformactivity.New(platformactivity.Config{
+			Region: os.Getenv("AWS_REGION"), Label: location, Service: "kaana-publisher",
+			Coordinates: [2]float64{longitude, latitude},
+			BaseURL:     environmentOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+			Token:       validationReporter.ServiceToken, Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+		go activity.Run()
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if activity.Close(closeCtx) != nil {
+				logger.Warn("platform activity shutdown timed out")
+			}
+		}()
+	}
+
+	// The publisher's own client, used for the S3 object it writes, is never
+	// wrapped in outbound activity instrumentation: that instrument is scoped to
+	// traffic this process sends TO a provider, and an object store is not one.
 	client := &http.Client{Timeout: 30 * time.Second}
 	store, err := publisher.NewS3Store(
 		client,
@@ -83,6 +133,14 @@ func run(logger *slog.Logger) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	// The discovery client is the one that calls providers' own model-list
+	// endpoints, so it is the one instrumented — the same distinction
+	// `cmd/kaana` draws between its provider-facing client and everything else.
+	discoveryClient := client
+	if activity != nil {
+		discoveryClient = &http.Client{Timeout: 30 * time.Second, Transport: activity.Transport(nil)}
 	}
 
 	interval, err := intervalFromEnv("KAANA_PUBLISH_INTERVAL", publisher.DefaultInterval)
@@ -99,7 +157,7 @@ func run(logger *slog.Logger) error {
 		Attribution: attribution,
 		Store:       store,
 		Interval:    interval,
-		Client:      client,
+		Client:      discoveryClient,
 		Logger:      logger,
 	})
 	if err != nil {

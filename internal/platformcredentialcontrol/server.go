@@ -14,6 +14,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/platformactivity"
 )
 
 const (
@@ -79,6 +80,7 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	platformactivity.MarkVerified(r.Context())
 	var mutation Mutation
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()

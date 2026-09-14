@@ -152,7 +152,7 @@ func run(logger *slog.Logger) error {
 		if lonErr != nil || latErr != nil {
 			return errors.New("kaana activity requires infrastructure coordinates")
 		}
-		activity, err = platformactivity.New(platformactivity.Config{Region: os.Getenv("AWS_REGION"), Label: location, Coordinates: [2]float64{longitude, latitude}, BaseURL: envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"), Token: validationReporter.ServiceToken, Logger: logger})
+		activity, err = platformactivity.New(platformactivity.Config{Region: os.Getenv("AWS_REGION"), Label: location, Service: "kaana", Coordinates: [2]float64{longitude, latitude}, BaseURL: envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"), Token: validationReporter.ServiceToken, Logger: logger})
 		if err != nil {
 			return err
 		}

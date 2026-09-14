@@ -18,7 +18,7 @@ func collectorFor(t *testing.T, handler http.Handler) *Collector {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Logger: slog.New(slog.DiscardHandler)})
+	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Service: "kaana", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +174,35 @@ func TestHealthExcludedAndBatchBounded(t *testing.T) {
 	}
 	if len(c.pending) != 256 {
 		t.Fatal(len(c.pending))
+	}
+}
+func TestServiceNameIsRequired(t *testing.T) {
+	if _, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Coordinates: [2]float64{-120, 44}, BaseURL: "https://api.oxy.so", Token: func(context.Context) (string, error) { return "test-token", nil }}); err == nil {
+		t.Fatal("New must refuse a config naming no service")
+	}
+}
+
+// A shared credential must not collapse distinct sibling binaries into one
+// reported identity: each Collector reports the Service its own Config names,
+// not a package-wide constant.
+func TestServiceNameIsReportedPerCollectorNotHardcoded(t *testing.T) {
+	var received []Aggregate
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(202)
+	}))
+	defer server.Close()
+	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Service: "kaana-publisher", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Logger: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Record(Flow{Direction: "outbound"})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(received) != 1 || received[0].Service != "kaana-publisher" {
+		t.Fatalf("got %+v", received)
 	}
 }
