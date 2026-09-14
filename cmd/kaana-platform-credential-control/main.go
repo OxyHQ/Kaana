@@ -10,12 +10,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
+	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/platformcredentialcontrol"
 )
 
@@ -57,13 +61,64 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+
+	var activity *platformactivity.Collector
+	if os.Getenv("OXY_ECOSYSTEM_ACTIVITY_ENABLED") == "true" {
+		validationReporter, reporterErr := oxyvalidation.New(oxyvalidation.Config{
+			BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+			APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
+			APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+			Environment: contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
+			Logger:      logger,
+		})
+		if reporterErr != nil {
+			return reporterErr
+		}
+		defer func() {
+			closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if closeErr := validationReporter.Close(closeContext); closeErr != nil {
+				logger.Error("platform credential control activity reporter did not drain", "errorType", "validation_shutdown")
+			}
+		}()
+		location := os.Getenv("KAANA_INFRASTRUCTURE_LABEL")
+		longitude, lonErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE"), 64)
+		latitude, latErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE"), 64)
+		if lonErr != nil || latErr != nil {
+			return errors.New("kaana platform credential control activity requires infrastructure coordinates")
+		}
+		activity, err = platformactivity.New(platformactivity.Config{
+			Region: os.Getenv("AWS_REGION"), Label: location, Service: "kaana-platform-credential-control",
+			Coordinates: [2]float64{longitude, latitude},
+			BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+			Token:       validationReporter.ServiceToken, Logger: logger,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	address := strings.TrimSpace(os.Getenv("KAANA_PLATFORM_CREDENTIAL_CONTROL_ADDR"))
 	if address == "" {
 		address = ":8083"
 	}
+	handler := server.Handler()
+	if activity != nil {
+		handler = activity.Middleware(handler)
+	}
 	httpServer := &http.Server{
-		Addr: address, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		Addr: address, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
+	}
+	if activity != nil {
+		go activity.Run()
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if activity.Close(closeCtx) != nil {
+				logger.Warn("platform activity shutdown timed out")
+			}
+		}()
 	}
 	failed := make(chan error, 1)
 	go func() {
@@ -80,4 +135,11 @@ func run(logger *slog.Logger) error {
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownContext)
 	}
+}
+
+func envOr(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }

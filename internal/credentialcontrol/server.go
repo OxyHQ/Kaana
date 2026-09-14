@@ -15,6 +15,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/platformactivity"
 )
 
 const (
@@ -96,6 +97,7 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	platformactivity.MarkVerified(r.Context())
 
 	var header mutationHeader
 	if err := json.Unmarshal(body, &header); err != nil || header.SchemaVersion != contract.CredentialControlSchemaVersion {
@@ -195,6 +197,7 @@ func (s *Server) handleOutcome(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	platformactivity.MarkVerified(r.Context())
 	var header mutationHeader
 	if err := json.Unmarshal(body, &header); err != nil || header.SchemaVersion != contract.CredentialControlSchemaVersion {
 		writeError(w, http.StatusBadRequest, "invalid_request")
