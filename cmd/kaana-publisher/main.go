@@ -77,11 +77,13 @@ func run(logger *slog.Logger) error {
 	}
 
 	var activity *platformactivity.Collector
-	if os.Getenv("OXY_ECOSYSTEM_ACTIVITY_ENABLED") == "true" {
+	apiKey := os.Getenv("KAANA_OXY_SERVICE_API_KEY")
+	apiSecret := os.Getenv("KAANA_OXY_SERVICE_API_SECRET")
+	if apiKey != "" && apiSecret != "" {
 		validationReporter, reporterErr := oxyvalidation.New(oxyvalidation.Config{
 			BaseURL:     environmentOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
-			APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
-			APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+			APIKey:      apiKey,
+			APISecret:   apiSecret,
 			Environment: contract.Environment(environmentOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
 			Logger:      logger,
 		})
