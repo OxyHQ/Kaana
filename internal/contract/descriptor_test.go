@@ -157,6 +157,11 @@ var goEnums = map[string]enumBinding{
 	"kaanaCredentialOperationActionSchema":        bindEnum(kaanaCredentialOperationActionValues),
 	"kaanaCredentialValidationOutcomeStateSchema": bindEnum(kaanaCredentialValidationOutcomeStateValues),
 	"kaanaCredentialValidationFailureCodeSchema":  bindEnum(kaanaCredentialValidationFailureCodeValues),
+	// contracts 1.3.0 lifted the audio media types out of
+	// `inferenceStreamAudioEventSchema.mediaType`, where they were an inline
+	// union, into a named shape. Nothing about the wire changed and Go already
+	// had the values; the shape simply now has a name that has to be claimed.
+	"inferenceAudioMediaTypeSchema": bindEnum(audioMediaTypeValues),
 }
 
 // goScalars maps a published scalar (a branded id, a constrained string) to the
