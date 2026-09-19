@@ -23,7 +23,7 @@ package contract
 // Asserted against the published package's INFERENCE_CONTRACT_VERSION by
 // contract_test.go, so bumping the pinned package without revisiting this
 // constant fails the build.
-const ContractVersion = "2.0.0"
+const ContractVersion = "3.0.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

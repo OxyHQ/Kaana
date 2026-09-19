@@ -33,6 +33,7 @@ const (
 	ProtocolAnthropicMessages = "anthropic_messages"
 
 	DiscoveryOpenAIModels  = "openai_models"
+	DiscoveryXAIModels     = "xai_models_and_speech"
 	DiscoveryMistralModels = "mistral_models"
 	DiscoverySiliconModels = "siliconflow_models"
 	DiscoveryNebiusModels  = "nebius_models"
@@ -57,7 +58,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
 	"cerebras":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1", Discovery: DiscoveryOpenAIModels},
 	"groq":             {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.groq.com/openai/v1", Discovery: DiscoveryOpenAIModels},
-	"xai":              {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.x.ai/v1", Discovery: DiscoveryOpenAIModels},
+	"xai":              {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.x.ai/v1", Discovery: DiscoveryXAIModels},
 	"mistral":          {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.mistral.ai/v1", Discovery: DiscoveryMistralModels},
 	"deepseek":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.deepseek.com", Discovery: DiscoveryOpenAIModels},
 	"sambanova":        {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.sambanova.ai/v1", Discovery: DiscoveryOpenAIModels},

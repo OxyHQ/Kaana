@@ -37,6 +37,9 @@ const doneSentinel = "[DONE]"
 // differently.
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
+	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/tts") {
+		return a.streamSpeech(ctx, call, out, credentials)
+	}
 
 	if credentials == nil {
 		credentials = a.credentials
