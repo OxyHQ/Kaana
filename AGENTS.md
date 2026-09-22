@@ -7,6 +7,18 @@ credentials, a ledger or a console. Alia is the agent runtime, not this repo:
 
 ## Commands (CI)
 
+`make check` runs every gate below, in CI's order, from the same pinned
+versions. Prefer it: the commands are the ones CI runs, not near-equivalents.
+`make help` lists the individual targets and `make tools` reports what is
+missing locally.
+
+```bash
+make check                      # gofmt, build, vet, lint, test, contract, cloudflare
+make test-integration           # needs KAANA_POSTGRES_TEST_URL; refuses to skip
+```
+
+The gates it encapsulates, if you are running them by hand:
+
 ```bash
 gofmt -l .                      # prints nothing
 go build ./... && go vet ./...

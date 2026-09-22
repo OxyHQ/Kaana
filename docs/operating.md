@@ -663,12 +663,30 @@ retirement into a full startup failure or refused customer request.
 ## Validation gates
 
 ```bash
+make check
+```
+
+That is the whole set, at the versions CI pins. `gofmt -l` is included and its
+OUTPUT is the gate, not its exit status, which is the one that is easy to get
+wrong by hand. The individual targets, if you need one of them alone:
+
+```bash
 go build ./...
 go vet ./...
 go test -race ./...
 golangci-lint run ./...
 cd tools/contract && bun install --frozen-lockfile && bun run generate && bun run validate
 ```
+
+The PostgreSQL suites are separate because they need a database:
+
+```bash
+KAANA_POSTGRES_TEST_URL=postgres://... make test-integration
+```
+
+`make test-integration` refuses an unset `KAANA_POSTGRES_TEST_URL` rather than
+skipping. The Go tests skip silently without it, so a run that inherited that
+skip would report green having executed no SQL at all.
 
 Also verify in production:
 
