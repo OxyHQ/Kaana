@@ -20,6 +20,7 @@ there is no provider-key fallback outside its database.
 | `KAANA_OXY_VALIDATION_TIMEOUT` | no | timeout per token/verdict HTTP operation, default `5s` |
 | `KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT` | no | deadline for the isolated one-token upstream bootstrap probe, default `20s`, maximum `45s` so it cannot outlive its PostgreSQL lease |
 | `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent means cost is not measured |
+| `KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` | no | how long an upstream may take to send response HEADERS, default `90s`; the body is never bounded |
 | `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon, default `1h` |
 | `KAANA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
 | `KAANA_CREDENTIAL_RELOAD_INTERVAL` | no | atomic database/KMS pool reload, default `1m` |
@@ -427,6 +428,15 @@ not proof that the account can invoke a model.
 Adding another key is another opaque row and does not register a task
 definition. The legacy importer is the only named-ID exception and only for its
 eight frozen historical handoffs. Serving reloads the complete set atomically every
+`KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` bounds the one half of an upstream
+exchange that is never legitimately unbounded: the time to response HEADERS. It
+is not a client timeout and never bounds the body, because the body is the
+generation. Raise it rather than lower it if a provider is merely slow — an
+attempt cut short here is an attributable failure and counts toward that
+deployment's breaker, so too low a value takes healthy routes out of rotation.
+An expiry surfaces as `UpstreamTimeout`, not as a cancellation, which is
+what makes it visible to the breaker at all.
+
 `KAANA_CREDENTIAL_RELOAD_INTERVAL`: a partial or failed load leaves the previous
 generation serving. Revoke the old credential upstream first when immediate
 revocation matters; a database disable converges within the configured interval.

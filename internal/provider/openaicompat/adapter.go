@@ -55,9 +55,11 @@ type Config struct {
 	// Headers are extra non-secret headers the provider expects. OpenRouter's
 	// attribution headers are the reason this exists.
 	Headers map[string]string
-	// HTTPClient is optional; a nil client uses a default with no global
-	// timeout, because the deadline belongs to the request context and a
-	// client-level timeout would cut a legitimately long generation.
+	// HTTPClient is optional. It carries no global timeout, because one would
+	// bound the body and the body is the generation. What it does carry, when
+	// cmd/kaana builds it, is a header deadline: the half of the exchange that
+	// is never legitimately unbounded. A nil client answers nothing at all and
+	// waits forever, so it is for tests only — see provider.BoundResponseHeaders.
 	HTTPClient *http.Client
 }
 

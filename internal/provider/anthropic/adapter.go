@@ -69,9 +69,11 @@ type Config struct {
 	// Keys is how this pool behaves when the provider says something about one
 	// of its credentials. Its zero value is the conservative one.
 	Keys provider.KeyPolicy
-	// HTTPClient is optional; a nil client uses a default with no global
-	// timeout, because the deadline belongs to the request context and a
-	// client-level timeout would cut a legitimately long generation.
+	// HTTPClient is optional. It carries no global timeout, because one would
+	// bound the body and the body is the generation. What it does carry, when
+	// cmd/kaana builds it, is a header deadline: the half of the exchange that
+	// is never legitimately unbounded. A nil client answers nothing at all and
+	// waits forever, so it is for tests only — see provider.BoundResponseHeaders.
 	HTTPClient *http.Client
 }
 
