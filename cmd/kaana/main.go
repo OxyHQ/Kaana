@@ -144,7 +144,7 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 	var activity *platformactivity.Collector
-	var providerClient *http.Client
+	var providerBase http.RoundTripper
 	if os.Getenv("OXY_ECOSYSTEM_ACTIVITY_ENABLED") == "true" {
 		location := os.Getenv("KAANA_INFRASTRUCTURE_LABEL")
 		longitude, lonErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE"), 64)
@@ -156,8 +156,19 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		providerClient = &http.Client{Transport: activity.Transport(nil)}
+		providerBase = activity.Transport(nil)
 	}
+	// Every provider call gets a header deadline, whether or not ecosystem
+	// activity is enabled. It used to be the other way round: the client was
+	// built only inside the branch above, so the DEFAULT path handed the
+	// adapters a nil client and an upstream that accepted a request and never
+	// answered was bounded by nothing but the customer's patience. See
+	// provider.BoundResponseHeaders for why this is not a client timeout.
+	responseHeaderTimeout, err := strictPositiveDurationFromEnv("KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT", provider.DefaultResponseHeaderTimeout)
+	if err != nil {
+		return err
+	}
+	providerClient := &http.Client{Transport: provider.BoundResponseHeaders(providerBase, responseHeaderTimeout)}
 	adapters, err := buildAdaptersWithClient(providerConfigs, providerClient)
 	if err != nil {
 		return err
