@@ -31,6 +31,11 @@ there is no provider-key fallback outside its database.
 | `KAANA_ADDR` | no | default `:8080` |
 | `KAANA_EDGE_MAX_SKEW` | no | default `5m` |
 | `KAANA_MAX_ENVELOPE_BYTES` | no | default `16777216` |
+| `KAANA_CANDIDATE_MAX_LIFETIME` | no | self-terminates an isolated candidate task after this long; must be between `10m` and `20m` when set, otherwise the process never exits on its own |
+
+Anonymous ecosystem activity reporting (`AWS_REGION`, `KAANA_INFRASTRUCTURE_LABEL`,
+`KAANA_INFRASTRUCTURE_LONGITUDE`, `KAANA_INFRASTRUCTURE_LATITUDE`) is its own
+opt-in surface, documented in `platform-activity.md` rather than this table.
 
 Failover has no process-wide switch. The signed request's ordered
 `authorizedRoutes` list is the complete authority: an absent or empty list is
@@ -43,12 +48,50 @@ Per provider, `<SLUG>` is upper-cased and `.`/`-` become `_`:
 | `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
 | `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown or account-scoped slug | non-secret provider API root |
 | `KAANA_PROVIDER_<SLUG>_REGIONS` | no | upstream execution/residency regions, comma-separated; never Kaana's AWS region |
-| `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | retired-key window, default `15m` |
-| `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | whether a throttle may rotate accounts |
+| `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | transitional, see below | retired-key window, default `15m` |
+| `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | transitional, see below | whether a throttle may rotate accounts |
 
 No variable contains a provider key. Public attribution metadata is compiled
 into the reviewed provider configuration; adapters apply authentication from
 the decrypted pool at send time.
+
+### Provider key policy: database, with a transitional environment fallback
+
+`_KEY_RETIREMENT` and `_KEYS_ON_SEPARATE_ACCOUNTS` are pure operational data —
+unlike `_PROTOCOL`/`_BASE_URL` they select no code — so their durable home is
+the credential database's `provider_key_policies` table, not the environment.
+Regions stay in the environment/inventory: they are compared byte-for-byte
+against `authorizedRoutes.regions`, a field Oxy signs, and the publisher that
+declares them deliberately has no credential-database access.
+
+```bash
+kaana-credentials set-key-policy --provider openrouter --key-retirement 45m --keys-on-separate-accounts true
+kaana-credentials list-key-policies
+```
+
+`set-key-policy` is a full replace — both flags are required on every call,
+including one that only changes one of them — and every call is audited in
+`provider_key_policy_audit`. There is no disable/delete; recording the default
+(`--key-retirement 0 --keys-on-separate-accounts false`) is how an operator
+returns a provider to default behaviour while keeping the audit trail honest
+about it being a decision, not an absence.
+
+At startup, `cmd/kaana` uses a provider's database row if one exists.
+**Transitionally**, a provider with no row yet falls back to the environment
+variables above, and this fallback is loud: `kaana` logs `WARN
+provider key policy sourced from the environment, not the database` naming
+every such provider, on every start. Before relying on this database path
+matching a provider's current tuning, populate its row with
+`set-key-policy` — the database wins the instant a row exists, so the fallback
+is never exercised for that provider again.
+
+Once a full deploy cycle carries no such `WARN` line, the environment parsing
+for these two variables is deleted in a follow-up change, and this section
+and the "transitional" table rows above go with it. There is no other gate:
+a missing row is never a hard failure (unlike a missing schema 0013 binding,
+which is), because falling back to `provider.KeyPolicy`'s zero value is
+always a valid, if untuned, configuration — a throttle that stays
+conservative, a key that returns to rotation on a safe default schedule.
 
 Twenty-four providers have protocol and global API-root defaults: `openai`, `anthropic`,
 `openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
@@ -137,6 +180,12 @@ dedicated database login, `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN`, and
 `KAANA_CREDENTIAL_CONTROL_PUBLIC_KEYS`. Its optional
 `KAANA_CREDENTIAL_CONTROL_ADDR` defaults to `:8081`. It must not inherit a
 provider key, the inference signing-key set, or KMS decrypt permission.
+
+The platform-credential-control task takes the same `DATABASE_URL` and
+`KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN`, plus its own
+`KAANA_PLATFORM_CREDENTIAL_CONTROL_PUBLIC_KEYS` (distinct from customer BYOK's
+signing keys). Its optional `KAANA_PLATFORM_CREDENTIAL_CONTROL_ADDR` defaults
+to `:8083`.
 
 The KMS encryption context is:
 

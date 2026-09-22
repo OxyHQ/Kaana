@@ -104,6 +104,54 @@ func TestAProviderSlugResolvesToItsOwnAdapterAddressAndPolicy(t *testing.T) {
 	}
 }
 
+// TestDatabaseKeyPolicyOverridesEnvironmentAndAbsenceWarnsAndFallsBack covers
+// the exact rollout risk the transitional dual-read design exists for: a
+// database row must win over whatever the environment declared, and a
+// provider with no row yet must keep serving on its environment-derived
+// policy rather than silently reverting to provider.KeyPolicy's zero value.
+func TestDatabaseKeyPolicyOverridesEnvironmentAndAbsenceWarnsAndFallsBack(t *testing.T) {
+	environment := map[string]string{
+		"KAANA_PROVIDERS": "openrouter,cerebras",
+		"KAANA_PROVIDER_OPENROUTER_KEYS_ON_SEPARATE_ACCOUNTS": "true",
+		"KAANA_PROVIDER_OPENROUTER_KEY_RETIREMENT":            "45m",
+	}
+	configs, err := parseProviders(lookup(environment))
+	if err != nil {
+		t.Fatalf("the configuration was refused: %v", err)
+	}
+
+	logs := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	databasePolicies := map[contract.ProviderSlug]provider.KeyPolicy{
+		"openrouter": {Retirement: 5 * time.Minute, OnSeparateAccounts: false},
+	}
+	applyKeyPolicies(configs, databasePolicies, logger)
+
+	byName := make(map[contract.ProviderSlug]providerConfig, len(configs))
+	for _, config := range configs {
+		byName[config.Slug] = config
+	}
+
+	openrouter := byName["openrouter"]
+	if openrouter.Keys.Retirement != 5*time.Minute || openrouter.Keys.OnSeparateAccounts {
+		t.Errorf("openrouter's database row did not override its environment policy: got %+v", openrouter.Keys)
+	}
+
+	// cerebras has neither an env override nor a database row: it must keep
+	// its environment-derived (here: zero-value) policy, not error, and the
+	// absence must be observable.
+	cerebras := byName["cerebras"]
+	if cerebras.Keys != (provider.KeyPolicy{}) {
+		t.Errorf("cerebras with no database row and no env override carries %+v, expected the zero value", cerebras.Keys)
+	}
+	if !strings.Contains(logs.String(), "provider key policy sourced from the environment") {
+		t.Fatalf("no fallback was logged for cerebras; the transitional state is silent:\n%s", logs.String())
+	}
+	if strings.Contains(logs.String(), `"provider":"openrouter"`) {
+		t.Errorf("openrouter has a database row and must not be logged as falling back:\n%s", logs.String())
+	}
+}
+
 func TestAccountScopedBuiltInsRequireOnlyTheirNonSecretBaseURL(t *testing.T) {
 	environment := map[string]string{
 		"KAANA_PROVIDERS":                    "alibaba,cloudflare",
