@@ -105,6 +105,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	bindings, err := credentialDatabase.LoadDeploymentBindings(credentialContext)
+	if err != nil {
+		cancelCredentialLoad()
+		credentialDatabase.Close()
+		return err
+	}
+	keyPolicies, err := credentialDatabase.LoadKeyPolicies(credentialContext, providerSlugsFrom(providerConfigs))
 	cancelCredentialLoad()
 	if err != nil {
 		credentialDatabase.Close()
@@ -118,6 +124,7 @@ func run(logger *slog.Logger) error {
 	for index := range providerConfigs {
 		providerConfigs[index].Declarations = declarations[providerConfigs[index].Slug]
 	}
+	applyKeyPolicies(providerConfigs, keyPolicies, logger)
 	logger.Info("provider credentials loaded from Kaana's database", "providers", len(providerConfigs))
 	if len(unenforcedBudgets) > 0 {
 		logger.Warn("a declared per-key budget is not enforced by this build",
@@ -145,10 +152,18 @@ func run(logger *slog.Logger) error {
 	}()
 	var activity *platformactivity.Collector
 	var providerBase http.RoundTripper
-	if os.Getenv("OXY_ECOSYSTEM_ACTIVITY_ENABLED") == "true" {
+	// Gated on the infrastructure coordinates being present rather than a
+	// separate OXY_ECOSYSTEM_ACTIVITY_ENABLED flag: unlike KAANA_OXY_SERVICE_API_KEY
+	// (loaded unconditionally above for BYOK validation regardless of activity),
+	// these coordinates feed nothing but platformactivity.Config here, so their
+	// presence is already an unambiguous signal and a separate flag can only
+	// drift out of sync with them.
+	rawLongitude := os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE")
+	rawLatitude := os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE")
+	if rawLongitude != "" || rawLatitude != "" {
 		location := os.Getenv("KAANA_INFRASTRUCTURE_LABEL")
-		longitude, lonErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE"), 64)
-		latitude, latErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE"), 64)
+		longitude, lonErr := strconv.ParseFloat(rawLongitude, 64)
+		latitude, latErr := strconv.ParseFloat(rawLatitude, 64)
 		if lonErr != nil || latErr != nil {
 			return errors.New("kaana activity requires infrastructure coordinates")
 		}
@@ -477,12 +492,24 @@ func requireStartupDeploymentBindings(current *inventory.Inventory, registry *pr
 //	KAANA_PROVIDERS                                   openai,openrouter,cerebras,anthropic
 //	KAANA_PROVIDER_<SLUG>_PROTOCOL                    openai_compatible | anthropic_messages
 //	KAANA_PROVIDER_<SLUG>_BASE_URL                    the provider's API root
-//	KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS   true when the keys are different provider accounts
-//	KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT              how long a spent or refused key stays out
 //
 // Provider secrets are deliberately absent from this environment contract.
 // The pool is loaded from PostgreSQL and decrypted through KMS after this
 // non-secret adapter configuration has been validated.
+//
+// A pool's Retirement/OnSeparateAccounts policy is NOT part of this
+// environment contract. It lives in the `provider_key_policies` table
+// (`credentialDatabase.LoadKeyPolicies`, applied by applyKeyPolicies below)
+// alongside the credentials it governs, because unlike PROTOCOL/BASE_URL it
+// selects no code — it is pure operational data the database already owns
+// the security boundary for. `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` and
+// `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS`, still read by
+// parseProviders below, are a TRANSITIONAL fallback for a provider with no
+// database row yet; applyKeyPolicies logs a WARN naming every provider still
+// on that fallback. Once production carries no such warning across a full
+// deploy cycle, delete the env parsing and this paragraph — two authorities
+// for one fact is the failure mode this split is temporary cover for, not a
+// permanent design.
 //
 // The one closed list in any of this is the PROTOCOL. It names which adapter
 // implementation to construct, and a build can only construct one it contains,
@@ -577,6 +604,23 @@ func parseProviders(getenv func(string) string) ([]providerConfig, error) {
 		configs = append(configs, config)
 	}
 	return configs, nil
+}
+
+// applyKeyPolicies overrides each provider's env-derived KeyPolicy with the
+// database's if `provider_key_policies` carries a row for it, which is the
+// intended steady state. A provider with no row keeps whatever parseProviders
+// already set from the environment — the transitional fallback described
+// above — and is named in a WARN log so that state is observable in
+// production rather than silent.
+func applyKeyPolicies(configs []providerConfig, policies map[contract.ProviderSlug]provider.KeyPolicy, logger *slog.Logger) {
+	for index := range configs {
+		if policy, ok := policies[configs[index].Slug]; ok {
+			configs[index].Keys = policy
+			continue
+		}
+		logger.Warn("provider key policy sourced from the environment, not the database; this fallback is transitional",
+			"provider", configs[index].Slug)
+	}
 }
 
 // reviewedProviderHeaders are public product identity, compiled into the

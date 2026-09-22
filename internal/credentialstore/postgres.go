@@ -55,6 +55,9 @@ var migration0012 string
 //go:embed migrations/0013_deployment_credential_bindings.sql
 var migration0013 string
 
+//go:embed migrations/0014_provider_key_policies.sql
+var migration0014 string
+
 //go:embed migrations/0010_provider_cost_event_batches.sql
 var migration0010 string
 
@@ -177,6 +180,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0011", body: migration0011},
 		{version: "0012", body: migration0012},
 		{version: "0013", body: migration0013},
+		{version: "0014", body: migration0014},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -416,4 +420,94 @@ func (p *Postgres) ListMetadata(ctx context.Context) ([]Metadata, error) {
 		return nil, err
 	}
 	return metadata, nil
+}
+
+// LoadKeyPolicies returns the operator-declared pool policy for exactly the
+// requested providers. Unlike ListEnabled, a provider absent from the table is
+// not an error: it has no entry in the returned map, and the caller falls
+// back to its own default (today, the transitional environment variable, and
+// ultimately provider.KeyPolicy's zero value).
+func (p *Postgres) LoadKeyPolicies(ctx context.Context, providers []contract.ProviderSlug) (map[contract.ProviderSlug]provider.KeyPolicy, error) {
+	names := make([]string, 0, len(providers))
+	for _, slug := range providers {
+		names = append(names, string(slug))
+	}
+	rows, err := p.pool.Query(ctx, `
+		SELECT provider_slug, key_retirement_seconds, keys_on_separate_accounts
+		FROM provider_key_policies
+		WHERE provider_slug = ANY($1::text[])`, names)
+	if err != nil {
+		return nil, fmt.Errorf("credential store: listing provider key policies: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make(map[contract.ProviderSlug]provider.KeyPolicy, len(providers))
+	for rows.Next() {
+		var (
+			slug               string
+			retirementSeconds  int
+			onSeparateAccounts bool
+		)
+		if err := rows.Scan(&slug, &retirementSeconds, &onSeparateAccounts); err != nil {
+			return nil, fmt.Errorf("credential store: reading provider key policy: %w", err)
+		}
+		policies[contract.ProviderSlug(slug)] = provider.KeyPolicy{
+			Retirement:         time.Duration(retirementSeconds) * time.Second,
+			OnSeparateAccounts: onSeparateAccounts,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("credential store: reading provider key policies: %w", err)
+	}
+	return policies, nil
+}
+
+// PutKeyPolicy is the only mutation this table accepts: a full replace,
+// audited, through the one database function the credential-admin role may
+// execute. There is no disable/delete — an operator who wants the default
+// puts zero/false explicitly, so the audit trail always shows a decision.
+func (p *Postgres) PutKeyPolicy(ctx context.Context, providerSlug contract.ProviderSlug, retirement time.Duration, onSeparateAccounts bool, actor string) error {
+	if retirement < 0 {
+		return errors.New("credential store: key retirement must not be negative")
+	}
+	_, err := p.pool.Exec(ctx, `SELECT kaana_put_provider_key_policy($1, $2, $3, $4)`,
+		providerSlug, int64(retirement/time.Second), onSeparateAccounts, actor)
+	if err != nil {
+		return fmt.Errorf("credential store: saving provider %q key policy: %w", providerSlug, err)
+	}
+	return nil
+}
+
+// KeyPolicyMetadata is the listing projection for kaana-credentials.
+type KeyPolicyMetadata struct {
+	Provider               contract.ProviderSlug `json:"provider"`
+	KeyRetirementSeconds   int                   `json:"keyRetirementSeconds"`
+	KeysOnSeparateAccounts bool                  `json:"keysOnSeparateAccounts"`
+	UpdatedAt              time.Time             `json:"updatedAt"`
+}
+
+// ListKeyPolicies returns every declared policy; the table is small and has
+// no secret column, so unlike ListMetadata there is nothing to project away.
+func (p *Postgres) ListKeyPolicies(ctx context.Context) ([]KeyPolicyMetadata, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT provider_slug, key_retirement_seconds, keys_on_separate_accounts, updated_at
+		FROM provider_key_policies
+		ORDER BY provider_slug`)
+	if err != nil {
+		return nil, fmt.Errorf("credential store: listing provider key policies: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make([]KeyPolicyMetadata, 0)
+	for rows.Next() {
+		var row KeyPolicyMetadata
+		if err := rows.Scan(&row.Provider, &row.KeyRetirementSeconds, &row.KeysOnSeparateAccounts, &row.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("credential store: reading provider key policy: %w", err)
+		}
+		policies = append(policies, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("credential store: reading provider key policies: %w", err)
+	}
+	return policies, nil
 }

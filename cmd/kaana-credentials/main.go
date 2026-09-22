@@ -294,6 +294,53 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(metadata)
+	case "set-key-policy":
+		flags := flag.NewFlagSet("set-key-policy", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		providerSlug := flags.String("provider", "", "provider slug")
+		retirement := flags.String("key-retirement", "", "retired-key window, e.g. 15m; 0 records the default explicitly")
+		onSeparateAccounts := flags.Bool("keys-on-separate-accounts", false, "whether a throttle may rotate accounts")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return errors.New("usage: kaana-credentials set-key-policy --provider <slug> --key-retirement <duration> --keys-on-separate-accounts <true|false>")
+		}
+		if strings.TrimSpace(*retirement) == "" {
+			return errors.New("--key-retirement is required; pass 0 to record the default explicitly")
+		}
+		retirementDuration, err := time.ParseDuration(*retirement)
+		if err != nil {
+			return fmt.Errorf("--key-retirement: %w", err)
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		providerSlugValue := contract.ProviderSlug(*providerSlug)
+		if err := repository.PutKeyPolicy(ctx, providerSlugValue, retirementDuration, *onSeparateAccounts, mutationActor); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "saved key policy for %s\n", providerSlugValue)
+		return err
+
+	case "list-key-policies":
+		flags := flag.NewFlagSet("list-key-policies", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return errors.New("usage: kaana-credentials list-key-policies")
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		policies, err := repository.ListKeyPolicies(ctx)
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(policies)
+
 	case "list-deployment-bindings":
 		flags := flag.NewFlagSet("list-deployment-bindings", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -416,5 +463,5 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies>")
 }
