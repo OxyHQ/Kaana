@@ -63,9 +63,21 @@ func run(logger *slog.Logger) error {
 	}
 
 	var activity *platformactivity.Collector
-	apiKey := os.Getenv("KAANA_OXY_SERVICE_API_KEY")
-	apiSecret := os.Getenv("KAANA_OXY_SERVICE_API_SECRET")
-	if apiKey != "" && apiSecret != "" {
+	// Gated on the infrastructure coordinates being present, not on the Oxy
+	// service credential: that credential feeds only this activity reporter
+	// here, but so do the coordinates, so either could be the signal, and
+	// using both invites the pair drifting out of sync. Coordinates win
+	// because every activity-reporting binary in this repo, including
+	// cmd/kaana where the credential is unconditionally required for
+	// something else, agrees on them.
+	rawLongitude := os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE")
+	rawLatitude := os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE")
+	if rawLongitude != "" || rawLatitude != "" {
+		apiKey := os.Getenv("KAANA_OXY_SERVICE_API_KEY")
+		apiSecret := os.Getenv("KAANA_OXY_SERVICE_API_SECRET")
+		if apiKey == "" || apiSecret == "" {
+			return errors.New("kaana platform credential control activity requires KAANA_OXY_SERVICE_API_KEY and KAANA_OXY_SERVICE_API_SECRET")
+		}
 		validationReporter, reporterErr := oxyvalidation.New(oxyvalidation.Config{
 			BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
 			APIKey:      apiKey,
@@ -84,8 +96,8 @@ func run(logger *slog.Logger) error {
 			}
 		}()
 		location := os.Getenv("KAANA_INFRASTRUCTURE_LABEL")
-		longitude, lonErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE"), 64)
-		latitude, latErr := strconv.ParseFloat(os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE"), 64)
+		longitude, lonErr := strconv.ParseFloat(rawLongitude, 64)
+		latitude, latErr := strconv.ParseFloat(rawLatitude, 64)
 		if lonErr != nil || latErr != nil {
 			return errors.New("kaana platform credential control activity requires infrastructure coordinates")
 		}
