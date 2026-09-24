@@ -145,6 +145,29 @@ are exercised against a fake upstream that speaks the real wire format,
 including its habit of echoing the request's credential header back inside an
 error message.
 
+### Reasoning effort
+
+The envelope's optional `reasoning.effort` (`low`, `medium`, `high`) is sent in
+the one field each provider documents for it, or refused in `Translate` with
+`invalid_request` naming `reasoning.effort`. Absent sends nothing, so the
+deployment's own default applies.
+
+| Provider | Upstream wire |
+|---|---|
+| `openrouter` | `"reasoning": {"effort": "<effort>"}` beside the fixed `provider` policy, whose `require_parameters: true` keeps OpenRouter from routing to an upstream that ignores `reasoning` |
+| `openai`, `groq`, `cerebras`, `xai` | `"reasoning_effort": "<effort>"` |
+| `anthropic` | `"output_config": {"effort": "<effort>"}`; no `thinking` budget is synthesised, and `max_tokens` stays the caller's |
+| any other `openaicompat` slug | refused: `reasoning_effort` is OpenAI's spelling, and a provider that silently ignores it would report an effort that did nothing |
+
+Which MODELS take an effort is not a table here: it is discovered from the
+providers' model lists (`inventory.md`, catalogue metadata) and Oxy refuses an
+effort the resolved model does not advertise before signing. A model that still
+rejects the field is refused by its provider as a non-retryable invalid request,
+never silently. Speech and embedding requests carrying an effort are refused.
+Adding a provider to the table needs its documentation link in
+`reasoningDialectFor` and a real-wire fake in `reasoning_test.go`; the test
+spells the reviewed set out so a slug added without one fails.
+
 ### Cross-protocol invariants
 
 Both protocol implementations use the same `Provider`/`Translate`/`Stream`/

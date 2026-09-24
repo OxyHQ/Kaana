@@ -4,7 +4,7 @@
 
 ## The contract is not re-invented here
 
-`@oxy.so/contracts@0.40.0` (contract version 2.0.0) is the wire contract, and the Go types in
+`@oxy.so/contracts@1.4.0` (contract version 3.1.0) is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 
@@ -58,6 +58,23 @@ minimal fixture — and `tools/contract/validate.mjs` parses each with the
 published schema itself. It also feeds deliberately invalid fixtures that
 the schemas must **reject**, and fails if it saw no fixtures at all: a validator
 with a broken schema lookup would otherwise report the same clean run.
+
+**Pending publication: 1.4.0.** Contract set 3.1.0 adds the envelope's
+optional `reasoning: {effort: "low"|"medium"|"high"}` (`inferenceReasoningSchema`,
+`reasoningEffortSchema`). The Go side and `descriptor.json` were derived from a
+locally packed build of the contracts branch before 1.4.0 reached the registry,
+so `tools/contract` still pins 1.3.0 and the regenerate-and-diff gate fails
+until the pin moves. Finishing it is exactly:
+
+```bash
+cd tools/contract && bun add --exact @oxy.so/contracts@1.4.0 && bun run generate
+git diff --exit-code -- ../../internal/contract/descriptor.json  # must be empty
+```
+
+A non-empty diff means the published package differs from the reviewed build:
+read it and make the Go side agree before committing. Kaana then reports
+`contractVersion` 3.1.0, and Oxy's handshake must expect 3.1.0 in the same
+rollout.
 
 Regenerate after a version bump:
 

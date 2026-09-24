@@ -35,6 +35,11 @@ under a spelling Kaana does not yet read, add the spelling to
 `internal/publisher/observed.go` with a real-wire fixture; if it publishes
 nothing, the catalogue says nothing.
 
+A reasoning effort is a fourth, per-provider wire fact: an `openaicompat`
+provider is refused `reasoning.effort` until its own documentation names the
+field and `reasoningDialectFor` plus a real-wire fake pin it (`adapters.md`,
+"Reasoning effort").
+
 The shared `openaicompat` adapter constructs `POST {base}/chat/completions`.
 The publisher has separate discovery profiles because model-list semantics are
 provider facts, not adapter facts.

@@ -101,6 +101,7 @@ var goShapes = map[string]reflect.Type{
 	"inferenceContentSourceSchema": reflect.TypeOf(ContentSource{}),
 	"inferenceToolCallSchema":      reflect.TypeOf(ToolCall{}),
 	"samplingParametersSchema":     reflect.TypeOf(SamplingParameters{}),
+	"inferenceReasoningSchema":     reflect.TypeOf(ReasoningParameters{}),
 	"toolDefinitionSchema":         reflect.TypeOf(ToolDefinition{}),
 	"responseFormatSchema":         reflect.TypeOf(ResponseFormat{}),
 	"routingTargetSchema":          reflect.TypeOf(RoutingTarget{}),
@@ -162,6 +163,8 @@ var goEnums = map[string]enumBinding{
 	// union, into a named shape. Nothing about the wire changed and Go already
 	// had the values; the shape simply now has a name that has to be claimed.
 	"inferenceAudioMediaTypeSchema": bindEnum(audioMediaTypeValues),
+	// contracts 1.4.0 (set 3.1.0): the envelope's optional reasoning control.
+	"reasoningEffortSchema": bindEnum(reasoningEffortValues),
 }
 
 // goScalars maps a published scalar (a branded id, a constrained string) to the

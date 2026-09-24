@@ -26,10 +26,21 @@ type messagesRequest struct {
 	Tools      []toolParam      `json:"tools,omitempty"`
 	ToolChoice *toolChoiceParam `json:"tool_choice,omitempty"`
 
+	// OutputConfig carries the provider's own effort control. Translate sets
+	// it only when the caller named an effort; absent keeps the model's default.
+	OutputConfig *outputConfig `json:"output_config,omitempty"`
+
 	Temperature   *float64 `json:"temperature,omitempty"`
 	TopP          *float64 `json:"top_p,omitempty"`
 	TopK          *int     `json:"top_k,omitempty"`
 	StopSequences []string `json:"stop_sequences,omitempty"`
+}
+
+// outputConfig is the Messages API `output_config` object. Kaana sends only
+// `effort`, whose documented values include the contract's low, medium and
+// high verbatim.
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 // systemBlock carries the system prompt, which this protocol hoists out of the

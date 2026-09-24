@@ -62,6 +62,7 @@ Cost — docs/cost.md#rules-a-reviewer-applies
 Adapters — docs/adapters.md#rules-a-reviewer-applies
 - One `provider.Adapter` and one real-wire fake per provider; pass conformance.
 - Refuse in `Translate` what the provider cannot express; invent no default.
+- A reasoning effort goes in the provider's own documented field or is refused.
 - Classify by the provider's error type; redact your own key by exact match.
 - `Stream` returns measured units even on failure; `ctx` reaches upstream.
 
