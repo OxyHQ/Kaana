@@ -16,7 +16,8 @@ import (
 
 const (
 	previousProductionManifest = "../../configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json"
-	currentProductionManifest  = "../../configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json"
+	cutoverProductionManifest  = "../../configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json"
+	currentProductionManifest  = "../../configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json"
 )
 
 var reviewedPrimaryKeys = map[string]string{
@@ -53,31 +54,27 @@ func TestReviewedProductionBindingManifestIsCompleteAndExact(t *testing.T) {
 	}
 }
 
-// The current manifest must describe the database the previous one produced:
+// A successor manifest must describe the database its predecessor produced:
 // every deployment still published keeps the exact row (and operation ID) it
-// already has, each deployment the publisher withdrew is retained verbatim, and
-// only a genuinely new deployment takes a new, unused operation ID.
-func TestCurrentProductionBindingManifestExtendsTheAppliedOne(t *testing.T) {
-	previous, err := readBindingManifest(previousProductionManifest)
+// already has, each applied row the publisher withdrew is retained verbatim, and
+// only a genuinely new deployment takes a new, unused operation ID. It returns
+// the new assignments.
+func requireSuccessorManifest(t *testing.T, previousPath, currentPath string) []bindingManifestAssignment {
+	t.Helper()
+	previous, err := readBindingManifest(previousPath)
 	if err != nil {
 		t.Fatalf("previous manifest: %v", err)
 	}
-	current, err := readBindingManifest(currentProductionManifest)
+	current, err := readBindingManifest(currentPath)
 	if err != nil {
 		t.Fatalf("current manifest: %v", err)
 	}
-	if current.Inventory.SnapshotID != "snap_ebf19b144959bbb8" || current.Inventory.S3VersionID != "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd" || current.Inventory.ContentSHA256 != "49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017" || len(current.Assignments) != 333 || len(current.RetainedBindings) != 8 {
-		t.Fatalf("production provenance/count drifted: %+v", current.Inventory)
-	}
-	counts := requireReviewedKeys(t, current.Assignments)
-	if counts["cerebras"] != 1 || counts["groq"] != 6 || counts["openrouter"] != 319 || counts["xai"] != 7 {
-		t.Fatalf("provider cardinality drifted: %v", counts)
-	}
 	requireReviewedKeys(t, current.RetainedBindings)
 
-	applied := make(map[contract.DeploymentID]bindingManifestAssignment, len(previous.Assignments))
-	usedOperations := make(map[string]struct{}, len(previous.Assignments))
-	for _, row := range previous.Assignments {
+	appliedRows := append(append([]bindingManifestAssignment{}, previous.Assignments...), previous.RetainedBindings...)
+	applied := make(map[contract.DeploymentID]bindingManifestAssignment, len(appliedRows))
+	usedOperations := make(map[string]struct{}, len(appliedRows))
+	for _, row := range appliedRows {
 		applied[row.DeploymentID] = row
 		usedOperations[row.OperationID] = struct{}{}
 	}
@@ -95,9 +92,6 @@ func TestCurrentProductionBindingManifestExtendsTheAppliedOne(t *testing.T) {
 		}
 		fresh = append(fresh, row)
 	}
-	if len(fresh) != 1 || fresh[0].DeploymentID != "dep_openrouter_z_ai_glm_5_2_free_observed_2026_09_01" || fresh[0].OperationID != "kdb_00000000000000000000000000000341" {
-		t.Fatalf("unexpected new assignments: %+v", fresh)
-	}
 	if len(applied) != len(current.RetainedBindings) {
 		t.Fatalf("%d applied rows are neither assigned nor retained", len(applied)-len(current.RetainedBindings))
 	}
@@ -105,6 +99,48 @@ func TestCurrentProductionBindingManifestExtendsTheAppliedOne(t *testing.T) {
 		if applied[row.DeploymentID] != row {
 			t.Fatalf("retained binding is not the exact applied row: %+v", row)
 		}
+	}
+	return fresh
+}
+
+// snap_ebf19b144959bbb8 is the manifest the schema 0013 cutover applied and
+// verified on 2026-09-24. It stays as the record of the row it created.
+func TestCutoverProductionBindingManifestExtendsTheFirstOne(t *testing.T) {
+	current, err := readBindingManifest(cutoverProductionManifest)
+	if err != nil {
+		t.Fatalf("cutover manifest: %v", err)
+	}
+	if current.Inventory.SnapshotID != "snap_ebf19b144959bbb8" || current.Inventory.S3VersionID != "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd" || current.Inventory.ContentSHA256 != "49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017" || len(current.Assignments) != 333 || len(current.RetainedBindings) != 8 {
+		t.Fatalf("production provenance/count drifted: %+v", current.Inventory)
+	}
+	counts := requireReviewedKeys(t, current.Assignments)
+	if counts["cerebras"] != 1 || counts["groq"] != 6 || counts["openrouter"] != 319 || counts["xai"] != 7 {
+		t.Fatalf("provider cardinality drifted: %v", counts)
+	}
+	fresh := requireSuccessorManifest(t, previousProductionManifest, cutoverProductionManifest)
+	if len(fresh) != 1 || fresh[0].DeploymentID != "dep_openrouter_z_ai_glm_5_2_free_observed_2026_09_01" || fresh[0].OperationID != "kdb_00000000000000000000000000000341" {
+		t.Fatalf("unexpected new assignments: %+v", fresh)
+	}
+}
+
+// snap_37548e4f1f8ec610 is the first snapshot the speech-discovering publisher
+// issued. Its only new deployment is xAI text-to-speech, bound to xAI's single
+// enabled key under the first unused operation ID.
+func TestCurrentProductionBindingManifestExtendsTheCutoverOne(t *testing.T) {
+	current, err := readBindingManifest(currentProductionManifest)
+	if err != nil {
+		t.Fatalf("current manifest: %v", err)
+	}
+	if current.Inventory.SnapshotID != "snap_37548e4f1f8ec610" || current.Inventory.S3VersionID != "bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ" || current.Inventory.ContentSHA256 != "e73ea428e95d0957e4773d0e89629450848289688aa0e31ef3474ea06e667c02" || len(current.Assignments) != 334 || len(current.RetainedBindings) != 8 {
+		t.Fatalf("production provenance/count drifted: %+v", current.Inventory)
+	}
+	counts := requireReviewedKeys(t, current.Assignments)
+	if counts["cerebras"] != 1 || counts["groq"] != 6 || counts["openrouter"] != 319 || counts["xai"] != 8 {
+		t.Fatalf("provider cardinality drifted: %v", counts)
+	}
+	fresh := requireSuccessorManifest(t, cutoverProductionManifest, currentProductionManifest)
+	if len(fresh) != 1 || fresh[0].DeploymentID != "dep_xai_tts_observed_2026_09_24" || fresh[0].OperationID != "kdb_00000000000000000000000000000342" {
+		t.Fatalf("unexpected new assignments: %+v", fresh)
 	}
 }
 
@@ -221,7 +257,7 @@ func TestApplyBindingManifestRebindsADifferentKey(t *testing.T) {
 // the image bakes it, the build context admits it, the workflow proves its
 // inventory provenance, and the operations mount it for apply and verify.
 func TestProductionManifestIsNamedConsistently(t *testing.T) {
-	const name = "production-bindings-snap_ebf19b144959bbb8.json"
+	const name = "production-bindings-snap_37548e4f1f8ec610.json"
 	for path, want := range map[string]string{
 		"../../Dockerfile":                               "cp configs/cutovers/" + name + " /out/etc/kaana-cutovers/",
 		"../../.dockerignore":                            "!configs/cutovers/" + name + "\n",

@@ -281,6 +281,34 @@ readback must name the new snapshot ID and include the `tts` descriptor.
   with it, so `verify-production-deployment-bindings` is exact again.
 - Record the deploy run, final digests and readback run IDs in this file.
 
+## Record of the run, 2026-09-24
+
+All times UTC. `M` was first `c9f783d292e6f8f4fe43058a691ed9a635ba3319`
+(PR #105), then `8e81466e2868146195e16c5b19012f0244084961` (PR #106, the
+bound-view retirement fix). No provider held more than one enabled key at any
+point, so step 6 was not run and no `bind-deployment` was issued.
+
+| Step | Evidence |
+|---|---|
+| 1. Build `c9f783d2` | Release run `36009314420`: migrator one-shot only, `serving ECS services were not updated`. Candidate digest `sha256:371ec0c9661220d04540db29dc7e88629dc182cc811e02719c96a84fb7f50262` |
+| 2. Pre-flight | Live object `snap_ebf19b144959bbb8 333`. `list` run `36009488017` (task `3dd2d245…`): the four keys enabled, one enabled key per served provider. `list-deployment-bindings` run `36009498135`: 340 rows, lacking only `kdb_…0341`. Verify run `36009918395` failed with `binding readback has 340 rows, manifest requires 341` |
+| 3. Apply, verify | Runs `36010125216` and `36010329932` both printed `verified 333 exact deployment bindings for snap_ebf19b144959bbb8 (49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017)` |
+| 4. Pre-deploy readback | Oxy run `36010534014` against `oxy-oxy-api:539` / `sha256:fc306d90…`: `contract_version_mismatch`, zero provider requests, zero ledger writes. Oxy's workflow requires contract 3.0.0 and serving `oxy-kaana:43` reported 2.0.0, so this step cannot pass before the deploy. The owner deferred it to after step 7 |
+| 5. Candidate `c9f783d2` | Candidates `6ad61f77…` (`oxy-kaana-candidate:4`) and `3fc780a1…` (`:5`), no unbound WARN. Oxy canaries: groq `36013749810` and xai `36013937136` passed; cerebras `36012165207` returned `provider_error` (the bound-view bug); openrouter on `dep_openrouter_z_ai_glm_5_2_free…` `36014167274` was rate-limited upstream |
+| 1. Build `8e81466e` | Release run `36015997019`: `serving ECS services were not updated`. Candidate digest `sha256:b547e59716a02ead53b167c449249c7cc4240acc5b61eb16dee11c155ae28298` |
+| 5. Candidate `8e81466e` | Run `36016287198`, task `4923197203424e11bd035e2b9af8a329` (`oxy-kaana-candidate:6`), no unbound WARN. Oxy canaries, each six passed cases, two one-token provider requests and zero ledger writes: groq `36016465230`, xai `36016703387`, openrouter `dep_openrouter_openai_gpt_4o_mini…` `36016938361`. Cerebras refusal check `36017185083`: `provider_billing_refused`, non-retryable (waived pending account funding) |
+| 7. Enable, deploy | Variable set 15:05:40. `mode=deploy` run `36017611711`: `kaana` → `oxy-kaana:44`, `kaana-publisher` → `oxy-kaana-publisher:48`, both `sha256:add55174615a162d80f22d7ac354a4ca52df062b6145ca6fc111cb889c555d83`, `COMPLETED`. `kaana-credential-control` and `kaana-platform-credential-control` are not ACTIVE and were not rolled |
+| 8. Speech | The first publisher cycle issued `snap_37548e4f1f8ec610` at 15:10:14.881, 334 deployments, 8 xAI, `tts` as `dep_xai_tts_observed_2026_09_24` (`x-ai/text-to-speech@observed-2026-09-24`). Serving installed it at 15:10:35 with no unbound WARN; `tts` routes on xAI's only key |
+| 4. Post-deploy readback | Oxy run `36019806004` against `oxy-oxy-api:539` / `sha256:fc306d90…`: contract 3.0.0, `snap_37548e4f1f8ec610`, 334 descriptors including `dep_xai_tts_observed_2026_09_24`, zero provider requests, zero ledger writes |
+| 9. Successor manifest | `configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json` replaces this page's manifest. It pins S3 version `bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ` (the issue serving installed, sha256 `e73ea428…7c02`), keeps all 333 `snap_ebf19…` rows and the 8 retained rows verbatim, and adds `dep_xai_tts_observed_2026_09_24` on xAI key `1d72d527…` as `kdb_00000000000000000000000000000342` |
+
+Until that manifest is applied, `verify-production-deployment-bindings` from a
+build that bakes it fails with `binding readback has 341 rows, manifest requires
+342`. Its apply issues exactly one mutation, the `tts` row, and must print
+`verified 334 exact deployment bindings for snap_37548e4f1f8ec610
+(e73ea428e95d0957e4773d0e89629450848289688aa0e31ef3474ea06e667c02)`. Dispatch
+both from the merge commit while it is main's head, as in step 1.
+
 ## Rollback
 
 The database schema and bindings stay as they are, because older binaries ignore
