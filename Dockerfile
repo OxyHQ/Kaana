@@ -125,10 +125,11 @@ RUN mkdir -p /out/etc/kaana-publisher && cp configs/model-attribution.json /out/
 
 # Reviewed, non-secret exact assignment for the current production snapshot. It
 # is baked by exact name so an unreviewed cutover file can never enter the
-# credential-admin image. The superseded snap_dfd6904a99d6313b manifest stays in
-# the repository as the record of the rows it created, and is not baked.
+# credential-admin image. The superseded snap_dfd6904a99d6313b and
+# snap_ebf19b144959bbb8 manifests stay in the repository as the record of the
+# rows they created, and are not baked.
 RUN mkdir -p /out/etc/kaana-cutovers \
-    && cp configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json /out/etc/kaana-cutovers/ \
+    && cp configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json /out/etc/kaana-cutovers/ \
     && chown -R 65532:65532 /out/etc/kaana-cutovers
 
 RUN mkdir -p /out/etc/ssl/certs \

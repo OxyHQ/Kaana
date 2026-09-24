@@ -49,8 +49,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"list-deployment-bindings":              {"list-deployment-bindings"},
 		"migrate":                               {"migrate"},
 		"bind-deployment":                       {"bind-deployment"},
-		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_ebf19b144959bbb8.json"},
-		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_ebf19b144959bbb8.json"},
+		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_37548e4f1f8ec610.json"},
+		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_37548e4f1f8ec610.json"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",

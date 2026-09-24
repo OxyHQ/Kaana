@@ -406,10 +406,14 @@ or add an ambient provider-pool fallback to get a candidate healthy.
 The first production assignment was
 `configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`: 340 explicit
 rows, applied and verified on 2026-09-11. It stays in the repository as the
-record of the rows it created. The current reviewed assignment is
-`configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json`, and it is the
-only manifest baked into the image. Its inventory provenance is an immutable S3
-`VersionId`, ETag and locally computed SHA-256. The raw S3 inventory document is
+record of the rows it created. The schema 0013 cutover applied and verified
+`configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json` (333 rows plus
+8 retained) on 2026-09-24; it stays as the record of the one row it added. The
+current reviewed assignment is
+`configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json`, the first
+snapshot with xAI speech, and it is the only manifest baked into the image. Its
+inventory provenance is an immutable S3 `VersionId`, ETag and locally computed
+SHA-256. The raw S3 inventory document is
 IAM-controlled but is **not cryptographically signed**; do not describe it as
 signed. Before either batch apply or verify, the admin workflow downloads that
 exact immutable object and compares its content hash, snapshot ID, count, and
