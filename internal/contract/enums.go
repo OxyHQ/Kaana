@@ -228,3 +228,27 @@ var upstreamErrorCategoryValues = []UpstreamErrorCategory{
 	UpstreamRateLimit, UpstreamQuota, UpstreamTimeout, UpstreamOverloaded, UpstreamServerError,
 	UpstreamContentFilter, UpstreamInvalidReq, UpstreamAuthentication, UpstreamUnknown,
 }
+
+// ReasoningEffort is how much reasoning a caller asks a model to spend before
+// it answers. The vocabulary is the contract's, not any provider's: each
+// adapter translates it into the one wire field its provider documents for the
+// same request, or refuses it in Translate.
+type ReasoningEffort string
+
+const (
+	ReasoningEffortLow    ReasoningEffort = "low"
+	ReasoningEffortMedium ReasoningEffort = "medium"
+	ReasoningEffortHigh   ReasoningEffort = "high"
+)
+
+var reasoningEffortValues = []ReasoningEffort{ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh}
+
+// Valid reports whether the effort is one the contract declares.
+func (e ReasoningEffort) Valid() bool { return isMember(e, reasoningEffortValues) }
+
+// ReasoningEfforts lists every declared effort, in ascending order. A catalogue
+// observation that a model takes an effort at all is a claim about this whole
+// vocabulary, never about a provider-specific extension of it.
+func ReasoningEfforts() []ReasoningEffort {
+	return append([]ReasoningEffort(nil), reasoningEffortValues...)
+}

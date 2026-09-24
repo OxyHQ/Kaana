@@ -56,7 +56,8 @@ Credentials — docs/key-pools.md#rules-a-reviewer-applies
   docs/customer-provider-credentials.md#rules-a-reviewer-applies
 
 Cost — docs/cost.md#rules-a-reviewer-applies
-- Only `internal/providercost` holds an amount; none enters a response.
+- Only `internal/providercost` holds an amount; none enters an inference response.
+- A provider's PUBLISHED list price reaches Oxy only on the signed catalogue.
 
 Adapters — docs/adapters.md#rules-a-reviewer-applies
 - One `provider.Adapter` and one real-wire fake per provider; pass conformance.

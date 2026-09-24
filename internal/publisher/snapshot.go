@@ -35,6 +35,10 @@ type snapshotDeployment struct {
 	UpstreamModelID string                  `json:"upstreamModelId"`
 	Regions         []contract.Region       `json:"regions,omitempty"`
 	Current         bool                    `json:"current"`
+	// Observed is copied verbatim from discovery. It deliberately reuses the
+	// reader's type: it is a leaf block with no routing meaning, and
+	// inventory.Parse validates it on the round trip before anything is written.
+	Observed *inventory.Observed `json:"observed,omitempty"`
 }
 
 // revisionPrefix labels what the pin actually records.
@@ -142,7 +146,8 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 				// so marking it current is the only answer that resolves an
 				// unpinned reference at all. Two revisions of one line cannot
 				// arise: the observation is keyed by line and carried forward.
-				Current: true,
+				Current:  true,
+				Observed: model.Observed,
 			})
 		}
 	}
@@ -237,6 +242,11 @@ func deploymentID(slug contract.ProviderSlug, upstreamModelID, observed string) 
 
 // contentID identifies WHAT is being served, not when it was issued.
 //
+// It hashes ROUTING content only. A deployment's `observed` catalogue metadata
+// (a provider renaming a model, publishing a new list price) is not routing and
+// does not move the id: "did routing change" must not answer yes because a
+// provider edited a display name.
+//
 // Hashing the routing content means an unchanged re-issue keeps its id while
 // `issuedAt` advances, so the two questions an operator asks — "is the
 // publisher alive" and "did routing change" — have two different answers
@@ -265,7 +275,8 @@ func snapshotComment() []string {
 		"THE REVISION LABEL IS AN OBSERVATION, NOT A RELEASE. These providers expose no immutable revision handle, so the pin records the date this publisher first saw the alias. That date is carried forward from the previous snapshot forever: re-dating it would silently re-point every reference a customer has pinned.",
 		"INVENTORY ORDER IS PRESENTATION ONLY. Every inference request carries a non-empty signed authorizedRoutes list of exact deployment ids, and Kaana executes only that list in its signed order. Deployments here are sorted by exact id so provider declaration order cannot select a route.",
 		"REGIONS ARE UPSTREAM EXECUTION/RESIDENCY, NOT THE AWS REGION RUNNING KAANA. A provider's model API does not report them. KAANA_PROVIDER_<SLUG>_REGIONS carries an explicit verified declaration; when absent, the route has no regional attestation and matches only an explicitly empty signed set that Oxy permits under no regional policy control.",
-		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, price or commercial permission. Provider credentials resolve from Kaana's PostgreSQL/KMS store and are never here.",
+		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, customer price or commercial permission. Provider credentials resolve from Kaana's PostgreSQL/KMS store and are never here.",
+		"`observed` IS WHAT THE PROVIDER'S OWN /models ENTRY SAID, AND NOTHING ELSE. Absent means the provider did not say; nothing is defaulted or curated. It is catalogue metadata for the signed operator catalogue, never routing, and snapshotId does not hash it. `observed.listPrice` is the provider's PUBLISHED list price (USD per million tokens), not Kaana's cost and not a customer price.",
 		"STALENESS IS MEASURED FROM `issuedAt`. This file is re-issued on a cadence shorter than KAANA_INVENTORY_MAX_AGE even when nothing has changed, because an unchanged snapshot with an old issuedAt is indistinguishable from a publisher that has stopped.",
 	}
 }

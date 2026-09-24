@@ -26,6 +26,15 @@ reference are different decisions:
    preview or delivery tier cannot become an immutable Kaana reference merely
    because discovery returned it.
 
+Discovery also keeps what the account's model list says about each model —
+name, creation, limits, modalities, tool and reasoning support, and (OpenRouter
+only) the published list price — as the deployment's `observed` block
+(`inventory.md`, "Catalogue metadata is observed, never curated"). A new
+provider needs no capability table: if its list publishes one of those fields
+under a spelling Kaana does not yet read, add the spelling to
+`internal/publisher/observed.go` with a real-wire fixture; if it publishes
+nothing, the catalogue says nothing.
+
 The shared `openaicompat` adapter constructs `POST {base}/chat/completions`.
 The publisher has separate discovery profiles because model-list semantics are
 provider facts, not adapter facts.
@@ -42,7 +51,7 @@ credential only at send time.
 | OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | Authenticated `GET /models`, OpenAI list shape | Four current flagship text ids are reviewed; the shorter `gpt-5.6` alias moves and specialized media models require other transports/contracts | Built-in `openaicompat` serving and authenticated discovery. Only `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` can currently publish direct deployments. |
 | Mistral | `https://api.mistral.ai/v1` | `POST /chat/completions` | `GET /models`; response includes `capabilities.completion_chat` | Fixed GA ids are available; `*-latest` and major aliases move; `labs-*` may update silently | Built-in `openaicompat` serving; publisher filters for chat capability; five fixed ids are attributed. No live credential conformance has been recorded. |
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `GET /models`, OpenAI list shape | Current direct ids are moving aliases; vision id is experimental | Built-in `openaicompat` serving and generic discovery. Direct attribution is deliberately absent, so discovery cannot emit a direct DeepSeek deployment yet. |
-| SambaNova | `https://api.sambanova.ai/v1` | `POST /chat/completions` | `GET /models`; includes context, max output and pricing metadata | Four production ids are allowed; `DeepSeek-V3.2` is preview | Built-in `openaicompat` serving and generic discovery; four production ids are attributed. Publisher currently consumes only ids, not SambaNova's richer metadata. No live credential conformance has been recorded. |
+| SambaNova | `https://api.sambanova.ai/v1` | `POST /chat/completions` | `GET /models`; includes context, max output and pricing metadata | Four production ids are allowed; `DeepSeek-V3.2` is preview | Built-in `openaicompat` serving and generic discovery; four production ids are attributed. Publisher reads only the metadata spellings `observed.go` documents; SambaNova's own fields are not yet mapped. No live credential conformance has been recorded. |
 | Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | Authenticated native `GET /api/v1/models`, paginated and filterable by capability/support | Four dated Qwen snapshots are allowed; moving family ids and previews remain absent | Built-in protocol and endpoint identity with explicit base; native authenticated discovery; exact snapshot attribution. No live credential conformance has been recorded. |
 | Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` | `POST /chat/completions` | Separate authenticated `GET /accounts/{account_id}/ai/models/search`; official result rows are currently untyped | Catalogue ids and lifecycle are provider-managed; no id is attributed by this change | Built-in protocol and endpoint identity with explicit base; serving only. Discovery fails closed until Cloudflare publishes a stable row schema. |
 | SiliconFlow | `https://api.siliconflow.cn/v1` | `POST /chat/completions` | `GET /models?type=text&sub_type=chat` | Versioned upstream ids exist; `Pro/` is a delivery/payment tier, not different weights | Built-in `openaicompat` serving; publisher applies both discovery filters; five fixed chat ids are attributed. No live credential conformance has been recorded. |
