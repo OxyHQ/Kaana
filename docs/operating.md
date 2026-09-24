@@ -88,8 +88,8 @@ is never exercised for that provider again.
 Once a full deploy cycle carries no such `WARN` line, the environment parsing
 for these two variables is deleted in a follow-up change, and this section
 and the "transitional" table rows above go with it. There is no other gate:
-a missing row is never a hard failure (unlike a missing schema 0013 binding,
-which is), because falling back to `provider.KeyPolicy`'s zero value is
+a missing row is never a hard failure (unlike an unpopulated schema 0013
+binding table, which is), because falling back to `provider.KeyPolicy`'s zero value is
 always a valid, if untuned, configuration — a throttle that stays
 conservative, a key that returns to rotation on a safe default schedule.
 
@@ -356,11 +356,15 @@ checks both an enabled binding and its exclusion after disabling the key.
 Do not turn a schema migration into a serving cutover. The release workflow
 will not update ECS until the repository variable
 `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is exactly `true`, and the new
-serving process independently refuses to start unless every deployment in its
-mounted production inventory whose provider it serves resolves to one exact,
+serving process independently refuses to start when its binding table is
+effectively unpopulated: when more than half of the deployments in its mounted
+production inventory whose provider it serves do not resolve to one exact,
 active credential. ECS therefore retains the previous healthy revision if the
-database is empty, incomplete, names the wrong provider, or points at a disabled
-key.
+database is empty or mostly empty, names the wrong provider, or points at
+disabled keys. A smaller gap starts, and each unbound deployment is refused per
+request and named by the `deployments without an exact credential binding are
+unroutable until bound` WARN. Completeness is proven by the exact readback and
+by that WARN's absence, not by the process starting.
 
 Roll out in this order:
 
@@ -383,9 +387,10 @@ Roll out in this order:
    material.
 5. Canary the candidate task definition against the same mounted inventory. It
    must remain running and make a real signed request through every distinct
-   `(deploymentId, provider, keyId)` binding class. A missing binding fails at
-   process startup; an unusable exact key fails its canary and is never replaced
-   by another key from the provider pool.
+   `(deploymentId, provider, keyId)` binding class, and its log must carry no
+   unbound-deployment WARN. An unpopulated table fails at process startup; an
+   unusable exact key fails its canary and is never replaced by another key from
+   the provider pool.
 6. Only after the set comparison and canaries pass, set
    `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE=true` and manually dispatch
    `Deploy to AWS` in `deploy` mode. Confirm the registered digest, ECS steady
@@ -429,11 +434,23 @@ partially applied manifest be finished: the database treats a replay of an
 operation ID by a different actor as a conflict, and every workflow run is a
 different actor.
 
-After the cutover the startup gate is also the inventory reload gate: a
-published snapshot naming a served deployment without a binding is refused and
-the previous snapshot keeps serving until it passes `KAANA_INVENTORY_MAX_AGE`.
-Every deployment the publisher newly discovers must therefore be bound with
-`bind-deployment` inside that horizon, or unpinned references start failing.
+After the cutover the startup gate is also the inventory reload gate, with the
+same rule: a published snapshot is refused (and the previous one keeps serving
+until it passes `KAANA_INVENTORY_MAX_AGE`) only when more than half of its
+served deployments are unbound. A snapshot in which the publisher has
+discovered a few deployments nobody has bound yet is installed. Those
+deployments are refused per request, never attempted, and Oxy moves to the
+next signed route. Every inventory load logs them at WARN as `deployments
+without an exact credential binding are unroutable until bound`, with
+`unbound`, `served`, `deploymentIds`, `providers` and `snapshotId`. Alert on
+that message and bind each ID with `bind-deployment`. There is no deadline.
+
+The gate used to refuse any unbound served deployment. That froze the
+inventory on every new model and, worse, stopped a restarted serving task from
+starting at all, which is a total inference outage when no previous task is
+running beside it. A per-provider "zero bindings" rule would do the same to the
+first deployment of every newly served provider, which is why the threshold is
+taken over all served deployments.
 
 The signing key remains exclusively in Oxy. After exact readback, run on Oxy
 main, in order:

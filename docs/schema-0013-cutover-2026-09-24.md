@@ -120,20 +120,26 @@ zero provider requests and zero ledger writes.
 
 ### 5. Isolated candidate plus one signed canary per key class
 
-Candidate: the pinned `a1523152` image. Its serving source, `cmd/kaana`,
-`internal/` and `go.mod`, is identical to `M`. This PR changes only
-`cmd/kaana-credentials`, configuration, the image allow-list and docs.
+Candidate: `oxy/kaana:$M`, the image step 1 built, with its digest `D` from the
+`describe-images` output there. It must be `M` and not the `a1523152`
+administration pin: this PR changes the serving binding gate in `cmd/kaana`
+(see "Unbound deployments" below), so `a1523152`'s serving source is no longer
+the one that deploys.
 
 ```bash
 gh workflow run candidate-canary.yml -R OxyHQ/Kaana --ref main \
-  -f candidate_image_digest=sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c \
-  -f candidate_source_commit=a1523152d94b2d022a2e3b6acdbabb4cf393da7f \
+  -f candidate_image_digest=<D> -f candidate_source_commit=$M \
   -f expected_snapshot_id=snap_ebf19b144959bbb8 -f hold_minutes=20
 ```
 
 A candidate that fails the startup gate prints `startupError` and exits. Do not
 go on until the job prints `candidateTaskArn`, `candidateTaskDefinitionArn`,
-`candidateImageDigest` and `candidatePrivateIp`. In the same 20-minute window,
+`candidateImageDigest` and `candidatePrivateIp`. The gate now refuses only an
+effectively unpopulated binding table, so a start alone no longer proves every
+deployment is bound. Step 3's exact verify is that proof. The candidate's log
+must also carry no `deployments without an exact credential binding are
+unroutable until bound` line. If it does, that line names the unbound IDs;
+bind them before you go on. In the same 20-minute window,
 run the Oxy canary once per class. Its concurrency group runs them one at a
 time.
 
@@ -149,7 +155,7 @@ gh workflow run kaana-signed-canary.yml -R OxyHQ/OxyHQServices --ref main \
   -f expected_live_task_definition_arn="$TD" -f expected_live_image_digest="$IMG" \
   -f expected_snapshot_id=snap_ebf19b144959bbb8 \
   -f candidate_task_arn=<candidateTaskArn> -f candidate_task_definition_arn=<candidateTaskDefinitionArn> \
-  -f candidate_image_digest=sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c \
+  -f candidate_image_digest=<D> \
   -f candidate_private_ip=<candidatePrivateIp> -f deployment_id=<row above> \
   -f routing_profile_id=<opaque profile> -f routing_policy_id=<policy> -f routing_policy_version=<n> \
   -f account_id=<billing account> -f application_id=<application> -f credential_id=<credential> \
@@ -163,8 +169,8 @@ window closes first, dispatch `candidate-canary.yml` again and continue.
 
 ### 6. Optional: pre-bind the speech deployment
 
-This removes the post-deploy deadline described in step 8. Run it only when
-step 7 will start on the same UTC date as `<date>` here:
+This makes `tts` routable from its first snapshot, so step 8 has no bind to do.
+Run it only when step 7 will start on the same UTC date as `<date>` here:
 
 ```bash
 gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=bind-deployment \
@@ -226,14 +232,14 @@ Expect a new snapshot ID and 8 xAI deployments, the 7 grok models plus `tts`.
     -f deployment_id=<the tts deploymentId> -f provider=xai -f key_id=1d72d527-81ca-41e5-9644-2d81a4b126ec
   ```
 
-  Until then, serving refuses every new snapshot: the reload gate is the
-  startup gate. It keeps serving the last `snap_ebf19…` issue. That snapshot
-  passes `KAANA_INVENTORY_MAX_AGE` (1h) at most one hour after the old
-  publisher's last reissue, and from then on every **unpinned** reference is
-  refused. Treat this bind as a 45-minute deadline.
+  There is no deadline. Serving installs the new snapshot on its next
+  inventory reload (≤30s) with `tts` unbound. A request routed to `tts` is
+  refused and nothing is sent upstream; every other deployment serves. Every
+  reload logs `deployments without an exact credential binding are unroutable
+  until bound` with `unbound: 1` and the `tts` ID, until the bind lands.
 
-Serving picks the binding up on its next credential reload (≤1m) and the new
-snapshot on its next inventory reload (≤30s). Then run step 4 once more. The
+Serving picks the binding up on its next credential reload (≤1m). The WARN
+stops on the inventory reload after that. Then run step 4 once more. The
 readback must name the new snapshot ID and include the `tts` descriptor.
 
 ### 9. Close out
@@ -264,6 +270,33 @@ revisions before the deploy, so note them in step 7. A new serving task that
 fails its startup gate during step 7 needs no rollback: the deployment circuit
 breaker (rollback enabled, 50%) keeps `oxy-kaana:43` serving.
 
+## Unbound deployments
+
+Serving refuses a snapshot, at startup and on every inventory reload, only
+when **more than half** of the deployments it serves have no exact active
+binding. That covers an empty or mostly empty binding table, and one that
+points at disabled keys. It is what makes a bad release fail to start while
+ECS keeps the previous revision.
+
+Anything less is accepted and degrades per route. An unbound deployment is
+refused at request time and never attempted, and Oxy moves to the next signed
+route. Every inventory load (startup, and every 30s after) logs:
+
+```text
+WARN deployments without an exact credential binding are unroutable until bound
+     unbound=<n> served=<m> deploymentIds=[…] providers=[…] snapshotId=…
+```
+
+The rule used to be "refuse if any served deployment is unbound". That froze
+the inventory whenever the publisher discovered a model nobody had bound yet.
+Worse, if the single serving task restarted (crash, host retirement, deploy)
+while such a snapshot was mounted, the new task could not start, and with no
+previous task beside it that meant a total inference outage. A per-provider
+"zero bindings" rule would bring the same outage back for the first model of
+every newly served provider, so the threshold is over all served
+deployments. The publisher would have to more than double the served fleet
+before anyone binds for ordinary discovery to reach it.
+
 ## Chat impact
 
 `kaana` is one Fargate task behind the `oxy-kaana` target group. The service
@@ -283,15 +316,16 @@ during which the server finishes in-flight handlers.
 
 ## Risks
 
-1. **Newly discovered deployments now need a manual binding within the
-   staleness horizon.** This applies to every future provider model, not only
-   `tts`. After cutover, an unbound new deployment freezes the inventory. When
-   the snapshot passes one hour, unpinned references fail. Oxy's catalogue
-   appears to send pinned `modelId@revision` references, which a stale snapshot
-   still serves, but that is not proven here. Before or right after the flip,
-   add an alert on the serving WARN `the inventory snapshot could not be
+1. **Newly discovered deployments are unroutable until someone binds them.**
+   This applies to every future provider model, not only `tts`. It is a
+   per-route degradation with no deadline. It neither freezes the inventory
+   nor blocks a restart (see "Unbound deployments"). Before or right after the
+   flip, add two alerts. One on the serving WARN `deployments without an
+   exact credential binding are unroutable until bound`, which is the work
+   queue for `bind-deployment`. One on `the inventory snapshot could not be
    reloaded; continuing to serve the last good one` whose error contains
-   `startup credential binding gate`.
+   `startup credential binding gate`, which means the binding table looks
+   unpopulated and the snapshot is frozen.
 2. **xAI speech discovery sits in the grok discovery path.** One failure of
    `/v1/tts/voices` withdraws every xAI deployment for that cycle. Check it
    right after the publisher rolls, as in step 8.
@@ -299,8 +333,11 @@ during which the server finishes in-flight handlers.
    rebuilds. The canaried serving source is identical, but the digest is not.
    Confirm the digest ECS registered against the job output.
 4. **The inventory can move before the flip.** Any publisher change between
-   step 2 and step 7 invalidates the manifest, and the new task's startup gate
-   refuses it. Serving stays safe, but you must regenerate and repeat steps 3–5.
+   step 2 and step 7 invalidates the manifest. The new task still starts, and
+   the new deployments are unroutable until bound (the WARN names them). The
+   exact verify no longer matches, so regenerate the manifest and repeat steps
+   3–5, or bind the new IDs and carry them in the close-out successor
+   manifest.
 5. **The credential readback is old.** The manifest cites the 2026-09-13 `list`,
    so step 2 repeats it. The database also refuses a disabled or missing key on
    its own.
