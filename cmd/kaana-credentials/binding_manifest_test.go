@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -12,6 +16,7 @@ import (
 
 const (
 	previousProductionManifest = "../../configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json"
+	currentProductionManifest  = "../../configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json"
 )
 
 var reviewedPrimaryKeys = map[string]string{
@@ -45,6 +50,87 @@ func TestReviewedProductionBindingManifestIsCompleteAndExact(t *testing.T) {
 	counts := requireReviewedKeys(t, manifest.Assignments)
 	if counts["cerebras"] != 2 || counts["groq"] != 7 || counts["openrouter"] != 324 || counts["xai"] != 7 {
 		t.Fatalf("provider cardinality drifted: %v", counts)
+	}
+}
+
+// The current manifest must describe the database the previous one produced:
+// every deployment still published keeps the exact row (and operation ID) it
+// already has, each deployment the publisher withdrew is retained verbatim, and
+// only a genuinely new deployment takes a new, unused operation ID.
+func TestCurrentProductionBindingManifestExtendsTheAppliedOne(t *testing.T) {
+	previous, err := readBindingManifest(previousProductionManifest)
+	if err != nil {
+		t.Fatalf("previous manifest: %v", err)
+	}
+	current, err := readBindingManifest(currentProductionManifest)
+	if err != nil {
+		t.Fatalf("current manifest: %v", err)
+	}
+	if current.Inventory.SnapshotID != "snap_ebf19b144959bbb8" || current.Inventory.S3VersionID != "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd" || current.Inventory.ContentSHA256 != "49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017" || len(current.Assignments) != 333 || len(current.RetainedBindings) != 8 {
+		t.Fatalf("production provenance/count drifted: %+v", current.Inventory)
+	}
+	counts := requireReviewedKeys(t, current.Assignments)
+	if counts["cerebras"] != 1 || counts["groq"] != 6 || counts["openrouter"] != 319 || counts["xai"] != 7 {
+		t.Fatalf("provider cardinality drifted: %v", counts)
+	}
+	requireReviewedKeys(t, current.RetainedBindings)
+
+	applied := make(map[contract.DeploymentID]bindingManifestAssignment, len(previous.Assignments))
+	usedOperations := make(map[string]struct{}, len(previous.Assignments))
+	for _, row := range previous.Assignments {
+		applied[row.DeploymentID] = row
+		usedOperations[row.OperationID] = struct{}{}
+	}
+	var fresh []bindingManifestAssignment
+	for _, row := range current.Assignments {
+		if old, found := applied[row.DeploymentID]; found {
+			if old != row {
+				t.Fatalf("deployment %q changed its applied row: %+v -> %+v", row.DeploymentID, old, row)
+			}
+			delete(applied, row.DeploymentID)
+			continue
+		}
+		if _, reused := usedOperations[row.OperationID]; reused {
+			t.Fatalf("new deployment %q reuses applied operation %q", row.DeploymentID, row.OperationID)
+		}
+		fresh = append(fresh, row)
+	}
+	if len(fresh) != 1 || fresh[0].DeploymentID != "dep_openrouter_z_ai_glm_5_2_free_observed_2026_09_01" || fresh[0].OperationID != "kdb_00000000000000000000000000000341" {
+		t.Fatalf("unexpected new assignments: %+v", fresh)
+	}
+	if len(applied) != len(current.RetainedBindings) {
+		t.Fatalf("%d applied rows are neither assigned nor retained", len(applied)-len(current.RetainedBindings))
+	}
+	for _, row := range current.RetainedBindings {
+		if applied[row.DeploymentID] != row {
+			t.Fatalf("retained binding is not the exact applied row: %+v", row)
+		}
+	}
+}
+
+func TestBindingManifestRefusesARetainedRowThatIsAlsoAssigned(t *testing.T) {
+	document, err := os.ReadFile(currentProductionManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(document, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var assignments []bindingManifestAssignment
+	if err := json.Unmarshal(raw["assignments"], &assignments); err != nil {
+		t.Fatal(err)
+	}
+	overlap := assignments[0]
+	overlap.OperationID = "kdb_ffffffffffffffffffffffffffffffff"
+	raw["retainedBindings"], _ = json.Marshal([]bindingManifestAssignment{overlap})
+	mutated, _ := json.Marshal(raw)
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBindingManifest(path); err == nil || !strings.Contains(err.Error(), "both assigns and retains") {
+		t.Fatalf("overlapping retained binding accepted: %v", err)
 	}
 }
 
@@ -128,5 +214,29 @@ func TestApplyBindingManifestRebindsADifferentKey(t *testing.T) {
 	err := applyBindingManifest(context.Background(), repository, manifest, "b")
 	if !errors.Is(err, credentialstore.ErrDeploymentBindingConflict) {
 		t.Fatalf("a changed key under a reused operation must reach the database's conflict check, got %v", err)
+	}
+}
+
+// Every place that names the production manifest must name the same file:
+// the image bakes it, the build context admits it, the workflow proves its
+// inventory provenance, and the operations mount it for apply and verify.
+func TestProductionManifestIsNamedConsistently(t *testing.T) {
+	const name = "production-bindings-snap_ebf19b144959bbb8.json"
+	for path, want := range map[string]string{
+		"../../Dockerfile":                               "cp configs/cutovers/" + name + " /out/etc/kaana-cutovers/",
+		"../../.dockerignore":                            "!configs/cutovers/" + name + "\n",
+		"../../.github/workflows/credential-admin.yml":   "manifest=configs/cutovers/" + name + "\n",
+		"../../.github/credential-admin-operations.json": `"/etc/kaana-cutovers/` + name + `"`,
+	} {
+		document, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(document), want) {
+			t.Errorf("%s does not name the current production manifest", path)
+		}
+		if strings.Count(string(document), "production-bindings-snap_") != strings.Count(string(document), name) {
+			t.Errorf("%s names another production manifest", path)
+		}
 	}
 }

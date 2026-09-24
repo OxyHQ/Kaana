@@ -396,27 +396,52 @@ If any proof fails, leave the variable false and the old serving revision in
 place. Rebinding is an explicit audited mutation; do not weaken the startup gate
 or add an ambient provider-pool fallback to get a candidate healthy.
 
-The first production assignment is the reviewed
-`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`. It contains
-all 340 explicit rows and their unique idempotency IDs. Its inventory provenance
-is an immutable S3 `VersionId`, ETag and locally computed SHA-256. The raw S3
-inventory document is IAM-controlled but is **not cryptographically signed**;
-do not describe it as signed. Before either batch apply or verify, the admin
-workflow downloads that exact immutable object and compares its content hash,
-snapshot ID, count, and complete sorted `(deploymentId, provider)` set to the
-manifest. The database mutation still independently refuses a missing,
-disabled, or wrong-provider key. `apply-production-deployment-bindings` applies
-the reviewed idempotent set and then requires exact complete readback;
+The first production assignment was
+`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`: 340 explicit
+rows, applied and verified on 2026-09-11. It stays in the repository as the
+record of the rows it created. The current reviewed assignment is
+`configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json`, and it is the
+only manifest baked into the image. Its inventory provenance is an immutable S3
+`VersionId`, ETag and locally computed SHA-256. The raw S3 inventory document is
+IAM-controlled but is **not cryptographically signed**; do not describe it as
+signed. Before either batch apply or verify, the admin workflow downloads that
+exact immutable object and compares its content hash, snapshot ID, count, and
+complete sorted `(deploymentId, provider)` set to the manifest's `assignments`.
+The database mutation still independently refuses a missing, disabled, or
+wrong-provider key.
+
+A successor manifest describes the database its predecessor produced:
+
+- a deployment that is still published keeps its exact applied row, including
+  its `kdb_*` operation ID;
+- a new deployment takes a new, never-used operation ID;
+- a deployment the publisher withdrew is listed verbatim under
+  `retainedBindings`. There is no unbind mutation, so its audited row stays in
+  the database. It is inert — serving checks only the deployments its mounted
+  inventory names — but it is still part of the exact readback.
+
+`apply-production-deployment-bindings` binds only the assignments the database
+does not already hold exactly, then requires exact complete readback: every
+assignment and every retained row, and nothing else.
 `verify-production-deployment-bindings` performs the same readback without a
-mutation.
+mutation. Skipping an exact row, rather than replaying it, is what lets a
+partially applied manifest be finished: the database treats a replay of an
+operation ID by a different actor as a conflict, and every workflow run is a
+different actor.
+
+After the cutover the startup gate is also the inventory reload gate: a
+published snapshot naming a served deployment without a binding is refused and
+the previous snapshot keeps serving until it passes `KAANA_INVENTORY_MAX_AGE`.
+Every deployment the publisher newly discovers must therefore be bound with
+`bind-deployment` inside that horizon, or unpinned references start failing.
 
 The signing key remains exclusively in Oxy. After exact readback, run on Oxy
 main, in order:
 
 1. `Kaana signed deployment readback`, pinned to the exact live oxy-api task
-   definition and image digest. Its result must name
-   `snap_dfd6904a99d6313b` and 340 exact descriptors with zero provider requests
-   and zero ledger writes.
+   definition and image digest. Its result must name the manifest's snapshot
+   ID and exactly its deployment count of descriptors with zero provider
+   requests and zero ledger writes.
 2. `Kaana signed production canary` for a reviewed deployment from each of the
    four distinct provider/key classes in the manifest. Supply the exact live
    task/image, snapshot ID, deployment ID, routing profile/policy revision and
