@@ -49,8 +49,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"list-deployment-bindings":              {"list-deployment-bindings"},
 		"migrate":                               {"migrate"},
 		"bind-deployment":                       {"bind-deployment"},
-		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_dfd6904a99d6313b.json"},
-		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_dfd6904a99d6313b.json"},
+		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_ebf19b144959bbb8.json"},
+		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_ebf19b144959bbb8.json"},
 		"deduplicate-groq": {
 			"deduplicate", "--operation-id", "kop_0af8007d9fdddd88d2622eabff99aeb9",
 			"--provider", "groq", "--duplicate-key-id", "relay-groq-20260902",
@@ -173,8 +173,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		AWSRegion:     "us-west-2",
 		AccountID:     "237343248947",
 		Cluster:       "oxy-cluster",
-		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:53680c69c987529958d3c57ad6c7bd7a170dc7e5f42a84ee878d132c1d449cbc",
-		SourceCommit:  "88909380110eb7c1286b26b7c14e534188bf1cce",
+		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c",
+		SourceCommit:  "a1523152d94b2d022a2e3b6acdbabb4cf393da7f",
 		SubnetIDs:     []string{"subnet-08f5cc132b3cab15c", "subnet-0bfb367f29d1fd375"},
 		TaskProfiles: map[string]credentialTaskProfile{
 			"admin": {

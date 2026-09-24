@@ -261,6 +261,20 @@ func NewRegistry(adapters ...Adapter) (*Registry, error) {
 // ResolveExecution returns an adapter and its exact platform credential view
 // from one registry generation. One read lock prevents reload from pairing an
 // old adapter with bindings from a different generation.
+//
+// A platform deployment resolves to exactly one key, by the first rule that
+// applies:
+//
+//  1. An exact deployment binding. It is final: a binding to a retired key,
+//     or one naming a different provider, never falls back to anything.
+//  2. With no exact binding, the provider's key, when the provider holds
+//     exactly one. A key belongs to its provider by default, so a newly
+//     discovered deployment of a single-key provider is routable without an
+//     operator binding it. The view is the same exact Bind as rule 1, so the
+//     attempt, cost and audit records name the key exactly as a binding would.
+//  3. Otherwise (no key, or several) the deployment is unroutable. Choosing
+//     among several keys is exactly the guess an exact binding exists to
+//     prevent.
 func (r *Registry) ResolveExecution(deploymentID contract.DeploymentID, slug contract.ProviderSlug, platform bool) (Adapter, *KeyPool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -271,15 +285,24 @@ func (r *Registry) ResolveExecution(deploymentID contract.DeploymentID, slug con
 	if !platform || !r.bindingsRequired {
 		return adapter, nil, nil
 	}
-	binding, ok := r.bindings[deploymentID]
-	if !ok || binding.Provider != slug {
-		return nil, nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s", deploymentID, slug)
-	}
 	source, ok := adapter.(PlatformCredentialSource)
 	if !ok {
 		return nil, nil, fmt.Errorf("provider: adapter for %s has no platform credential source", slug)
 	}
-	pool, err := source.PlatformCredentials().Bind(binding.KeyID)
+	keyID := ""
+	if binding, bound := r.bindings[deploymentID]; bound {
+		if binding.Provider != slug {
+			return nil, nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s", deploymentID, slug)
+		}
+		keyID = binding.KeyID
+	} else {
+		sole, count := source.PlatformCredentials().SoleKeyID()
+		if count != 1 {
+			return nil, nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s, and %s holds %d platform keys, so none is its default", deploymentID, slug, slug, count)
+		}
+		keyID = sole
+	}
+	pool, err := source.PlatformCredentials().Bind(keyID)
 	if err != nil {
 		return nil, nil, err
 	}

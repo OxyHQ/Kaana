@@ -88,8 +88,8 @@ is never exercised for that provider again.
 Once a full deploy cycle carries no such `WARN` line, the environment parsing
 for these two variables is deleted in a follow-up change, and this section
 and the "transitional" table rows above go with it. There is no other gate:
-a missing row is never a hard failure (unlike a missing schema 0013 binding,
-which is), because falling back to `provider.KeyPolicy`'s zero value is
+a missing row is never a hard failure (unlike an unpopulated schema 0013
+binding table, which is), because falling back to `provider.KeyPolicy`'s zero value is
 always a valid, if untuned, configuration — a throttle that stays
 conservative, a key that returns to rotation on a safe default schedule.
 
@@ -356,11 +356,17 @@ checks both an enabled binding and its exclusion after disabling the key.
 Do not turn a schema migration into a serving cutover. The release workflow
 will not update ECS until the repository variable
 `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is exactly `true`, and the new
-serving process independently refuses to start unless every deployment in its
-mounted production inventory whose provider it serves resolves to one exact,
-active credential. ECS therefore retains the previous healthy revision if the
-database is empty, incomplete, names the wrong provider, or points at a disabled
-key.
+serving process independently refuses to start when its binding table is
+effectively unpopulated: when more than half of the deployments in its mounted
+production inventory whose provider it serves do not resolve to one exact,
+active credential. A deployment resolves through its exact binding, or, when it
+has none, through its provider's key if the provider holds exactly one enabled
+key ([key-pools](key-pools.md#several-providers-and-a-key-pool-for-each)). ECS therefore retains the previous healthy revision if the
+database is empty or mostly empty, names the wrong provider, or points at
+disabled keys. A smaller gap starts, and each unbound deployment is refused per
+request and named by the `deployments without an exact credential binding are
+unroutable until bound` WARN. Completeness is proven by the exact readback and
+by that WARN's absence, not by the process starting.
 
 Roll out in this order:
 
@@ -383,9 +389,10 @@ Roll out in this order:
    material.
 5. Canary the candidate task definition against the same mounted inventory. It
    must remain running and make a real signed request through every distinct
-   `(deploymentId, provider, keyId)` binding class. A missing binding fails at
-   process startup; an unusable exact key fails its canary and is never replaced
-   by another key from the provider pool.
+   `(deploymentId, provider, keyId)` binding class, and its log must carry no
+   unbound-deployment WARN. An unpopulated table fails at process startup; an
+   unusable exact key fails its canary and is never replaced by another key from
+   the provider pool.
 6. Only after the set comparison and canaries pass, set
    `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE=true` and manually dispatch
    `Deploy to AWS` in `deploy` mode. Confirm the registered digest, ECS steady
@@ -396,27 +403,69 @@ If any proof fails, leave the variable false and the old serving revision in
 place. Rebinding is an explicit audited mutation; do not weaken the startup gate
 or add an ambient provider-pool fallback to get a candidate healthy.
 
-The first production assignment is the reviewed
-`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`. It contains
-all 340 explicit rows and their unique idempotency IDs. Its inventory provenance
-is an immutable S3 `VersionId`, ETag and locally computed SHA-256. The raw S3
-inventory document is IAM-controlled but is **not cryptographically signed**;
-do not describe it as signed. Before either batch apply or verify, the admin
-workflow downloads that exact immutable object and compares its content hash,
-snapshot ID, count, and complete sorted `(deploymentId, provider)` set to the
-manifest. The database mutation still independently refuses a missing,
-disabled, or wrong-provider key. `apply-production-deployment-bindings` applies
-the reviewed idempotent set and then requires exact complete readback;
+The first production assignment was
+`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`: 340 explicit
+rows, applied and verified on 2026-09-11. It stays in the repository as the
+record of the rows it created. The current reviewed assignment is
+`configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json`, and it is the
+only manifest baked into the image. Its inventory provenance is an immutable S3
+`VersionId`, ETag and locally computed SHA-256. The raw S3 inventory document is
+IAM-controlled but is **not cryptographically signed**; do not describe it as
+signed. Before either batch apply or verify, the admin workflow downloads that
+exact immutable object and compares its content hash, snapshot ID, count, and
+complete sorted `(deploymentId, provider)` set to the manifest's `assignments`.
+The database mutation still independently refuses a missing, disabled, or
+wrong-provider key.
+
+A successor manifest describes the database its predecessor produced:
+
+- a deployment that is still published keeps its exact applied row, including
+  its `kdb_*` operation ID;
+- a new deployment takes a new, never-used operation ID;
+- a deployment the publisher withdrew is listed verbatim under
+  `retainedBindings`. There is no unbind mutation, so its audited row stays in
+  the database. It is inert — serving checks only the deployments its mounted
+  inventory names — but it is still part of the exact readback.
+
+`apply-production-deployment-bindings` binds only the assignments the database
+does not already hold exactly, then requires exact complete readback: every
+assignment and every retained row, and nothing else.
 `verify-production-deployment-bindings` performs the same readback without a
-mutation.
+mutation. Skipping an exact row, rather than replaying it, is what lets a
+partially applied manifest be finished: the database treats a replay of an
+operation ID by a different actor as a conflict, and every workflow run is a
+different actor.
+
+After the cutover the startup gate is also the inventory reload gate, with the
+same rule: a published snapshot is refused (and the previous one keeps serving
+until it passes `KAANA_INVENTORY_MAX_AGE`) only when more than half of its
+served deployments are unresolvable. A newly discovered deployment of a
+single-key provider resolves to that key with no bind at all. A new deployment
+of a provider with two or more keys has no default, and stays unroutable until
+it is bound. A snapshot carrying a few of those is installed. Those
+deployments are refused per request, never attempted, and Oxy moves to the
+next signed route. Every inventory load logs them at WARN as `deployments
+without an exact credential binding are unroutable until bound`, with
+`unbound`, `served`, `deploymentIds`, `providers` and `snapshotId`. Alert on
+that message and bind each ID with `bind-deployment`. There is no deadline.
+Adding a second enabled key to a provider takes away its default. Each of its
+deployments without an exact binding becomes unroutable on the next credential
+reload, and the WARN names them, so bind them before you add the key.
+
+The gate used to refuse any unbound served deployment. That froze the
+inventory on every new model and, worse, stopped a restarted serving task from
+starting at all, which is a total inference outage when no previous task is
+running beside it. A per-provider "zero bindings" rule would do the same to the
+first deployment of every newly served provider, which is why the threshold is
+taken over all served deployments.
 
 The signing key remains exclusively in Oxy. After exact readback, run on Oxy
 main, in order:
 
 1. `Kaana signed deployment readback`, pinned to the exact live oxy-api task
-   definition and image digest. Its result must name
-   `snap_dfd6904a99d6313b` and 340 exact descriptors with zero provider requests
-   and zero ledger writes.
+   definition and image digest. Its result must name the manifest's snapshot
+   ID and exactly its deployment count of descriptors with zero provider
+   requests and zero ledger writes.
 2. `Kaana signed production canary` for a reviewed deployment from each of the
    four distinct provider/key classes in the manifest. Supply the exact live
    task/image, snapshot ID, deployment ID, routing profile/policy revision and

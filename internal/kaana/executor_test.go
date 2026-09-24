@@ -175,6 +175,9 @@ type harness struct {
 	// a deployment set different from baseRequest's one-route control.
 	routes        []contract.AuthorizedRoute
 	bindingKeyIDs map[contract.DeploymentID]string
+	// unbound deployments get no exact credential binding, as a deployment the
+	// publisher discovered and no operator has bound yet.
+	unbound map[contract.DeploymentID]bool
 }
 
 func (h harness) build(t *testing.T) *kaana.Executor {
@@ -206,7 +209,7 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 	}
 	bindings := make([]provider.CredentialBinding, 0)
 	for _, descriptor := range store.Current().DeploymentDescriptors() {
-		if _, ok := registry.Lookup(descriptor.Provider); !ok {
+		if _, ok := registry.Lookup(descriptor.Provider); !ok || h.unbound[descriptor.DeploymentID] {
 			continue
 		}
 		keyID := string(descriptor.Provider) + "-test"

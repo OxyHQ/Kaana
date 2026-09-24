@@ -941,3 +941,94 @@ func TestPlatformCredentialRefusalCanFailOverToCustomerCredentialOnTheSameProvid
 		t.Fatalf("the customer route did not settle: %+v", result.Report)
 	}
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Unbound deployments degrade per route                                     */
+/* -------------------------------------------------------------------------- */
+
+// TestAnUnboundDeploymentIsRefusedWhileBoundOnesServe pins what serving relies
+// on when it accepts a snapshot naming a deployment nobody has bound yet: the
+// executor refuses that route without attempting it, and every other signed
+// route serves. If this stopped holding, accepting such a snapshot would put a
+// platform request on an unbound deployment.
+func TestAnUnboundDeploymentIsRefusedWhileBoundOnesServe(t *testing.T) {
+	unbound := succeedingAdapter("stub", 5)
+	bound := succeedingAdapter("backup", 7)
+
+	_, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{unbound, bound},
+		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
+	}.run(t, authorizedRequest())
+	if result.Failure != nil {
+		t.Fatalf("a request whose second signed route is bound failed: %v", result.Failure)
+	}
+	if unbound.attempts() != 0 {
+		t.Errorf("the unbound deployment was attempted %d times", unbound.attempts())
+	}
+	if bound.attempts() != 1 {
+		t.Errorf("the bound deployment was attempted %d times", bound.attempts())
+	}
+
+	// Signed for the unbound deployment alone, the request is refused and
+	// nothing upstream is called.
+	alone := authorizedRequest()
+	alone.AuthorizedRoutes = alone.AuthorizedRoutes[:1]
+	onlyUnbound := succeedingAdapter("stub", 5)
+	_, result = harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{onlyUnbound, succeedingAdapter("backup", 7)},
+		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
+	}.run(t, alone)
+	if result.Failure == nil {
+		t.Fatal("a request signed only for an unbound deployment was served")
+	}
+	if onlyUnbound.attempts() != 0 {
+		t.Errorf("the unbound deployment was attempted %d times", onlyUnbound.attempts())
+	}
+
+	// The control: bound, the same deployment serves, so the refusal above is
+	// the missing binding and not a broken fixture.
+	control := succeedingAdapter("stub", 5)
+	if _, result := (harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{control, succeedingAdapter("backup", 7)},
+	}).run(t, alone); result.Failure != nil || control.attempts() != 1 {
+		t.Fatalf("bound, the deployment still did not serve: %v, attempts=%d", result.Failure, control.attempts())
+	}
+}
+
+// TestANewDeploymentOfASingleKeyProviderServesOnItsKey: with no exact binding,
+// the provider's only key serves, and the cost attempt names that key exactly
+// as it would name a bound one.
+func TestANewDeploymentOfASingleKeyProviderServesOnItsKey(t *testing.T) {
+	only, err := provider.NewKeyPool("stub", []provider.KeyDeclaration{{KeyID: "stub-only", Secret: "kaana-test-platform-secret"}}, provider.KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := &scriptedAdapter{slug: "stub", platformPool: only, streamWithCredentials: func(_ context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
+		key, ok := credentials.Begin().Next(time.Now())
+		if !ok {
+			return provider.Outcome{}, errors.New("the provider-default view was empty")
+		}
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+		return provider.Outcome{KeyID: key.ID, Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
+	}}
+	request := authorizedRequest()
+	request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+
+	_, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{served, succeedingAdapter("backup", 7)},
+		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
+	}.run(t, request)
+	if result.Failure != nil || served.attempts() != 1 {
+		t.Fatalf("a new deployment of a single-key provider did not serve: %v, attempts=%d", result.Failure, served.attempts())
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || result.UpstreamCost.Attempts[0].KeyID != "stub-only" {
+		t.Fatalf("the cost record does not name the key that served: %+v", result.UpstreamCost.Attempts)
+	}
+}

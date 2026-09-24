@@ -463,6 +463,29 @@ func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
 	return nil, fmt.Errorf("provider: credential key id %q is not configured for %s", keyID, base.provider)
 }
 
+// SoleKeyID returns the id of the pool's only platform credential, and how
+// many the pool holds. It is the provider-default half of deployment
+// resolution: a deployment with no exact binding may use its provider's key
+// only when there is exactly one to use, so the answer is never a choice.
+//
+// The count is of keys configured in this generation, which the credential
+// store loads from ENABLED rows only. A key the provider has temporarily
+// retired still counts: retirement is a quota state with an expiry, and
+// letting it re-map deployments would move a retired key's traffic onto its
+// sibling (a pool walk by another name) and flap back when it recovers.
+func (p *KeyPool) SoleKeyID() (string, int) {
+	base := p.base()
+	if base == nil {
+		return "", 0
+	}
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	if len(base.keys) != 1 {
+		return "", len(base.keys)
+	}
+	return base.keys[0].keyID, 1
+}
+
 type pooledKey struct {
 	position int
 	keyID    string

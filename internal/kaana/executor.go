@@ -252,10 +252,13 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			route.DeploymentID, route.Provider, route.CustomerProviderCredential == nil,
 		)
 		if resolveErr != nil {
-			// The inventory routes somewhere this process cannot reach. The
-			// server refuses to start in this state, so reaching it means the
-			// snapshot changed under a running process — a configuration fault,
-			// which says nothing about whether the provider is healthy.
+			// The inventory routes somewhere this process cannot reach: a
+			// provider it has no adapter for, or a platform deployment with no
+			// exact active credential binding yet (the publisher discovered it
+			// and no operator has bound it). Both are accepted per route and
+			// warned about on every inventory load. This is a configuration
+			// fault, which says nothing about whether the provider is healthy,
+			// so it is skipped rather than attempted or counted against it.
 			permit.NotAttributable()
 			customerPermit.NotAttributable()
 			skipped = append(skipped, route.DeploymentID)
