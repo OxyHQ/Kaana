@@ -1,0 +1,310 @@
+# Schema 0013 serving cutover, 2026-09-24
+
+This record covers the production cutover of the exact deployment-credential
+runtime (schema 0013) and the xAI speech deployment that depends on it. The
+general procedure is in [`operating.md`](operating.md#schema-0013-staged-rollout).
+This page gives the exact identities and commands for this run. Nothing on it
+is secret.
+
+## State when prepared
+
+| Fact | Value |
+|---|---|
+| Serving | `kaana` at `oxy-kaana:43`, image `sha256:7672df2b…` (Groq backport of `df1fa39`, no binding gate), desired 1 |
+| Publisher | `kaana-publisher` at `oxy-kaana-publisher:47`, image `sha256:cd202c32…` (`df1fa39`, no speech discovery) |
+| Serving providers | `cerebras,groq,xai,openrouter` (serving and discovery) |
+| Schema | 0013 and 0014 applied. The migrator of `a1523152` ran from release run `35734587699` and printed `Kaana credential schema is current` |
+| Admin pin | `a1523152d94b2d022a2e3b6acdbabb4cf393da7f` → index `sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c` (linux/arm64 + attestation) |
+| Bindings in the database | 340 rows from `snap_dfd6904a99d6313b`, applied and verified 2026-09-11 (admin tasks `04583a19…`, `d84b9de0…`) |
+| Live inventory | `snap_ebf19b144959bbb8`, 333 deployments, reissued every 15 minutes |
+| Reviewed manifest | `configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json`, S3 version `hZsP6lsuSFMehoKgem9HF6NHZr43_0bd` |
+| Cutover variable | `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is absent |
+
+Manifest summary. Every served deployment has one active key binding:
+
+| Provider | Key ID | Deployments |
+|---|---|---|
+| cerebras | `43405cea-a7d1-49c2-ba73-5a84536d3abf` | 1 |
+| groq | `8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1` | 6 |
+| openrouter | `b8090dce-82f2-4077-9fc1-fd831a53ca27` | 319 |
+| xai | `1d72d527-81ca-41e5-9644-2d81a4b126ec` | 7 |
+
+Of those 333 rows, 332 are already in the database with their `kdb_*` IDs. The
+only new row is `dep_openrouter_z_ai_glm_5_2_free_observed_2026_09_01`, with ID
+`kdb_00000000000000000000000000000341`. The 8 deployments the publisher withdrew
+since `snap_dfd…` appear under `retainedBindings`.
+
+`tts` is **not** in `snap_ebf19b144959bbb8`. The live publisher predates speech
+discovery. xAI speech appears only after the new publisher runs and finds both
+`eve` and `rex` in `GET /v1/tts/voices`. Its deployment ID will be
+`dep_xai_tts_observed_<UTC date of that first publish>`, for example
+`dep_xai_tts_observed_2026_09_24`, and its reference will be
+`x-ai/text-to-speech@observed-<date>`.
+
+No workflow in this rollout uses a GitHub environment. None of them waits for an
+environment approval. Each one is a manual `workflow_dispatch` from `main`, by
+someone who has write access to that repository.
+
+## Runbook
+
+Set `M` to the main commit that the PR carrying this page merges as. Run every
+Kaana workflow on `--ref main`.
+
+### 1. Merge and build
+
+Merge the PR. The push runs `Deploy to AWS`. Because the variable is not set,
+that run builds `oxy/kaana:$M` and runs the idempotent migrator one-shot. It
+does not call `update-service`. Wait for the run to go green, then check the
+image:
+
+```bash
+gh run list -R OxyHQ/Kaana --workflow deploy-aws.yml -L 1
+aws ecr describe-images --repository-name oxy/kaana --image-ids imageTag=$M \
+  --query 'imageDetails[0].imageDigest' --output text
+```
+
+The two batch binding operations run the image tagged with the dispatching
+commit, because only that image bakes the new manifest. Dispatch them while `M`
+is still main's head. If main moves to a commit that did not build an image,
+first run `gh workflow run deploy-aws.yml -R OxyHQ/Kaana --ref main -f mode=build-only`.
+
+### 2. Pre-flight readbacks (no mutation)
+
+```bash
+# the live object must still be snap_ebf19b144959bbb8
+aws s3 cp s3://oxy-kaana-inventory-usw2-237343248947/inventory/current.json - | jq -r '.snapshotId, (.deployments|length)'
+gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=list
+gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=list-deployment-bindings
+```
+
+Required results:
+
+- The live object reads `snap_ebf19b144959bbb8 333`. If the snapshot has
+  moved, regenerate the manifest for the new object before you go on, by the
+  same rules the second commit describes.
+- `list` shows the four key IDs above as `enabled: true`.
+- `list-deployment-bindings` returns 340 rows. Once the retained rows are
+  removed from that set, the only manifest row it lacks is
+  `dep_openrouter_z_ai_glm_5_2_free…`.
+
+There is no dry-run mode. `verify-production-deployment-bindings` run now must
+fail with exactly `binding readback has 340 rows, manifest requires 341`. That
+failure is the dry-run proof.
+
+### 3. Apply and verify
+
+```bash
+gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=apply-production-deployment-bindings
+gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=verify-production-deployment-bindings
+```
+
+Both must print
+`verified 333 exact deployment bindings for snap_ebf19b144959bbb8 (49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017)`.
+Apply issues exactly one database mutation, the new row. Re-running it is safe.
+
+### 4. Signed readback of the live serving snapshot (Oxy)
+
+Read the live oxy-api identity at execution time. When this page was written it
+was `oxy-oxy-api:539` / `sha256:fc306d90…`.
+
+```bash
+TD=$(aws ecs describe-services --cluster oxy-cluster --services oxy-api --query 'services[0].taskDefinition' --output text)
+IMG=$(aws ecs describe-task-definition --task-definition "$TD" --query "taskDefinition.containerDefinitions[?name=='oxy-api'].image|[0]" --output text); IMG=${IMG##*@}
+gh workflow run kaana-signed-deployment-readback.yml -R OxyHQ/OxyHQServices --ref main \
+  -f expected_live_task_definition_arn="$TD" -f expected_live_image_digest="$IMG" \
+  -f reason="schema 0013 cutover: pre-deploy readback of snap_ebf19b144959bbb8"
+```
+
+The result must name `snap_ebf19b144959bbb8`, list 333 descriptors, and report
+zero provider requests and zero ledger writes.
+
+### 5. Isolated candidate plus one signed canary per key class
+
+Candidate: the pinned `a1523152` image. Its serving source, `cmd/kaana`,
+`internal/` and `go.mod`, is identical to `M`. This PR changes only
+`cmd/kaana-credentials`, configuration, the image allow-list and docs.
+
+```bash
+gh workflow run candidate-canary.yml -R OxyHQ/Kaana --ref main \
+  -f candidate_image_digest=sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c \
+  -f candidate_source_commit=a1523152d94b2d022a2e3b6acdbabb4cf393da7f \
+  -f expected_snapshot_id=snap_ebf19b144959bbb8 -f hold_minutes=20
+```
+
+A candidate that fails the startup gate prints `startupError` and exits. Do not
+go on until the job prints `candidateTaskArn`, `candidateTaskDefinitionArn`,
+`candidateImageDigest` and `candidatePrivateIp`. In the same 20-minute window,
+run the Oxy canary once per class. Its concurrency group runs them one at a
+time.
+
+| Class | `deployment_id` |
+|---|---|
+| cerebras / `43405cea…` | `dep_cerebras_gpt_oss_120b_observed_2026_09_01` |
+| groq / `8295090b…` | `dep_groq_openai_gpt_oss_120b_observed_2026_09_01` |
+| xai / `1d72d527…` | `dep_xai_grok_4_3_observed_2026_09_01` |
+| openrouter / `b8090dce…` | `dep_openrouter_z_ai_glm_5_2_free_observed_2026_09_01` (the one new binding) |
+
+```bash
+gh workflow run kaana-signed-canary.yml -R OxyHQ/OxyHQServices --ref main \
+  -f expected_live_task_definition_arn="$TD" -f expected_live_image_digest="$IMG" \
+  -f expected_snapshot_id=snap_ebf19b144959bbb8 \
+  -f candidate_task_arn=<candidateTaskArn> -f candidate_task_definition_arn=<candidateTaskDefinitionArn> \
+  -f candidate_image_digest=sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c \
+  -f candidate_private_ip=<candidatePrivateIp> -f deployment_id=<row above> \
+  -f routing_profile_id=<opaque profile> -f routing_policy_id=<policy> -f routing_policy_version=<n> \
+  -f account_id=<billing account> -f application_id=<application> -f credential_id=<credential> \
+  -f confirm_two_provider_requests=true -f reason="schema 0013 cutover: <provider> key class"
+```
+
+The routing and billing identities are Oxy's reviewed canary identities, the
+same kind the 2026-09-09 run `34302325992` used. Each receipt must show six
+passed cases, two one-token provider requests and zero ledger writes. If the
+window closes first, dispatch `candidate-canary.yml` again and continue.
+
+### 6. Optional: pre-bind the speech deployment
+
+This removes the post-deploy deadline described in step 8. Run it only when
+step 7 will start on the same UTC date as `<date>` here:
+
+```bash
+gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=bind-deployment \
+  -f binding_operation_id=kdb_00000000000000000000000000000342 \
+  -f deployment_id=dep_xai_tts_observed_<YYYY_MM_DD> -f provider=xai \
+  -f key_id=1d72d527-81ca-41e5-9644-2d81a4b126ec
+```
+
+A binding for a deployment that is not in the inventory has no effect. After
+this step, `verify-production-deployment-bindings` reports 342 rows, not 341.
+That is expected. The follow-up manifest for the speech snapshot restores the
+exact verify.
+
+### 7. Enable and deploy
+
+```bash
+gh variable set KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE -R OxyHQ/Kaana --body true
+gh workflow run deploy-aws.yml -R OxyHQ/Kaana --ref main -f mode=deploy
+```
+
+This rebuilds `oxy/kaana:$M` and retags it; buildx attestations make the digest
+differ from step 1. It then rolls the services in this order: `kaana`,
+`kaana-publisher`, then `kaana-credential-control` and
+`kaana-platform-credential-control` if they are ACTIVE. From here on, every
+push to main deploys automatically. Confirm:
+
+```bash
+aws ecs describe-services --cluster oxy-cluster --services kaana kaana-publisher \
+  --query 'services[].[serviceName,taskDefinition,deployments[0].rolloutState,runningCount]' --output table
+```
+
+Both services must run the job's printed `@sha256` and show `COMPLETED`. Then
+repeat step 4 against the new serving task. It must still read
+`snap_ebf19b144959bbb8` until the publisher changes the snapshot.
+
+### 8. Speech discovery and the tts binding
+
+Within about 1 minute of the publisher rollout, its first cycle publishes. Check
+the result:
+
+```bash
+aws s3 cp s3://oxy-kaana-inventory-usw2-237343248947/inventory/current.json - \
+  | jq -r '.snapshotId, ([.deployments[]|select(.provider=="xai")]|length), (.deployments[]|select(.upstreamModelId=="tts")|.deploymentId)'
+```
+
+Expect a new snapshot ID and 8 xAI deployments, the 7 grok models plus `tts`.
+
+- **If xAI shows 0**, the voices call failed. Its error withdraws every xAI
+  deployment from the snapshot, grok included. Serving accepts a withdrawal,
+  so grok routes disappear. Roll the publisher back to `oxy-kaana-publisher:47`
+  right away (see Rollback).
+- **If `tts` is absent but grok is present**, xAI did not list both `eve` and
+  `rex`. Speech is not published. Nothing is broken.
+- **If `tts` is present and step 6 did not bind that exact ID**, bind it now:
+
+  ```bash
+  gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=bind-deployment \
+    -f binding_operation_id=kdb_00000000000000000000000000000343 \
+    -f deployment_id=<the tts deploymentId> -f provider=xai -f key_id=1d72d527-81ca-41e5-9644-2d81a4b126ec
+  ```
+
+  Until then, serving refuses every new snapshot: the reload gate is the
+  startup gate. It keeps serving the last `snap_ebf19…` issue. That snapshot
+  passes `KAANA_INVENTORY_MAX_AGE` (1h) at most one hour after the old
+  publisher's last reissue, and from then on every **unpinned** reference is
+  refused. Treat this bind as a 45-minute deadline.
+
+Serving picks the binding up on its next credential reload (≤1m) and the new
+snapshot on its next inventory reload (≤30s). Then run step 4 once more. The
+readback must name the new snapshot ID and include the `tts` descriptor.
+
+### 9. Close out
+
+- Add a reviewed successor manifest for the speech snapshot, with
+  `snap_ebf19…`'s rows kept and `tts` as its new row. Replace this manifest
+  with it, so `verify-production-deployment-bindings` is exact again.
+- Record the deploy run, final digests and readback run IDs in this file.
+
+## Rollback
+
+The database schema and bindings stay as they are, because older binaries ignore
+them.
+
+```bash
+gh variable set KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE -R OxyHQ/Kaana --body false
+aws ecs update-service --cluster oxy-cluster --service kaana --task-definition oxy-kaana:43
+aws ecs update-service --cluster oxy-cluster --service kaana-publisher --task-definition oxy-kaana-publisher:47
+aws ecs wait services-stable --cluster oxy-cluster --services kaana kaana-publisher
+```
+
+Set the variable first, so a push to main cannot deploy again. Roll the
+publisher back together with serving. The old publisher republishes without
+`tts`, and it keeps every other first-seen date, because it reads them back
+from the previous snapshot. If the credential-control services moved, return
+them to their previous revisions as well. `describe-services` shows those
+revisions before the deploy, so note them in step 7. A new serving task that
+fails its startup gate during step 7 needs no rollback: the deployment circuit
+breaker (rollback enabled, 50%) keeps `oxy-kaana:43` serving.
+
+## Chat impact
+
+`kaana` is one Fargate task behind the `oxy-kaana` target group. The service
+does a rolling deploy with `minimumHealthyPercent=100` and `maximumPercent=200`,
+and the circuit breaker rolls back. The new task starts next to the old one and
+must pass `/livez` twice at 30-second intervals. Only then is the old task
+deregistered, with a 60-second drain, SIGTERM and a 45-second `stopTimeout`,
+during which the server finishes in-flight handlers.
+
+- **Expected downtime:** none. Requests still in flight on the old task more
+  than about 60 s after deregistration starts can be cut, for example very long
+  streamed generations. A failed candidate never takes traffic.
+- **Desired count 2:** not needed. The 100/200 settings already overlap two
+  tasks during the roll, and the count belongs to Terraform. To cover long
+  streams, run the deploy at low traffic rather than changing the target
+  group's drain in the console.
+
+## Risks
+
+1. **Newly discovered deployments now need a manual binding within the
+   staleness horizon.** This applies to every future provider model, not only
+   `tts`. After cutover, an unbound new deployment freezes the inventory. When
+   the snapshot passes one hour, unpinned references fail. Oxy's catalogue
+   appears to send pinned `modelId@revision` references, which a stale snapshot
+   still serves, but that is not proven here. Before or right after the flip,
+   add an alert on the serving WARN `the inventory snapshot could not be
+   reloaded; continuing to serve the last good one` whose error contains
+   `startup credential binding gate`.
+2. **xAI speech discovery sits in the grok discovery path.** One failure of
+   `/v1/tts/voices` withdraws every xAI deployment for that cycle. Check it
+   right after the publisher rolls, as in step 8.
+3. **The candidate is not byte-identical to the deployment.** `mode=deploy`
+   rebuilds. The canaried serving source is identical, but the digest is not.
+   Confirm the digest ECS registered against the job output.
+4. **The inventory can move before the flip.** Any publisher change between
+   step 2 and step 7 invalidates the manifest, and the new task's startup gate
+   refuses it. Serving stays safe, but you must regenerate and repeat steps 3–5.
+5. **The credential readback is old.** The manifest cites the 2026-09-13 `list`,
+   so step 2 repeats it. The database also refuses a disabled or missing key on
+   its own.
+6. **Contract version.** The new serving build reports
+   `contractVersion 3.0.0`; the old one reports 2.0.0. It still accepts request
+   envelope versions 1 and 2. Steps 4 and 5 are what show that Oxy's live client
+   works with it.
