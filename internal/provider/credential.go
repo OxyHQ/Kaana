@@ -448,6 +448,13 @@ func (p *KeyPool) base() *KeyPool {
 
 // Bind returns an exact, non-owning view of one opaque platform credential.
 // It never falls back to another key in the provider pool.
+//
+// The view narrows WHICH key is used and nothing else: it carries its pool's
+// provider, policy and quota signals, because a walk over the view reads them
+// from the view. A view built without them recorded every retirement as
+// retired_until = occurred_at — zero long, refused by the durable runtime — and
+// claimed recovery for no provider, so under exact bindings a 402 or a 401
+// surfaced as an unclassified provider_error and retired nothing.
 func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
 	base := p.base()
 	if base == nil || strings.TrimSpace(keyID) != keyID || keyID == "" {
@@ -457,7 +464,10 @@ func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
 	defer base.mu.Unlock()
 	for _, key := range base.keys {
 		if key.keyID == keyID {
-			return &KeyPool{root: base, onlyKeyID: keyID}, nil
+			return &KeyPool{
+				provider: base.provider, policy: base.policy, signals: base.signals, customerOwned: base.customerOwned,
+				root: base, onlyKeyID: keyID,
+			}, nil
 		}
 	}
 	return nil, fmt.Errorf("provider: credential key id %q is not configured for %s", keyID, base.provider)

@@ -236,6 +236,15 @@ health and catalogue probes never consume it. A successful request writes a
 retirement; another exhaustion or rejection renews it. Rotating the ciphertext
 under the same key ID clears the old generation's state atomically.
 
+The durable record is written from the exact view a deployment executes on, so
+the view carries its pool's provider and policy. `kaana_record_provider_credential_attempt`
+refuses an `exhausted` or `rejected` attempt whose `retired_until` is not after
+its `occurred_at`. Until 2026-09-24 `KeyPool.Bind` built the view without them:
+every bound 402, 401 or 403 recorded a zero-length retirement, the database
+refused it, and the customer got a retryable `provider_error` instead of
+`provider_billing_refused` or `provider_credential_invalid`, while the key
+stayed in rotation.
+
 ## Rules a reviewer applies
 
 A credential is a POOL per provider, and the pool is a different rotation from
@@ -280,6 +289,10 @@ change to.
   failure nobody classified leaves the key exactly as it was.
 - **An exhausted or REFUSED key is retired.** Production does not walk from its
   exact deployment binding to another key.
+- **An exact view is the pool narrowed to one key, not a pool without a
+  policy.** `Bind` copies the provider, retirement window, separate-accounts
+  declaration and quota signals; a walk reads them from the view it was given.
+  `TestABoundViewRetiresWithItsPoolsPolicy` and its PostgreSQL twin hold this.
 - **A deployment with no exact binding uses its provider's key only when there
   is exactly one enabled key.** With several it is unroutable, never a choice.
   An exact binding is never escaped for the default, and runtime retirement
