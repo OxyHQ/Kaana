@@ -465,7 +465,8 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 
 // deploymentBindingCoverage partitions the deployments of a snapshot whose
 // provider this process serves into those that resolve to one exact, active
-// platform credential and those that do not. It asks ResolveExecution, the
+// platform credential (an exact binding, or the provider's only key) and those
+// that do not. It asks ResolveExecution, the
 // same question the executor asks per request, so "unbound" here and
 // "refused" there cannot drift apart. Providers this process deliberately does
 // not serve are not counted: they are warnAboutUnroutableProviders' condition.
@@ -563,7 +564,7 @@ func warnAboutUnboundDeployments(logger *slog.Logger, current *inventory.Invento
 		"deploymentIds", coverage.unbound,
 		"providers", coverage.providers,
 		"snapshotId", current.SnapshotID(),
-		"meaning", "requests routed to these deployments are refused and fail over to the next signed route; bind each with kaana-credentials bind-deployment")
+		"meaning", "requests routed to these deployments are refused and fail over to the next signed route; their provider holds no single default key, so bind each with kaana-credentials bind-deployment")
 }
 
 // Provider configuration.

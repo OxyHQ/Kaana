@@ -19,12 +19,35 @@ The Messages API is refused under any slug but `anthropic`: that adapter reports
 its slug as a constant, so serving it under another name would attribute every
 event and every usage record to a provider the inventory did not route to.
 
-**A provider owns a pool, but a deployment binds one exact key.** The pool is
-the custody, reload and health container. Execution resolves the signed opaque
-`deploymentId` through `provider_deployment_credential_bindings` to one exact
-`(provider, keyId)` row. It never walks into a second platform key: Oxy exposes
-that capacity as another deployment and orders it explicitly. A missing,
-disabled or provider-mismatched binding fails before an upstream call.
+**A provider owns a pool, but a deployment executes on one exact key.** The
+pool is the custody, reload and health container. Execution resolves the signed
+opaque `deploymentId` to one exact `(provider, keyId)`, by the first rule that
+applies (`provider.Registry.ResolveExecution`):
+
+1. **An exact binding** in `provider_deployment_credential_bindings`. It is
+   final. A binding to a retired or disabled key, or one naming another
+   provider, never falls back to anything.
+2. **The provider default.** With no exact binding, the provider's key, when
+   the provider holds exactly one enabled key. A key belongs to its provider by
+   default, so a newly discovered deployment of a single-key provider is
+   routable without an operator binding it. It is the same exact view as a
+   binding, so attempt, cost and audit records name the key that served.
+3. **Otherwise unroutable.** No key, or two or more keys and no exact binding:
+   the deployment is refused per request and named by serving's
+   `deployments without an exact credential binding are unroutable until bound`
+   WARN. Kaana never picks among several keys.
+
+"Exactly one" counts the enabled keys in the loaded generation. A key the
+provider has temporarily retired still counts. Retirement is a quota state with
+an expiry. If it re-mapped deployments, a retired key's traffic would move to
+its sibling (a pool walk by another name) and flap back when it recovered, and
+the startup gate would depend on a transient exhaustion. A retired default key
+therefore behaves like a retired bound key: the request is refused retryably
+with the key's return time.
+
+Resolution never walks into a second platform key: Oxy exposes that capacity as
+another deployment and orders it explicitly. An unresolvable deployment fails
+before an upstream call.
 
 ### The distinction the design turns on
 
@@ -122,7 +145,10 @@ a route change to another signed deployment and emits `route_switch`, including
 when both deployments use the same provider slug.
 
 Choosing among deployments is permitted only by `authorizedRoutes`. Kaana
-never uses provider, pool position or class to escape an exact binding.
+never uses provider, pool position or class to escape an exact binding. The
+provider default applies only when a deployment has NO exact binding and its
+provider holds exactly one enabled key. It fills an absent binding; it never
+overrides or replaces an existing one, including one whose key is retired.
 
 **A route switch can only happen before anything has been streamed.** Once a
 body is being read the request is committed to the exact deployment/key that
@@ -254,6 +280,10 @@ change to.
   failure nobody classified leaves the key exactly as it was.
 - **An exhausted or REFUSED key is retired.** Production does not walk from its
   exact deployment binding to another key.
+- **A deployment with no exact binding uses its provider's key only when there
+  is exactly one enabled key.** With several it is unroutable, never a choice.
+  An exact binding is never escaped for the default, and runtime retirement
+  never changes which key is the default.
 - **A request fault is retried on nothing.** The next credential would be
   refused identically.
 - **The verdict is read from the code the ADAPTER chose, never from a status.**

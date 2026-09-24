@@ -359,7 +359,9 @@ will not update ECS until the repository variable
 serving process independently refuses to start when its binding table is
 effectively unpopulated: when more than half of the deployments in its mounted
 production inventory whose provider it serves do not resolve to one exact,
-active credential. ECS therefore retains the previous healthy revision if the
+active credential. A deployment resolves through its exact binding, or, when it
+has none, through its provider's key if the provider holds exactly one enabled
+key ([key-pools](key-pools.md#several-providers-and-a-key-pool-for-each)). ECS therefore retains the previous healthy revision if the
 database is empty or mostly empty, names the wrong provider, or points at
 disabled keys. A smaller gap starts, and each unbound deployment is refused per
 request and named by the `deployments without an exact credential binding are
@@ -437,13 +439,18 @@ different actor.
 After the cutover the startup gate is also the inventory reload gate, with the
 same rule: a published snapshot is refused (and the previous one keeps serving
 until it passes `KAANA_INVENTORY_MAX_AGE`) only when more than half of its
-served deployments are unbound. A snapshot in which the publisher has
-discovered a few deployments nobody has bound yet is installed. Those
+served deployments are unresolvable. A newly discovered deployment of a
+single-key provider resolves to that key with no bind at all. A new deployment
+of a provider with two or more keys has no default, and stays unroutable until
+it is bound. A snapshot carrying a few of those is installed. Those
 deployments are refused per request, never attempted, and Oxy moves to the
 next signed route. Every inventory load logs them at WARN as `deployments
 without an exact credential binding are unroutable until bound`, with
 `unbound`, `served`, `deploymentIds`, `providers` and `snapshotId`. Alert on
 that message and bind each ID with `bind-deployment`. There is no deadline.
+Adding a second enabled key to a provider takes away its default. Each of its
+deployments without an exact binding becomes unroutable on the next credential
+reload, and the WARN names them, so bind them before you add the key.
 
 The gate used to refuse any unbound served deployment. That froze the
 inventory on every new model and, worse, stopped a restarted serving task from

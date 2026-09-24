@@ -169,8 +169,13 @@ window closes first, dispatch `candidate-canary.yml` again and continue.
 
 ### 6. Optional: pre-bind the speech deployment
 
-This makes `tts` routable from its first snapshot, so step 8 has no bind to do.
-Run it only when step 7 will start on the same UTC date as `<date>` here:
+Not needed while xAI holds exactly one enabled key. Count them in step 2's
+`list`; the table above shows only the key each binding uses, not how many a
+provider holds. A deployment with no exact binding then routes on its provider's
+only key ([key-pools](key-pools.md#several-providers-and-a-key-pool-for-each)),
+so `tts` is routable from its first snapshot. The explicit bind only matters if
+a second xAI key is enabled before the close-out manifest. Run it only when
+step 7 will start on the same UTC date as `<date>` here:
 
 ```bash
 gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=bind-deployment \
@@ -224,7 +229,10 @@ Expect a new snapshot ID and 8 xAI deployments, the 7 grok models plus `tts`.
   right away (see Rollback).
 - **If `tts` is absent but grok is present**, xAI did not list both `eve` and
   `rex`. Speech is not published. Nothing is broken.
-- **If `tts` is present and step 6 did not bind that exact ID**, bind it now:
+- **If `tts` is present**, it routes on xAI's only key with no bind. Confirm
+  that the serving log carries no `deployments without an exact credential
+  binding are unroutable until bound` line naming it. That line appears only
+  if xAI holds two or more enabled keys. In that case, bind it:
 
   ```bash
   gh workflow run credential-admin.yml -R OxyHQ/Kaana --ref main -f operation=bind-deployment \
@@ -232,20 +240,21 @@ Expect a new snapshot ID and 8 xAI deployments, the 7 grok models plus `tts`.
     -f deployment_id=<the tts deploymentId> -f provider=xai -f key_id=1d72d527-81ca-41e5-9644-2d81a4b126ec
   ```
 
-  There is no deadline. Serving installs the new snapshot on its next
-  inventory reload (≤30s) with `tts` unbound. A request routed to `tts` is
-  refused and nothing is sent upstream; every other deployment serves. Every
-  reload logs `deployments without an exact credential binding are unroutable
-  until bound` with `unbound: 1` and the `tts` ID, until the bind lands.
+  There is no deadline. Until then a request routed to `tts` is refused and
+  nothing is sent upstream; every other deployment serves. Serving picks the
+  binding up on its next credential reload (≤1m), and the WARN stops on the
+  inventory reload after that.
 
-Serving picks the binding up on its next credential reload (≤1m). The WARN
-stops on the inventory reload after that. Then run step 4 once more. The
+Serving installs the new snapshot on its next inventory reload (≤30s). Then
+run step 4 once more. The
 readback must name the new snapshot ID and include the `tts` descriptor.
 
 ### 9. Close out
 
 - Add a reviewed successor manifest for the speech snapshot, with
-  `snap_ebf19…`'s rows kept and `tts` as its new row. Replace this manifest
+  `snap_ebf19…`'s rows kept and `tts` as its new row. An explicit row is
+  harmless next to the provider default, and it keeps `tts` routable if a
+  second xAI key is ever enabled. Replace this manifest
   with it, so `verify-production-deployment-bindings` is exact again.
 - Record the deploy run, final digests and readback run IDs in this file.
 
@@ -272,13 +281,17 @@ breaker (rollback enabled, 50%) keeps `oxy-kaana:43` serving.
 
 ## Unbound deployments
 
+A deployment with no exact binding routes on its provider's key when the
+provider holds exactly one enabled key. It is unroutable when the provider
+holds two or more keys. Step 2's `list` shows which providers have a default. The 333 explicit bindings stay: apply and
+verify are unchanged, and an explicit row always wins over the default.
+
 Serving refuses a snapshot, at startup and on every inventory reload, only
-when **more than half** of the deployments it serves have no exact active
-binding. That covers an empty or mostly empty binding table, and one that
+when **more than half** of the deployments it serves resolve to no key. That covers an empty or mostly empty binding table, and one that
 points at disabled keys. It is what makes a bad release fail to start while
 ECS keeps the previous revision.
 
-Anything less is accepted and degrades per route. An unbound deployment is
+Anything less is accepted and degrades per route. An unresolvable deployment is
 refused at request time and never attempted, and Oxy moves to the next signed
 route. Every inventory load (startup, and every 30s after) logs:
 
@@ -316,8 +329,10 @@ during which the server finishes in-flight handlers.
 
 ## Risks
 
-1. **Newly discovered deployments are unroutable until someone binds them.**
-   This applies to every future provider model, not only `tts`. It is a
+1. **Newly discovered deployments of a multi-key provider are unroutable until
+   someone binds them.** A single-key provider's new models, `tts` included,
+   route on its key with no bind. Adding a second key to a provider takes away
+   that default for every deployment of it that has no exact row. It is a
    per-route degradation with no deadline. It neither freezes the inventory
    nor blocks a restart (see "Unbound deployments"). Before or right after the
    flip, add two alerts. One on the serving WARN `deployments without an

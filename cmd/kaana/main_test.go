@@ -541,14 +541,27 @@ func TestStartupDeploymentBindingsGate(t *testing.T) {
 	}
 }
 
-// boundTestRegistry is newTestRegistry with a platform key, and each named
-// deployment bound to it: the binding generation a populated table loads.
+// boundTestRegistry is newTestRegistry with TWO platform keys, and each named
+// deployment bound to the first: the binding generation a populated table
+// loads. Two keys, so no key is the provider's default and an unbound
+// deployment really is unroutable.
 func boundTestRegistry(t *testing.T, slug contract.ProviderSlug, bound ...contract.DeploymentID) *provider.Registry {
 	t.Helper()
+	return keyedTestRegistry(t, slug, []string{"key-test", "key-test-2"}, bound...)
+}
+
+// keyedTestRegistry holds one adapter with the given platform keys, each
+// named deployment bound to the first.
+func keyedTestRegistry(t *testing.T, slug contract.ProviderSlug, keyIDs []string, bound ...contract.DeploymentID) *provider.Registry {
+	t.Helper()
+	declarations := make([]provider.KeyDeclaration, 0, len(keyIDs))
+	for _, keyID := range keyIDs {
+		declarations = append(declarations, provider.KeyDeclaration{KeyID: keyID, Secret: "kaana-test-platform-secret-" + keyID})
+	}
 	adapter, err := openaicompat.New(openaicompat.Config{
 		Provider:     slug,
 		BaseURL:      "https://kaana-test.invalid/v1",
-		Declarations: []provider.KeyDeclaration{{KeyID: "key-test", Secret: "kaana-test-platform-secret"}},
+		Declarations: declarations,
 	})
 	if err != nil {
 		t.Fatalf("building the %s adapter: %v", slug, err)
@@ -559,7 +572,7 @@ func boundTestRegistry(t *testing.T, slug contract.ProviderSlug, bound ...contra
 	}
 	bindings := make([]provider.CredentialBinding, 0, len(bound))
 	for _, id := range bound {
-		bindings = append(bindings, provider.CredentialBinding{DeploymentID: id, Provider: slug, KeyID: "key-test"})
+		bindings = append(bindings, provider.CredentialBinding{DeploymentID: id, Provider: slug, KeyID: keyIDs[0]})
 	}
 	if err := registry.ReplaceGeneration(bindings, adapter); err != nil {
 		t.Fatalf("binding %v: %v", bound, err)
@@ -679,6 +692,37 @@ func TestTheReloadPathInstallsASnapshotWithANewUnboundDeployment(t *testing.T) {
 				t.Fatalf("an unpopulated binding table installed %s", store.Current().SnapshotID())
 			}
 		})
+	}
+}
+
+// TestASingleKeyProviderRoutesANewDeploymentByDefault: with no exact binding,
+// a deployment of a provider holding exactly one key resolves to that key, so
+// the gate and the warning count it as routable. With two keys it does not.
+func TestASingleKeyProviderRoutesANewDeploymentByDefault(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store := newTestStoreOf(t, "snap_test", "test-provider", logger, "dep_1", "dep_new")
+
+	single := keyedTestRegistry(t, "test-provider", []string{"key-only"}, "dep_1")
+	_, pool, err := single.ResolveExecution("dep_new", "test-provider", true)
+	if err != nil {
+		t.Fatalf("a new deployment of a single-key provider is unroutable: %v", err)
+	}
+	if key, ok := pool.Begin().Next(time.Now()); !ok || key.ID != "key-only" {
+		t.Fatalf("the provider default resolved to %q, ok=%v", key.ID, ok)
+	}
+	logs := &syncBuffer{}
+	warnAboutUnboundDeployments(slog.New(slog.NewJSONHandler(logs, nil)), store.Current(), single)
+	if logs.String() != "" {
+		t.Errorf("a deployment routable by provider default was reported unbound: %s", logs.String())
+	}
+	// Even with nothing bound at all, a single-key provider is populated.
+	if err := requireStartupDeploymentBindings(store.Current(), keyedTestRegistry(t, "test-provider", []string{"key-only"})); err != nil {
+		t.Errorf("a single-key provider with no exact bindings was refused: %v", err)
+	}
+
+	// The control: two keys, and the same deployment is not given either.
+	if _, _, err := boundTestRegistry(t, "test-provider", "dep_1").ResolveExecution("dep_new", "test-provider", true); err == nil {
+		t.Fatal("an unbound deployment of a two-key provider was given a key")
 	}
 }
 

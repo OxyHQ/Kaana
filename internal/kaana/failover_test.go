@@ -997,3 +997,38 @@ func TestAnUnboundDeploymentIsRefusedWhileBoundOnesServe(t *testing.T) {
 		t.Fatalf("bound, the deployment still did not serve: %v, attempts=%d", result.Failure, control.attempts())
 	}
 }
+
+// TestANewDeploymentOfASingleKeyProviderServesOnItsKey: with no exact binding,
+// the provider's only key serves, and the cost attempt names that key exactly
+// as it would name a bound one.
+func TestANewDeploymentOfASingleKeyProviderServesOnItsKey(t *testing.T) {
+	only, err := provider.NewKeyPool("stub", []provider.KeyDeclaration{{KeyID: "stub-only", Secret: "kaana-test-platform-secret"}}, provider.KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := &scriptedAdapter{slug: "stub", platformPool: only, streamWithCredentials: func(_ context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
+		key, ok := credentials.Begin().Next(time.Now())
+		if !ok {
+			return provider.Outcome{}, errors.New("the provider-default view was empty")
+		}
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+		return provider.Outcome{KeyID: key.ID, Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
+	}}
+	request := authorizedRequest()
+	request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+
+	_, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{served, succeedingAdapter("backup", 7)},
+		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
+	}.run(t, request)
+	if result.Failure != nil || served.attempts() != 1 {
+		t.Fatalf("a new deployment of a single-key provider did not serve: %v, attempts=%d", result.Failure, served.attempts())
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || result.UpstreamCost.Attempts[0].KeyID != "stub-only" {
+		t.Fatalf("the cost record does not name the key that served: %+v", result.UpstreamCost.Attempts)
+	}
+}
