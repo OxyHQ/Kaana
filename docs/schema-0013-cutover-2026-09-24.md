@@ -143,12 +143,35 @@ bind them before you go on. In the same 20-minute window,
 run the Oxy canary once per class. Its concurrency group runs them one at a
 time.
 
-| Class | `deployment_id` |
-|---|---|
-| cerebras / `43405cea…` | `dep_cerebras_gpt_oss_120b_observed_2026_09_01` |
-| groq / `8295090b…` | `dep_groq_openai_gpt_oss_120b_observed_2026_09_01` |
-| xai / `1d72d527…` | `dep_xai_grok_4_3_observed_2026_09_01` |
-| openrouter / `b8090dce…` | `dep_openrouter_z_ai_glm_5_2_free_observed_2026_09_01` (the one new binding) |
+| Class | `deployment_id` | Status |
+|---|---|---|
+| cerebras / `43405cea…` | `dep_cerebras_gpt_oss_120b_observed_2026_09_01` | **Waived pending account funding.** See below |
+| groq / `8295090b…` | `dep_groq_openai_gpt_oss_120b_observed_2026_09_01` | Required |
+| xai / `1d72d527…` | `dep_xai_grok_4_3_observed_2026_09_01` | Required |
+| openrouter / `b8090dce…` | `dep_openrouter_openai_gpt_4o_mini_observed_2026_09_01` (`kdb_…0181`) | Required |
+
+The openrouter row is a paid deployment on the same key. The first candidate
+run used the one new binding, `dep_openrouter_z_ai_glm_5_2_free…`, and
+OpenRouter rate-limited that free model upstream. That result says nothing
+about the key or the binding. The new row's binding is proved by step 3's
+exact verify, not by a canary.
+
+The Cerebras account has refused billing with a 402 on every chat completion
+since 2026-09-03, so no receipt can show six passed cases. On that first run
+its canary returned `provider_error` in 33 ms. That was a serving bug, not the
+refusal: the bound view had no retirement policy, so the zero-length
+retirement it recorded was refused by
+`kaana_record_provider_credential_attempt` (fixed in
+`fix(credentials): an exact key view retires with its pool's policy`). With
+the fix, the candidate returns the provider's verdict. If you run this class
+as a check that the refusal is reported correctly, the first request must fail
+with `provider_billing_refused` (category `quota`, non-retryable). It records
+`exhausted`, with `retired_until` one Cerebras retirement window after
+`occurred_at`, in `provider_credential_runtime_state`. Any request inside that window
+fails with `deployment_unavailable`, with no upstream call and with
+`retryAfterMs` set to the key's return time. Do not treat that receipt as a
+pass. Re-run the class as a real canary once the account is funded and the
+retirement has lapsed.
 
 ```bash
 gh workflow run kaana-signed-canary.yml -R OxyHQ/OxyHQServices --ref main \

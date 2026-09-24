@@ -88,7 +88,7 @@ test-integration:
 ifndef KAANA_POSTGRES_TEST_URL
 	$(error KAANA_POSTGRES_TEST_URL is unset; these suites would skip and report green. See docs/operating.md)
 endif
-	go test -race -count=1 -run '^TestDeploymentBindingPostgresLifecycle$$' ./internal/credentialstore
+	go test -race -count=1 -run '^(TestDeploymentBindingPostgresLifecycle|TestABoundRefusalRecordsThePoliciesRetirementInPostgres)$$' ./internal/credentialstore
 	go test -race -count=1 ./internal/credentialstore/...
 
 ## contract: the full contract-drift gate.

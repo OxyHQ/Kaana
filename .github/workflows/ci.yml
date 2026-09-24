@@ -87,10 +87,10 @@ jobs:
         with:
           version: v2.13.2
 
-      - name: deployment binding PostgreSQL integration
+      - name: deployment binding and bound retirement PostgreSQL integration
         env:
           KAANA_POSTGRES_TEST_URL: postgres://postgres:kaana-ci-password@127.0.0.1:5432/kaana_test?sslmode=disable
-        run: go test -race -count=1 -run '^TestDeploymentBindingPostgresLifecycle$' ./internal/credentialstore
+        run: go test -race -count=1 -run '^(TestDeploymentBindingPostgresLifecycle|TestABoundRefusalRecordsThePoliciesRetirementInPostgres)$' ./internal/credentialstore
 
       - name: go test
         # -race because the data plane is concurrent by nature: a stream, a
