@@ -32,6 +32,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/publisher"
+	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
 
 func main() {
@@ -78,26 +79,35 @@ func run(logger *slog.Logger) error {
 
 	var activity *platformactivity.Collector
 	// Gated on the infrastructure coordinates being present, not on the Oxy
-	// service credential: that credential feeds only this activity reporter
-	// here, but so do the coordinates, so either could be the signal, and
-	// using both invites the pair drifting out of sync. Coordinates win
-	// because every activity-reporting binary in this repo, including
-	// cmd/kaana where the credential is unconditionally required for
-	// something else, agrees on them.
+	// identity: the Oxy identity feeds only this activity reporter here, but so
+	// do the coordinates, so either could be the signal, and using both invites
+	// the pair drifting out of sync. Coordinates win because every
+	// activity-reporting binary in this repo, including cmd/kaana where an Oxy
+	// identity is unconditionally required for something else, agrees on them.
+	// Since ADR 0026 that identity is not necessarily a credential at all, which
+	// is a second reason not to gate on one.
 	rawLongitude := os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE")
 	rawLatitude := os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE")
 	if rawLongitude != "" || rawLatitude != "" {
-		apiKey := os.Getenv("KAANA_OXY_SERVICE_API_KEY")
-		apiSecret := os.Getenv("KAANA_OXY_SERVICE_API_SECRET")
-		if apiKey == "" || apiSecret == "" {
-			return errors.New("kaana-publisher activity requires KAANA_OXY_SERVICE_API_KEY and KAANA_OXY_SERVICE_API_SECRET")
+		// This process's Oxy identity, attested where ECS gave this task a role to
+		// attest to; see cmd/kaana. oxyvalidation refuses to start with neither
+		// this nor a key pair.
+		identityContext, cancelIdentity := context.WithTimeout(ctx, 15*time.Second)
+		defer cancelIdentity()
+		var attestedIdentity oxyvalidation.Minter
+		switch attestor, attestErr := workloadidentity.Open(identityContext, workloadidentity.Config{Logger: logger}); {
+		case attestErr == nil:
+			attestedIdentity = attestor
+		case !errors.Is(attestErr, workloadidentity.ErrNoWorkloadIdentity):
+			return attestErr
 		}
 		validationReporter, reporterErr := oxyvalidation.New(oxyvalidation.Config{
-			BaseURL:     environmentOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
-			APIKey:      apiKey,
-			APISecret:   apiSecret,
-			Environment: contract.Environment(environmentOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
-			Logger:      logger,
+			BaseURL:        environmentOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+			APIKey:         os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
+			APISecret:      os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+			WorkloadMinter: attestedIdentity,
+			Environment:    contract.Environment(environmentOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
+			Logger:         logger,
 		})
 		if reporterErr != nil {
 			return reporterErr
