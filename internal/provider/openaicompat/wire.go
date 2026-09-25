@@ -28,6 +28,12 @@ type chatRequest struct {
 	Seed             *int     `json:"seed,omitempty"`
 	Stop             []string `json:"stop,omitempty"`
 
+	// ReasoningEffort is the Chat Completions `reasoning_effort` string the
+	// reviewed direct providers document (reasoningDialectFor). Reasoning is
+	// OpenRouter's normalized `reasoning` object. Translate sets at most one.
+	ReasoningEffort *string              `json:"reasoning_effort,omitempty"`
+	Reasoning       *openRouterReasoning `json:"reasoning,omitempty"`
+
 	Tools          []chatTool      `json:"tools,omitempty"`
 	ToolChoice     any             `json:"tool_choice,omitempty"`
 	ResponseFormat *responseFormat `json:"response_format,omitempty"`
@@ -41,6 +47,14 @@ type openRouterProviderPolicy struct {
 	ZDR               bool   `json:"zdr"`
 	DataCollection    string `json:"data_collection"`
 	RequireParameters bool   `json:"require_parameters"`
+}
+
+// openRouterReasoning is OpenRouter's unified reasoning control. Kaana sends
+// only `effort`: OpenRouter maps it onto each upstream's own effort or token
+// budget, and with `provider.require_parameters` it routes only to upstreams
+// that accept `reasoning` at all.
+type openRouterReasoning struct {
+	Effort string `json:"effort"`
 }
 
 // streamOptions is what makes a streamed request report usage at all.

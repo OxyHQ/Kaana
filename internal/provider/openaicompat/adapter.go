@@ -153,6 +153,15 @@ func (a *Adapter) Provider() contract.ProviderSlug { return a.config.Provider }
 // the whole reason translation is a separate, pure method: a request this
 // protocol cannot express must cost nothing.
 func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if request.Reasoning != nil && (request.Client.APIFormat == contract.APIFormatAudioSpeech || request.Modality != contract.ModalityText) {
+		// Speech and embeddings have no reasoning step to control. Accepting
+		// the effort and dropping it would report a control that did nothing.
+		return nil, provider.ErrUnsupported{
+			Code:   contract.CodeInvalidRequest,
+			Param:  "reasoning.effort",
+			Detail: "reasoning effort applies only to text generation",
+		}
+	}
 	if request.Client.APIFormat == contract.APIFormatAudioSpeech {
 		return a.translateSpeech(request, route)
 	}
@@ -233,6 +242,25 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	}
 	if request.Stream {
 		body.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	if request.Reasoning != nil {
+		effort := string(request.Reasoning.Effort)
+		switch reasoningDialectFor(a.config.Provider) {
+		case reasoningObject:
+			body.Reasoning = &openRouterReasoning{Effort: effort}
+		case reasoningEffortField:
+			body.ReasoningEffort = &effort
+		default:
+			// This protocol has no single reasoning field: `reasoning_effort`
+			// is OpenAI's, adopted by some compatible providers and silently
+			// ignored by others. Sending it where nobody reviewed the provider's
+			// documentation could report an effort that changed nothing.
+			return nil, provider.ErrUnsupported{
+				Code:   contract.CodeInvalidRequest,
+				Param:  "reasoning.effort",
+				Detail: "this provider's chat completions dialect has no reviewed reasoning-effort control",
+			}
+		}
 	}
 	if request.Sampling.TopK != nil {
 		// top_k has no representation in this protocol. Dropping it silently
@@ -576,4 +604,40 @@ func annotate(err error, path string) error {
 		unsupported.Param = path + "." + unsupported.Param
 	}
 	return unsupported
+}
+
+type reasoningDialect int
+
+const (
+	reasoningUnreviewed reasoningDialect = iota
+	// reasoningEffortField is Chat Completions' `reasoning_effort` string.
+	reasoningEffortField
+	// reasoningObject is OpenRouter's `reasoning: {"effort": ...}`.
+	reasoningObject
+)
+
+// reasoningDialectFor names where a provider's own documentation puts the
+// reasoning effort on a chat completion. It is a WIRE fact per provider, like
+// OpenRouter's provider policy, not a model capability: which models take an
+// effort at all is discovered from the providers' model lists and enforced by
+// Oxy before the request is signed, and a model that still refuses the field
+// is refused by its provider, never silently.
+//
+//   - openai:     `reasoning_effort` — platform.openai.com/docs/api-reference/chat/create
+//   - groq:       `reasoning_effort` — console.groq.com/docs/reasoning
+//   - cerebras:   `reasoning_effort` — inference-docs.cerebras.ai/capabilities/reasoning
+//   - xai:        `reasoning_effort` — docs.x.ai/docs/guides/reasoning
+//   - openrouter: `reasoning.effort` — openrouter.ai/docs/use-cases/reasoning-tokens
+//
+// Every other slug is refused in Translate until its documentation is reviewed
+// and a real-wire fake pins the field.
+func reasoningDialectFor(slug contract.ProviderSlug) reasoningDialect {
+	switch slug {
+	case "openrouter":
+		return reasoningObject
+	case "openai", "groq", "cerebras", "xai":
+		return reasoningEffortField
+	default:
+		return reasoningUnreviewed
+	}
 }

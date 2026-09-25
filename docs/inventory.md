@@ -26,9 +26,12 @@ the age and saying that a revision-pinned reference is still served. Guessing
 instead would serve weights Oxy may have replaced hours ago on a decision nobody
 made.
 
-**Prices do not enter this** — Kaana holds none — which removes the hardest half
-of the usual stale-configuration problem. The only thing that decays here is a
-routing choice, and it degrades rather than breaking.
+**Prices do not enter routing** — Kaana holds no customer price, and the one
+amount a snapshot may carry, a provider's published list price in a
+deployment's `observed` block, is catalogue metadata that never reaches a route
+(`cost.md`, "Published list prices"). That removes the hardest half of the usual
+stale-configuration problem. The only thing that decays here is a routing
+choice, and it degrades rather than breaking.
 
 **One requirement this places on the publisher:** staleness is measured from the
 snapshot's own `issuedAt`, not from when Kaana last read the file. That is the
@@ -121,6 +124,7 @@ role could assume it too.
 | `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
 | `current` | true; each model line has exactly one revision, its observation |
 | `deploymentId` | derived from the three above, so an unchanged re-issue keeps its ids |
+| `observed` | the same `GET /models` entry, field by field; absent when the provider said nothing Kaana could keep (below) |
 | `issuedAt` | the clock, every cycle |
 | `snapshotId` | a hash of the routing CONTENT, so it moves only when routing does |
 
@@ -128,6 +132,67 @@ The last two are deliberately different clocks. An operator asking "is the
 publisher alive" reads `issuedAt`; asking "did routing change" reads
 `snapshotId`. One value answering both would move every cycle and answer
 neither.
+
+### Catalogue metadata is observed, never curated
+
+Each deployment may carry an `observed` block: what its provider's own model
+list said about the model when the publisher read it. Nothing is typed in by
+hand and nothing is defaulted — an absent field means the provider did not say.
+
+| `observed` field | Read from |
+|---|---|
+| `displayName` | `name` (OpenRouter, Mistral) |
+| `createdAt` | `created`, unix seconds; `0` is absent |
+| `contextTokens` | `context_length` (OpenRouter), `context_window` (Groq), `max_context_length` (Mistral) |
+| `maxOutputTokens` | `top_provider.max_completion_tokens` (OpenRouter), `max_completion_tokens` (Groq) |
+| `inputModalities`, `outputModalities` | `architecture.*_modalities` (OpenRouter), provider words passed through, sorted |
+| `supportsTools` | `"tools"` in `supported_parameters` (OpenRouter); `capabilities.function_calling` (Mistral) |
+| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]` |
+| `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
+
+A PRESENT `supported_parameters` list is a complete statement, so a parameter it
+omits is reported unsupported; an absent list leaves `supportsTools` and
+`reasoningEfforts` absent. Each field is decoded independently: a field of the
+wrong type, zero, negative or unreadable is dropped and never fails discovery,
+because a provider's metadata change must make the catalogue say less, not
+withdraw its models. `inventory.Parse` validates the block (bounded name,
+positive limits, sorted modality tokens, contract efforts, canonical decimal
+prices); the publisher's round-trip through it is what keeps a bad block from
+being written.
+
+`observed` is presentation metadata. `Candidates()` never copies it into a
+route, so it cannot change what is sent, and `snapshotId` does not hash it: a
+provider renaming a model is not a routing change.
+
+`GET /internal/v1/models` aggregates each line's current-revision deployments
+into its catalogue entry (`inventory.CatalogueEntry`). A deployment whose
+provider said nothing ABSTAINS; one that reported can only narrow:
+`displayName` is the first in deployment-id order, `createdAt` the earliest,
+`contextTokens`/`maxOutputTokens` the smallest, modalities and
+`reasoningEfforts` the intersection, `supportsTools` true only if every reporter
+says so, and `listPrices` one entry per pricing deployment, never combined.
+`reasoningEfforts: []` means a provider reported the model takes no effort;
+absent means nobody said. An entry:
+
+```json
+{
+  "model": "openai/gpt-oss-120b",
+  "modelReference": "openai/gpt-oss-120b@observed-2026-08-06",
+  "providers": ["groq", "openrouter"],
+  "displayName": "OpenAI: gpt-oss-120b",
+  "createdAt": "2025-08-05T15:37:04.000Z",
+  "contextTokens": 131072,
+  "maxOutputTokens": 32768,
+  "inputModalities": ["text"],
+  "outputModalities": ["text"],
+  "supportsTools": true,
+  "reasoningEfforts": ["low", "medium", "high"],
+  "listPrices": [
+    {"deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_08_06",
+     "provider": "openrouter", "currency": "USD", "input": "0.072", "output": "0.28"}
+  ]
+}
+```
 
 ### The revision label is an observation, and it is carried forward
 
@@ -277,6 +342,11 @@ reasoning; these are the lines a reviewer holds a change to.
   providers holding a key and sort the resulting deployments by exact opaque
   id for stable snapshots. Never reorder `authorizedRoutes` by health, price or
   inventory preference.
+- **`observed` is what the provider's model list said, never curated, never
+  defaulted.** Absent is unknown. It never reaches a route, never enters
+  `snapshotId`, and an unreadable field is dropped rather than failing
+  discovery. Aggregation lets a silent deployment abstain and a reporting one
+  only narrow.
 - **Never default `KAANA_INVENTORY_BUCKET`.** A plausible default turns a
   variable that never arrived into "published somewhere else, everything green".
 - **It runs in its own process under its own task role.** The write decides all

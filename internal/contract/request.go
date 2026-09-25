@@ -111,6 +111,14 @@ type SamplingParameters struct {
 	StopSequences    []string `json:"stopSequences,omitempty"`
 }
 
+// ReasoningParameters is the caller's reasoning control
+// (`inferenceReasoningSchema`). Absent means the route's own default reasoning
+// behaviour; present, every adapter either sends the effort in its provider's
+// own documented field or refuses the request in Translate.
+type ReasoningParameters struct {
+	Effort ReasoningEffort `json:"effort"`
+}
+
 // ToolDefinition is a tool the model may call.
 //
 // Parameters is a JSON Schema document carried as an opaque object: validating
@@ -353,6 +361,7 @@ type Request struct {
 	Stream           bool                   `json:"stream"`
 	MaxOutputTokens  *int                   `json:"maxOutputTokens,omitempty"`
 	Sampling         SamplingParameters     `json:"sampling"`
+	Reasoning        *ReasoningParameters   `json:"reasoning,omitempty"`
 	Tools            []ToolDefinition       `json:"tools,omitempty"`
 	ToolChoice       *ToolChoice            `json:"toolChoice,omitempty"`
 	ResponseFormat   *ResponseFormat        `json:"responseFormat,omitempty"`
@@ -404,6 +413,9 @@ func (r *Request) Validate() error {
 	}
 	if !isMember(r.Client.APIFormat, apiFormatValues) {
 		return fmt.Errorf("contract: %q is not an api format", r.Client.APIFormat)
+	}
+	if r.Reasoning != nil && !r.Reasoning.Effort.Valid() {
+		return fmt.Errorf("contract: reasoning.effort %q is not a reasoning effort", r.Reasoning.Effort)
 	}
 	if r.MaxOutputTokens != nil && *r.MaxOutputTokens <= 0 {
 		return fmt.Errorf("contract: maxOutputTokens must be positive")

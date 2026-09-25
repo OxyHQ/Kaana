@@ -169,6 +169,16 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		TopK:          request.Sampling.TopK,
 		StopSequences: request.Sampling.StopSequences,
 	}
+	if request.Reasoning != nil {
+		// The Messages API's own reasoning control is `output_config.effort`,
+		// whose low/medium/high are the contract's words, so the effort is sent
+		// as it was asked. The older extended-thinking token budget is
+		// deliberately NOT synthesised from it: a budget chosen here would be a
+		// number nobody asked for, and current models reject the budget form
+		// outright. A model that takes no effort is refused by the provider
+		// with its own invalid-request error, never silently ignored.
+		body.OutputConfig = &outputConfig{Effort: string(request.Reasoning.Effort)}
+	}
 	if request.Sampling.FrequencyPenalty != nil {
 		// Dropping it silently would change what the model does while reporting
 		// success, which is the one thing translation must never do.

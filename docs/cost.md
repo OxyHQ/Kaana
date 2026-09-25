@@ -65,6 +65,26 @@ explicit unknown observation. The controlled projection contains no plaintext
 credential and is intended only for a separately authenticated operator path
 into Oxy; it is never attached to an inference response.
 
+## Published list prices
+
+A provider's own model list sometimes publishes what a model costs (OpenRouter's
+`pricing.prompt`/`pricing.completion`, USD per token). The inventory publisher
+keeps that as a `providercost.ListPrice` — USD per million tokens, exact decimal
+strings shifted from the per-token value without floating point — in the
+deployment's `observed` block, and `GET /internal/v1/models` returns it per
+deployment as `listPrices`.
+
+That is deliberately not a cost and not a price. It is an observation of a
+public catalogue, the same kind of fact as a context window: not what Kaana will
+be invoiced for a request (that is a measurement from a versioned rate card or
+the provider's receipt) and never what a customer pays (that is Oxy's). It is
+carried so Oxy, the only caller of that signed operator route, can price models
+automatically instead of keeping a hand-curated table. It is read only from a
+catalogue whose documented unit and currency are a property of an
+identity-bound endpoint, never inferred from a field called `pricing`; a
+negative or unreadable value is left absent, never zeroed. It never enters an
+inference stream event, a usage report, an error body or any contract shape.
+
 ## Rules a reviewer applies
 
 - **`internal/providercost` is the only package that may hold an amount**, it is
@@ -73,6 +93,11 @@ into Oxy; it is never attached to an inference response.
 - **A cost never enters a stream event, a usage report, an error body or a
   response of any kind.** It is an operator number; the customer's amount is
   Oxy's and always was.
+- **The one amount any response carries is a provider's PUBLISHED list price,
+  on the signed `GET /internal/v1/models` to Oxy.** It is a
+  `providercost.ListPrice` observation of a public catalogue, never Kaana's
+  cost, never a customer amount, never in an inference response or contract
+  shape, and never defaulted: unread means absent.
 - **An unknown cost is never a zero cost.** A deployment with no rate card, or a
   measured unit nobody priced, says so and names what it could not price.
 - **A failed failover attempt is off the customer's receipt and on Kaana's

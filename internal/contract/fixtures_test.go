@@ -45,8 +45,8 @@ func TestWriteWireFixtures(t *testing.T) {
 	if len(valid) != 29 {
 		t.Fatalf("expected 29 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 18 {
-		t.Fatalf("expected 18 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 19 {
+		t.Fatalf("expected 19 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
@@ -185,6 +185,7 @@ func validFixtures(t *testing.T) []fixture {
 			Seed:             pointerTo(7),
 			StopSequences:    []string{"\n\n"},
 		},
+		Reasoning: &ReasoningParameters{Effort: ReasoningEffortHigh},
 		Tools: []ToolDefinition{{
 			Type:        "function",
 			Name:        "lookup",
@@ -526,6 +527,10 @@ func invalidFixtures() []fixture {
 	userRefusal := validAuthorizedRouteRequest()
 	refusalText := "I cannot help with that"
 	userRefusal.Input.Messages[0].Content = []ContentPart{{Type: ContentPartRefusal, Text: &refusalText}}
+	// A provider's own effort word (OpenAI's "minimal", Anthropic's "max") is
+	// not the contract's vocabulary; Oxy must refuse it before it is signed.
+	providerEffort := validAuthorizedRouteRequest()
+	providerEffort.Reasoning = &ReasoningParameters{Effort: "minimal"}
 
 	return []fixture{
 		{Schema: "inferenceRequestSchema", Case: "empty-authorized-routes", Value: emptyAuthorizedRoutes},
@@ -533,6 +538,7 @@ func invalidFixtures() []fixture {
 		{Schema: "inferenceRequestSchema", Case: "different-line-labelled-same-model", Value: mislabelledSameModel},
 		{Schema: "inferenceRequestSchema", Case: "cross-model-without-literal-authorization", Value: falseCrossModelAuthorization},
 		{Schema: "inferenceRequestSchema", Case: "refusal-on-user-message", Value: userRefusal},
+		{Schema: "inferenceRequestSchema", Case: "provider-specific-reasoning-effort", Value: providerEffort},
 		{
 			Schema: "inferenceErrorSchema",
 			Case:   "non-retryable-code-marked-retryable",

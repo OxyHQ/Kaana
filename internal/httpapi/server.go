@@ -718,6 +718,15 @@ func selectExactDeploymentDescriptors(
 // misses were spelling — `xai/` against `x-ai/`, `mistral/` against `mistralai/`
 // — on names Kaana was serving the whole time.
 //
+// Each entry also carries what the providers' own model lists reported about
+// the line — display name, creation, limits, modalities, tool and reasoning
+// support, and each provider's PUBLISHED list price — aggregated as documented
+// on inventory.CatalogueEntry, so Oxy can present and price real models without
+// a curated table. Every such field is absent when no provider reported it.
+// The list price is a public-catalogue observation (providercost.ListPrice),
+// never Kaana's upstream cost and never a customer amount; this signed operator
+// route to Oxy is the only response it appears in.
+//
 // Signed like the health surface rather than public: the set of models Oxy has
 // contracted for is commercial information, and this route names the providers
 // behind each one.

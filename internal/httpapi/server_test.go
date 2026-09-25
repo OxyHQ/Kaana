@@ -1464,3 +1464,43 @@ func TestModelsIsSignedAndNamesTheLineRatherThanTheRevision(t *testing.T) {
 		t.Errorf("a snapshot with no superseded revision reports %v", catalogue.PinnedOnlyReferences)
 	}
 }
+
+// The catalogue carries what the providers' own model lists said, so a consumer
+// can present and price real models without curating a copy. This drives the
+// real handler over a snapshot with an observed block and pins the wire shape.
+func TestModelsCarriesProviderObservedMetadata(t *testing.T) {
+	harness := newHarnessWithDeployments(t, &stubAdapter{}, []map[string]any{{
+		"deploymentId": "dep_stub", "provider": "stub", "modelReference": "stub/model@2026-05-01",
+		"upstreamModelId": "stub-model", "current": true,
+		"observed": map[string]any{
+			"displayName": "Stub: Model", "createdAt": "2025-08-05T17:17:11Z", "contextTokens": 131072,
+			"maxOutputTokens": 32768, "inputModalities": []string{"image", "text"}, "outputModalities": []string{"text"},
+			"supportsTools": true, "reasoningEfforts": []string{"low", "medium", "high"},
+			"listPrice": map[string]any{"currency": "USD", "input": "0.072", "output": "0.28"},
+		},
+	}})
+	request, err := http.NewRequest(http.MethodGet, harness.server.URL+"/internal/v1/models", nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	harness.sign(request, nil)
+	response, err := harness.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("requesting models: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var body struct {
+		Models []json.RawMessage `json:"models"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil || len(body.Models) != 1 {
+		t.Fatalf("decoding: %v (%d models)", err, len(body.Models))
+	}
+	want := `{"model":"stub/model","modelReference":"stub/model@2026-05-01","providers":["stub"],` +
+		`"displayName":"Stub: Model","createdAt":"2025-08-05T17:17:11.000Z","contextTokens":131072,"maxOutputTokens":32768,` +
+		`"inputModalities":["image","text"],"outputModalities":["text"],"supportsTools":true,` +
+		`"reasoningEfforts":["low","medium","high"],` +
+		`"listPrices":[{"deploymentId":"dep_stub","provider":"stub","currency":"USD","input":"0.072","output":"0.28"}]}`
+	if string(body.Models[0]) != want {
+		t.Errorf("the catalogue entry is\n%s\nwant\n%s", body.Models[0], want)
+	}
+}

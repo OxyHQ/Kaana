@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
@@ -48,6 +49,11 @@ type DiscoveredModel struct {
 	// carried through to the inventory verbatim: an id this package normalised
 	// would be an id the provider 404s on.
 	UpstreamModelID string
+	// Observed is what the same list entry said about the model: name,
+	// creation, limits, modalities, parameters, published price. Nil when it
+	// said nothing Kaana could keep. It is catalogue metadata and never
+	// changes routing, which is why snapshotId does not hash it.
+	Observed *inventory.Observed
 }
 
 // Discover asks a provider which models it serves.
@@ -80,9 +86,18 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		return nil, err
 	}
 
+	// Only OpenRouter's documented list publishes `pricing` as USD per token,
+	// and its slug is bound to its canonical origin (providerconfig), so the
+	// unit and currency are a property of the endpoint, not a guess about a
+	// field name another provider might reuse with a different meaning.
+	publishesUSDPerTokenPrices := target.Slug == "openrouter"
 	seen := make(map[string]struct{}, len(list.Data))
 	models := make([]DiscoveredModel, 0, len(list.Data))
-	for _, entry := range list.Data {
+	for _, raw := range list.Data {
+		var entry modelListEntry
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			return nil, fmt.Errorf("publisher: %s's model list is not the documented OpenAI-compatible list shape: %w", target.Slug, err)
+		}
 		if target.Discovery == providerconfig.DiscoveryMistralModels && !entry.Capabilities.CompletionChat {
 			continue
 		}
@@ -104,7 +119,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 			return nil, fmt.Errorf("publisher: %s's model list names %q twice", target.Slug, id)
 		}
 		seen[id] = struct{}{}
-		models = append(models, DiscoveredModel{UpstreamModelID: id})
+		models = append(models, DiscoveredModel{UpstreamModelID: id, Observed: observeModelListEntry(raw, publishesUSDPerTokenPrices)})
 	}
 	if len(models) == 0 {
 		return nil, fmt.Errorf("publisher: %s reports serving no models at all", target.Slug)
@@ -243,14 +258,19 @@ const maxModelListBytes = 4 << 20
 // not a catalogue this process should retain and page through indefinitely.
 const maxModelListEntries = 10_000
 
+// modelListResponse keeps each entry raw: the identity fields below are
+// decoded strictly, as they always were, and the catalogue metadata is read
+// field by field so a provider's metadata change cannot fail discovery.
 type modelListResponse struct {
-	Data []struct {
-		ID string `json:"id"`
+	Data []json.RawMessage `json:"data"`
+}
 
-		Capabilities struct {
-			CompletionChat bool `json:"completion_chat"`
-		} `json:"capabilities"`
-	} `json:"data"`
+type modelListEntry struct {
+	ID string `json:"id"`
+
+	Capabilities struct {
+		CompletionChat bool `json:"completion_chat"`
+	} `json:"capabilities"`
 }
 
 type alibabaModelListResponse struct {
