@@ -34,6 +34,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
 
 func main() {
@@ -131,14 +132,29 @@ func run(logger *slog.Logger) error {
 			"keys", unenforcedBudgets,
 			"meaning", "these keys will keep serving past the amount declared for them; nothing here holds them to it")
 	}
+	// This process's Oxy identity, PROVED rather than presented wherever there is
+	// something to prove (Oxy ADR 0026). What is decided here is only whether ECS
+	// gave this task a role to attest to, which is a question about the
+	// environment; internal/oxyvalidation decides what to do with the identities
+	// this process holds, and refuses to start when it holds none.
+	identityContext, cancelIdentity := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelIdentity()
+	var attestedIdentity oxyvalidation.Minter
+	switch attestor, attestErr := workloadidentity.Open(identityContext, workloadidentity.Config{Logger: logger}); {
+	case attestErr == nil:
+		attestedIdentity = attestor
+	case !errors.Is(attestErr, workloadidentity.ErrNoWorkloadIdentity):
+		return attestErr
+	}
 	validationReporter, err := oxyvalidation.New(oxyvalidation.Config{
-		BaseURL:     envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
-		APIKey:      os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
-		APISecret:   os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
-		Environment: contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
-		Logger:      logger,
-		QueueSize:   intFromEnv("KAANA_OXY_VALIDATION_QUEUE_SIZE", 256),
-		Timeout:     durationFromEnv("KAANA_OXY_VALIDATION_TIMEOUT", 5*time.Second),
+		BaseURL:        envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
+		APIKey:         os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
+		APISecret:      os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
+		WorkloadMinter: attestedIdentity,
+		Environment:    contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
+		Logger:         logger,
+		QueueSize:      intFromEnv("KAANA_OXY_VALIDATION_QUEUE_SIZE", 256),
+		Timeout:        durationFromEnv("KAANA_OXY_VALIDATION_TIMEOUT", 5*time.Second),
 	})
 	if err != nil {
 		return err
@@ -153,11 +169,11 @@ func run(logger *slog.Logger) error {
 	var activity *platformactivity.Collector
 	var providerBase http.RoundTripper
 	// Gated on the infrastructure coordinates being present rather than a
-	// separate OXY_ECOSYSTEM_ACTIVITY_ENABLED flag: unlike KAANA_OXY_SERVICE_API_KEY
-	// (loaded unconditionally above for BYOK validation regardless of activity),
-	// these coordinates feed nothing but platformactivity.Config here, so their
-	// presence is already an unambiguous signal and a separate flag can only
-	// drift out of sync with them.
+	// separate OXY_ECOSYSTEM_ACTIVITY_ENABLED flag: unlike this process's Oxy
+	// identity (resolved unconditionally above for BYOK validation regardless of
+	// activity), these coordinates feed nothing but platformactivity.Config here,
+	// so their presence is already an unambiguous signal and a separate flag can
+	// only drift out of sync with them.
 	rawLongitude := os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE")
 	rawLatitude := os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE")
 	if rawLongitude != "" || rawLatitude != "" {

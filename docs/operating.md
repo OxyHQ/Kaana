@@ -12,8 +12,8 @@ there is no provider-key fallback outside its database.
 | `KAANA_PROVIDERS` | yes | provider slugs served by this process |
 | `DATABASE_URL` | yes | TLS PostgreSQL URL for Kaana's credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | symmetric KMS key ARN; not secret |
-| `KAANA_OXY_SERVICE_API_KEY` | yes | public id of Kaana's dedicated Oxy service credential |
-| `KAANA_OXY_SERVICE_API_SECRET` | yes | secret for that Oxy service credential; must carry only `inference:byok:validate` under the trusted Kaana application |
+| `KAANA_OXY_SERVICE_API_KEY` | unless attested | public id of Kaana's dedicated Oxy service credential |
+| `KAANA_OXY_SERVICE_API_SECRET` | unless attested | secret for that Oxy service credential; must carry only `inference:byok:validate` under the trusted Kaana application |
 | `KAANA_OXY_SERVICE_ENVIRONMENT` | no | environment of that Oxy service credential, default `production`; verdicts for another environment are refused locally |
 | `KAANA_OXY_API_BASE_URL` | no | Oxy API origin, default and exact deployed value `https://api.oxy.so`; only `development` may use an explicit loopback origin |
 | `KAANA_OXY_VALIDATION_QUEUE_SIZE` | no | bounded off-request callback queue, default `256` |
@@ -54,6 +54,70 @@ Per provider, `<SLUG>` is upper-cased and `.`/`-` become `_`:
 No variable contains a provider key. Public attribution metadata is compiled
 into the reviewed provider configuration; adapters apply authentication from
 the decrypted pool at send time.
+
+### Oxy identity: the key pair, with workload attestation behind it
+
+Kaana can authenticate to Oxy by proving what it IS instead of presenting a
+secret (Oxy ADR 0026; `internal/workloadidentity`). The exchange is two round
+trips: `POST /auth/service-token/workload/challenge` returns a single-use nonce,
+and `POST /auth/service-token/workload` presents an STS `GetCallerIdentity`
+request this process SIGNED — with that nonce inside the signed headers — and
+never sent. Oxy replays the signature to AWS, learns the role from AWS rather
+than from Kaana, and mints the same short-lived token the pair mints. Measured
+from a one-off Fargate task on `oxy-kaana-task`: 48–252 ms for both trips, and a
+claim identical to the pair's but for `credentialId`, which is `wl_…`.
+
+Every state, decided in `oxyvalidation.New` and nowhere else:
+
+| This process has | What it does |
+|---|---|
+| a key pair and an ECS task role | the pair, falling back to attestation per mint and logging `oxy_service_token` when it does |
+| a key pair only (a laptop, CI) | the pair, exactly as before |
+| an ECS task role only | attests; a failure is a failure |
+| neither | refuses to start, naming both |
+
+`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` (or `_FULL_URI`) is the whole test for
+"can this process attest": ECS sets it on every task and nothing else does. It
+deliberately does not ask whether the AWS SDK can find credentials at all — on a
+developer's machine it can, and they are a personal IAM user bound to no Oxy
+application, so asking would swap a pair that works for an attestation Oxy
+refuses.
+
+Both task roles are bound in Oxy's `application_workload_identities`, each
+naming `inference:byok:validate` explicitly — that scope is PRIVILEGED, and a
+binding that names nothing yields the application's non-privileged grants, which
+for Kaana is the empty set and a token that can validate nothing:
+
+| Role | `credentialId` a token from it carries |
+|---|---|
+| `oxy-kaana-task` | `wl_38006f201c45cab71a960162` |
+| `oxy-kaana-publisher` | `wl_50e79f9cccd91cdf5f4d4e5d` |
+
+#### Why the pair is still first, and what has to change in Oxy before it is not
+
+An attested token authenticates, but it cannot yet do Kaana's work. Every Oxy
+route that re-reads the caller through `resolveLiveAgencyServicePrincipal` finds
+an `application_credentials` row by the token's `credentialId` — and a `wl_…`
+handle is not a row in that table. Measured against production, same account,
+minutes apart:
+
+| Call | key pair | attestation |
+|---|---|---|
+| `GET /capabilities/service-identity` | `200` | `401 service_principal_no_longer_active` |
+| `POST /internal/activity/infrastructure` (empty body) | `400` | `400` — past the service-auth and trust gates |
+| `POST /inference/provider-connections/<unknown>/validation` | `404` | `404` |
+
+The last row does not discriminate: an unknown connection is a 404 either way.
+The first one does, and `authorizeKaanaValidation` — the gate on the BYOK
+validation callback — goes through the same resolver, so an attested token would
+lose every verdict to a 404.
+
+So: `kaana-publisher`, which uses its token only for `/internal/activity*`,
+could give up its pair once this is deployed. `kaana` cannot until Oxy resolves
+an attested principal on that path; the sibling resolver
+(`resolveLiveAgencyWorkloadByHandle`) already exists and has one consumer today.
+Until then a service holding both is the safe resting state, and one holding
+neither is an outage.
 
 ### Provider key policy: database, with a transitional environment fallback
 

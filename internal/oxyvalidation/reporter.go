@@ -72,17 +72,37 @@ type Submitter interface {
 	Submit(Verdict)
 }
 
+// Minter mints a short-lived Oxy service token for the identity this process
+// can prove, rather than for a secret it holds (Oxy ADR 0026;
+// internal/workloadidentity is the implementation).
+//
+// It is declared here, next to the one thing that uses it, and it takes the Oxy
+// origin as an argument rather than owning one. Both are deliberate: the origin
+// rule below is a security decision (an attestation handed to an origin that did
+// not issue its nonce can be relayed into a Kaana token) and this package must
+// stay the only place that decides it.
+type Minter interface {
+	Mint(ctx context.Context, origin *url.URL) (token string, expiresIn time.Duration, err error)
+}
+
 // Config provides Kaana's exact Oxy service principal. APISecret is an Oxy
 // service credential, not an upstream provider credential.
+//
+// APIKey/APISecret and WorkloadMinter are the two ways to be Kaana, and at least
+// one of them is required; see New for what each combination means.
 type Config struct {
-	BaseURL     string
-	APIKey      string
-	APISecret   string
-	Environment contract.Environment
-	Client      *http.Client
-	Logger      *slog.Logger
-	QueueSize   int
-	Timeout     time.Duration
+	BaseURL   string
+	APIKey    string
+	APISecret string
+	// WorkloadMinter is this process's attested identity, or nil when it has
+	// none to attest. Never a nil pointer inside a non-nil interface: the caller
+	// assigns it only on success, because "absent" has to be testable as nil.
+	WorkloadMinter Minter
+	Environment    contract.Environment
+	Client         *http.Client
+	Logger         *slog.Logger
+	QueueSize      int
+	Timeout        time.Duration
 }
 
 // Reporter queues verdicts off the inference request path and sends them with
@@ -92,6 +112,7 @@ type Reporter struct {
 	apiKey      string
 	apiSecret   string
 	environment contract.Environment
+	workload    Minter
 	client      *http.Client
 	logger      *slog.Logger
 	timeout     time.Duration
@@ -126,10 +147,34 @@ type verdictState struct {
 // New builds and starts a bounded reporter. A production or staging service
 // credential is sent only to Oxy's exact canonical origin. Development may use
 // an explicit loopback origin so tests and a local Oxy stack do not weaken the
-// credential boundary used by deployed environments.
+// credential boundary used by deployed environments. An attestation is bound by
+// that same rule, and for a sharper reason: an origin that relayed a genuine Oxy
+// challenge and collected the signature could mint a Kaana token with it.
+//
+// # The three identity states, decided here
+//
+// This is the only place that answers "who is this process to Oxy?", so the
+// three answers are exhaustive and visible together:
+//
+//   - A key pair AND an attestable workload identity. The pair is used and the
+//     attestation is the fallback, per mint; mint says why that way round. A
+//     service holding both is the safe resting state, and the migration off the
+//     pair is then one service at a time rather than a flag day.
+//   - One of the two. Whichever it has, with no fallback.
+//   - Neither. Refused here, at startup, naming both — because that is the one
+//     state where nothing downstream can work and the earliest honest moment to
+//     say so. It is also exactly the state a laptop without the pair is in.
+//
+// Half a key pair is a misconfiguration rather than a state, and is refused
+// whether or not this process can attest: a deployment that meant to present a
+// pair and typed one half of it should hear about the typo.
 func New(config Config) (*Reporter, error) {
-	if strings.TrimSpace(config.APIKey) == "" || strings.TrimSpace(config.APISecret) == "" {
-		return nil, errors.New("oxy validation: Kaana service API key and secret are required")
+	apiKey, apiSecret := strings.TrimSpace(config.APIKey), strings.TrimSpace(config.APISecret)
+	switch {
+	case (apiKey == "") != (apiSecret == ""):
+		return nil, errors.New("oxy validation: a Kaana service key pair needs both halves")
+	case apiKey == "" && config.WorkloadMinter == nil:
+		return nil, errors.New("oxy validation: this process has no Oxy identity: it can neither attest a workload identity nor present a Kaana service key pair")
 	}
 	if !validEnvironment(config.Environment) {
 		return nil, errors.New("oxy validation: Kaana service principal environment is required")
@@ -157,8 +202,9 @@ func New(config Config) (*Reporter, error) {
 		logger = slog.Default()
 	}
 	reporter := &Reporter{
-		baseURL: baseURL, apiKey: config.APIKey, apiSecret: config.APISecret, environment: config.Environment,
-		client: &copyClient, logger: logger, timeout: timeout,
+		baseURL: baseURL, apiKey: apiKey, apiSecret: apiSecret, environment: config.Environment,
+		workload: config.WorkloadMinter,
+		client:   &copyClient, logger: logger, timeout: timeout,
 		queue: make(chan Verdict, queueSize), done: make(chan struct{}),
 		pending: make(map[Verdict]struct{}), delivered: make(map[verdictSelector]verdictState),
 	}
@@ -288,34 +334,101 @@ func (r *Reporter) ServiceToken(ctx context.Context) (string, error) {
 	return r.serviceToken(ctx, false)
 }
 
+// serviceToken returns the cached token, or mints one.
+//
+// One cache for both identities, and it is here rather than in either minter: a
+// token is a token whichever way it was proved, `tokenMu` is what stops two
+// verdicts minting two of them at once, and the one-minute margin is for clock
+// drift between this process and Oxy — serving a token that expires in the next
+// second is the same outage as serving an expired one.
 func (r *Reporter) serviceToken(ctx context.Context, force bool) (string, error) {
 	r.tokenMu.Lock()
 	defer r.tokenMu.Unlock()
 	if !force && r.token != "" && time.Now().Add(time.Minute).Before(r.tokenExpiresAt) {
 		return r.token, nil
 	}
+	token, lifetime, err := r.mint(ctx)
+	if err != nil {
+		return "", err
+	}
+	r.token = token
+	r.tokenExpiresAt = time.Now().Add(lifetime)
+	return r.token, nil
+}
+
+// mint proves this process's identity: the key pair first, the attested workload
+// identity second.
+//
+// # Why that way round, when the point of ADR 0026 is to stop holding secrets
+//
+// Because a token is not authority, and this was measured rather than assumed.
+// An attested Kaana token carries the same appId, ownerAccountId, environment,
+// tier and `inference:byok:validate` scope the pair's token carries, and Oxy's
+// `/internal/activity*` routes accept it. But every Oxy route that re-reads the
+// principal through `resolveLiveAgencyServicePrincipal` refuses it: that lookup
+// finds an `application_credentials` row by the token's `credentialId`, and an
+// attested token's is `wl_…`, which is not a row in that table.
+// `GET /capabilities/service-identity` answers 200 for the pair and 401
+// `service_principal_no_longer_active` for the attestation — and
+// `authorizeKaanaValidation`, the gate on the BYOK validation callback this
+// reporter exists to make, goes through that same resolver.
+//
+// So preferring the attestation would mint happily and then lose every verdict
+// to a 404. Until Oxy resolves an attested principal there too — the sibling
+// resolver `resolveLiveAgencyWorkloadByHandle` exists and has one consumer — the
+// pair is the identity that can do the work. `@oxy.so/core` orders it the same
+// way, which is the second reason: two clients of one contract should not
+// disagree about which identity a service prefers.
+//
+// # Why the fallback is per mint and not only per startup
+//
+// Each identity has failure modes the other does not: a pair can be rotated or
+// revoked between two verdicts, and an attestation depends on Oxy's challenge
+// store, on STS and on a binding an operator can change. A process holding both
+// has something better to do about either than stop reporting verdicts. What it
+// must not do is fail quietly, so every fallback is logged: a run whose primary
+// identity never works and whose fallback always does looks identical to a
+// healthy one in every other signal.
+func (r *Reporter) mint(ctx context.Context) (string, time.Duration, error) {
+	switch {
+	case r.apiKey != "" && r.workload != nil:
+		token, lifetime, err := r.mintFromKeyPair(ctx)
+		if err == nil {
+			return token, lifetime, nil
+		}
+		r.logger.Error("the Kaana service key pair could not mint a token; falling back to this task's workload identity",
+			"errorType", "oxy_service_token", "reason", err.Error())
+		return r.workload.Mint(ctx, r.baseURL)
+	case r.apiKey != "":
+		return r.mintFromKeyPair(ctx)
+	default:
+		return r.workload.Mint(ctx, r.baseURL)
+	}
+}
+
+func (r *Reporter) mintFromKeyPair(ctx context.Context) (string, time.Duration, error) {
 	body, err := json.Marshal(struct {
 		APIKey    string `json:"apiKey"`
 		APISecret string `json:"apiSecret"`
 	}{APIKey: r.apiKey, APISecret: r.apiSecret})
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer clear(body)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint("auth/service-token"), bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response, err := r.client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("oxy validation: minting service token: %w", err)
+		return "", 0, fmt.Errorf("oxy validation: minting service token: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
-		return "", fmt.Errorf("oxy validation: service token endpoint returned HTTP %d", response.StatusCode)
+		return "", 0, fmt.Errorf("oxy validation: service token endpoint returned HTTP %d", response.StatusCode)
 	}
 	var envelope struct {
 		Data struct {
@@ -325,11 +438,9 @@ func (r *Reporter) serviceToken(ctx context.Context, force bool) (string, error)
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes))
 	if err := decoder.Decode(&envelope); err != nil || strings.TrimSpace(envelope.Data.Token) == "" || envelope.Data.ExpiresIn <= 0 {
-		return "", errors.New("oxy validation: service token response is invalid")
+		return "", 0, errors.New("oxy validation: service token response is invalid")
 	}
-	r.token = envelope.Data.Token
-	r.tokenExpiresAt = time.Now().Add(time.Duration(envelope.Data.ExpiresIn) * time.Second)
-	return r.token, nil
+	return envelope.Data.Token, time.Duration(envelope.Data.ExpiresIn) * time.Second, nil
 }
 
 func (r *Reporter) sendVerdict(ctx context.Context, token string, verdict Verdict) (int, error) {
