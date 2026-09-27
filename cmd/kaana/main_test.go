@@ -15,10 +15,28 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
+
+func TestDeepgramBuildsNativeVoiceAdapter(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "deepgram"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapters, err := buildAdapters(configs)
+	if err != nil || len(adapters) != 1 {
+		t.Fatalf("native adapter construction: %v", err)
+	}
+	if _, ok := adapters[0].(*deepgram.Adapter); !ok {
+		t.Fatalf("Deepgram built as %T", adapters[0])
+	}
+	if adapters[0].Health(context.Background()).Status != provider.HealthUnconfigured {
+		t.Fatal("configuration invented an account credential")
+	}
+}
 
 // TestAProviderSlugResolvesToItsOwnAdapterAddressAndCredentials.
 //

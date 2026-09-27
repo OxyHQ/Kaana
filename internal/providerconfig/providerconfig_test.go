@@ -17,8 +17,11 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 27 {
-		t.Fatalf("built-in providers = %d, want the 27 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 28 {
+		t.Fatalf("built-in providers = %d, want the 28 documented in README.md and docs/operating.md", got)
+	}
+	if endpoint := providerconfig.Known["deepgram"]; endpoint.Protocol != providerconfig.ProtocolDeepgramVoice || endpoint.Discovery != providerconfig.DiscoveryNotAvailable || endpoint.BaseURL != "https://api.deepgram.com/v1" {
+		t.Fatalf("Deepgram native voice configuration = %+v", endpoint)
 	}
 	want := map[contract.ProviderSlug]string{
 		"mistral":          "https://api.mistral.ai/v1",
