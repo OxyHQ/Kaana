@@ -30,6 +30,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
+	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
@@ -795,6 +796,12 @@ func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]p
 	adapters := make([]provider.Adapter, 0, len(configs))
 	for _, config := range configs {
 		switch config.Protocol {
+		case providerconfig.ProtocolDeepgramVoice:
+			adapter, err := deepgram.New(deepgram.Config{HTTPClient: client, BaseURL: config.BaseURL, Declarations: config.Declarations, Keys: config.Keys})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolOpenAICompatible:
 			adapter, err := openaicompat.New(openaicompat.Config{
 				HTTPClient:   client,
@@ -912,6 +919,10 @@ func intFromEnv(name string, fallback int) int {
 // the configuration came from, so an error sends the reader to the right place.
 func validateProvider(config *providerConfig, source string) error {
 	switch config.Protocol {
+	case providerconfig.ProtocolDeepgramVoice:
+		if config.Slug != deepgram.Slug {
+			return fmt.Errorf("%s: Deepgram voice protocol requires the deepgram slug", source)
+		}
 	case providerconfig.ProtocolOpenAICompatible:
 	case providerconfig.ProtocolAnthropicMessages:
 		if config.Slug != anthropic.Slug {
@@ -924,7 +935,7 @@ func validateProvider(config *providerConfig, source string) error {
 	case "":
 		return fmt.Errorf("%s: provider %q declares no protocol and this build has no default for that slug", source, config.Slug)
 	default:
-		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages)
+		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice)
 	}
 
 	if config.BaseURL == "" {

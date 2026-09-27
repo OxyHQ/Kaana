@@ -31,6 +31,7 @@ import (
 const (
 	ProtocolOpenAICompatible  = "openai_compatible"
 	ProtocolAnthropicMessages = "anthropic_messages"
+	ProtocolDeepgramVoice     = "deepgram_voice"
 
 	DiscoveryOpenAIModels  = "openai_models"
 	DiscoveryXAIModels     = "xai_models_and_speech"
@@ -52,6 +53,7 @@ const (
 // publisher command is the first thing here that calls one at all, and it does
 // so only with an operator-supplied credential.
 var Known = map[contract.ProviderSlug]Endpoint{
+	"deepgram":         {Protocol: ProtocolDeepgramVoice, BaseURL: "https://api.deepgram.com/v1", Discovery: DiscoveryNotAvailable},
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
@@ -106,6 +108,12 @@ func ValidateBaseURL(raw string) error {
 // behind shared infrastructure — and substring matching would reserve
 // attacker-controlled names such as openrouter.ai.example.com.
 func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
+	if slug == "deepgram" {
+		if raw != "https://api.deepgram.com/v1" && raw != "https://api.eu.deepgram.com/v1" {
+			return fmt.Errorf("deepgram requires its canonical US or EU HTTPS API base")
+		}
+		return nil
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("provider endpoint identity: parsing base URL: %w", err)
