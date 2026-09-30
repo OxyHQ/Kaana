@@ -96,11 +96,16 @@ Kaana status:
   namespace by the request family its documentation names and refuses to attach
   it to an adapter that cannot execute that family, so a transcription id under
   `openai` or a chat id under `openai-audio` is dropped and named.
-- Realtime, Live, translation and live-transcription models use sessionful
-  WebRTC/WebSocket/SIP or specialized realtime endpoints and events, and no
-  request family in the contract expresses a session. They stay unattributed
-  under every slug; publishing them would advertise routes no adapter can
-  faithfully execute.[^openai-realtime]
+- Realtime conversation models (`gpt-realtime-2.1`, `gpt-realtime-2.1-mini`,
+  `gpt-realtime-2`) are attributed to `openai-realtime`, OpenAI's own origin
+  under a third slug served by the WebSocket session adapter (docs/realtime.md).
+  The publisher classifies Realtime ids by session kind and attaches one only
+  to a slug whose adapter opens that kind, so they are dropped under `openai`
+  and `openai-audio`. Translation (`gpt-realtime-translate`, its own endpoint
+  and protocol) and transcription sessions (`gpt-live-transcribe`,
+  `gpt-realtime-whisper`, no documented WebSocket endpoint) are kinds no adapter
+  here opens, and GPT-Live (`gpt-live-1`) is a separate protocol: all stay
+  unattributed.[^openai-realtime]
 - Audio Chat Completions (`gpt-audio-1.5`) answers aloud. Since contract set
   3.2.0 the envelope asks for it with `audioOutput` and the report meters it in
   audio-token units, so it is attributed to `openai-audio`, whose adapter

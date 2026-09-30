@@ -34,6 +34,7 @@ is introduced; it is not hardcoded into credential custody.
 
 ```
 POST /internal/v1/inference    signed envelope in, normalized event stream out
+GET  /internal/v1/realtime     WebSocket; the signed first frame opens or resumes a session
 GET  /internal/v1/health       signed; the customer-safe provider projection
 GET  /livez                    unsigned liveness; no provider or route detail
 ```
@@ -95,6 +96,11 @@ absent, and the code refuses rather than pretending.
   `unsupported_modality` rather than mistranslated.
 - **Replay protection beyond the signature time window.** Kaana keeps no nonce
   cache; the edge owns request idempotency.
+- **Realtime transcription and translation sessions, input transcription in a
+  conversation, and customer (BYOK) credentials for a session.** Only
+  conversation sessions on platform keys are served; each of the rest is
+  refused by name (`realtime.md`, "Findings, refusals and what is not
+  verified").
 
 
 ## Contract findings and remaining decisions
