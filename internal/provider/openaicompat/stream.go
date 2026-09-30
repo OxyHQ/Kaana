@@ -625,6 +625,9 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = "groq's token-rate capacity cannot serve this request"
 		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
+		// The request is larger than the whole per-minute budget, so no wait
+		// makes it fit on this route; only another route can take it.
+		failure.RecursOnThisRoute = true
 	case status == http.StatusRequestEntityTooLarge:
 		failure.Code, failure.Category = contract.CodeRequestTooLarge, contract.UpstreamInvalidReq
 		failure.Detail = "the request is larger than the provider accepts"

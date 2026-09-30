@@ -46,6 +46,16 @@ content through `Emitter`, which stamps `requestId`, `sequence` and
 `schemaVersion` itself — removing the whole class of bug where one provider's
 events are unattributable or repeat a sequence.
 
+An adapter calls `Start` as soon as the upstream accepts the call, exactly as
+before; it does not need to know that the emitter HOLDS that start (and any
+usage or empty delta behind it) until the first delivered output — a non-empty
+delta, a tool call, audio — or `done`. That is what lets the executor retry or
+fail over a failure that arrives after a 200 but before any output
+(`routing.md`, "Same-route retry"). So an adapter must never emit output it has
+not received, and must return its measured units with the failure as always:
+the held usage event of a failed attempt is discarded, and its Outcome is the
+only place those units survive into the operator cost record.
+
 ## The protocol adapters
 
 Two protocols are implemented. Their shared conformance suite keeps the adapter

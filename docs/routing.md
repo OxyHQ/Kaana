@@ -65,20 +65,83 @@ schema v1 is accepted only for a direct-model target that also carries at least
 one exact authorized route; its former routing-profile slug arm is refused
 rather than resolved.
 
-**A switch is only possible while nothing has been streamed.** Once output has
-reached the customer, retrying elsewhere would deliver the beginning of one
+**A request can move only while nothing has been delivered.** Once output has
+reached the customer, retrying anywhere would deliver the beginning of one
 answer and the whole of another, so the emitter refuses — and because the
 executor asks the emitter rather than keeping its own copy of the rule, there is
-one place that knows it. That is also why the `route_switch` event **precedes**
-the `start` event: the switch really did happen before anything was streamed,
-and the contract specifies event shapes without specifying their order.
+one place that knows it. "Delivered" means output: a non-empty delta, a tool
+call, audio, or `done`. An adapter's `Start` — which every adapter calls as soon
+as the upstream answers 200 — is **held** by the emitter, together with any
+usage or empty delta behind it, and written only when the attempt delivers its
+first output (or completes with none). A provider that answers 200 and then
+reports a failure inside the stream, before any content, has delivered nothing:
+its held start is discarded unwritten and the request can still be retried or
+moved. The customer sees `start` exactly once, first (after any
+`route_switch`), naming the route that actually served; a request that fails
+without delivering anything sees only its `error`.
+
+That is also why the `route_switch` event **precedes** the `start` event: the
+switch really did happen before anything was streamed, and the contract
+specifies event shapes without specifying their order.
+
+## Same-route retry
+
+Failover alone cannot absorb a transient failure on a model with exactly one
+authorized route — and many have one (OpenRouter is the only route for
+`openai/gpt-6-luna`, which on 2026-09-30 answered five of six high-reasoning
+requests with "temporarily rate-limited upstream" inside a 200, while a retry
+seconds later usually succeeded). So Kaana retries the SAME route before moving
+to the next authorized one, and its callers never have to.
+
+A failed attempt is retried on its own route only when all of these hold
+(`kaana.RetryPolicy`, `transientFailure`):
+
+- **nothing was delivered** (the stream has not committed; above);
+- **the failure is transient and the deployment's**: `rate_limited`,
+  `provider_overloaded`, `provider_timeout`, or `provider_error` with category
+  `server_error`. It narrows `provider.DeploymentAttributable`, so nothing the
+  breakers do not blame on a deployment is retried there. Never retried on the
+  same route: a request fault (`invalid_request`, `model_not_found`,
+  `permission_denied`, …), a content filter, a refused credential, a billing,
+  quota or all-keys-retired verdict (they do not clear in seconds), a customer's
+  own BYOK throttle (`customerlimit` owns that key's backoff), a cancellation,
+  anything no adapter classified, and a failure its adapter marked
+  `RecursOnThisRoute` (Groq's 413 for a request larger than the account's whole
+  per-minute token budget: another route may take it, no wait makes it fit);
+- **the route has been retried fewer than `MaxRetriesPerRoute` times** (2); and
+- **the wait fits the request's remaining budget** (15 s). The wait is the
+  per-route backoff (1 s base, doubling, equal jitter) or the provider's
+  `Retry-After`, whichever is longer; a `Retry-After` the budget cannot absorb
+  is not waited for — the request moves on, or fails with the provider's hint —
+  so the hint caps a wait and never extends the budget. The budget counts
+  waiting only: attempt durations are bounded by the attempt cap and by each
+  adapter's own stall and timeout bounds (`KAANA_PROVIDER_STREAM_IDLE_TIMEOUT`
+  applies per attempt, so a stall retried twice can take three idle windows).
+
+A client that cancels during the wait ends the request at once; the failed
+attempt settles as `cancelled` and nothing more is written.
+
+Each retry is a **full attempt**. It goes through the breaker's `Admit` again —
+so a half-open breaker whose one trial just failed, or a closed one this
+request's failures just opened, refuses it and the request moves to the next
+route (announced with `route_switch` there, as usual) — and it reports its own
+outcome to its permit, so three consecutive failed attempts open the breaker
+whether they came from one request or three. It re-translates and, for BYOK,
+re-resolves and re-admits the customer credential. It is its own row in the
+operator cost record, with its own attempt index, key, measured units and
+outcome; only the terminal attempt can be `served`. A same-route retry is not a
+route switch: nothing is announced and `routeSwitches` does not count it.
+
+Key pools: each attempt is a fresh walk over the same exact binding
+(`key-pools.md`). A rate limit retires nothing, so a single-key pool reuses its
+key — a throttle is not exhaustion.
 
 **A switch is announced at the attempt that replaces the failed one**, not at
 the moment of failure — the replacement's own breaker may refuse it, and
 announcing early would tell a customer their request moved somewhere it never
 went, and put a switch on the receipt that never happened.
 
-**What is never retried elsewhere:** a request the provider could not express (a
+**What is never retried — elsewhere or on the same route:** a request the provider could not express (a
 refusal about the request, identical everywhere — retrying would make what a
 request *means* depend on which route happened to be healthy), a content filter,
 a cancellation, and any failure no adapter classified. One function decides,
@@ -152,6 +215,15 @@ reasonable.
 - **A route switch is announced at the attempt that replaces the failed one**,
   never at the moment of failure: the replacement's breaker may refuse it, and a
   switch nobody made must not reach a receipt.
+- **A request moves — retried on its route or switched to the next — only while
+  nothing has been delivered.** The emitter holds an attempt's `start` until its
+  first output and is the one place that knows whether the stream committed; a
+  failure after delivery settles as partial and is retried nowhere.
+- **A same-route retry is a full attempt.** It passes `Admit` again (never
+  bypassing an open or half-open breaker), reports its own outcome, is its own
+  cost row, and is never a route switch. Only the transient classes in
+  `transientFailure` qualify, bounded by `RetryPolicy`'s attempt cap and wait
+  budget.
 - **Only `provider.AttributableCategory` decides what a deployment is blamed
   for.** Failover and the circuit breakers read that one function. A customer
   fault, a content filter, a cancellation and an unclassified failure trip

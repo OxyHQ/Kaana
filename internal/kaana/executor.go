@@ -24,6 +24,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	mathrand "math/rand/v2"
 	"strings"
 	"time"
 
@@ -49,6 +50,7 @@ type Executor struct {
 	customerCredentials CustomerCredentialResolver
 	validationReporter  oxyvalidation.Submitter
 	customerLimits      *customerlimit.Registry
+	retry               RetryPolicy
 	now                 func() time.Time
 }
 
@@ -89,6 +91,9 @@ type Config struct {
 	// CustomerLimits isolates throttle and refusal state to the exact customer
 	// credential generation. Nil builds the production default registry.
 	CustomerLimits *customerlimit.Registry
+	// Retry bounds same-route retries of a transient failure. Nil takes
+	// DefaultRetryPolicy; a policy with MaxRetriesPerRoute 0 disables them.
+	Retry *RetryPolicy
 	// Now is the clock, injectable for tests.
 	Now func() time.Time
 }
@@ -111,6 +116,13 @@ func NewExecutor(config Config) (*Executor, error) {
 	if customerLimits == nil {
 		customerLimits = customerlimit.NewRegistry(now)
 	}
+	retry := DefaultRetryPolicy()
+	if config.Retry != nil {
+		retry = *config.Retry
+	}
+	if retry.MaxRetriesPerRoute < 0 || retry.Backoff < 0 || retry.Budget < 0 {
+		return nil, fmt.Errorf("kaana: a retry policy cannot be negative: %+v", retry)
+	}
 	return &Executor{
 		inventory:           config.Inventory,
 		registry:            config.Providers,
@@ -120,6 +132,7 @@ func NewExecutor(config Config) (*Executor, error) {
 		customerCredentials: config.CustomerCredentials,
 		validationReporter:  config.ValidationReporter,
 		customerLimits:      customerLimits,
+		retry:               retry,
 		now:                 now,
 	}, nil
 }
@@ -213,10 +226,24 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		// about a re-route to a deployment whose own breaker then refuses it,
 		// and count a switch that never happened.
 		abandoned *attempt
+		// retrySame is set when the abandoned attempt is to be repeated on the
+		// SAME route rather than replaced by the next one; routeRetries counts
+		// the repetitions of the current route and waited the backoff this
+		// request has spent. See RetryPolicy.
+		retrySame    bool
+		routeRetries int
+		waited       time.Duration
 	)
 
-	for _, authorized := range candidates {
-		route := authorized.route
+	for index := 0; index < len(candidates); index++ {
+		route := candidates[index].route
+		// A same-route retry is not a route switch: nothing about the route the
+		// customer is on changed, so none is announced or counted.
+		retrying := retrySame
+		retrySame = false
+		if !retrying {
+			routeRetries = 0
+		}
 		var customerPermit *customerlimit.Permit
 		if route.CustomerProviderCredential != nil {
 			var refusal customerlimit.Refusal
@@ -296,7 +323,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		}
 		call.RequestID = requestID
 
-		if abandoned != nil {
+		if abandoned != nil && !retrying {
 			err := emit.routeSwitch(
 				switchReason(abandoned.err),
 				candidates[0].route.ModelReference.ModelID(),
@@ -390,6 +417,33 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			permit.Failed()
 			abandoned = last
 			last = nil
+			if emit.started {
+				// Output reached the customer; the top of the next iteration
+				// settles this attempt rather than replacing it.
+				continue
+			}
+			wait, retry := e.retry.next(streamErr, routeRetries, waited)
+			if !retry {
+				continue
+			}
+			// A transient failure that delivered nothing is retried on the
+			// SAME route first: many models have exactly one authorized route,
+			// where failover alone cannot help. The retry is a full attempt —
+			// it goes through the breaker's Admit again, so an open breaker
+			// (including a half-open trial this failure just reopened) refuses
+			// it and the request moves on to the next route instead.
+			if !waitForRetry(ctx, wait) {
+				// The customer withdrew while Kaana was backing off. The failed
+				// attempt is what settles, as a cancellation.
+				// This break leaves the switch; the loop's own break follows.
+				last, abandoned = abandoned, nil
+				last.cancelled = true
+				break
+			}
+			routeRetries++
+			waited += wait
+			retrySame = true
+			index--
 			continue
 		}
 		break
@@ -464,6 +518,118 @@ func streamAttempt(
 		defer credentials.Destroy()
 	}
 	return adapter.Stream(ctx, call, emit, credentials)
+}
+
+// RetryPolicy bounds how Kaana retries a transient failure on the SAME
+// authorized route before moving to the next one.
+//
+// A retry happens only when all of these hold:
+//
+//   - nothing reached the customer (the stream has not committed; see the
+//     emitter's deferred start), so a second attempt replaces the first rather
+//     than splicing two answers together;
+//   - the failure is transient and the deployment's, per transientFailure: a
+//     rate limit, an overload, a timeout, or a server error — never a request
+//     the provider refused, a content filter, a credential, billing or quota
+//     verdict, a customer's own BYOK throttle, a cancellation or anything no
+//     adapter classified;
+//   - the route has been retried fewer than MaxRetriesPerRoute times; and
+//   - the wait fits in what is left of Budget.
+//
+// Each retry is a full attempt: it goes through the breaker's Admit again, is
+// reported to its permit, and is its own row in the operator cost record.
+type RetryPolicy struct {
+	// MaxRetriesPerRoute is how many times one route may be retried after its
+	// first attempt. Zero disables same-route retries.
+	MaxRetriesPerRoute int
+	// Backoff is the base wait before the first retry of a route. It doubles
+	// for each further retry of that route, with equal jitter (half fixed,
+	// half random) so requests throttled together do not return together.
+	Backoff time.Duration
+	// Budget is the most one request spends WAITING between attempts, summed
+	// over every retry of every route. A provider's Retry-After lengthens one
+	// wait, but it is counted against the budget, never beyond it: a hint the
+	// budget cannot absorb means the request moves on (or fails) instead.
+	// Attempt durations are not counted: they are bounded by the attempt cap
+	// and by each adapter's own stall and timeout bounds.
+	Budget time.Duration
+}
+
+// DefaultRetryPolicy is what production runs: two retries per route, one
+// second of base backoff and fifteen seconds of waiting per request.
+func DefaultRetryPolicy() RetryPolicy {
+	return RetryPolicy{MaxRetriesPerRoute: 2, Backoff: time.Second, Budget: 15 * time.Second}
+}
+
+// next reports how long to wait before retrying a route that has already been
+// retried `retried` times, after a request has waited `waited` in total, or
+// false when this failure is not retried on the same route.
+func (p RetryPolicy) next(err error, retried int, waited time.Duration) (time.Duration, bool) {
+	if retried >= p.MaxRetriesPerRoute {
+		return 0, false
+	}
+	retryAfter, transient := transientFailure(err)
+	if !transient {
+		return 0, false
+	}
+	wait := p.Backoff << retried
+	if half := wait / 2; half > 0 {
+		wait = half + mathrand.N(wait-half+1)
+	}
+	wait = max(wait, retryAfter)
+	if waited+wait > p.Budget {
+		return 0, false
+	}
+	return wait, true
+}
+
+// transientFailure reports whether a failure is one the same deployment could
+// plausibly serve moments later, with the provider's own Retry-After hint.
+//
+// It narrows provider.DeploymentAttributable rather than restating it, so a
+// category the breakers do not blame on a deployment is never retried there.
+// Quota and authentication are attributable but not transient: an exhausted or
+// refused credential does not recover in seconds, and the key pool has already
+// rotated past it where another key exists. A rate limit is NOT exhaustion: a
+// single-key pool retires nothing on it, so the retry reuses that key; a
+// separate-accounts pool (provider.KeyPolicy.OnSeparateAccounts) may also
+// rotate once inside each attempt's own walk, before any body is read.
+func transientFailure(err error) (time.Duration, bool) {
+	if !provider.DeploymentAttributable(err) {
+		return 0, false
+	}
+	var upstream provider.ErrUpstream
+	if !errors.As(err, &upstream) || upstream.RecursOnThisRoute {
+		return 0, false
+	}
+	retryAfter := time.Duration(upstream.RetryAfterMs) * time.Millisecond
+	switch upstream.Category {
+	case contract.UpstreamQuota, contract.UpstreamAuthentication:
+		return 0, false
+	}
+	switch upstream.Code {
+	case contract.CodeRateLimited, contract.CodeProviderOverloaded, contract.CodeProviderTimeout:
+		return retryAfter, true
+	case contract.CodeProviderError:
+		return retryAfter, upstream.Category == contract.UpstreamServerError
+	}
+	return 0, false
+}
+
+// waitForRetry sleeps for a retry's backoff, returning false if the request is
+// cancelled first.
+func waitForRetry(ctx context.Context, wait time.Duration) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // attemptTelemetry measures one attempt for the operator record. Durations
@@ -591,7 +757,7 @@ func (e *Executor) settle(
 	requestID := request.Attribution.RequestID
 	completedAt := e.now()
 	completed := last.err == nil && sinkErr == nil && terminalFailure == nil
-	needsEstimate := emit.started && (completed || emit.hasDeliveredOutput()) &&
+	needsEstimate := emit.attemptStarted && (completed || emit.hasDeliveredOutput()) &&
 		(len(last.outcome.Units) == 0 || last.outcome.UsageSource == contract.UsageEstimated)
 	if needsEstimate {
 		last.outcome.Units = emit.estimate.supplement(last.outcome.Units)
@@ -611,16 +777,18 @@ func (e *Executor) settle(
 	}
 	// Exactly one route can serve a request, and `last` is that route. Marking
 	// an attempt while the failover loop is still running is subtly wrong:
-	// emitter.started and delivered-output state belong to the whole request,
-	// so after a fallback starts they also read true while inspecting an earlier
-	// failed attempt. Settlement is the first point that knows the terminal
-	// attempt and whether it actually reached the customer.
+	// delivered-output state belongs to the whole request, so after a fallback
+	// delivers it also reads true while inspecting an earlier failed attempt.
+	// Settlement is the first point that knows the terminal attempt and whether
+	// it actually reached the customer. emitter.attemptStarted is the terminal
+	// attempt's own Start: its start event is still held for an answer with no
+	// output, and is written with done.
 	for index := range usage {
 		usage[index].Served = false
 	}
 	if len(usage) > 0 {
 		usage[len(usage)-1].Served = emit.hasDeliveredOutput() ||
-			(last.err == nil && (emit.started || last.outcome.Embedding != nil))
+			(last.err == nil && (emit.attemptStarted || last.outcome.Embedding != nil))
 	}
 	cost := e.costs.MeasureRequest(requestID, usage)
 
@@ -666,7 +834,7 @@ func (e *Executor) settle(
 	switch {
 	case sinkErr != nil || terminalFailure != nil:
 		report.Outcome = outcomeFor(last)
-	case last.err == nil && !emit.started:
+	case last.err == nil && !emit.attemptStarted:
 		report.Outcome = contract.OutcomeFailed
 	case last.err == nil:
 		report.Outcome = contract.OutcomeCompleted
@@ -692,7 +860,7 @@ func (e *Executor) settle(
 	case terminalFailure != nil:
 		emitErr := emit.finishWithError(terminalFailure)
 		return e.finalize(report, terminalFailure, emitErr, cost)
-	case last.err == nil && !emit.started:
+	case last.err == nil && !emit.attemptStarted:
 		// An adapter that returns success without ever emitting a start event
 		// has produced a stream the contract cannot describe. Reporting it as
 		// completed would hand settlement a receipt for output nobody saw.

@@ -200,8 +200,9 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
     every target is refused before inventory resolution.
 12. **The contract specifies event shapes and not their order.** Kaana emits
     `route_switch` *before* `start`, because the only switch it can safely
-    perform is one where nothing has been streamed yet, and saying so in order
-    is the truthful framing. The alternative reading — that `route_switch`
+    perform is one where nothing has been delivered yet — a failed attempt's
+    own start is held by the emitter and never written — and saying so in
+    order is the truthful framing. The alternative reading — that `route_switch`
     amends a `start` already sent — is only expressible for a switch that
     happens mid-stream, which would duplicate output. If any consumer assumes
     `start` is always the first event, that assumption should become a stated
