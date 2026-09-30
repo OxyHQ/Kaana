@@ -75,3 +75,34 @@ func TestProviderCostBatchMigrationIsOneAtomicRuntimeCall(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderAttemptTelemetryMigrationReplaysEveryMeasuredFact(t *testing.T) {
+	for _, required := range []string{
+		"ADD COLUMN usage_units JSONB",
+		"ADD COLUMN latency_ms INTEGER",
+		"ADD COLUMN time_to_first_output_ms INTEGER",
+		"attempt_outcome IN ('succeeded', 'failed', 'cancelled')",
+		"time_to_first_output_ms BETWEEN 0 AND latency_ms",
+		"CREATE FUNCTION kaana_record_provider_attempt_events(",
+		"provider attempt event lacks its telemetry",
+		"existing.usage_units IS DISTINCT FROM event->'usage_units'",
+		"existing.latency_ms IS DISTINCT FROM (event->>'latency_ms')::INTEGER",
+		"existing.failure_code IS DISTINCT FROM event->>'failure_code'",
+		"provider cost event identity conflict",
+		"SECURITY DEFINER",
+		"REVOKE ALL ON FUNCTION kaana_record_provider_attempt_events(JSONB) FROM PUBLIC",
+		"GRANT EXECUTE ON FUNCTION kaana_record_provider_attempt_events(JSONB) TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0015, required) {
+			t.Errorf("provider attempt telemetry migration lost %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"GRANT INSERT", "GRANT UPDATE", "GRANT DELETE", "GRANT SELECT",
+		"balance", "reservation", "account_label", "COMMIT",
+	} {
+		if strings.Contains(strings.ToUpper(migration0015), strings.ToUpper(forbidden)) {
+			t.Errorf("provider attempt telemetry migration contains forbidden %q", forbidden)
+		}
+	}
+}

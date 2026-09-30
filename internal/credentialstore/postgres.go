@@ -61,6 +61,9 @@ var migration0014 string
 //go:embed migrations/0010_provider_cost_event_batches.sql
 var migration0010 string
 
+//go:embed migrations/0015_provider_attempt_telemetry.sql
+var migration0015 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool             *pgxpool.Pool
@@ -181,6 +184,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0012", body: migration0012},
 		{version: "0013", body: migration0013},
 		{version: "0014", body: migration0014},
+		{version: "0015", body: migration0015},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -210,6 +214,14 @@ type providerCostEventJSON struct {
 	Complete          bool                    `json:"complete"`
 	Served            bool                    `json:"served"`
 	OccurredAt        time.Time               `json:"occurred_at"`
+	// Units is never nil: an attempt that measured nothing records an empty
+	// list, which is a measurement, where NULL means the row predates one.
+	Units               []contract.UsageQuantity    `json:"usage_units"`
+	AttemptStartedAt    time.Time                   `json:"attempt_started_at"`
+	LatencyMs           int64                       `json:"latency_ms"`
+	TimeToFirstOutputMs *int64                      `json:"time_to_first_output_ms"`
+	AttemptOutcome      providercost.AttemptOutcome `json:"attempt_outcome"`
+	FailureCode         *contract.ErrorCode         `json:"failure_code"`
 }
 
 // WriteProviderCostEvents persists every platform-funded attempt for one
@@ -224,7 +236,19 @@ func (p *Postgres) WriteProviderCostEvents(ctx context.Context, events []provide
 			DeploymentID: event.DeploymentID, ModelReference: event.ModelReference,
 			Source: event.Source, RateCardVersionID: event.RateCardVersionID,
 			Complete: event.Complete, Served: event.Served,
-			OccurredAt: event.OccurredAt,
+			OccurredAt:       event.OccurredAt,
+			Units:            append([]contract.UsageQuantity{}, event.Units...),
+			AttemptStartedAt: event.Telemetry.StartedAt,
+			LatencyMs:        event.Telemetry.Latency.Milliseconds(),
+			AttemptOutcome:   event.Telemetry.Outcome,
+		}
+		if event.Telemetry.TimeToFirstOutput > 0 {
+			milliseconds := event.Telemetry.TimeToFirstOutput.Milliseconds()
+			encoded.TimeToFirstOutputMs = &milliseconds
+		}
+		if event.Telemetry.FailureCode != "" {
+			code := event.Telemetry.FailureCode
+			encoded.FailureCode = &code
 		}
 		if event.Source != providercost.SourceUnknown {
 			encoded.Currency = &event.Cost.Currency
@@ -237,7 +261,7 @@ func (p *Postgres) WriteProviderCostEvents(ctx context.Context, events []provide
 		return fmt.Errorf("credential store: encoding provider cost event batch: %w", err)
 	}
 	var recorded int
-	if err := p.pool.QueryRow(ctx, `SELECT kaana_record_provider_cost_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
+	if err := p.pool.QueryRow(ctx, `SELECT kaana_record_provider_attempt_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
 		return fmt.Errorf("credential store: recording provider cost event batch: %w", err)
 	}
 	if recorded != len(events) {

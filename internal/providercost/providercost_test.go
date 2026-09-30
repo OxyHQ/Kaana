@@ -93,9 +93,9 @@ func TestRecorderPersistsExactRateCardAndUnknownAttempts(t *testing.T) {
 	}
 	cards := parse(t, twoCards)
 	record := cards.MeasureRequest("req_persist", []providercost.AttemptUsage{
-		{AttemptIndex: 0, Provider: "cheaperinference", KeyID: "key-ci", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, ProviderReportedCost: &reported},
-		{AttemptIndex: 1, Provider: "groq", KeyID: "key-groq", DeploymentID: "dep_b", ModelReference: "openai/model@2026-09-01", OccurredAt: at.Add(time.Second), Served: true, Units: []contract.UsageQuantity{{Unit: contract.UnitOutputTokens, Quantity: 2}}},
-		{AttemptIndex: 2, Provider: "mistral", KeyID: "key-mistral", DeploymentID: "dep_unknown", ModelReference: "mistralai/model@2026-09-01", OccurredAt: at.Add(2 * time.Second)},
+		{AttemptIndex: 0, Provider: "cheaperinference", KeyID: "key-ci", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: measured(at), ProviderReportedCost: &reported},
+		{AttemptIndex: 1, Provider: "groq", KeyID: "key-groq", DeploymentID: "dep_b", ModelReference: "openai/model@2026-09-01", OccurredAt: at.Add(time.Second), Telemetry: measured(at.Add(time.Second)), Served: true, Units: []contract.UsageQuantity{{Unit: contract.UnitOutputTokens, Quantity: 2}}},
+		{AttemptIndex: 2, Provider: "mistral", KeyID: "key-mistral", DeploymentID: "dep_unknown", ModelReference: "mistralai/model@2026-09-01", OccurredAt: at.Add(2 * time.Second), Telemetry: measured(at.Add(2 * time.Second))},
 	})
 	writer := &costEventWriter{}
 	recorder, err := providercost.NewRecorder(writer)
@@ -125,9 +125,9 @@ func TestRecorderPersistsExactRateCardAndUnknownAttempts(t *testing.T) {
 func TestRecorderSkipsCustomerBYOKAndStopsAtPersistenceFailure(t *testing.T) {
 	at := time.Date(2026, time.September, 11, 12, 0, 0, 0, time.UTC)
 	record := parse(t, twoCards).MeasureRequest("req_failure", []providercost.AttemptUsage{
-		{AttemptIndex: 0, Provider: "openai", KeyID: "customer-byok", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, ProviderBilledCustomer: true},
-		{AttemptIndex: 1, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at},
-		{AttemptIndex: 2, Provider: "groq", KeyID: "key-2", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at},
+		{AttemptIndex: 0, Provider: "openai", KeyID: "customer-byok", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: measured(at), ProviderBilledCustomer: true},
+		{AttemptIndex: 1, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: measured(at)},
+		{AttemptIndex: 2, Provider: "groq", KeyID: "key-2", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: measured(at)},
 	})
 	writer := &costEventWriter{failAt: 2}
 	recorder, err := providercost.NewRecorder(writer)
@@ -146,8 +146,8 @@ func TestRecorderSkipsCustomerBYOKAndStopsAtPersistenceFailure(t *testing.T) {
 func TestRecorderRetriesOneWholeAtomicBatch(t *testing.T) {
 	at := time.Date(2026, time.September, 11, 12, 0, 0, 0, time.UTC)
 	record := parse(t, twoCards).MeasureRequest("req_batch_retry", []providercost.AttemptUsage{
-		{AttemptIndex: 0, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at},
-		{AttemptIndex: 1, Provider: "groq", KeyID: "key-2", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at.Add(time.Second)},
+		{AttemptIndex: 0, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: measured(at)},
+		{AttemptIndex: 1, Provider: "groq", KeyID: "key-2", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at.Add(time.Second), Telemetry: measured(at.Add(time.Second))},
 	})
 	writer := &batchCostEventWriter{failuresLeft: 2}
 	recorder, err := providercost.NewRecorder(writer)
@@ -159,6 +159,56 @@ func TestRecorderRetriesOneWholeAtomicBatch(t *testing.T) {
 	}
 	if writer.calls != 3 || len(writer.events) != 2 {
 		t.Fatalf("batch calls=%d persisted events=%d", writer.calls, len(writer.events))
+	}
+}
+
+// measured is a complete telemetry record for an attempt that succeeded.
+func measured(startedAt time.Time) providercost.AttemptTelemetry {
+	return providercost.AttemptTelemetry{StartedAt: startedAt, Latency: 40 * time.Millisecond,
+		TimeToFirstOutput: 15 * time.Millisecond, Outcome: providercost.AttemptSucceeded}
+}
+
+func TestRecorderRefusesTelemetryThatWasNotMeasured(t *testing.T) {
+	at := time.Date(2026, time.September, 11, 12, 0, 0, 0, time.UTC)
+	failed := measured(at)
+	failed.Outcome = providercost.AttemptFailed
+	failed.FailureCode = contract.CodeRateLimited
+	for name, telemetry := range map[string]providercost.AttemptTelemetry{
+		"no start":                   {Latency: time.Millisecond, Outcome: providercost.AttemptSucceeded},
+		"no outcome":                 {StartedAt: at, Latency: time.Millisecond},
+		"first output after the end": {StartedAt: at, Latency: time.Millisecond, TimeToFirstOutput: time.Second, Outcome: providercost.AttemptSucceeded},
+		"failure without a code":     {StartedAt: at, Latency: time.Millisecond, Outcome: providercost.AttemptFailed},
+		"success with a code":        {StartedAt: at, Latency: time.Millisecond, Outcome: providercost.AttemptSucceeded, FailureCode: contract.CodeRateLimited},
+	} {
+		record := parse(t, twoCards).MeasureRequest("req_bad_telemetry", []providercost.AttemptUsage{
+			{AttemptIndex: 0, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: telemetry},
+		})
+		recorder, err := providercost.NewRecorder(&costEventWriter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := recorder.Record(context.Background(), record); err == nil {
+			t.Errorf("%s: telemetry was accepted", name)
+		}
+	}
+
+	// The positive control: a failed attempt with its classification is a
+	// complete measurement, and its units are persisted sorted.
+	record := parse(t, twoCards).MeasureRequest("req_failed_telemetry", []providercost.AttemptUsage{
+		{AttemptIndex: 0, Provider: "groq", KeyID: "key-1", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01", OccurredAt: at, Telemetry: failed,
+			Units: []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}, {Unit: contract.UnitInputTokens, Quantity: 3}}},
+	})
+	writer := &costEventWriter{}
+	recorder, err := providercost.NewRecorder(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.Record(context.Background(), record); err != nil {
+		t.Fatalf("a failed attempt's complete telemetry was refused: %v", err)
+	}
+	event := writer.events[0]
+	if event.Telemetry != failed || len(event.Units) != 2 || event.Units[0].Unit != contract.UnitInputTokens {
+		t.Fatalf("persisted event = %+v", event)
 	}
 }
 

@@ -343,10 +343,13 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 
 		emit.serving(route.Provider, route.DeploymentID)
 		providerBilledCustomer := route.CustomerProviderCredential != nil
+		attemptStartedAt, attemptClock := e.now(), time.Now()
 		outcome, streamErr := streamAttempt(ctx, adapter, call, emit, credentials)
+		telemetry := attemptTelemetry(ctx, requestID, route.Provider, streamErr, attemptStartedAt, attemptClock, emit.attemptOutputAt)
 		reportCustomerLimitOutcome(customerPermit, streamErr)
 		e.reportCustomerCredentialValidation(route, streamErr)
 		usage = append(usage, providercost.AttemptUsage{
+			Telemetry:              telemetry,
 			AttemptIndex:           len(usage),
 			DeploymentID:           route.DeploymentID,
 			Provider:               route.Provider,
@@ -425,6 +428,33 @@ func streamAttempt(
 		defer credentials.Destroy()
 	}
 	return adapter.Stream(ctx, call, emit, credentials)
+}
+
+// attemptTelemetry measures one attempt for the operator record. Durations
+// come from the monotonic clock the attempt started on; the start time is the
+// executor's clock so it agrees with the attempt's OccurredAt.
+func attemptTelemetry(
+	ctx context.Context,
+	requestID contract.RequestID,
+	slug contract.ProviderSlug,
+	streamErr error,
+	startedAt time.Time,
+	clock time.Time,
+	firstOutputAt time.Time,
+) providercost.AttemptTelemetry {
+	telemetry := providercost.AttemptTelemetry{StartedAt: startedAt, Latency: time.Since(clock), Outcome: providercost.AttemptSucceeded}
+	if !firstOutputAt.IsZero() && !firstOutputAt.Before(clock) {
+		telemetry.TimeToFirstOutput = min(firstOutputAt.Sub(clock), telemetry.Latency)
+	}
+	switch {
+	case streamErr == nil:
+	case isCancellation(ctx, streamErr):
+		telemetry.Outcome = providercost.AttemptCancelled
+	default:
+		telemetry.Outcome = providercost.AttemptFailed
+		telemetry.FailureCode = upstreamFailure(requestID, slug, streamErr).Code
+	}
+	return telemetry
 }
 
 func reportCustomerLimitOutcome(permit *customerlimit.Permit, streamErr error) {

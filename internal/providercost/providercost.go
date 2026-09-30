@@ -357,6 +357,33 @@ type AttemptUsage struct {
 	// attempt per request is served.
 	Served bool
 	Units  []contract.UsageQuantity
+	// Telemetry is what the attempt measured about itself. It is operator-only
+	// for the same reason the cost is.
+	Telemetry AttemptTelemetry
+}
+
+// AttemptOutcome is how one upstream attempt ended, independently of whether
+// its output reached the customer.
+type AttemptOutcome string
+
+const (
+	AttemptSucceeded AttemptOutcome = "succeeded"
+	AttemptFailed    AttemptOutcome = "failed"
+	AttemptCancelled AttemptOutcome = "cancelled"
+)
+
+// AttemptTelemetry is one attempt's own measurements: when it began, how long
+// it ran, how long until its first output, and how it ended. A zero
+// TimeToFirstOutput means no output was produced, not an instant one.
+type AttemptTelemetry struct {
+	StartedAt         time.Time
+	Latency           time.Duration
+	TimeToFirstOutput time.Duration
+	Outcome           AttemptOutcome
+	// FailureCode is the contract error code a failed attempt was classified
+	// as, such as rate_limited or provider_quota_exhausted. It is how a
+	// throttle is told apart from an exhaustion without a second vocabulary.
+	FailureCode contract.ErrorCode
 }
 
 // AttemptCost is one attempt, priced.
@@ -429,6 +456,10 @@ type Event struct {
 	Complete          bool
 	Served            bool
 	OccurredAt        time.Time
+	// Units are the attempt's measured usage, sorted by unit so a replay of the
+	// same measurement is byte-identical.
+	Units     []contract.UsageQuantity
+	Telemetry AttemptTelemetry
 }
 
 // Writer is the narrow persistence authority used by Recorder.
@@ -478,6 +509,7 @@ func (r *Recorder) Record(ctx context.Context, record Record) error {
 			DeploymentID: attempt.DeploymentID, ModelReference: attempt.ModelReference,
 			Cost: attempt.Cost, Source: attempt.Source, RateCardVersionID: attempt.RateCardVersionID, Complete: attempt.Complete(),
 			Served: attempt.Served, OccurredAt: attempt.OccurredAt,
+			Units: sortedUnits(attempt.Units), Telemetry: attempt.Telemetry,
 		}
 		if err := validateEvent(event); err != nil {
 			return err
@@ -524,6 +556,9 @@ func validateEvent(event Event) error {
 		event.DeploymentID == "" || event.ModelReference == "" || event.OccurredAt.IsZero() {
 		return fmt.Errorf("providercost: event identity is incomplete")
 	}
+	if err := validateTelemetry(event); err != nil {
+		return err
+	}
 	switch event.Source {
 	case SourceProviderReported, SourceRateCard:
 		if !currencyPattern.MatchString(event.Cost.Currency) || event.Cost.Amount < 0 {
@@ -543,6 +578,52 @@ func validateEvent(event Event) error {
 		return fmt.Errorf("providercost: event has unknown source %q", event.Source)
 	}
 	return nil
+}
+
+func validateTelemetry(event Event) error {
+	telemetry := event.Telemetry
+	if telemetry.StartedAt.IsZero() || telemetry.Latency < 0 || telemetry.TimeToFirstOutput < 0 ||
+		telemetry.TimeToFirstOutput > telemetry.Latency {
+		return fmt.Errorf("providercost: attempt %d telemetry is incomplete or inconsistent", event.AttemptIndex)
+	}
+	if telemetry.Latency.Milliseconds() > maxTelemetryMilliseconds {
+		return fmt.Errorf("providercost: attempt %d latency exceeds the recordable range", event.AttemptIndex)
+	}
+	switch telemetry.Outcome {
+	case AttemptSucceeded, AttemptCancelled:
+		if telemetry.FailureCode != "" {
+			return fmt.Errorf("providercost: attempt %d did not fail but carries a failure code", event.AttemptIndex)
+		}
+	case AttemptFailed:
+		if !failureCodePattern.MatchString(string(telemetry.FailureCode)) {
+			return fmt.Errorf("providercost: failed attempt %d has no failure code", event.AttemptIndex)
+		}
+	default:
+		return fmt.Errorf("providercost: attempt %d has unknown outcome %q", event.AttemptIndex, telemetry.Outcome)
+	}
+	seen := make(map[contract.UsageUnit]struct{}, len(event.Units))
+	for _, quantity := range event.Units {
+		if !quantity.Unit.Valid() || quantity.Quantity < 0 {
+			return fmt.Errorf("providercost: attempt %d has an invalid usage quantity", event.AttemptIndex)
+		}
+		if _, duplicate := seen[quantity.Unit]; duplicate {
+			return fmt.Errorf("providercost: attempt %d reports %s twice", event.AttemptIndex, quantity.Unit)
+		}
+		seen[quantity.Unit] = struct{}{}
+	}
+	return nil
+}
+
+// maxTelemetryMilliseconds is the largest duration a PostgreSQL INTEGER column
+// holds. An attempt that ran longer than 24 days is a clock fault, not a fact.
+const maxTelemetryMilliseconds = 1<<31 - 1
+
+var failureCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+func sortedUnits(units []contract.UsageQuantity) []contract.UsageQuantity {
+	sorted := append([]contract.UsageQuantity{}, units...)
+	sort.Slice(sorted, func(a, b int) bool { return sorted[a].Unit < sorted[b].Unit })
+	return sorted
 }
 
 // LogValue renders a record for the operator log. It names the request, the

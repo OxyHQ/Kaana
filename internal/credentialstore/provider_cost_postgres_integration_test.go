@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -48,6 +49,11 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 		Cost:           providercost.Money{Currency: "USD", Amount: 125_000},
 		Source:         providercost.SourceRateCard, RateCardVersionID: "rc_integration_v1",
 		Complete: true, Served: true, OccurredAt: at,
+		Units: []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: 12}, {Unit: contract.UnitOutputTokens, Quantity: 3}},
+		Telemetry: providercost.AttemptTelemetry{
+			StartedAt: at.Add(-900 * time.Millisecond), Latency: 900 * time.Millisecond,
+			TimeToFirstOutput: 250 * time.Millisecond, Outcome: providercost.AttemptSucceeded,
+		},
 	}
 	if err := repository.WriteProviderCostEvent(ctx, event); err != nil {
 		t.Fatalf("WriteProviderCostEvent: %v", err)
@@ -64,6 +70,54 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM provider_cost_events
 		WHERE request_id = 'req_cost_integration' AND attempt_index = 0`).Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("persisted event rows/error = %d/%v, want 1/nil", rows, err)
+	}
+
+	for name, mutate := range map[string]func(*providercost.Event){
+		"latency":      func(e *providercost.Event) { e.Telemetry.Latency += time.Millisecond },
+		"first output": func(e *providercost.Event) { e.Telemetry.TimeToFirstOutput = 0 },
+		"units":        func(e *providercost.Event) { e.Units = e.Units[:1] },
+		"outcome": func(e *providercost.Event) {
+			e.Telemetry.Outcome, e.Telemetry.FailureCode = providercost.AttemptFailed, contract.CodeRateLimited
+		},
+	} {
+		conflict := event
+		conflict.Units = append([]contract.UsageQuantity{}, event.Units...)
+		mutate(&conflict)
+		if err := repository.WriteProviderCostEvent(ctx, conflict); err == nil {
+			t.Errorf("a replay with a different %s was accepted as the same attempt", name)
+		}
+	}
+	var (
+		storedUnits   []contract.UsageQuantity
+		latency, ttft *int64
+		outcome       *string
+		failureCode   *string
+	)
+	if err := pool.QueryRow(ctx, `SELECT usage_units, latency_ms, time_to_first_output_ms, attempt_outcome, failure_code
+		FROM provider_cost_events WHERE request_id = 'req_cost_integration' AND attempt_index = 0`).
+		Scan(&storedUnits, &latency, &ttft, &outcome, &failureCode); err != nil {
+		t.Fatalf("reading attempt telemetry: %v", err)
+	}
+	if len(storedUnits) != 2 || latency == nil || *latency != 900 || ttft == nil || *ttft != 250 ||
+		outcome == nil || *outcome != "succeeded" || failureCode != nil {
+		t.Fatalf("stored telemetry = units %v latency %v ttft %v outcome %v failure %v", storedUnits, latency, ttft, outcome, failureCode)
+	}
+
+	throttled := event
+	throttled.RequestID = "req_cost_throttled"
+	throttled.Served = false
+	throttled.Telemetry.TimeToFirstOutput = 0
+	throttled.Telemetry.Outcome = providercost.AttemptFailed
+	throttled.Telemetry.FailureCode = contract.CodeRateLimited
+	if err := repository.WriteProviderCostEvent(ctx, throttled); err != nil {
+		t.Fatalf("recording a throttled attempt: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT failure_code, time_to_first_output_ms FROM provider_cost_events
+		WHERE request_id = 'req_cost_throttled'`).Scan(&failureCode, &ttft); err != nil {
+		t.Fatalf("reading throttled attempt: %v", err)
+	}
+	if failureCode == nil || *failureCode != "rate_limited" || ttft != nil {
+		t.Fatalf("throttled attempt stored failure %v first output %v", failureCode, ttft)
 	}
 
 	unknown := event

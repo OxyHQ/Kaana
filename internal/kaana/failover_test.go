@@ -680,6 +680,23 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 	if served != 1 {
 		t.Errorf("%d attempts are marked as having served the customer; at most one terminal attempt may serve", served)
 	}
+
+	// Each attempt carries its own measurements: the burned primary is a
+	// classified failure with no output of its own, and the fallback's first
+	// output is timed from its own start, not from the primary's.
+	primary, fallback := result.UpstreamCost.Attempts[0].Telemetry, result.UpstreamCost.Attempts[1].Telemetry
+	if primary.Outcome != providercost.AttemptFailed || primary.FailureCode != contract.CodeProviderOverloaded {
+		t.Errorf("primary telemetry = %+v, want a failure classified provider_overloaded", primary)
+	}
+	if primary.TimeToFirstOutput != 0 {
+		t.Errorf("the primary produced no output but reports a first output after %s", primary.TimeToFirstOutput)
+	}
+	if fallback.Outcome != providercost.AttemptSucceeded || fallback.FailureCode != "" || fallback.StartedAt.IsZero() {
+		t.Errorf("fallback telemetry = %+v, want an unclassified success with a start time", fallback)
+	}
+	if fallback.TimeToFirstOutput <= 0 || fallback.TimeToFirstOutput > fallback.Latency {
+		t.Errorf("fallback first output %s is not within its own latency %s", fallback.TimeToFirstOutput, fallback.Latency)
+	}
 }
 
 func TestAPartialPrimaryThatReachedTheCustomerIsTheOnlyServedAttempt(t *testing.T) {
