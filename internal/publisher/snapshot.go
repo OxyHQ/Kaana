@@ -26,6 +26,27 @@ type snapshotFile struct {
 	SnapshotID  string               `json:"snapshotId"`
 	IssuedAt    contract.Timestamp   `json:"issuedAt"`
 	Deployments []snapshotDeployment `json:"deployments"`
+	// Withheld names the discovered deployments left out of Deployments
+	// because Kaana's own evidence says they cannot be served now
+	// (withholding.go). The reader ignores it: it is not routing, and
+	// contentID does not hash it, so re-stating an unchanged decision never
+	// moves snapshotId. It is also how a withheld line keeps its observation
+	// date across cycles (ObservationsFrom).
+	Withheld []snapshotWithheld `json:"withheld,omitempty"`
+}
+
+// snapshotWithheld is one withheld deployment: its identity, and the evidence
+// that withheld it. No key id and no credential state: the file holds none.
+type snapshotWithheld struct {
+	DeploymentID    contract.DeploymentID   `json:"deploymentId"`
+	Provider        contract.ProviderSlug   `json:"provider"`
+	ModelReference  contract.ModelReference `json:"modelReference"`
+	UpstreamModelID string                  `json:"upstreamModelId"`
+	Reason          WithholdReason          `json:"reason"`
+	// Until is when this evidence stops withholding the deployment on its
+	// own; the first cycle after it publishes the deployment for a trial.
+	Until    contract.Timestamp `json:"until"`
+	Failures int                `json:"failures,omitempty"`
 }
 
 type snapshotDeployment struct {
@@ -105,6 +126,21 @@ type BuildResult struct {
 	// reason: an OpenRouter model with no zero-data-retention endpoint. A
 	// route to one would fail every request it was ever given.
 	Unservable []string
+	// Withheld are the deployments Kaana's evidence says cannot be served now,
+	// sorted by deployment id. Absent from the routes, present in the file's
+	// `withheld` list.
+	Withheld []WithheldDeployment
+	// WouldWithhold is the same decision under a report-only policy: computed
+	// and logged, nothing left out.
+	WouldWithhold []WithheldDeployment
+}
+
+// WithheldDeployment is one withholding decision, for the caller's log.
+type WithheldDeployment struct {
+	DeploymentID    contract.DeploymentID
+	Provider        contract.ProviderSlug
+	UpstreamModelID string
+	Withholding
 }
 
 // BuildSnapshot renders the inventory file from what the providers reported.
@@ -115,6 +151,15 @@ type BuildResult struct {
 // servable. Sorting by exact deployment id makes the same routing content
 // produce the same snapshot id regardless of provider discovery order.
 func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time) (BuildResult, error) {
+	return BuildSnapshotWithholding(discoveries, attribution, previous, at, nil, false)
+}
+
+// BuildSnapshotWithholding is BuildSnapshot that asks `withhold` about every
+// deployment it would publish. A withheld deployment keeps its line's
+// observation date and is named in the file's `withheld` list instead of its
+// routes. With reportOnly, every decision is returned in WouldWithhold and
+// nothing is left out. A nil withhold withholds nothing.
+func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool) (BuildResult, error) {
 	if len(discoveries) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: no provider reported any models, so a snapshot would declare nothing and Kaana would refuse it")
 	}
@@ -130,6 +175,8 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 		unattributed []string
 		inexecutable []string
 		unservable   []string
+		withheld     []snapshotWithheld
+		decisions    []WithheldDeployment
 	)
 	for _, discovery := range discoveries {
 		for _, model := range discovery.Models {
@@ -158,8 +205,26 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 				return BuildResult{}, fmt.Errorf("publisher: %q is not a pinned model reference", reference)
 			}
 
+			id := deploymentID(discovery.Provider.Slug, model.UpstreamModelID, observed)
+			if withhold != nil {
+				if decision, withheldNow := withhold(id, discovery.Provider.Slug); withheldNow {
+					decisions = append(decisions, WithheldDeployment{
+						DeploymentID: id, Provider: discovery.Provider.Slug,
+						UpstreamModelID: model.UpstreamModelID, Withholding: decision,
+					})
+					if !reportOnly {
+						withheld = append(withheld, snapshotWithheld{
+							DeploymentID: id, Provider: discovery.Provider.Slug, ModelReference: reference,
+							UpstreamModelID: model.UpstreamModelID, Reason: decision.Reason,
+							Until: contract.NewTimestamp(decision.Until), Failures: decision.Failures,
+						})
+						continue
+					}
+				}
+			}
+
 			deployments = append(deployments, snapshotDeployment{
-				DeploymentID:    deploymentID(discovery.Provider.Slug, model.UpstreamModelID, observed),
+				DeploymentID:    id,
 				Provider:        discovery.Provider.Slug,
 				ModelReference:  reference,
 				UpstreamModelID: model.UpstreamModelID,
@@ -175,10 +240,19 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 	}
 
 	if len(deployments) == 0 {
+		if len(withheld) > 0 {
+			return BuildResult{}, fmt.Errorf("publisher: every servable deployment is withheld (%d), so the snapshot would be empty; the published one is left in place", len(withheld))
+		}
 		return BuildResult{}, fmt.Errorf("publisher: every discovered model was unattributed (%s), so the snapshot would be empty", strings.Join(unattributed, ", "))
 	}
 	sort.Slice(deployments, func(i, j int) bool {
 		return deployments[i].DeploymentID < deployments[j].DeploymentID
+	})
+	sort.Slice(withheld, func(i, j int) bool {
+		return withheld[i].DeploymentID < withheld[j].DeploymentID
+	})
+	sort.Slice(decisions, func(i, j int) bool {
+		return decisions[i].DeploymentID < decisions[j].DeploymentID
 	})
 
 	file := snapshotFile{
@@ -186,6 +260,7 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 		SnapshotID:  contentID(deployments),
 		IssuedAt:    contract.NewTimestamp(at),
 		Deployments: deployments,
+		Withheld:    withheld,
 	}
 	body, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
@@ -205,7 +280,7 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 	sort.Strings(unattributed)
 	sort.Strings(inexecutable)
 	sort.Strings(unservable)
-	return BuildResult{
+	result := BuildResult{
 		Body:         body,
 		SnapshotID:   file.SnapshotID,
 		Deployments:  len(deployments),
@@ -213,7 +288,13 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 		Unattributed: unattributed,
 		Inexecutable: inexecutable,
 		Unservable:   unservable,
-	}, nil
+	}
+	if reportOnly {
+		result.WouldWithhold = decisions
+	} else {
+		result.Withheld = decisions
+	}
+	return result, nil
 }
 
 // ObservationsFrom recovers the first-seen dates from a published snapshot.
@@ -227,9 +308,18 @@ func ObservationsFrom(body []byte) (Observations, error) {
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("publisher: the previous snapshot is not readable: %w", err)
 	}
-	observations := make(Observations, len(parsed.Deployments))
+	observations := make(Observations, len(parsed.Deployments)+len(parsed.Withheld))
+	// A withheld deployment's line was observed exactly like a published one;
+	// dropping its date here would re-date every reference to it the cycle it
+	// returns, which is the silent re-pointing this state exists to prevent.
+	references := make([]contract.ModelReference, 0, len(parsed.Deployments)+len(parsed.Withheld))
 	for _, deployment := range parsed.Deployments {
-		reference := deployment.ModelReference
+		references = append(references, deployment.ModelReference)
+	}
+	for _, withheld := range parsed.Withheld {
+		references = append(references, withheld.ModelReference)
+	}
+	for _, reference := range references {
 		if !reference.Valid() || !reference.Pinned() {
 			return nil, fmt.Errorf("publisher: the previous snapshot carries %q, which is not a pinned reference", reference)
 		}
@@ -303,6 +393,7 @@ func snapshotComment() []string {
 		"REGIONS ARE UPSTREAM EXECUTION/RESIDENCY, NOT THE AWS REGION RUNNING KAANA. A provider's model API does not report them. KAANA_PROVIDER_<SLUG>_REGIONS carries an explicit verified declaration; when absent, the route has no regional attestation and matches only an explicitly empty signed set that Oxy permits under no regional policy control.",
 		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, customer price or commercial permission. Provider credentials resolve from Kaana's PostgreSQL/KMS store and are never here.",
 		"`observed` IS WHAT THE PROVIDER'S OWN /models ENTRY SAID, AND NOTHING ELSE — except that for OpenRouter, whose every Kaana request requires zero data retention, supportsTools, reasoningEfforts and acceptedParameters are what its zero-retention endpoint list says those endpoints accept. Absent means the provider did not say; nothing is defaulted or curated. It is catalogue metadata for the signed operator catalogue, never routing (acceptedParameters only lets Translate refuse a control the route rejects), and snapshotId does not hash it. `observed.listPrice` is the provider's PUBLISHED list price (USD per million tokens), not Kaana's cost and not a customer price.",
+		"`withheld` NAMES DEPLOYMENTS A PROVIDER STILL LISTS BUT KAANA CANNOT SERVE NOW: their exact key is retired or out of capacity, or their own attempts since their last success are a streak of provider-side failures. They are not routes. `until` is when the evidence stops withholding them and the next cycle publishes them for a trial. The list is not hashed into snapshotId; only the routes are.",
 		"STALENESS IS MEASURED FROM `issuedAt`. This file is re-issued on a cadence shorter than KAANA_INVENTORY_MAX_AGE even when nothing has changed, because an unchanged snapshot with an old issuedAt is indistinguishable from a publisher that has stopped.",
 	}
 }

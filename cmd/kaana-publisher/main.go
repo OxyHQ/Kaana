@@ -175,6 +175,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	withholding, err := withholdPolicyFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
 
 	inventoryPublisher, err := publisher.New(publisher.Config{
 		Providers:   providers,
@@ -183,6 +187,8 @@ func run(logger *slog.Logger) error {
 		Interval:    interval,
 		Client:      discoveryClient,
 		Logger:      logger,
+		Evidence:    storeEvidence{reader: credentialDatabase},
+		Withholding: withholding,
 	})
 	if err != nil {
 		return err
@@ -194,7 +200,13 @@ func run(logger *slog.Logger) error {
 		"destination", store.Describe(),
 		"interval", inventoryPublisher.Interval(),
 		"horizon", inventory.DefaultMaxSnapshotAge,
-		"providers", slugsOf(providers))
+		"providers", slugsOf(providers),
+		"withholdingReportOnly", withholding.ReportOnly,
+		"withholdFailures", withholding.Failures,
+		"withholdFailureSpan", withholding.FailureSpan,
+		"withholdMin", withholding.MinQuarantine,
+		"withholdMax", withholding.MaxQuarantine,
+		"withholdLookback", withholding.Lookback)
 
 	go reloadPublisherCredentials(
 		ctx,

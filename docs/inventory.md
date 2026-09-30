@@ -127,6 +127,7 @@ role could assume it too.
 | `observed` | the same `GET /models` entry, field by field; absent when the provider said nothing Kaana could keep (below) |
 | `issuedAt` | the clock, every cycle |
 | `snapshotId` | a hash of the routing CONTENT, so it moves only when routing does |
+| `withheld` | discovered deployments Kaana's own evidence says cannot be served now; not routes, not hashed ("Withheld from publication" below) |
 
 The last two are deliberately different clocks. An operator asking "is the
 publisher alive" reads `issuedAt`; asking "did routing change" reads
@@ -259,6 +260,130 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 | `KAANA_INVENTORY_BUCKET` is empty | refuses to start, naming the variable; there is no default, because publishing to a guessed bucket succeeds silently |
 | a cadence at or past the horizon | refuses to start rather than clamping |
 | a provider speaking no `GET /models` | refuses; a hand-written list is the checked-in file this command replaces |
+| the exact key a deployment executes on is retired (exhausted or refused) | withheld until the key's return time, named in `withheld`, warned |
+| an unbound deployment of a several-key provider whose every key is retired | withheld until the earliest return; with any usable key it stays listed (serving refuses it as unbound, and the operator needs its id to bind it) |
+| fresh operator capacity evidence reads zero (balance, a day/month/lifetime quota, a passed expiry) | withheld until the evidence stops being fresh |
+| a billing or credential refusal since the deployment's last success on its key | withheld for the quarantine (below) |
+| `KAANA_PUBLISHER_WITHHOLD_FAILURES` provider-side failures spanning `KAANA_PUBLISHER_WITHHOLD_FAILURE_SPAN`, no success | withheld for the quarantine (below) |
+| rate limits, overloads, timeouts, request faults, however sustained | never withheld |
+| every servable deployment is withheld | the cycle refuses and the published snapshot is left alone |
+| the publication evidence cannot be read | the previous snapshot's unexpired withholdings are kept; nothing new is withheld; logged at ERROR |
+
+### Withheld from publication
+
+A provider answering `GET /models` proves the credential authenticates, not
+that the account can be served. Cerebras lists models to an account that
+answers every completion with a 402, and so do the OpenAI and CheaperInference
+accounts Kaana held on 2026-09-30: Oxy was offered routes that always failed.
+So before a discovered deployment is written, the publisher asks what Kaana
+has ALREADY been told about serving it, and withholds it while that evidence
+says it cannot be served now (`internal/publisher/withholding.go`). Publication
+is Kaana's authority; withholding never reorders anything, and order stays
+Oxy's.
+
+Every input is a report Kaana already persisted; the publisher sends nothing
+of its own:
+
+1. **The exact key.** A deployment is judged by the one key it executes on, by
+   the same rules as `provider.Registry.ResolveExecution`: its exact binding,
+   else its provider's only enabled key (`key-pools.md`). That key retired by
+   the provider's own exhaustion or refusal withholds it until the key's return
+   time, because serving would refuse it until then anyway. A deployment that
+   resolves to no key (unbound on a several-key provider) is withheld only when
+   every key of its provider is retired: serving refuses it as unbound whatever
+   is published, and it stays listed so an operator can find the id to bind.
+2. **Capacity evidence** (migration `0017`, recorded by an operator): the key's
+   latest FRESH balance at zero, quota at zero over a `day`, `month` or
+   `lifetime` window, or a passed expiry, withholds until the evidence stops
+   being fresh. A `minute` or `hour` quota at zero is a throttle and never
+   withholds. Evidence without `freshUntil` is never fresh.
+3. **The deployment's own attempts** (migration `0019`,
+   `kaana_read_deployment_failure_streaks`): the failed attempts on its key
+   since its last success there — a streak, not a rate. Attempts older than the
+   key row's last change (a rotation) are not evidence about the secret now in
+   it. Within the streak:
+   - one `provider_billing_refused` or `provider_credential_invalid` withholds:
+     it is the provider's own report about the key. Capacity evidence recorded
+     AFTER that refusal, reading more than zero, lifts it (an operator topped
+     the account up);
+   - `model_not_found`, `permission_denied` and `provider_error` withhold after
+     `KAANA_PUBLISHER_WITHHOLD_FAILURES` of them spanning at least
+     `KAANA_PUBLISHER_WITHHOLD_FAILURE_SPAN`. A per-request `permission_denied`
+     would be interleaved with successes; an unbroken streak of them on one
+     deployment is the account lacking access to the model;
+   - `rate_limited`, `provider_overloaded`, `provider_timeout`, request faults,
+     content filters, cancellations and any code this build does not name count
+     for nothing, however sustained. A throttle is not an outage, and a timeout
+     is also what a long reasoning request looks like. They neither count nor
+     end the streak; only a success ends it.
+
+**It comes back on a clock, because nothing else can bring it back.** A
+withheld deployment receives no traffic, so no success can ever arrive to
+restore it. The quarantine after a streak's last counted failure is as long as
+the streak has lasted, clamped between `KAANA_PUBLISHER_WITHHOLD_MIN` and
+`KAANA_PUBLISHER_WITHHOLD_MAX`: twenty minutes of failures withhold for thirty,
+a day of them re-publishes for a trial every six hours, and each failed trial
+lengthens the streak and so the next quarantine. The trial is real traffic
+through the serving breaker, which admits one request at a time once it opens,
+and Oxy's authorized failover absorbs a failure before any output. A success
+ends the streak and the next cycle publishes normally. A retired key needs no
+clock of its own: its return time is the provider's or `key-pools.md`'s window,
+and after it the key is a recovery candidate for the first real request.
+
+**No synthetic probe.** `GET /models` answering is the only request the
+publisher sends. An inference probe would spend tokens every cycle on every
+deployment and prove only that the provider answers a request other than the
+customers' (`routing.md`). A balance endpoint would be free, but none serves
+the case this closes: Cerebras documents no balance endpoint for an inference
+key (its account metrics sit behind a separate management key), OpenAI exposes
+none to a project key, and OpenRouter's `/credits` answered `total_credits: 0`
+while a completion on the same key was billed (`key-pools.md`, "Key class").
+DeepSeek documents `GET /user/balance`, but it is not verified from this
+repository and a probe written from documentation alone is the guess
+`key-pools.md` refuses. An operator who reads a balance records it as capacity
+evidence, and the rule above reads it.
+
+**Why `snapshotId` moves, and why it does not flap.** Withholding changes the
+set of routes, so it moves `snapshotId`: routing changed, and saying otherwise
+would let Oxy believe a route exists that serving refuses. What is NOT hashed is
+the evidence. The snapshot's top-level `withheld` list carries each withheld
+deployment's id, provider, reference, upstream id, `reason`, `until` and
+`failures`, outside `contentID`, so re-stating an unchanged decision every
+cycle, as its failure count or return time moves, leaves `snapshotId` exactly
+where it was. The id moves when a deployment is withheld and when it comes back,
+and the quarantine (at least two cycles at the default cadence, growing with the
+streak) bounds how often that can happen. The reader ignores `withheld`, and
+it carries no key id or credential state; the publisher's WARN line per
+withheld deployment names the key.
+
+**The observation date survives withholding.** `ObservationsFrom` reads the
+`withheld` list as well as the routes, so a line withheld for a week returns
+under the date it was first observed. Reading only the routes would re-date
+every reference to it the cycle it returned.
+
+**When the evidence cannot be read**, the cycle keeps the previous snapshot's
+withholdings whose `until` has not passed and withholds nothing new. Publishing
+everything would flap each withheld route back for one cycle per database blip;
+refusing the cycle would age the whole snapshot toward the horizon over a
+question about publication.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `KAANA_PUBLISHER_WITHHOLDING` | `enforce` | `report` computes and WARNs every decision and withholds nothing: the rollout mode |
+| `KAANA_PUBLISHER_WITHHOLD_FAILURES` | `5` | provider-side failures since the last success that withhold a deployment |
+| `KAANA_PUBLISHER_WITHHOLD_FAILURE_SPAN` | `10m` | how long those failures must span, first to last, so a burst inside one bad minute never withholds |
+| `KAANA_PUBLISHER_WITHHOLD_MIN` | `30m` | shortest quarantine after a streak's last counted failure; two cycles at the default cadence |
+| `KAANA_PUBLISHER_WITHHOLD_MAX` | `6h` | longest quarantine: a deployment dead for days is still re-tried four times a day |
+| `KAANA_PUBLISHER_WITHHOLD_LOOKBACK` | `24h` | how far back attempts are read; must exceed the maximum quarantine and be at most seven days |
+
+An unparseable value, a zero threshold or quarantine, an inverted clamp or a
+lookback inside the maximum quarantine refuses to start.
+
+The operator reads a decision in three places: the snapshot object's
+`withheld` list, a WARN per withheld deployment each cycle (`deploymentId`,
+`provider`, `upstreamModelId`, `reason`, `until`, `keyId`, `failures`), and the
+`withheld` / `wouldWithhold` counts on the per-cycle `inventory snapshot
+published` INFO line.
 
 ### Inventory order is presentation only
 
@@ -312,6 +437,7 @@ execution selector.
 | `AWS_REGION` | yes | the bucket's region |
 | `KAANA_PUBLISH_INTERVAL` | no | re-issue cadence, default `15m`; refused at or past `KAANA_INVENTORY_MAX_AGE` |
 | `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | default `/etc/kaana-publisher/model-attribution.json`, baked into the image |
+| `KAANA_PUBLISHER_WITHHOLDING`, `KAANA_PUBLISHER_WITHHOLD_*` | no | the withholding policy; defaults and meaning in "Withheld from publication" |
 
 Publisher startup requires both variables and refuses any discovery slug absent
 from the serving set. Thus
@@ -379,6 +505,20 @@ reasoning; these are the lines a reviewer holds a change to.
   today that is a publisher startup refusal (the table above) rather than a
   silent drop — and one provider failing never withdraws the others. A cycle in
   which nobody answered refuses and leaves the published snapshot alone.
+- **A deployment Kaana cannot serve now is WITHHELD, on evidence Kaana already
+  persisted, and never on a throttle.** The exact key retired or out of fresh
+  capacity, a credential refusal since the last success, or a sustained streak
+  of provider-side failures (`classifyFailure` is closed: a code it does not
+  name counts for nothing). `rate_limited`, `provider_overloaded` and
+  `provider_timeout` never withhold. A withheld deployment returns on the
+  quarantine clock, because it receives no traffic that could restore it; never
+  withhold without a return time.
+- **The `withheld` list is evidence, not routing: `contentID` never hashes it,
+  and `ObservationsFrom` reads it.** Hashing it flaps `snapshotId` every cycle
+  the failure count moves; not reading it re-dates a line on its return.
+- **The publisher sends no probe of its own.** Its only upstream request is the
+  model list; withholding reads persisted reports, and an unreadable read keeps
+  the previous unexpired decisions rather than publishing or refusing.
 - **Inventory order is presentation, never routing authority.** Emit only
   providers holding a key and sort the resulting deployments by exact opaque
   id for stable snapshots. Never reorder `authorizedRoutes` by health, price or
