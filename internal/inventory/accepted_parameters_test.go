@@ -117,3 +117,58 @@ func TestCatalogueIntersectsAcceptedParametersAcrossReportersOnly(t *testing.T) 
 		t.Errorf("an unreported set reached the wire: %s", encoded)
 	}
 }
+
+// TestADescriptorStatesItsOwnDeploymentsAcceptedParameters: the catalogue's
+// per-line intersection cannot tell Oxy which of several providers' routes
+// refuses a control, so each descriptor carries its own deployment's set —
+// the same one Candidates() copies into the route Translate checks.
+func TestADescriptorStatesItsOwnDeploymentsAcceptedParameters(t *testing.T) {
+	document := issued(time.Now(), strings.Join([]string{
+		deploymentWith("dep_known", "openrouter", `{"acceptedParameters":["maxOutputTokens","tools"]}`),
+		deploymentWith("dep_empty", "cheaperinference", `{"acceptedParameters":[]}`),
+		deploymentWith("dep_silent", "groq", `{"displayName":"x"}`),
+	}, ","))
+	loaded := parse(t, document)
+	byID := map[contract.DeploymentID]inventory.DeploymentDescriptor{}
+	for _, descriptor := range loaded.DeploymentDescriptors() {
+		byID[descriptor.DeploymentID] = descriptor
+	}
+
+	for id := range byID {
+		route, err := loaded.Deployment(id)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		descriptor := byID[id]
+		if (route.AcceptedParameters == nil) != (descriptor.AcceptedParameters == nil) ||
+			(route.AcceptedParameters != nil && !slices.Equal(*route.AcceptedParameters, *descriptor.AcceptedParameters)) {
+			t.Errorf("%s: descriptor %v disagrees with the route Translate checks %v", id, descriptor.AcceptedParameters, route.AcceptedParameters)
+		}
+	}
+
+	encoded, err := json.Marshal([]inventory.DeploymentDescriptor{byID["dep_known"], byID["dep_empty"], byID["dep_silent"]})
+	if err != nil {
+		t.Fatalf("encoding descriptors: %v", err)
+	}
+	var wire []map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatalf("decoding descriptors: %v", err)
+	}
+	if got := string(wire[0]["acceptedParameters"]); got != `["maxOutputTokens","tools"]` {
+		t.Errorf("a known set reached the wire as %s", got)
+	}
+	if got := string(wire[1]["acceptedParameters"]); got != `[]` {
+		t.Errorf("an explicitly empty set reached the wire as %q; it must stay a statement", got)
+	}
+	if _, present := wire[2]["acceptedParameters"]; present {
+		t.Errorf("an unknown set reached the wire: %s", encoded)
+	}
+
+	// A descriptor owns its copy: mutating it cannot change the inventory.
+	(*byID["dep_known"].AcceptedParameters)[0] = "tools"
+	for _, again := range loaded.DeploymentDescriptors() {
+		if again.DeploymentID == "dep_known" && (*again.AcceptedParameters)[0] != provider.ParameterMaxOutputTokens {
+			t.Error("a descriptor aliases the inventory's accepted-parameter slice")
+		}
+	}
+}
