@@ -142,6 +142,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		}
 		restrictToZeroRetention(models, zeroRetention)
 	}
+	applyStatedReasoningEfforts(target.Slug, models)
 
 	// xAI's speech endpoint has no model selector and is absent from /models.
 	// Its authenticated voice catalogue is the capability discovery authority.

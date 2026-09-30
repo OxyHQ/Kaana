@@ -270,6 +270,9 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		body.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
 	if request.Reasoning != nil {
+		if err := refuseUnstatedEffort(a.config.Provider, route.UpstreamModelID, request.Reasoning.Effort); err != nil {
+			return nil, err
+		}
 		effort := string(request.Reasoning.Effort)
 		switch reasoningDialectFor(a.config.Provider) {
 		case reasoningObject:
@@ -695,6 +698,33 @@ func annotate(err error, path string) error {
 	return unsupported
 }
 
+// refuseUnstatedEffort refuses an effort the route's model does not take,
+// where the adapter holds a reviewed per-model statement of the efforts it
+// takes (providerconfig.ReasoningEfforts — today xAI's). xAI answers an effort
+// its model does not document with an error after the request has crossed the
+// network; the publisher publishes the same statement, so a request Oxy signed
+// from the catalogue never reaches this refusal.
+func refuseUnstatedEffort(slug contract.ProviderSlug, upstreamModelID string, effort contract.ReasoningEffort) error {
+	accepted, stated := providerconfig.ReasoningEfforts(slug, upstreamModelID)
+	if !stated {
+		return nil
+	}
+	for _, candidate := range accepted {
+		if candidate == effort {
+			return nil
+		}
+	}
+	detail := fmt.Sprintf("%s does not accept a reasoning effort for this model; omit reasoning to use the model's own behaviour", slug)
+	if len(accepted) > 0 {
+		names := make([]string, len(accepted))
+		for index, candidate := range accepted {
+			names[index] = string(candidate)
+		}
+		detail = fmt.Sprintf("%s accepts reasoning effort %s for this model, not %q", slug, strings.Join(names, ", "), effort)
+	}
+	return provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "reasoning.effort", Detail: detail}
+}
+
 type reasoningDialect int
 
 const (
@@ -710,7 +740,10 @@ const (
 // OpenRouter's provider policy, not a model capability: which models take an
 // effort at all is discovered from the providers' model lists and enforced by
 // Oxy before the request is signed, and a model that still refuses the field
-// is refused by its provider, never silently.
+// is refused by its provider, never silently. The exception is a provider whose
+// model list says nothing about efforts and whose API errors on one its model
+// does not take: there the adapter states the per-model set itself
+// (refuseUnstatedEffort) and refuses before sending.
 //
 //   - openai:     `reasoning_effort` — platform.openai.com/docs/api-reference/chat/create
 //   - groq:       `reasoning_effort` — console.groq.com/docs/reasoning

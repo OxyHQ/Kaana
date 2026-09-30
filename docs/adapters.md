@@ -199,11 +199,21 @@ deployment's own default applies.
 | `anthropic` | `"output_config": {"effort": "<effort>"}`; no `thinking` budget is synthesised, and `max_tokens` stays the caller's |
 | any other `openaicompat` slug | refused: `reasoning_effort` is OpenAI's spelling, and a provider that silently ignores it would report an effort that did nothing |
 
-Which MODELS take an effort is not a table here: it is discovered from the
-providers' model lists (`inventory.md`, catalogue metadata) and Oxy refuses an
-effort the resolved model does not advertise before signing. A model that still
-rejects the field is refused by its provider as a non-retryable invalid request,
-never silently. Speech and embedding requests carrying an effort are refused.
+Which MODELS take an effort is, in general, not a table here: it is discovered
+from the providers' model lists (`inventory.md`, catalogue metadata) and Oxy
+refuses an effort the resolved model does not advertise before signing. A model
+that still rejects the field is refused by its provider as a non-retryable
+invalid request, never silently.
+
+**xAI is the exception.** Its `GET /v1/models` says nothing about efforts, and
+its API answers an effort the model does not take with an error (grok-build-0.1
+and grok-4.20 take none; grok-4.20-multi-agent's effort selects an agent count,
+not reasoning depth). `providerconfig.ReasoningEfforts` holds xAI's per-model
+set from its model pages; `Translate` refuses any other effort with
+`invalid_request` naming `reasoning.effort` before sending, an id with no
+reviewed row takes none, and the publisher publishes the same set as the xAI
+deployment's `reasoningEfforts` so the catalogue never advertises what the route
+refuses. Speech and embedding requests carrying an effort are refused.
 Adding a provider to the table needs its documentation link in
 `reasoningDialectFor` and a real-wire fake in `reasoning_test.go`; the test
 spells the reviewed set out so a slug added without one fails.

@@ -11,6 +11,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
@@ -158,6 +159,30 @@ func applySupportedParameters(observed *inventory.Observed, parameters []string)
 		}
 	}
 	observed.AcceptedParameters = &accepted
+}
+
+// applyStatedReasoningEfforts replaces reasoningEfforts with the adapter's own
+// per-model statement wherever providerconfig.ReasoningEfforts holds one.
+//
+// That statement is what Translate enforces for the route, so publishing
+// anything else would advertise an effort the route refuses. It matters for
+// the catalogue because efforts are INTERSECTED across a line's deployments: an
+// xAI deployment whose model list says nothing abstains, and the line then
+// advertised OpenRouter's whole vocabulary to requests Oxy may sign onto the
+// xAI route. A stated empty list is published as `[]` — "this route takes no
+// effort" — which narrows the line to what every route accepts.
+func applyStatedReasoningEfforts(slug contract.ProviderSlug, models []DiscoveredModel) {
+	for index := range models {
+		model := &models[index]
+		efforts, stated := providerconfig.ReasoningEfforts(slug, model.UpstreamModelID)
+		if !stated {
+			continue
+		}
+		if model.Observed == nil {
+			model.Observed = &inventory.Observed{}
+		}
+		model.Observed.ReasoningEfforts = &efforts
+	}
 }
 
 // providerParameterWords maps each request control onto the words an

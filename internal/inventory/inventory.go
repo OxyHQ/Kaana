@@ -95,7 +95,8 @@ type Deployment struct {
 // Every field is optional and an absent field means UNKNOWN, never a default:
 // a provider that publishes no context window has not published a context
 // window of zero, and a list with no `supported_parameters` has not said the
-// model takes no tools. Nothing here is curated in this repository; the
+// model takes no tools. Nothing here is curated in this repository except
+// ReasoningEfforts where the adapter states its own (see the field); the
 // publisher copies what the provider answered and drops what it cannot read.
 type Observed struct {
 	DisplayName      *string             `json:"displayName,omitempty"`
@@ -107,7 +108,11 @@ type Observed struct {
 	SupportsTools    *bool               `json:"supportsTools,omitempty"`
 	// ReasoningEfforts distinguishes three states: nil is "not reported", an
 	// empty list is "the provider reports this model takes no reasoning
-	// control", and a non-empty list names the efforts it takes.
+	// control", and a non-empty list names the efforts it takes. It is the one
+	// field that may come from this repository rather than the model list:
+	// where the adapter holds a reviewed per-model statement of the efforts it
+	// sends (providerconfig.ReasoningEfforts), that statement replaces the
+	// list's, because it is what Translate enforces for the route.
 	ReasoningEfforts *[]contract.ReasoningEffort `json:"reasoningEfforts,omitempty"`
 	// AcceptedParameters is which caller controls this deployment's upstream
 	// accepts, in Kaana's request-path vocabulary (provider.RequestParameter),

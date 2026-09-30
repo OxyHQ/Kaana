@@ -69,7 +69,8 @@ type ModelFamily struct {
 //   - OpenAI's own slugs (`openai`, `openai-audio`, `openai-realtime`), and
 //     OpenRouter's `openai/` rows, which are the same OpenAI models under the
 //     gateway's namespace;
-//   - xAI's own slugs (`xai`, `xai-realtime`).
+//   - xAI's own slugs (`xai`, `xai-realtime`);
+//   - Groq's Llama Prompt Guard ids, and only those (groqClassifierOnly).
 //
 // classified is false everywhere else: the model list says nothing about the
 // family there, and attribution alone decides. expressible is false when
@@ -86,8 +87,29 @@ func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family M
 		}
 	case "xai", "xai-realtime":
 		return xAIFamily(upstreamModelID), true, true
+	case "groq":
+		if groqClassifierOnly(upstreamModelID) {
+			return ModelFamily{}, true, false
+		}
 	}
 	return ModelFamily{}, false, true
+}
+
+// groqClassifierOnly reports a Groq id that names a CLASSIFIER, not a
+// generative model: Meta's Llama Prompt Guard 2 (22M and 86M) is an mDeBERTa
+// sequence classifier with a 512-token window. Groq serves it at
+// /chat/completions and answers with a label, but it cannot hold a
+// conversation and fails a streamed chat request, and the contract names no
+// classification family — so nothing Kaana executes can express it and it is
+// never published (https://console.groq.com/docs/model/llama-prompt-guard-2-86m,
+// .../llama-prompt-guard-2-22m, https://console.groq.com/docs/content-moderation).
+//
+// `openai/gpt-oss-safeguard-20b` is deliberately NOT here: Groq documents it as
+// a generative reasoning model (tool use, JSON schema, reasoning effort) that
+// classifies by writing text under a caller's policy, which is ordinary chat.
+// Every other Groq id stays unclassified, so attribution alone decides it.
+func groqClassifierOnly(upstreamModelID string) bool {
+	return strings.HasPrefix(strings.ToLower(upstreamModelID), "meta-llama/llama-prompt-guard")
 }
 
 // openAIFamily classifies one of OpenAI's own model ids by what its

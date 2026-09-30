@@ -147,7 +147,7 @@ hand and nothing is defaulted — an absent field means the provider did not say
 | `maxOutputTokens` | `top_provider.max_completion_tokens` (OpenRouter), `max_completion_tokens` (Groq) |
 | `inputModalities`, `outputModalities` | `architecture.*_modalities` (OpenRouter), provider words passed through, sorted |
 | `supportsTools` | `"tools"` in `supported_parameters` (OpenRouter); `capabilities.function_calling` (Mistral) |
-| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]` |
+| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]`; for `xai`, the adapter's own per-model set (`providerconfig.ReasoningEfforts`, `adapters.md`), which is what `Translate` enforces — the one field not read from the list |
 | `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below) |
 | `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
 

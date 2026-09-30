@@ -511,6 +511,18 @@ passthrough; any other 404 ("No endpoints found for <model>.") stays
 `code: 404`, `metadata.error_type: not_found`), so its documented message is
 the discriminator.[^openrouter-errors][^openrouter-routing]
 
+**Account-gated models are not detectable before a request.** Some OpenRouter
+models answer 403 until the account has completed OpenRouter's 18+
+verification; the adapter classifies that as `permission_denied`, a request
+fault that retires no key. Neither `GET /api/v1/models`, the per-model
+`GET /api/v1/models/{id}/endpoints`, nor `GET /api/v1/endpoints/zdr` carries a
+field that says so (read field by field on 2026-09-30; the nearest,
+`top_provider.is_moderated`, is OpenRouter's own moderation, which Kaana's
+content-filter classification already covers). So the publisher cannot exclude
+them, and it does not guess from names or descriptions: completing the
+verification on the platform account, or leaving the line unattributed, are
+the two remedies.
+
 ## Live OpenRouter, Groq and xAI catalogue delta
 
 The publisher task's authenticated 2026-09-01 run exposed a useful trap: an
@@ -548,6 +560,16 @@ The other warnings remain exclusions:
 - Groq's Compound ids are systems that choose among models and tools; Orpheus
   and Whisper use speech endpoints and output types the Chat Completions
   adapter cannot represent.[^groq-systems][^groq-speech][^groq-transcription]
+- Groq's Llama Prompt Guard 2 (`meta-llama/llama-prompt-guard-2-22m`,
+  `-86m`) is an mDeBERTa classifier with a 512-token window. Groq serves it at
+  `/chat/completions`, but it holds no conversation and fails a streamed chat
+  request, and the contract has no classification family, so the family gate
+  (`providerconfig.ClassifyModel`) refuses it under every adapter and the
+  publisher drops it as inexecutable and names it (2026-09-30). Its attribution
+  rows stay only while the measured `configs/inventory.json` still names them.
+  `openai/gpt-oss-safeguard-20b` is NOT excluded: Groq documents it as a
+  generative reasoning model (tools, JSON schema, reasoning effort) that
+  classifies by writing text, which is ordinary chat.[^groq-moderation]
 - Groq lists `qwen/qwen3.8-27b` as Preview, so the direct Groq route remains
   unattributed even though the fixed model line is available elsewhere.[^groq-qwen]
 - xAI's Imagine ids belong to image- or asynchronous video-generation APIs,
@@ -827,6 +849,7 @@ green:
 [^groq-speech]: [Groq Orpheus text-to-speech](https://console.groq.com/docs/text-to-speech/orpheus)
 [^groq-transcription]: [Groq API reference — audio transcription](https://console.groq.com/docs/api-reference)
 [^groq-qwen]: [Groq Qwen 3.8 27B model status](https://console.groq.com/docs/model/qwen/qwen3.8-27b)
+[^groq-moderation]: [Groq content moderation](https://console.groq.com/docs/content-moderation); [Llama Prompt Guard 2 86M](https://console.groq.com/docs/model/llama-prompt-guard-2-86m); [Llama Prompt Guard 2 22M](https://console.groq.com/docs/model/llama-prompt-guard-2-22m); [GPT-OSS-Safeguard 20B](https://console.groq.com/docs/model/openai/gpt-oss-safeguard-20b)
 [^xai-image-models]: [xAI image-generation model API](https://docs.x.ai/developers/rest-api-reference/inference/models)
 [^xai-video]: [xAI Grok Imagine video](https://docs.x.ai/developers/models/grok-imagine-video)
 [^groq-models]: [Groq supported models](https://console.groq.com/docs/models)
