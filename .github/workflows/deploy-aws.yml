@@ -108,25 +108,22 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # `--cache-from/--cache-to type=gha` below need the Actions runtime token
-      # and cache URL, which GitHub hands to JavaScript actions and NOT to `run:`
-      # steps; without them buildx skips the cache silently. Only this job, which
-      # runs on main, writes the `kaana` scope; no pull_request workflow does.
-      - name: Expose the Actions cache to buildx
-        uses: crazy-max/ghaction-github-runtime@v4
-
       - name: Build and push (linux/arm64)
         id: image
         run: |
           set -euo pipefail
           IMG="$ECR_REGISTRY/oxy/$APP"
+          # No layer cache, deliberately. Measured 2026-09-30: with
+          # `type=gha,mode=max` a deploy took 86 s against 41 s cold, because
+          # every deploy changes Go source, `COPY . .` precedes every build
+          # step, so nothing after it can hit, and exporting the golang base and
+          # intermediate layers back to the Actions cache cost ~40 s a run.
+          #
           # --platform is stated rather than inherited: BuildKit takes the
           # target from the host when none is given, so a runner change would
           # silently ship the wrong architecture.
           docker buildx build \
             --platform linux/arm64 \
-            --cache-from type=gha,scope=$APP \
-            --cache-to type=gha,scope=$APP,mode=max,ignore-error=true \
             -t "$IMG:${{ github.sha }}" \
             -t "$IMG:latest" \
             --push \
