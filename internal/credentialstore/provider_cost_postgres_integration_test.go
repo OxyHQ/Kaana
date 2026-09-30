@@ -2,6 +2,7 @@ package credentialstore
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -42,17 +43,19 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 	}
 
 	at := time.Date(2026, time.September, 11, 12, 0, 0, 123_000, time.UTC)
+	// Rate-card versions are append-only, so each run registers its own.
+	rateCardVersion := fmt.Sprintf("rc_integration_%d", time.Now().UnixNano())
 	unregistered := providercost.Event{
 		RequestID: "req_cost_unregistered", Provider: "groq", KeyID: "key-cost-test", DeploymentID: "dep_cost_test",
 		ModelReference: "openai/gpt-oss-120b@2026-08-01", Cost: providercost.Money{Currency: "USD", Amount: 1},
-		Source: providercost.SourceRateCard, RateCardVersionID: "rc_integration_v1", Complete: true, OccurredAt: at,
+		Source: providercost.SourceRateCard, RateCardVersionID: rateCardVersion, Complete: true, OccurredAt: at,
 		Units:     []contract.UsageQuantity{},
 		Telemetry: providercost.AttemptTelemetry{StartedAt: at, Outcome: providercost.AttemptSucceeded},
 	}
 	if err := repository.WriteProviderCostEvent(ctx, unregistered); err == nil {
 		t.Fatal("a rate-card cost naming an unregistered version was recorded")
 	}
-	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_integration_v1","source":"provider_documentation",
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"` + rateCardVersion + `","source":"provider_documentation",
 		"sourceVersion":"groq-pricing-2026-09-01","observedAt":"2026-09-01T00:00:00Z","effectiveAt":"2026-09-01T00:00:00Z",
 		"rateCards":[{"deploymentId":"dep_cost_test","currency":"USD","rates":[{"unit":"output_tokens","amountPerUnit":10}]}]}`))
 	if err != nil {
@@ -69,7 +72,7 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 	if err := repository.RegisterRateCardVersion(ctx, repriced); err == nil {
 		t.Fatal("a different price was accepted under an existing rate card version")
 	}
-	if _, err := pool.Exec(ctx, `UPDATE provider_rate_card_versions SET source_version = 'rewritten' WHERE version_id = 'rc_integration_v1'`); err == nil {
+	if _, err := pool.Exec(ctx, `UPDATE provider_rate_card_versions SET source_version = 'rewritten' WHERE version_id = $1`, rateCardVersion); err == nil {
 		t.Fatal("a registered rate card version was rewritten in place")
 	}
 
@@ -78,7 +81,7 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 		Provider: "groq", KeyID: "key-cost-test", DeploymentID: "dep_cost_test",
 		ModelReference: "openai/gpt-oss-120b@2026-08-01",
 		Cost:           providercost.Money{Currency: "USD", Amount: 125_000},
-		Source:         providercost.SourceRateCard, RateCardVersionID: "rc_integration_v1",
+		Source:         providercost.SourceRateCard, RateCardVersionID: rateCardVersion,
 		Complete: true, Served: true, OccurredAt: at,
 		Units: []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: 12}, {Unit: contract.UnitOutputTokens, Quantity: 3}},
 		Telemetry: providercost.AttemptTelemetry{

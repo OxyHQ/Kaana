@@ -197,16 +197,22 @@ BEGIN
         v_capabilities := COALESCE(v_capabilities, ARRAY[]::TEXT[]);
     END IF;
 
+    -- The ledger numbers revisions, so a key's history stays one sequence even
+    -- if its current row were ever removed and described again.
+    SELECT COALESCE(max(revision), 0) + 1 INTO v_revision
+      FROM public.provider_credential_description_operations
+     WHERE provider_slug = v_provider AND key_id = v_key_id;
+
     INSERT INTO public.provider_credential_descriptions (
         provider_slug, key_id, revision, title, funding_account_id, capacity_category,
         environment, commercial_use, commercial_use_evidence, allowed_models, allowed_capabilities
     ) VALUES (
-        v_provider, v_key_id, 1, p_document->>'title', v_account_id, p_document->>'capacityCategory',
+        v_provider, v_key_id, v_revision, p_document->>'title', v_account_id, p_document->>'capacityCategory',
         p_document->>'environment', p_document#>>'{commercialUse,eligibility}',
         p_document#>>'{commercialUse,evidence}', v_models, v_capabilities
     )
     ON CONFLICT (provider_slug, key_id) DO UPDATE SET
-        revision = public.provider_credential_descriptions.revision + 1,
+        revision = EXCLUDED.revision,
         title = EXCLUDED.title,
         funding_account_id = EXCLUDED.funding_account_id,
         capacity_category = EXCLUDED.capacity_category,
@@ -215,8 +221,7 @@ BEGIN
         commercial_use_evidence = EXCLUDED.commercial_use_evidence,
         allowed_models = EXCLUDED.allowed_models,
         allowed_capabilities = EXCLUDED.allowed_capabilities,
-        updated_at = NOW()
-    RETURNING revision INTO v_revision;
+        updated_at = NOW();
 
     INSERT INTO public.provider_credential_description_operations (
         operation_id, provider_slug, key_id, revision, document, operation_actor, database_actor

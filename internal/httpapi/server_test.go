@@ -125,11 +125,12 @@ func (s *stubAdapter) snapshot() (written int, cancelled bool, calls int) {
 }
 
 type harness struct {
-	server  *httptest.Server
-	adapter *stubAdapter
-	keyID   string
-	private ed25519.PrivateKey
-	logs    *lockedBuffer
+	server    *httptest.Server
+	adapter   *stubAdapter
+	keyID     string
+	private   ed25519.PrivateKey
+	logs      *lockedBuffer
+	telemetry *stubTelemetry
 }
 
 type stubCredentialValidator struct{}
@@ -220,6 +221,11 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 	if err != nil {
 		t.Fatalf("building the credential-validation verifier: %v", err)
 	}
+	telemetryVerifier, err := edgeauth.NewProviderTelemetryVerifier(map[string]ed25519.PublicKey{keyID: public}, time.Minute)
+	if err != nil {
+		t.Fatalf("building the provider-telemetry verifier: %v", err)
+	}
+	telemetry := &stubTelemetry{}
 	path := filepath.Join(t.TempDir(), "inventory.json")
 	inventoryJSON, err := json.Marshal(map[string]any{
 		"snapshotId":  "snap_stub",
@@ -258,6 +264,8 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 		Verifier:            verifier,
 		ValidationVerifier:  validationVerifier,
 		CredentialValidator: stubCredentialValidator{},
+		TelemetryVerifier:   telemetryVerifier,
+		Telemetry:           telemetry,
 		Registry:            registry,
 		Inventory:           store,
 		Rotation:            rotationRegistry,
@@ -269,7 +277,7 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
-	return &harness{server: server, adapter: adapter, keyID: keyID, private: private, logs: logs}
+	return &harness{server: server, adapter: adapter, keyID: keyID, private: private, logs: logs, telemetry: telemetry}
 }
 
 // sign produces the headers the Oxy edge would send. It signs with

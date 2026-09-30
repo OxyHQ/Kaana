@@ -85,6 +85,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	telemetryVerifier, err := edgeauth.NewProviderTelemetryVerifier(keys, durationFromEnv("KAANA_EDGE_MAX_SKEW", edgeauth.DefaultMaxSkew))
+	if err != nil {
+		return err
+	}
 
 	providerConfigs, err := parseProviders(os.Getenv)
 	if err != nil {
@@ -282,6 +286,8 @@ func run(logger *slog.Logger) error {
 		Verifier:            verifier,
 		ValidationVerifier:  validationVerifier,
 		CredentialValidator: credentialValidator,
+		TelemetryVerifier:   telemetryVerifier,
+		Telemetry:           credentialDatabase,
 		Registry:            registry,
 		Inventory:           inventoryStore,
 		Rotation:            rotationRegistry,

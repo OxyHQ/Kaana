@@ -83,6 +83,8 @@ type Server struct {
 	verifier            *edgeauth.Verifier
 	validationVerifier  *edgeauth.Verifier
 	credentialValidator CredentialValidator
+	telemetryVerifier   *edgeauth.Verifier
+	telemetry           ProviderTelemetryReader
 	registry            *provider.Registry
 	inventory           *inventory.Store
 	rotation            *rotation.Registry
@@ -95,6 +97,13 @@ type CredentialValidator interface {
 	Validate(context.Context, contract.KaanaCredentialValidationTask) (contract.KaanaCredentialValidationOutcome, error)
 }
 
+// ProviderTelemetryReader is the operator feed Oxy reads to order deployments
+// on evidence. It exposes no label, account email or secret.
+type ProviderTelemetryReader interface {
+	ReadAttemptFeed(context.Context, *credentialstore.AttemptFeedCursor, int) ([]credentialstore.AttemptFeedEvent, *credentialstore.AttemptFeedCursor, error)
+	ReadCredentialEconomics(context.Context) ([]credentialstore.CredentialEconomics, error)
+}
+
 // Config wires a Server. Every field is required; there is no unauthenticated
 // mode, not even for local development, because a bypass that exists is a
 // bypass that ships.
@@ -103,6 +112,8 @@ type Config struct {
 	Verifier            *edgeauth.Verifier
 	ValidationVerifier  *edgeauth.Verifier
 	CredentialValidator CredentialValidator
+	TelemetryVerifier   *edgeauth.Verifier
+	Telemetry           ProviderTelemetryReader
 	Registry            *provider.Registry
 	Inventory           *inventory.Store
 	Rotation            *rotation.Registry
@@ -122,6 +133,10 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("httpapi: no credential-validation signature verifier")
 	case config.CredentialValidator == nil:
 		return nil, fmt.Errorf("httpapi: no credential validator")
+	case config.TelemetryVerifier == nil:
+		return nil, fmt.Errorf("httpapi: no provider-telemetry signature verifier")
+	case config.Telemetry == nil:
+		return nil, fmt.Errorf("httpapi: no provider-telemetry reader")
 	case config.Registry == nil:
 		return nil, fmt.Errorf("httpapi: no adapter registry")
 	case config.Inventory == nil:
@@ -142,6 +157,8 @@ func New(config Config) (*Server, error) {
 		verifier:            config.Verifier,
 		validationVerifier:  config.ValidationVerifier,
 		credentialValidator: config.CredentialValidator,
+		telemetryVerifier:   config.TelemetryVerifier,
+		telemetry:           config.Telemetry,
 		registry:            config.Registry,
 		inventory:           config.Inventory,
 		rotation:            config.Rotation,
@@ -158,6 +175,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
 	mux.HandleFunc("POST /internal/v1/customer-provider-credentials/validations", s.handleCredentialValidation)
+	mux.HandleFunc("POST /internal/v1/provider-telemetry/attempts", s.handleAttemptFeed)
+	mux.HandleFunc("POST /internal/v1/provider-telemetry/credentials", s.handleCredentialEconomics)
 	mux.HandleFunc("GET /livez", s.handleLive)
 	return mux
 }

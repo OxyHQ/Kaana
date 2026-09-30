@@ -133,3 +133,28 @@ func TestRateCardVersionMigrationIsAppendOnly(t *testing.T) {
 		t.Error("attempt events no longer require the rate card version they name to be registered")
 	}
 }
+
+func TestTelemetryFeedMigrationReadsOnlyThroughLabelFreeFunctions(t *testing.T) {
+	for _, required := range []string{
+		"CREATE FUNCTION kaana_read_provider_attempt_feed(",
+		"clock_timestamp() - INTERVAL '15 seconds'",
+		"(e.created_at, e.request_id, e.attempt_index) >",
+		"p_limit NOT BETWEEN 1 AND 500",
+		"CREATE FUNCTION kaana_read_provider_credential_economics()",
+		"WHERE c.enabled",
+		"TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0018, required) {
+			t.Errorf("telemetry feed migration lost %q", required)
+		}
+	}
+	// The feed may never project a protected or secret column.
+	for _, forbidden := range []string{
+		"account_label", "commercial_use_evidence", "encrypted_secret", "kms_key_arn", "note",
+		"GRANT SELECT", "GRANT INSERT", "GRANT UPDATE", "GRANT DELETE",
+	} {
+		if strings.Contains(migration0018, forbidden) {
+			t.Errorf("telemetry feed migration contains %q", forbidden)
+		}
+	}
+}
