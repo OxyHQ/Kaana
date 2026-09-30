@@ -43,7 +43,7 @@ func (s *stubTelemetry) ReadCredentialEconomics(context.Context) ([]credentialst
 		CapacityEvidence: json.RawMessage(`[]`)}}, nil
 }
 
-func (h *harness) postTelemetry(t *testing.T, path string, body string, sign func(string, int64, []byte) []byte) (*http.Response, []byte) {
+func (h *harness) postTelemetry(t *testing.T, path string, body string, sign func(string, int64, []byte) []byte) (int, []byte) {
 	t.Helper()
 	request, err := http.NewRequest(http.MethodPost, h.server.URL+path, strings.NewReader(body))
 	if err != nil {
@@ -58,35 +58,37 @@ func (h *harness) postTelemetry(t *testing.T, path string, body string, sign fun
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
 	raw, err := io.ReadAll(response.Body)
+	if closeErr := response.Body.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	return response, raw
+	return response.StatusCode, raw
 }
 
 func TestTheAttemptFeedNeedsItsOwnSignedPurpose(t *testing.T) {
 	h := newHarness(t, &stubAdapter{})
 	for _, path := range []string{"/internal/v1/provider-telemetry/attempts", "/internal/v1/provider-telemetry/credentials"} {
 		// An inference signature is a different purpose and reads nothing.
-		response, _ := h.postTelemetry(t, path, `{"schemaVersion":1}`, edgeauth.SigningInput)
-		if response.StatusCode != http.StatusUnauthorized {
-			t.Errorf("%s with an inference signature = %d, want 401", path, response.StatusCode)
+		status, _ := h.postTelemetry(t, path, `{"schemaVersion":1}`, edgeauth.SigningInput)
+		if status != http.StatusUnauthorized {
+			t.Errorf("%s with an inference signature = %d, want 401", path, status)
 		}
 		// The positive control: the telemetry purpose is accepted.
-		response, _ = h.postTelemetry(t, path, `{"schemaVersion":1}`, edgeauth.ProviderTelemetrySigningInput)
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("%s with a telemetry signature = %d, want 200", path, response.StatusCode)
+		status, _ = h.postTelemetry(t, path, `{"schemaVersion":1}`, edgeauth.ProviderTelemetrySigningInput)
+		if status != http.StatusOK {
+			t.Errorf("%s with a telemetry signature = %d, want 200", path, status)
 		}
 	}
 }
 
 func TestTheAttemptFeedResumesFromTheCursorItIssued(t *testing.T) {
 	h := newHarness(t, &stubAdapter{})
-	response, raw := h.postTelemetry(t, "/internal/v1/provider-telemetry/attempts", `{"schemaVersion":1,"limit":1}`, edgeauth.ProviderTelemetrySigningInput)
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("status %d: %s", response.StatusCode, raw)
+	status, raw := h.postTelemetry(t, "/internal/v1/provider-telemetry/attempts", `{"schemaVersion":1,"limit":1}`, edgeauth.ProviderTelemetrySigningInput)
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %s", status, raw)
 	}
 	var page struct {
 		Attempts []map[string]any `json:"attempts"`
@@ -103,10 +105,10 @@ func TestTheAttemptFeedResumesFromTheCursorItIssued(t *testing.T) {
 		t.Fatalf("the upstream amount is not an exact integer string: %s", raw)
 	}
 
-	response, raw = h.postTelemetry(t, "/internal/v1/provider-telemetry/attempts",
+	status, raw = h.postTelemetry(t, "/internal/v1/provider-telemetry/attempts",
 		`{"schemaVersion":1,"after":"`+*page.Next+`"}`, edgeauth.ProviderTelemetrySigningInput)
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("resuming = %d: %s", response.StatusCode, raw)
+	if status != http.StatusOK {
+		t.Fatalf("resuming = %d: %s", status, raw)
 	}
 	h.telemetry.mu.Lock()
 	after, limit := h.telemetry.lastAfter, h.telemetry.lastLimit
@@ -121,17 +123,17 @@ func TestTheAttemptFeedResumesFromTheCursorItIssued(t *testing.T) {
 		"unknown field":   `{"schemaVersion":1,"since":"yesterday"}`,
 		"wrong version":   `{"schemaVersion":2}`,
 	} {
-		if response, raw := h.postTelemetry(t, "/internal/v1/provider-telemetry/attempts", body, edgeauth.ProviderTelemetrySigningInput); response.StatusCode != http.StatusBadRequest {
-			t.Errorf("%s = %d: %s", name, response.StatusCode, raw)
+		if status, raw := h.postTelemetry(t, "/internal/v1/provider-telemetry/attempts", body, edgeauth.ProviderTelemetrySigningInput); status != http.StatusBadRequest {
+			t.Errorf("%s = %d: %s", name, status, raw)
 		}
 	}
 }
 
 func TestCredentialEconomicsCarryNoLabel(t *testing.T) {
 	h := newHarness(t, &stubAdapter{})
-	response, raw := h.postTelemetry(t, "/internal/v1/provider-telemetry/credentials", `{"schemaVersion":1}`, edgeauth.ProviderTelemetrySigningInput)
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("status %d: %s", response.StatusCode, raw)
+	status, raw := h.postTelemetry(t, "/internal/v1/provider-telemetry/credentials", `{"schemaVersion":1}`, edgeauth.ProviderTelemetrySigningInput)
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %s", status, raw)
 	}
 	if !strings.Contains(string(raw), `"capacityCategory":"trial"`) || !strings.Contains(string(raw), `"commercialUse":"permitted"`) {
 		t.Fatalf("economics lost their facts: %s", raw)
