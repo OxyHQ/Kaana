@@ -39,7 +39,7 @@ func TestDeepgramBuildsNativeVoiceAdapter(t *testing.T) {
 	}
 }
 
-func TestOpenAIAudioBuildsTheTranscriptionAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
+func TestOpenAIAudioBuildsTheAudioAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "openai,openai-audio"}))
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestOpenAIAudioBuildsTheTranscriptionAdapterOnlyAtOpenAIsOrigin(t *testing.
 		chats := provider.Executes(adapter, contract.APIFormatChatCompletions)
 		switch adapter.Provider() {
 		case "openai-audio":
-			if _, ok := adapter.(*openaiaudio.Adapter); !ok || !transcribes || chats {
+			if _, ok := adapter.(*openaiaudio.Adapter); !ok || !transcribes || !chats {
 				t.Fatalf("openai-audio built as %T executing %v", adapter, adapter.APIFormats())
 			}
 		case "openai":

@@ -98,12 +98,15 @@ Kaana status:
   `openai` or a chat id under `openai-audio` is dropped and named.
 - Realtime, Live, translation and live-transcription models use sessionful
   WebRTC/WebSocket/SIP or specialized realtime endpoints and events, and no
-  request family in the contract expresses a session. Audio Chat Completions
-  (`gpt-audio-1.5`) produces audio output: the stream has an `audio` event, but
-  the envelope cannot request text and audio output together, carries no voice
-  or audio format outside `audio_speech`, and has no audio-token unit. Both stay
-  unattributed under every slug; publishing them would advertise routes no
-  adapter can faithfully execute.[^openai-realtime][^openai-audio]
+  request family in the contract expresses a session. They stay unattributed
+  under every slug; publishing them would advertise routes no adapter can
+  faithfully execute.[^openai-realtime]
+- Audio Chat Completions (`gpt-audio-1.5`) answers aloud. Since contract set
+  3.2.0 the envelope asks for it with `audioOutput` and the report meters it in
+  audio-token units, so it is attributed to `openai-audio`, whose adapter
+  executes chat_completions only for spoken output; the publisher drops it under
+  `openai`, and the text adapter refuses `audioOutput` for any gateway row that
+  reaches it (docs/openai-audio.md).[^openai-audio]
 - A successful catalogue read is not a paid-account balance check. The new
   OpenAI credential remains unavailable to economic routing until Oxy records
   verified usable balance.

@@ -118,10 +118,20 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 	case ProtocolDeepgramVoice:
 		return []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}
 	case ProtocolOpenAIAudio:
-		return []contract.APIFormat{contract.APIFormatAudioTranscriptions}
+		return []contract.APIFormat{contract.APIFormatAudioTranscriptions, contract.APIFormatChatCompletions}
 	}
 	return nil
 }
+
+// SpokenChatCompletions reports whether a protocol's chat_completions path is
+// spoken output (a request carrying `audioOutput`) and nothing else. The two
+// readings are exclusive per protocol, not per request: the `openai_audio`
+// adapter executes Chat Completions ONLY to answer aloud and refuses a text
+// chat, and every other protocol that executes chat_completions produces text
+// and refuses `audioOutput`. The publisher reads this beside
+// ExecutableAPIFormats, so an audio chat model is attached only to an adapter
+// that can speak and a text model never to one that can only speak.
+func SpokenChatCompletions(protocol string) bool { return protocol == ProtocolOpenAIAudio }
 
 // ValidateBaseURL limits provider credentials to a verified HTTPS origin.
 func ValidateBaseURL(raw string) error {
