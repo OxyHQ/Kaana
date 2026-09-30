@@ -53,15 +53,15 @@ credential only at send time.
 
 | Provider | OpenAI-compatible base URL | Chat endpoint | Account model discovery | Model identity status | Current Kaana implementation |
 |---|---|---|---|---|---|
-| OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | Authenticated `GET /models`, OpenAI list shape | Four current flagship text ids are reviewed; the shorter `gpt-5.6` alias moves and specialized media models require other transports/contracts | Built-in `openaicompat` serving and authenticated discovery. Only `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna` can currently publish direct deployments. |
-| Mistral | `https://api.mistral.ai/v1` | `POST /chat/completions` | `GET /models`; response includes `capabilities.completion_chat` | Fixed GA ids are available; `*-latest` and major aliases move; `labs-*` may update silently | Built-in `openaicompat` serving; publisher filters for chat capability; five fixed ids are attributed. No live credential conformance has been recorded. |
+| OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | Authenticated `GET /models`, OpenAI list shape | Seven GPT-6/GPT-5.6 ids that OpenAI publishes only as their own snapshot, plus eleven dated snapshots of older chat lines, are reviewed; undated aliases (`gpt-5.6`, `gpt-5.4`, `gpt-4o`, ...) move, Responses-only and gated models have no Chat Completions route, and specialized media models require other transports/contracts | Built-in `openaicompat` serving and authenticated discovery. Only the eighteen ids listed under "OpenAI" below can currently publish direct deployments. |
+| Mistral | `https://api.mistral.ai/v1` | `POST /chat/completions` | `GET /models`; response includes `capabilities.completion_chat` | Fixed GA ids are available; `*-latest` and major aliases move; `labs-*` may update silently | Built-in `openaicompat` serving; publisher filters for chat capability; eight fixed ids are attributed. No live credential conformance has been recorded. |
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `GET /models`, OpenAI list shape | Current direct ids are moving aliases; vision id is experimental | Built-in `openaicompat` serving and generic discovery. Direct attribution is deliberately absent, so discovery cannot emit a direct DeepSeek deployment yet. |
 | SambaNova | `https://api.sambanova.ai/v1` | `POST /chat/completions` | `GET /models`; includes context, max output and pricing metadata | Four production ids are allowed; `DeepSeek-V3.2` is preview | Built-in `openaicompat` serving and generic discovery; four production ids are attributed. Publisher reads only the metadata spellings `observed.go` documents; SambaNova's own fields are not yet mapped. No live credential conformance has been recorded. |
-| Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | Authenticated native `GET /api/v1/models`, paginated and filterable by capability/support | Four dated Qwen snapshots are allowed; moving family ids and previews remain absent | Built-in protocol and endpoint identity with explicit base; native authenticated discovery; exact snapshot attribution. No live credential conformance has been recorded. |
+| Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | Authenticated native `GET /api/v1/models`, paginated and filterable by capability/support | Seven dated Qwen snapshots are allowed; moving family ids and previews remain absent | Built-in protocol and endpoint identity with explicit base; native authenticated discovery; exact snapshot attribution. No live credential conformance has been recorded. |
 | Cloudflare Workers AI | `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` | `POST /chat/completions` | Separate authenticated `GET /accounts/{account_id}/ai/models/search`; official result rows are currently untyped | Catalogue ids and lifecycle are provider-managed; no id is attributed by this change | Built-in protocol and endpoint identity with explicit base; serving only. Discovery fails closed until Cloudflare publishes a stable row schema. |
-| SiliconFlow | `https://api.siliconflow.cn/v1` | `POST /chat/completions` | `GET /models?type=text&sub_type=chat` | Versioned upstream ids exist; `Pro/` is a delivery/payment tier, not different weights | Built-in `openaicompat` serving; publisher applies both discovery filters; five fixed chat ids are attributed. No live credential conformance has been recorded. |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | `POST /chat/completions` | `GET /models?type=text&sub_type=chat` | Versioned upstream ids exist; `Pro/` is a delivery/payment tier, not different weights | Built-in `openaicompat` serving; publisher applies both discovery filters; eleven fixed chat ids and one embedding id are attributed. No live credential conformance has been recorded. |
 | AI21 | `https://api.ai21.com/studio/v1` | `POST /chat/completions` | No `GET /models` is documented in the current API reference | Two dated Jamba snapshots are fixed; shorter names are aliases | Built-in `openaicompat` serving configuration. Discovery is `not_available`, so the publisher refuses AI21. No attribution or static-catalog path exists yet. |
-| Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | `POST /chat/completions` | Authenticated `GET /models?verbose=true`, OpenAI list plus rich model metadata | The documented `-fast` flavour may not mint a new model identity; any other id still needs exact attribution | Built-in `openaicompat` serving and provider-specific authenticated discovery. Two fixed Meta ids from official examples are attributed; they remain absent until a verbose account list returns them as base deployments. |
+| Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | `POST /chat/completions` | Authenticated `GET /models?verbose=true`, OpenAI list plus rich model metadata | The documented `-fast` flavour may not mint a new model identity; any other id still needs exact attribution | Built-in `openaicompat` serving and provider-specific authenticated discovery. Six fixed ids named by Nebius's 2026 deprecation notices are attributed (the original Meta examples were retired); they remain absent until a verbose account list returns them as base deployments. |
 | Nscale | `https://inference.api.nscale.com/v1` | `POST /chat/completions` | Authenticated, organization-scoped `GET /models`; the catalogue mixes chat, vision, embeddings and image generation | Versioned ids exist, but task capability still needs review | Built-in `openaicompat` serving and generic authenticated discovery. One fixed Meta chat id from the official guide is attributed; every other row remains dropped. |
 | Chutes | `https://llm.chutes.ai/v1` | `POST /chat/completions` | The documented `/models` catalogue is public, not an account entitlement list | TEE suffixes are deployment facts; saved aliases and routing strategies move | Built-in serving only. Discovery is `not_available` until account access, routing identity and streamed usage have a provider-specific control. |
 | OVHcloud AI Endpoints | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | `POST /chat/completions` | Public catalogue at a separate `catalog.endpoints.ai.ovh.net` origin | Availability and decommission state are mutable deployment facts | Built-in serving only. Discovery is `not_available`; Kaana will not send a provider credential to the public catalogue or mistake catalogue presence for account access. |
@@ -77,19 +77,44 @@ adapter conformance suite.
 ## OpenAI
 
 OpenAI documents `https://api.openai.com/v1`, bearer authentication and the
-authenticated `GET /v1/models` account catalogue. The current flagship model
-pages name four exact text-output ids that support Chat Completions, streaming
-and function calling: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra` and
-`gpt-5.6-luna`.[^openai-models][^openai-gpt6][^openai-sol][^openai-terra][^openai-luna]
+authenticated `GET /v1/models` account catalogue. Re-reviewed on 2026-09-30,
+OpenAI's model pages give text output and a supported `v1/chat/completions`
+endpoint for each id below.[^openai-models]
+
+- **Own-snapshot lines.** `gpt-6.1-sol` (released 2026-09-29), `gpt-6-sol` and
+  `gpt-6-luna` (2026-09-22), `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra` and
+  `gpt-5.6-luna`. Each page lists the bare id as its only snapshot; OpenAI
+  publishes no dated form to pin instead.[^openai-gpt61-sol][^openai-gpt6-sol][^openai-gpt6-luna][^openai-gpt6][^openai-sol][^openai-terra][^openai-luna][^openai-changelog]
+- **Dated snapshots of older lines.** `gpt-5.5-2026-04-23`,
+  `gpt-5.4-2026-03-05`, `gpt-5.4-mini-2026-03-17`, `gpt-5.4-nano-2026-03-17`,
+  `gpt-5.2-2025-12-11`, `gpt-5.1-2025-11-13`, `gpt-4.1-2025-04-14`,
+  `gpt-4.1-mini-2025-04-14`, `gpt-4o-2024-08-06`, `gpt-4o-2024-11-20` and
+  `gpt-4o-mini-2024-07-18`. The undated `gpt-5.5`, `gpt-5.4`, `gpt-4o` and so
+  on are aliases that OpenAI re-points, so only the dated id is attributed and
+  the dated id is the model line, as for Alibaba's Qwen snapshots.[^openai-gpt55][^openai-gpt54][^openai-gpt41][^openai-gpt4o]
+
+Tool calling is narrower than chat on the newest lines: OpenAI's pages say
+`gpt-6-astra` and `gpt-6.1-sol` need the Responses API for tool calling, and
+`gpt-6-sol`/`gpt-6-luna` accept Chat Completions function calling only with
+`reasoning_effort: none`. Their plain chat and streaming routes are what this
+allow-list publishes; the adapter's tool-call conformance still has to cover
+that provider behaviour before a tool request is routed there.
 
 Kaana status:
 
 - The existing `openai_models` discovery profile reads only this credential's
   authenticated catalogue. Attribution is therefore an allow-list, not a claim
   that an uncharged or lower-tier account can invoke every reviewed model.
-- Only the four exact flagship ids above are attributed to `openai`. The shorter
-  `gpt-5.6` alias, ChatGPT-only models and specialized media models remain
-  absent from it.
+- Only the eighteen exact ids above are attributed to `openai`. Undated aliases,
+  `chat-latest` and other ChatGPT-only models, and specialized media models
+  remain absent.
+- Responses-only or gated models are absent because Kaana's OpenAI route is
+  `POST /chat/completions`: every `-pro` line, `gpt-5.3-codex`,
+  `gpt-5.6-cyber` (Daybreak approval), `gpt-rosalind-research` (trusted
+  access, no model page) and OpenAI's own `gpt-oss-*` rows.
+- Snapshots OpenAI has scheduled for shutdown are not added: `gpt-5`,
+  `gpt-5-mini`, `gpt-5-nano`, `gpt-5-pro`, `o3` and `o3-pro` (2026-12-11) and
+  `gpt-4o-2024-05-13` (2026-10-23).[^openai-deprecations]
 - File transcription models are attributed to `openai-audio`, OpenAI's own
   origin under a second slug served by the dedicated transcription adapter
   (docs/openai-audio.md). The publisher classifies every id in OpenAI's own
@@ -144,6 +169,17 @@ Fixed, chat-capable candidates currently allowed by Kaana:
 - `mistral-large-2512`
 - `ministral-8b-2512`
 - `ministral-14b-2512`
+- `ministral-3b-2512` (added 2026-09-30)[^mistral-ministral-3b]
+- `codestral-2508` (added 2026-09-30; GA, Chat Completions as well as FIM)[^mistral-codestral]
+- `zai-glm-5-3` (added 2026-09-30) — Z.ai's GLM 5.3, which Mistral serves as a
+  GA third-party model "without Mistral modifications". It is attributed to
+  the existing `z-ai/glm-5.3` line; third-party models carry one month of
+  deprecation notice rather than six.[^mistral-glm]
+
+The 2026-09-30 review found every Magistral and Devstral id deprecated and
+retired (31 July 2026) and `zai-glm-5-2` deprecated for 31 October 2026, so
+none was added. `voxtral-small-2507` takes audio input and stays outside this
+text allow-list.[^mistral-overview]
 
 Mistral's lifecycle documentation distinguishes a fixed major/minor id from
 `-latest` and major aliases, both of which automatically move. Labs releases
@@ -155,7 +191,7 @@ Kaana status:
 - `providerconfig.Known["mistral"]` selects `openaicompat`, the official base
   URL and the `mistral_models` discovery profile.
 - Discovery keeps only rows whose `capabilities.completion_chat` is true.
-- `configs/model-attribution.json` allows only the five fixed ids above.
+- `configs/model-attribution.json` allows only the eight fixed ids above.
 - Free mode is an account plan with included monthly usage, not a permanent
   property of a model deployment. It must not become `cost = 0` in inventory.
   Labs being free is not enough to overcome their mutable lifecycle.[^mistral-free]
@@ -166,13 +202,17 @@ DeepSeek documents `https://api.deepseek.com` as its OpenAI-format base, bearer
 authentication, `POST /chat/completions` and an OpenAI-shaped authenticated
 `GET /models`.[^deepseek-quickstart][^deepseek-models]
 
-Current callable ids:
+Current callable ids, re-checked on 2026-09-30:
 
-- `deepseek-v4-flash` — moving alias, currently V4-Flash-0731
-- `deepseek-v4-pro` — moving alias, currently V4-Pro-0813
-- `deepseek-v4-flash-vision-exp` — experimental vision deployment
+- `deepseek-flash` — new moving name; DeepSeek's change log says to use it "to
+  call the latest V4.1 Flash model"
+- `deepseek-v4-pro` — moving alias, currently V4-Pro-0813; DeepSeek's own news
+  post and change log disagree on whether it was temporarily re-routed to
+  V4.1 Flash from 2026-09-14
+- `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` — both models are
+  retired and the names are "temporarily routed to V4.1 Flash"[^deepseek-updates]
 
-The first two names are explicitly the stable calling method for whichever
+These names are explicitly the stable calling method for whichever
 current V4 versions DeepSeek assigns to them. The official direct API
 documentation does not declare the dated version labels as independently
 callable model ids. None of the three therefore qualifies as an immutable
@@ -244,10 +284,18 @@ calls; misuse can suspend the subscription or revoke the key.[^alibaba-token-pla
 
 Fixed snapshot candidates documented by Alibaba include:
 
+- `qwen3.8-max-0902` (added 2026-09-30; Alibaba also documents it under the
+  alias `qwen3.8-max-2026-09-02`, and the primary id is attributed)
+- `qwen3.7-max-2026-06-08` (added 2026-09-30)
+- `qwen3.7-max-2026-05-20` (added 2026-09-30)
 - `qwen3.7-plus-2026-05-26`
 - `qwen3.7-flash-2026-07-15`
 - `qwen3.6-plus-2026-04-02`
 - `qwen3.6-flash-2026-04-16`
+
+`qwen3.7-max-2026-05-17` is absent: Alibaba calls it "the early version" of the
+Max model, available for experimentation and reasoning-only. The undated
+`qwen3.8-max`, `qwen3.8-flash` and `qwen3.7-max` remain moving family ids.[^alibaba-qwen37-max][^alibaba-qwen38-max]
 
 The family ids without a date are not substitutes for these snapshots. Several
 snapshot families are already listed as legacy even though their fixed ids
@@ -275,7 +323,7 @@ Kaana status:
   ids. A legacy/non-workspace base that does not identify its documented
   catalogue workspace is refused rather than guessed.
 - Only exact `response_modality=["Text"]` rows proceed to attribution, and only
-  the four dated snapshots above are attributed. Undated families, previews and
+  the seven dated snapshots above are attributed. Undated families, previews and
   every other catalogue row are dropped and named.
 - The shared adapter passes Kaana's synthetic OpenAI-wire conformance suite
   under the `alibaba` slug. A scrubbed real-account capture of invalid-key,
@@ -332,11 +380,21 @@ send both `type=text` and `sub_type=chat`.[^silicon-chat][^silicon-models]
 
 Fixed chat candidates currently allowed by Kaana:
 
-- `Pro/zai-org/GLM-5`
-- `Pro/zai-org/GLM-4.7`
 - `deepseek-ai/DeepSeek-V3.2`
-- `Qwen/Qwen3.5-397B-A17B`
 - `deepseek-ai/DeepSeek-V3.1-Terminus`
+- `Pro/zai-org/GLM-5.1`, `zai-org/GLM-5.2`, `zai-org/GLM-5.3`
+- `Qwen/Qwen3.8-27B`, `Qwen/Qwen3.6-27B`
+- `Pro/moonshotai/Kimi-K2.6`, `moonshotai/Kimi-K2.7-Code`
+- `meituan-longcat/LongCat-2.0`
+- `stepfun-ai/Step-3.5-Flash`
+
+The nine ids added on 2026-09-30 come from SiliconFlow's model square and are
+each attributed to a model line another provider route already established.
+SiliconFlow took `Pro/zai-org/GLM-5` and `Pro/zai-org/GLM-4.7` offline on
+2026-06-11 — GLM-5 requests are now redirected to GLM-5.1, so the old row would
+name other weights — and `Qwen/Qwen3.5-397B-A17B` on 2026-09-11; all three are
+removed. DeepSeek V4 rows are left out because DeepSeek itself treats those
+names as moving, and `tencent/Hy4-preview` is a preview.[^silicon-releases][^silicon-square]
 
 The fixed embedding deployment `Qwen/Qwen3-Embedding-0.6B` is also allowed.
 Kaana calls SiliconFlow's non-streaming `/embeddings` endpoint with an explicit
@@ -432,6 +490,55 @@ The other warnings remain exclusions:
 - xAI's Imagine ids belong to image- or asynchronous video-generation APIs,
   not the text stream Kaana currently normalizes.[^xai-image-models][^xai-video]
 
+## 2026-09-30 catalogue review
+
+Every discovering provider was re-read against its own documentation (for
+OpenRouter, its public `GET /api/v1/models`). The same three gates applied;
+nothing was copied from a third-party list.
+
+**OpenRouter.** 39 newly served ids have text output and a dated canonical
+slug, or are a `:free` route of such a line: Anthropic Claude Fable 5.1,
+Opus 5.5 and Sonnet 5.5; OpenAI GPT-6 Astra, GPT-6 Sol, GPT-6 Luna and
+GPT-6.1 Sol with their `-pro` routes (as the GPT-5.6 `-pro` rows already
+were); Google Gemini 3.8 Flash; Cohere Command A+; DeepSeek V4.1 Flash; xAI
+Grok 4.7; Qwen3.8 Max 0902, Max Prime and Omni Flash plus the free Qwen3.8
+27B route; and new rows from Fireworks, Inception, inclusionAI, Inference.net,
+Meta, Nex AGI, NVIDIA, Perceptron, PrismML, Upstage, Xiaomi and Z.ai.[^openrouter-models]
+OpenRouter's own descriptions exclude the rest: Aion 3.5 is "a multi-model
+... system", Sakana Fugu is "a learned multi-agent orchestration system",
+Unbiased Pareto is "a multimodal composite model", and TypeSafe's Jev Router,
+`openai/gpt-chat-latest`, Tencent Hy4 preview, `stealth/space-bunny-alpha`,
+`~...latest`, `openrouter/*` and every `:batch` row fail the existing rules.
+
+**Withdrawn upstream, retired here only where the snapshot allows.** Thirty
+attributed OpenRouter ids no longer appear in the live catalogue, Groq shut
+`qwen/qwen3.6-27b` down on 2026-09-14 and no longer lists `allam-2-7b`, and
+Cerebras withdrew `gemma-4-31b` from Shared Inference on 2026-09-03.[^groq-deprecations][^cerebras-deprecations]
+Three of the OpenRouter rows (`inclusionai/ling-3.0-flash-fin:free`,
+`minimax/minimax-m2.7:free`, `minimax/minimax-m3:free`) are in no checked-in
+deployment and are removed. The others are still named by
+`configs/inventory.json`, a measured snapshot this review does not hand-edit:
+their attribution stays so the snapshot remains readable, and the publisher
+already withdraws each one on the first cycle whose discovery no longer
+returns it. They can leave this table in the change that refreshes the
+snapshot.
+
+**Direct providers.**
+
+- Cerebras: `qwen-3.8-27b` is Production and attributed to the existing
+  `qwen/qwen3.8-27b` line. Cerebras commits to serving the original weights
+  for an existing model id.[^cerebras-models]
+- xAI: `grok-4.7` is attributed like the other `grok-4.x` rows; its model page
+  lists no alias.[^xai-grok47]
+- Groq: the only new text ids, `minimaxai/minimax-m2.7` and `qwen/qwen3.8-27b`,
+  are Preview and stay absent.[^groq-models]
+- OpenAI, Mistral, SiliconFlow, Nebius and Alibaba: see their sections.
+- DeepSeek, SambaNova: no new fixed production id (see their sections).
+  SambaNova's only additions, `MiniMax-M3` and `gemma-4-31B-it`, are Preview.[^sambanova-catalogue]
+- Nscale: its public pages name no exact id beyond the attributed example,
+  which is still current; the full list is visible only to an authenticated
+  account.
+
 ## Additional compatible provider surfaces
 
 Google Gemini, Together, Cohere, Fireworks, Hyperbolic and DigitalOcean publish
@@ -505,9 +612,17 @@ the authenticated organization. Nebius discovery requests `verbose=true` and
 discards the documented `-fast` delivery flavour before attribution. Any other
 unreviewed alias is dropped by the exact attribution allow-list. Nscale uses the
 generic OpenAI list profile.
-The official examples provide two fixed Meta ids for Nebius and one for Nscale,
-so those exact ids are attributed to canonical model lines already established
-by existing routes. They still create no deployment unless the authenticated
+The official examples provided two fixed Meta ids for Nebius and one for
+Nscale, so those exact ids were attributed to canonical model lines already
+established by existing routes. Nebius removed `meta-llama/Llama-3.3-70B-Instruct`
+from Serverless on 2026-08-31 and its public catalogue no longer lists
+`meta-llama/Meta-Llama-3.1-70B-Instruct`, so on 2026-09-30 both were replaced by
+the exact ids Nebius's own 2026 deprecation notices name as replacements:
+`deepseek-ai/DeepSeek-V4-Flash-0731`, `MiniMaxAI/MiniMax-M3`,
+`nvidia/nemotron-3-super-120b-a12b`, `nvidia/Nemotron-3_5-Lightning`,
+`openai/gpt-oss-120b` and `Qwen/Qwen3.5-397B-A17B`. `zai-org/GLM-5.3` is left
+out because Nebius's catalogue links it to a third-party NVFP4 quantisation
+rather than Z.ai's weights.[^nebius-deprecation-aug][^nebius-deprecation-jun][^nebius-catalogue] They still create no deployment unless the authenticated
 account list returns the exact id. A first real capture must retain Nebius's
 delivery-flavour evidence and review Nscale task capability before
 the allow-list grows.[^nebius-models][^nebius-flavours][^nscale-chat][^nscale-models]
@@ -607,15 +722,26 @@ green:
 [^mistral-api]: [Mistral API — Chat](https://docs.mistral.ai/api)
 [^mistral-models-api]: [Mistral API — Models endpoints](https://docs.mistral.ai/api/endpoint/models)
 [^mistral-lifecycle]: [Mistral model lifecycle and alias convention](https://docs.mistral.ai/inference/model-lifecycle)
+[^mistral-ministral-3b]: [Mistral Ministral 3 3B](https://docs.mistral.ai/models/ministral-3-3b-25-12)
+[^mistral-codestral]: [Mistral Codestral 25.08](https://docs.mistral.ai/models/codestral-25-08)
+[^mistral-glm]: [Mistral-served Z.ai GLM 5.3](https://docs.mistral.ai/models/zai-glm-5-3)
+[^mistral-overview]: [Mistral models overview and retirements](https://docs.mistral.ai/getting-started/models/models_overview/)
 [^mistral-free]: [Mistral Studio activation and Free mode](https://docs.mistral.ai/getting-started/quickstarts/studio/activate-and-generate-api-key)
 [^deepseek-quickstart]: [DeepSeek — Your First API Call](https://api-docs.deepseek.com/)
 [^deepseek-models]: [DeepSeek — Lists Models](https://api-docs.deepseek.com/api/list-models/)
 [^deepseek-pricing]: [DeepSeek — Models and Pricing](https://api-docs.deepseek.com/quick_start/pricing/)
+[^deepseek-updates]: [DeepSeek API change log](https://api-docs.deepseek.com/updates)
 [^sambanova-urls]: [SambaNova — API keys and URLs](https://docs.sambanova.ai/docs/en/get-started/api-keys-urls)
 [^sambanova-models-api]: [SambaNova — available model list metadata](https://docs.sambanova.ai/docs/api-reference/models/get-environments-available-model-list-metadata)
 [^sambanova-catalogue]: [SambaCloud models](https://docs.sambanova.ai/docs/en/models/sambacloud-models)
 [^sambanova-deprecations]: [SambaNova model deprecations](https://docs.sambanova.ai/docs/en/models/deprecations)
 [^sambanova-limits]: [SambaCloud rate-limit tiers](https://docs.sambanova.ai/docs/en/models/rate-limits)
+[^alibaba-qwen37-max]: [Alibaba Model Studio — Qwen3.7-Max snapshots](https://www.alibabacloud.com/help/en/model-studio/qwen3-7-max)
+[^alibaba-qwen38-max]: [Alibaba Model Studio — Qwen3.8-Max snapshot](https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max)
+[^silicon-square]: [SiliconFlow model square](https://siliconflow.cn/models)
+[^nebius-deprecation-aug]: [Nebius Token Factory — August 2026 deprecation notice](https://docs.tokenfactory.nebius.com/august-2026-deprecation-notice)
+[^nebius-deprecation-jun]: [Nebius Token Factory — June 2026 deprecation notice](https://docs.tokenfactory.nebius.com/june-2026-deprecation-notice)
+[^nebius-catalogue]: [Nebius Token Factory public model catalogue](https://tokenfactory.nebius.com/api/public/models_info)
 [^alibaba-chat]: [Alibaba Model Studio — OpenAI-compatible Chat](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope)
 [^alibaba-token-plan]: [Alibaba Model Studio Token Plan usage policy](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/token-plan-personal-overview)
 [^alibaba-catalogue]: [Alibaba Model Studio text-generation models](https://www.alibabacloud.com/help/en/model-studio/text-generation-model)
@@ -637,6 +763,11 @@ green:
 [^groq-qwen]: [Groq Qwen 3.8 27B model status](https://console.groq.com/docs/model/qwen/qwen3.8-27b)
 [^xai-image-models]: [xAI image-generation model API](https://docs.x.ai/developers/rest-api-reference/inference/models)
 [^xai-video]: [xAI Grok Imagine video](https://docs.x.ai/developers/models/grok-imagine-video)
+[^groq-models]: [Groq supported models](https://console.groq.com/docs/models)
+[^groq-deprecations]: [Groq deprecations](https://console.groq.com/docs/deprecations)
+[^cerebras-models]: [Cerebras models overview](https://inference-docs.cerebras.ai/models/overview)
+[^cerebras-deprecations]: [Cerebras model deprecations](https://inference-docs.cerebras.ai/support/deprecation)
+[^xai-grok47]: [xAI Grok 4.7 model](https://docs.x.ai/developers/models/grok-4.7)
 [^google-openai]: [Gemini API OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)
 [^together-openai]: [Together OpenAI compatibility](https://docs.together.ai/docs/inference/openai-compatibility)
 [^cohere-openai]: [Cohere Compatibility API](https://docs.cohere.com/docs/compatibility-api)
@@ -667,6 +798,15 @@ green:
 [^openai-sol]: [OpenAI GPT-5.6 Sol model](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
 [^openai-terra]: [OpenAI GPT-5.6 Terra model](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
 [^openai-luna]: [OpenAI GPT-5.6 Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+[^openai-gpt61-sol]: [OpenAI GPT-6.1 Sol model](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+[^openai-gpt6-sol]: [OpenAI GPT-6 Sol model](https://developers.openai.com/api/docs/models/gpt-6-sol)
+[^openai-gpt6-luna]: [OpenAI GPT-6 Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna)
+[^openai-changelog]: [OpenAI API changelog](https://developers.openai.com/api/docs/changelog)
+[^openai-gpt55]: [OpenAI GPT-5.5 model and snapshots](https://developers.openai.com/api/docs/models/gpt-5.5)
+[^openai-gpt54]: [OpenAI GPT-5.4, GPT-5.4 mini and nano snapshots](https://developers.openai.com/api/docs/models/gpt-5.4)
+[^openai-gpt41]: [OpenAI GPT-4.1 and GPT-4.1 mini snapshots](https://developers.openai.com/api/docs/models/gpt-4.1)
+[^openai-gpt4o]: [OpenAI GPT-4o and GPT-4o mini snapshots](https://developers.openai.com/api/docs/models/gpt-4o)
+[^openai-deprecations]: [OpenAI deprecations](https://developers.openai.com/api/docs/deprecations)
 [^openai-realtime]: [OpenAI Realtime API](https://developers.openai.com/api/docs/guides/realtime)
 [^openai-audio]: [OpenAI GPT-Audio-1.5 model](https://developers.openai.com/api/docs/models/gpt-audio-1.5)
 [^hf-router]: [Hugging Face Inference Providers routing](https://huggingface.co/docs/inference-providers/en/index)

@@ -103,10 +103,24 @@ func TestOpenAIAttributionPublishesOnlyReviewedChatModels(t *testing.T) {
 	}
 
 	want := map[string]contract.ModelID{
-		"gpt-5.6-luna":  "openai/gpt-5.6-luna",
-		"gpt-5.6-sol":   "openai/gpt-5.6-sol",
-		"gpt-5.6-terra": "openai/gpt-5.6-terra",
-		"gpt-6-astra":   "openai/gpt-6-astra",
+		"gpt-6.1-sol":             "openai/gpt-6.1-sol",
+		"gpt-6-astra":             "openai/gpt-6-astra",
+		"gpt-6-sol":               "openai/gpt-6-sol",
+		"gpt-6-luna":              "openai/gpt-6-luna",
+		"gpt-5.6-luna":            "openai/gpt-5.6-luna",
+		"gpt-5.6-sol":             "openai/gpt-5.6-sol",
+		"gpt-5.6-terra":           "openai/gpt-5.6-terra",
+		"gpt-5.5-2026-04-23":      "openai/gpt-5.5-2026-04-23",
+		"gpt-5.4-2026-03-05":      "openai/gpt-5.4-2026-03-05",
+		"gpt-5.4-mini-2026-03-17": "openai/gpt-5.4-mini-2026-03-17",
+		"gpt-5.4-nano-2026-03-17": "openai/gpt-5.4-nano-2026-03-17",
+		"gpt-5.2-2025-12-11":      "openai/gpt-5.2-2025-12-11",
+		"gpt-5.1-2025-11-13":      "openai/gpt-5.1-2025-11-13",
+		"gpt-4.1-2025-04-14":      "openai/gpt-4.1-2025-04-14",
+		"gpt-4.1-mini-2025-04-14": "openai/gpt-4.1-mini-2025-04-14",
+		"gpt-4o-2024-08-06":       "openai/gpt-4o-2024-08-06",
+		"gpt-4o-2024-11-20":       "openai/gpt-4o-2024-11-20",
+		"gpt-4o-mini-2024-07-18":  "openai/gpt-4o-mini-2024-07-18",
 	}
 	if got := len(table.byProvider["openai"]); got != len(want) {
 		t.Fatalf("OpenAI has %d direct attributions, want exactly %d reviewed chat models", got, len(want))
@@ -128,6 +142,28 @@ func TestOpenAIAttributionPublishesOnlyReviewedChatModels(t *testing.T) {
 		"gpt-realtime-whisper",
 		"gpt-realtime-1.5",
 		"gpt-audio-1.5",
+		// Undated aliases that re-point to a newer snapshot: the dated id is
+		// attributed instead.
+		"gpt-5.5",
+		"gpt-5.4",
+		"gpt-5.4-mini",
+		"gpt-4.1",
+		"gpt-4o",
+		"gpt-4o-mini",
+		"chat-latest",
+		// Responses-only or separately gated: no Chat Completions route.
+		"gpt-5.5-pro",
+		"gpt-5.4-pro",
+		"gpt-5.3-codex",
+		"gpt-5.6-cyber",
+		"gpt-oss-120b",
+		"gpt-rosalind-research",
+		// Snapshots OpenAI has scheduled for shutdown.
+		"gpt-5-2025-08-07",
+		"gpt-5-mini-2025-08-07",
+		"gpt-5-nano-2025-08-07",
+		"o3-2025-04-16",
+		"gpt-4o-2024-05-13",
 	} {
 		if _, ok := table.ModelLine("openai", excluded); ok {
 			t.Errorf("OpenAI specialized or moving model %q is published through the chat-only contract", excluded)
@@ -206,22 +242,45 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attribution: %v", err)
 	}
-	if got := len(table.byProvider["openrouter"]); got != 347 {
-		t.Fatalf("OpenRouter attributions = %d, want the 347 entries whose provenance the checked-in file declares", got)
+	if got := len(table.byProvider["openrouter"]); got != 383 {
+		t.Fatalf("OpenRouter attributions = %d, want the 383 entries whose provenance the checked-in file declares", got)
 	}
 
 	supported := map[contract.ProviderSlug]map[string]contract.ModelID{
 		"openrouter": {
 			"ibm-granite/granite-4.2-8b":          "ibm-granite/granite-4.2-8b",
-			"inclusionai/ling-3.0-flash-fin:free": "inclusionai/ling-3.0-flash-fin",
-			"minimax/minimax-m2.7:free":           "minimax/minimax-m2.7",
-			"minimax/minimax-m3:free":             "minimax/minimax-m3",
 			"mistralai/devstral-2512":             "mistralai/devstral-2512",
 			"qwen/qwen3.8-flash":                  "qwen/qwen3.8-flash",
 			"tencent/hy-mt2-7b":                   "tencent/hy-mt2-7b",
 			"thinkingmachines/inkling-small:free": "thinkingmachines/inkling-small",
 			"thinkingmachines/inkling:free":       "thinkingmachines/inkling",
 			"z-ai/glm-5.3-flash":                  "z-ai/glm-5.3-flash",
+			// The 2026-09-30 delta.
+			"anthropic/claude-opus-5.5":             "anthropic/claude-opus-5.5",
+			"anthropic/claude-sonnet-5.5":           "anthropic/claude-sonnet-5.5",
+			"google/gemini-3.8-flash":               "google/gemini-3.8-flash",
+			"inclusionai/ling-3.0-flash-fin":        "inclusionai/ling-3.0-flash-fin",
+			"inclusionai/ling-3.0-flash-sante:free": "inclusionai/ling-3.0-flash-sante",
+			"openai/gpt-6-astra":                    "openai/gpt-6-astra",
+			"openai/gpt-6.1-sol":                    "openai/gpt-6.1-sol",
+			"qwen/qwen3.8-27b:free":                 "qwen/qwen3.8-27b",
+			"qwen/qwen3.8-max-0902":                 "qwen/qwen3.8-max-0902",
+			"x-ai/grok-4.7":                         "x-ai/grok-4.7",
+		},
+		"cerebras": {"qwen-3.8-27b": "qwen/qwen3.8-27b"},
+		"mistral": {
+			"ministral-3b-2512": "mistralai/ministral-3b-2512",
+			"codestral-2508":    "mistralai/codestral-2508",
+			"zai-glm-5-3":       "z-ai/glm-5.3",
+		},
+		"xai": {"grok-4.7": "x-ai/grok-4.7"},
+		// `Pro/` is a delivery tier, never part of the model line.
+		"siliconflow": {
+			"Pro/zai-org/GLM-5.1":         "z-ai/glm-5.1",
+			"zai-org/GLM-5.3":             "z-ai/glm-5.3",
+			"Qwen/Qwen3.8-27B":            "qwen/qwen3.8-27b",
+			"Pro/moonshotai/Kimi-K2.6":    "moonshotai/kimi-k2.6",
+			"meituan-longcat/LongCat-2.0": "meituan/longcat-2.0",
 		},
 	}
 	for slug, models := range supported {
@@ -257,6 +316,32 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 	}
 }
 
+// The 2026-09-30 OpenRouter delta left these unattributed. Each is text output
+// under a publisher namespace, so nothing but a reviewed exclusion keeps it out:
+// OpenRouter's own descriptions call them multi-model orchestration or
+// composite systems, a moving alias, a preview or an undisclosed release.
+func TestCheckedInAttributionExcludesTheReviewedOpenRouterSystems(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	for _, excluded := range []string{
+		"aion-labs/aion-3.5",
+		"aion-labs/aion-3.5-mini",
+		"sakana/fugu-max",
+		"sakana/fugu-ultra-v2",
+		"unbiased/pareto",
+		"typesafe/jev-router",
+		"openai/gpt-chat-latest",
+		"tencent/hy4-preview",
+		"stealth/space-bunny-alpha",
+	} {
+		if _, ok := table.ModelLine("openrouter", excluded); ok {
+			t.Errorf("openrouter/%s is attributed; it is a system, moving alias, preview or undisclosed release", excluded)
+		}
+	}
+}
+
 func TestCheckedInAttributionPinsOnlyTheDocumentedNebiusAndNscaleExamples(t *testing.T) {
 	table, err := LoadAttribution("../../configs/model-attribution.json")
 	if err != nil {
@@ -264,9 +349,15 @@ func TestCheckedInAttributionPinsOnlyTheDocumentedNebiusAndNscaleExamples(t *tes
 	}
 
 	want := map[contract.ProviderSlug]map[string]contract.ModelID{
+		// Nebius retired both original Meta examples from Serverless; these are
+		// the exact ids its 2026 deprecation notices name as replacements.
 		"nebius": {
-			"meta-llama/Meta-Llama-3.1-70B-Instruct": "meta-llama/llama-3.1-70b-instruct",
-			"meta-llama/Llama-3.3-70B-Instruct":      "meta-llama/llama-3.3-70b-instruct",
+			"deepseek-ai/DeepSeek-V4-Flash-0731": "deepseek/deepseek-v4-flash-0731",
+			"MiniMaxAI/MiniMax-M3":               "minimax/minimax-m3",
+			"nvidia/nemotron-3-super-120b-a12b":  "nvidia/nemotron-3-super-120b-a12b",
+			"nvidia/Nemotron-3_5-Lightning":      "nvidia/nemotron-3.5-lightning",
+			"openai/gpt-oss-120b":                "openai/gpt-oss-120b",
+			"Qwen/Qwen3.5-397B-A17B":             "qwen/qwen3.5-397b-a17b",
 		},
 		"nscale": {
 			"meta-llama/Llama-3.1-8B-Instruct": "meta-llama/llama-3.1-8b-instruct",
@@ -289,10 +380,31 @@ func TestCheckedInAttributionPinsOnlyTheDocumentedNebiusAndNscaleExamples(t *tes
 		id   string
 	}{
 		{slug: "nebius", id: "meta-llama/Meta-Llama-3.1-70B-Instruct-fast"},
+		{slug: "nebius", id: "openai/gpt-oss-120b-fast"},
+		{slug: "nebius", id: "Qwen/Qwen3.5-397B-A17B-fast"},
 		{slug: "nscale", id: "default"},
 	} {
 		if _, ok := table.ModelLine(candidate.slug, candidate.id); ok {
 			t.Errorf("%s/%s attributes a delivery alias rather than fixed weights", candidate.slug, candidate.id)
+		}
+	}
+
+	// Retired upstream: Nebius removed Llama 3.3 70B from Serverless on
+	// 2026-08-31 and no longer lists Llama 3.1 70B; SiliconFlow took GLM-5 and
+	// GLM-4.7 offline on 2026-06-11 (GLM-5 requests now reach GLM-5.1, other
+	// weights) and Qwen3.5-397B-A17B on 2026-09-11.
+	for _, retired := range []struct {
+		slug contract.ProviderSlug
+		id   string
+	}{
+		{slug: "nebius", id: "meta-llama/Meta-Llama-3.1-70B-Instruct"},
+		{slug: "nebius", id: "meta-llama/Llama-3.3-70B-Instruct"},
+		{slug: "siliconflow", id: "Pro/zai-org/GLM-5"},
+		{slug: "siliconflow", id: "Pro/zai-org/GLM-4.7"},
+		{slug: "siliconflow", id: "Qwen/Qwen3.5-397B-A17B"},
+	} {
+		if _, ok := table.ModelLine(retired.slug, retired.id); ok {
+			t.Errorf("%s/%s is attributed after the provider retired it", retired.slug, retired.id)
 		}
 	}
 }
@@ -303,6 +415,9 @@ func TestCheckedInAttributionPinsOnlyDocumentedAlibabaSnapshots(t *testing.T) {
 		t.Fatalf("attribution: %v", err)
 	}
 	want := map[string]contract.ModelID{
+		"qwen3.7-max-2026-05-20":   "qwen/qwen3.7-max-2026-05-20",
+		"qwen3.7-max-2026-06-08":   "qwen/qwen3.7-max-2026-06-08",
+		"qwen3.8-max-0902":         "qwen/qwen3.8-max-0902",
 		"qwen3.6-flash-2026-04-16": "qwen/qwen3.6-flash-2026-04-16",
 		"qwen3.6-plus-2026-04-02":  "qwen/qwen3.6-plus-2026-04-02",
 		"qwen3.7-flash-2026-07-15": "qwen/qwen3.7-flash-2026-07-15",
@@ -317,7 +432,7 @@ func TestCheckedInAttributionPinsOnlyDocumentedAlibabaSnapshots(t *testing.T) {
 			t.Errorf("alibaba/%s = %q, %t; want %q", upstreamModelID, got, ok, modelLine)
 		}
 	}
-	for _, excluded := range []string{"qwen3.7-plus", "qwen3.7-flash", "qwen3.8-max", "qwen3.7-max-preview"} {
+	for _, excluded := range []string{"qwen3.7-plus", "qwen3.7-flash", "qwen3.8-max", "qwen3.7-max-preview", "qwen3.7-max", "qwen3.8-flash", "qwen3.7-max-2026-05-17"} {
 		if _, ok := table.ModelLine("alibaba", excluded); ok {
 			t.Errorf("alibaba/%s attributes a moving or preview id", excluded)
 		}
