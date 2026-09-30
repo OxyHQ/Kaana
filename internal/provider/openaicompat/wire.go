@@ -1,6 +1,10 @@
 package openaicompat
 
-import "github.com/OxyHQ/Kaana/internal/contract"
+import (
+	"encoding/json"
+
+	"github.com/OxyHQ/Kaana/internal/contract"
+)
 
 // The upstream wire shapes, exactly as the OpenAI Chat Completions API defines
 // them. They are separate from the contract types on purpose: this file is the
@@ -251,6 +255,29 @@ type completionTokensInfo struct {
 // returns, over HTTP and inside the stream alike.
 type upstreamErrorBody struct {
 	Error upstreamError `json:"error"`
+}
+
+// UnmarshalJSON also reads xAI's flat envelope, `{"code": "...", "error":
+// "<text>"}`, where `error` is the message itself rather than an object. Read
+// only as an object, every xAI refusal reached the customer with no reason at
+// all ("xai rejected the request").
+func (b *upstreamErrorBody) UnmarshalJSON(raw []byte) error {
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+		Code  any             `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	var text string
+	if json.Unmarshal(envelope.Error, &text) == nil {
+		b.Error = upstreamError{Message: text, Code: envelope.Code}
+		return nil
+	}
+	if len(envelope.Error) == 0 || string(envelope.Error) == "null" {
+		return nil
+	}
+	return json.Unmarshal(envelope.Error, &b.Error)
 }
 
 type upstreamError struct {
