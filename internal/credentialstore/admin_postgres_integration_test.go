@@ -82,7 +82,7 @@ func TestProviderCredentialIDOperationsPostgresAndFakeKMS(t *testing.T) {
 		provider_cost_events,
 		provider_credential_admin_operations,
 		provider_credential_audit,
-		provider_credentials RESTART IDENTITY`); err != nil {
+		provider_credentials RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("resetting provider credential test tables: %v", err)
 	}
 
