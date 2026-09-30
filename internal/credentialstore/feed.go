@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
 // MaxAttemptFeedPage is the most attempts one feed read returns.
@@ -64,31 +65,24 @@ func ParseAttemptFeedCursor(token string) (AttemptFeedCursor, error) {
 // upstream with that cost's provenance. It is an operator projection and never
 // part of an inference response.
 type AttemptFeedEvent struct {
-	Position          string                   `json:"position"`
-	RequestID         contract.RequestID       `json:"requestId"`
-	AttemptIndex      int                      `json:"attemptIndex"`
-	Provider          contract.ProviderSlug    `json:"provider"`
-	KeyID             string                   `json:"keyId"`
-	KeyClass          string                   `json:"keyClass"`
-	DeploymentID      contract.DeploymentID    `json:"deploymentId"`
-	ModelReference    contract.ModelReference  `json:"modelReference"`
-	Cost              *FeedMoney               `json:"cost"`
-	CostSource        string                   `json:"costSource"`
-	RateCardVersionID *string                  `json:"rateCardVersionId"`
-	CostComplete      bool                     `json:"costComplete"`
-	Served            bool                     `json:"served"`
-	OccurredAt        time.Time                `json:"occurredAt"`
-	Units             []contract.UsageQuantity `json:"units"`
+	Position          string                       `json:"position"`
+	RequestID         contract.RequestID           `json:"requestId"`
+	AttemptIndex      int                          `json:"attemptIndex"`
+	Provider          contract.ProviderSlug        `json:"provider"`
+	KeyID             string                       `json:"keyId"`
+	KeyClass          string                       `json:"keyClass"`
+	DeploymentID      contract.DeploymentID        `json:"deploymentId"`
+	ModelReference    contract.ModelReference      `json:"modelReference"`
+	Cost              *providercost.OperatorAmount `json:"cost"`
+	CostSource        string                       `json:"costSource"`
+	RateCardVersionID *string                      `json:"rateCardVersionId"`
+	CostComplete      bool                         `json:"costComplete"`
+	Served            bool                         `json:"served"`
+	OccurredAt        time.Time                    `json:"occurredAt"`
+	Units             []contract.UsageQuantity     `json:"units"`
 	// Telemetry is null for an attempt recorded before attempts were
 	// measured; it is never a zero-filled stand-in.
 	Telemetry *FeedAttemptTelemetry `json:"telemetry"`
-}
-
-// FeedMoney is an upstream amount in 1e-12 of the currency's major unit, as a
-// decimal integer string so no consumer rounds it through a float.
-type FeedMoney struct {
-	Currency    string `json:"currency"`
-	AmountPicos string `json:"amountPicos"`
 }
 
 // FeedAttemptTelemetry is one attempt's own measurements.
@@ -141,7 +135,7 @@ func (p *Postgres) ReadAttemptFeed(ctx context.Context, after *AttemptFeedCursor
 			return nil, nil, fmt.Errorf("credential store: reading an attempt feed row: %w", err)
 		}
 		if currency != nil && amountPicos != nil {
-			event.Cost = &FeedMoney{Currency: *currency, AmountPicos: *amountPicos}
+			event.Cost = &providercost.OperatorAmount{Currency: *currency, AmountPicos: *amountPicos}
 		}
 		event.Units = make([]contract.UsageQuantity, 0)
 		if unitsJSON != nil {

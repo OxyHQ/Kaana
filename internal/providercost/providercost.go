@@ -110,6 +110,16 @@ func (m Money) String() string {
 	return fmt.Sprintf("%s %d.%012d", m.Currency, whole, fraction)
 }
 
+// OperatorAmount is an upstream amount as the separately signed operator
+// telemetry feed renders it for Oxy: the integer count of 1e-12 units as a
+// decimal string, so no consumer rounds it through a float. It is the only
+// form in which Kaana's own cost leaves the process, and never on an inference
+// response or a contract shape.
+type OperatorAmount struct {
+	Currency    string `json:"currency"`
+	AmountPicos string `json:"amountPicos"`
+}
+
 // currencyPattern is the shape of an ISO 4217 code. Kaana does not hold a
 // currency table: it never converts between currencies, so the only thing it
 // can usefully check is that an operator has not written a provider's name

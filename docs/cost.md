@@ -65,6 +65,56 @@ explicit unknown observation. The controlled projection contains no plaintext
 credential and is intended only for a separately authenticated operator path
 into Oxy; it is never attached to an inference response.
 
+## Per-attempt telemetry and rate-card history
+
+Every platform-funded upstream attempt is one `provider_cost_events` row keyed
+by `(request_id, attempt_index)` and bound to the exact `(provider, keyId)`,
+deployment and revision-pinned model reference. Besides the cost and its
+provenance, the row carries what the attempt measured about itself (migration
+`0016`): its own usage units (sorted, so a replay is byte-identical), when it
+started, its latency, its time to first output — timed from the attempt's own
+start, so a fallback is never charged its primary's wait — and how it ended:
+`succeeded`, `cancelled`, or `failed` with the contract error code it was
+classified as. `rate_limited` and `provider_quota_exhausted` are how a throttle
+and an exhaustion stay apart without a second vocabulary; a throttle never
+retires a key. A replay that differs in any measured fact fails closed exactly
+like a different amount does. Rows written before `0016` keep NULL telemetry:
+they were never measured, and a zero would be a fact nobody observed.
+
+Rate-card versions are append-only (migration `0015`). The runtime registers
+the version it loaded before it serves; the same version with the same facts
+is a replay, and the same `rateCardVersionId` with any different price stops
+the process. `UPDATE`, `DELETE` and `TRUNCATE` on the history are refused by
+trigger, and a rate-card cost that names an unregistered version is refused,
+so what every estimate was calculated from can always be read back. A price
+change ships as a new version id.
+
+## The operator feed Oxy reads
+
+Oxy owns balances, grants, spend reservations and deployment ordering. To
+order on evidence it reads Kaana's measurements through two signed operator
+reads on the runtime, each under its own edgeauth purpose
+(`oxy-kaana-provider-telemetry:v1`): an inference signature reads nothing here
+and a telemetry signature runs nothing.
+
+- `POST /internal/v1/provider-telemetry/attempts` with
+  `{"schemaVersion":1,"after":<cursor>?,"limit":1-500?}` returns attempts
+  oldest first with an opaque `next` cursor and `caughtUp`. An attempt appears
+  only once it is 15 seconds old: a row's position is its writing
+  transaction's start, so a late commit could otherwise land behind a cursor
+  the reader already passed. The upstream cost is a
+  `providercost.OperatorAmount` — integer 1e-12 units as a decimal string.
+- `POST /internal/v1/provider-telemetry/credentials` with
+  `{"schemaVersion":1}` returns each enabled platform key's class, and when it
+  has been described, its capacity category, environment, commercial-use
+  eligibility, opaque funding account, restrictions and latest capacity
+  evidence per kind. No account label, email, evidence text or secret is in
+  it. An undescribed key has a null description, which Oxy must treat as
+  unknown rather than free or permitted.
+
+Both are `SECURITY DEFINER` functions (migration `0018`); the runtime role can
+execute them and still cannot `SELECT` a table.
+
 ## Published list prices
 
 A provider's own model list sometimes publishes what a model costs (OpenRouter's
@@ -90,9 +140,16 @@ inference stream event, a usage report, an error body or any contract shape.
 - **`internal/providercost` is the only package that may hold an amount**, it is
   never the contract's money type, and `internal/contract` must not be able to
   reach it (asserted, not reviewed).
-- **A cost never enters a stream event, a usage report, an error body or a
-  response of any kind.** It is an operator number; the customer's amount is
-  Oxy's and always was.
+- **A cost never enters a stream event, a usage report, an error body or any
+  customer-facing response.** It is an operator number; the customer's amount
+  is Oxy's and always was. Its one way out of the process is the signed
+  operator feed (`/internal/v1/provider-telemetry/*`, its own signature
+  purpose), as a `providercost.OperatorAmount`.
+- **Every attempt carries its own measurements or explicitly none.** Telemetry
+  is never zero-filled for a row that predates it, and a replay that differs in
+  any measured fact fails closed.
+- **A rate-card version is immutable.** A changed price is a new
+  `rateCardVersionId`; reusing one with different prices stops the process.
 - **The one amount any response carries is a provider's PUBLISHED list price,
   on the signed `GET /internal/v1/models` to Oxy.** It is a
   `providercost.ListPrice` observation of a public catalogue, never Kaana's

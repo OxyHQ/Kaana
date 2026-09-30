@@ -15,6 +15,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
 type stubTelemetry struct {
@@ -31,7 +32,7 @@ func (s *stubTelemetry) ReadAttemptFeed(_ context.Context, after *credentialstor
 	return []credentialstore.AttemptFeedEvent{{
 		Position: cursor.Encode(), RequestID: "req_feed", AttemptIndex: 1, Provider: "groq", KeyID: "key-1",
 		KeyClass: "free", DeploymentID: "dep_a", ModelReference: "openai/model@2026-09-01",
-		Cost: &credentialstore.FeedMoney{Currency: "USD", AmountPicos: "125000"}, CostSource: "rate_card",
+		Cost: &providercost.OperatorAmount{Currency: "USD", AmountPicos: "125000"}, CostSource: "rate_card",
 	}}, &cursor, nil
 }
 
