@@ -217,15 +217,33 @@ func TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter(t *testing.T) {
 	}
 
 	// Every checked-in row, in every namespace the family gate classifies
-	// (OpenAI's, OpenRouter's `openai/`, xAI's), is one the publisher would
-	// publish under its slug.
+	// (OpenAI's, OpenRouter's `openai/`, xAI's, Groq's classifiers), is one the
+	// publisher would publish under its slug — except the rows the measured
+	// configs/inventory.json still names and the gate now withdraws. Those keep
+	// their attribution until that snapshot is re-measured (the attribution
+	// table's own rule for withdrawn rows), and are listed exactly so the
+	// exemption cannot grow one row at a time.
+	withdrawn := map[string]bool{
+		"groq/meta-llama/llama-prompt-guard-2-22m": true,
+		"groq/meta-llama/llama-prompt-guard-2-86m": true,
+	}
+	exempted := 0
 	for slug, models := range table.byProvider {
 		target := Provider{Slug: slug, Protocol: providerconfig.Known[slug].Protocol}
 		for upstreamModelID := range models {
-			if !executable(target, upstreamModelID) {
-				t.Errorf("%s/%s is attributed, and its adapter cannot execute its request family", slug, upstreamModelID)
+			key := string(slug) + "/" + upstreamModelID
+			switch executes := executable(target, upstreamModelID); {
+			case withdrawn[key] && executes:
+				t.Errorf("%s is exempted as withdrawn, and the gate would publish it", key)
+			case withdrawn[key]:
+				exempted++
+			case !executes:
+				t.Errorf("%s is attributed, and its adapter cannot execute its request family", key)
 			}
 		}
+	}
+	if exempted != len(withdrawn) {
+		t.Errorf("%d of the %d exempted rows are attributed AND refused by the gate; remove an exemption once its row is gone", exempted, len(withdrawn))
 	}
 	// OpenRouter's rows of OpenAI's audio chat models answer aloud there.
 	for _, upstreamModelID := range []string{"openai/gpt-audio", "openai/gpt-audio-mini"} {

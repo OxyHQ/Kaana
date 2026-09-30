@@ -21,6 +21,11 @@ import (
 // that these are the bytes the HTTP adapter sends.
 func sendThroughRealWire(t *testing.T, slug contract.ProviderSlug, request *contract.Request) map[string]json.RawMessage {
 	t.Helper()
+	return sendThroughRealWireFor(t, slug, realWireModel(slug), request)
+}
+
+func sendThroughRealWireFor(t *testing.T, slug contract.ProviderSlug, upstreamModelID string, request *contract.Request) map[string]json.RawMessage {
+	t.Helper()
 	received := make(chan []byte, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -39,7 +44,7 @@ func sendThroughRealWire(t *testing.T, slug contract.ProviderSlug, request *cont
 		t.Fatalf("building the %s adapter: %v", slug, err)
 	}
 	call, err := adapter.Translate(request, provider.Route{
-		DeploymentID: "dep_reasoning", Provider: slug, ModelReference: "openai/gpt-oss-120b@observed-2026-08-06", UpstreamModelID: "openai/gpt-oss-120b",
+		DeploymentID: "dep_reasoning", Provider: slug, ModelReference: "openai/gpt-oss-120b@observed-2026-08-06", UpstreamModelID: upstreamModelID,
 	})
 	if err != nil {
 		t.Fatalf("translating for %s: %v", slug, err)
@@ -52,6 +57,15 @@ func sendThroughRealWire(t *testing.T, slug contract.ProviderSlug, request *cont
 		t.Fatalf("the upstream body is not JSON: %v", err)
 	}
 	return wire
+}
+
+// realWireModel is a model each slug really serves that takes every effort:
+// xAI's efforts are stated per model, and gpt-oss is not an xAI model.
+func realWireModel(slug contract.ProviderSlug) string {
+	if slug == "xai" {
+		return "grok-4.7"
+	}
+	return "openai/gpt-oss-120b"
 }
 
 func reasoningRequest(effort contract.ReasoningEffort) *contract.Request {
@@ -149,5 +163,64 @@ func TestAnEffortOnSpeechOrEmbeddingsIsRefusedNotDropped(t *testing.T) {
 		if !errors.As(err, &unsupported) || unsupported.Param != "reasoning.effort" {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// xAI's direct API answers an effort its model does not take with an error, so
+// the adapter refuses it by name before spending anything, per model. The
+// controls are a request without an effort to the same model, the same effort
+// on a model xAI documents it for (which reaches the wire in xAI's field), and
+// the same line through OpenRouter, whose efforts are not xAI's to state.
+func TestXAIRefusesAnEffortItsModelDoesNotTakeBeforeSpendingAnything(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	t.Cleanup(upstream.Close)
+	baseURL, client := upstream.URL, (*http.Client)(nil)
+	if reviewed, bound := identityBoundTestBaseURL("xai"); bound {
+		baseURL, client = reviewed, identityBoundFakeClient(t, upstream.URL)
+	}
+	adapter, err := New(Config{Provider: "xai", BaseURL: baseURL, Declarations: provider.DeclareKeys([]string{fakeAPIKey}), HTTPClient: client})
+	if err != nil {
+		t.Fatalf("building xai: %v", err)
+	}
+	route := func(id string) provider.Route {
+		return provider.Route{DeploymentID: "dep_xai", Provider: "xai", ModelReference: contract.ModelReference("x-ai/" + id + "@observed-2026-09-30"), UpstreamModelID: id}
+	}
+
+	for _, id := range []string{"grok-build-0.1", "grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning", "grok-4.20-multi-agent-0309", "grok-9-unreviewed"} {
+		for _, effort := range contract.ReasoningEfforts() {
+			_, err := adapter.Translate(reasoningRequest(effort), route(id))
+			var unsupported provider.ErrUnsupported
+			if !errors.As(err, &unsupported) || unsupported.Code != contract.CodeInvalidRequest || unsupported.Param != "reasoning.effort" {
+				t.Errorf("xai/%s effort %s: want invalid_request naming reasoning.effort, got %v", id, effort, err)
+			}
+		}
+		if _, err := adapter.Translate(reasoningRequest(""), route(id)); err != nil {
+			t.Errorf("control: xai/%s without an effort was refused: %v", id, err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("a refused effort reached xAI %d times", calls.Load())
+	}
+
+	for _, id := range []string{"grok-4.7", "grok-4.6", "grok-4.5", "grok-4.3"} {
+		for _, effort := range contract.ReasoningEfforts() {
+			call, err := adapter.Translate(reasoningRequest(effort), route(id))
+			if err != nil {
+				t.Fatalf("control: xai/%s effort %s was refused: %v", id, effort, err)
+			}
+			var wire map[string]json.RawMessage
+			if err := json.Unmarshal(call.Body, &wire); err != nil {
+				t.Fatal(err)
+			}
+			if string(wire["reasoning_effort"]) != `"`+string(effort)+`"` {
+				t.Errorf("xai/%s: reasoning_effort = %s, want %q", id, wire["reasoning_effort"], effort)
+			}
+		}
+	}
+
+	openrouter := sendThroughRealWireFor(t, "openrouter", "x-ai/grok-build-0.1", reasoningRequest(contract.ReasoningEffortHigh))
+	if string(openrouter["reasoning"]) != `{"effort":"high"}` {
+		t.Errorf("control: openrouter/x-ai/grok-build-0.1 reasoning = %s", openrouter["reasoning"])
 	}
 }
