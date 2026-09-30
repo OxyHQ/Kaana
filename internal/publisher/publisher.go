@@ -241,6 +241,7 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 	p.providersMu.RUnlock()
 	discoveries := make([]Discovery, 0, len(providers))
 	for _, target := range providers {
+		target.AttributedModels = p.attribution.UpstreamModelIDs(target.Slug)
 		models, err := Discover(ctx, p.client, target)
 		if err != nil {
 			// One provider failing must not withdraw the others. Withdrawing

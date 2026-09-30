@@ -36,14 +36,20 @@ const (
 	ProtocolOpenAIRealtime    = "openai_realtime"
 	ProtocolXAIRealtime       = "xai_realtime"
 
-	DiscoveryOpenAIModels  = "openai_models"
-	DiscoveryXAIModels     = "xai_models_and_speech"
-	DiscoveryMistralModels = "mistral_models"
-	DiscoverySiliconModels = "siliconflow_models"
-	DiscoveryNebiusModels  = "nebius_models"
-	DiscoveryAlibabaModels = "alibaba_models"
-	DiscoveryCohereModels  = "cohere_models"
-	DiscoveryNotAvailable  = "not_available"
+	DiscoveryOpenAIModels = "openai_models"
+	DiscoveryXAIModels    = "xai_models_and_speech"
+	// DiscoveryXAIRealtimeSessions reads xAI's account model list and, for
+	// each voice model attributed under `xai-realtime` that the list omits,
+	// opens one read-only Voice Agent session and accepts only xAI's own
+	// `session.created` naming that exact model (docs/inventory.md, "xAI
+	// voice discovery").
+	DiscoveryXAIRealtimeSessions = "xai_models_and_realtime_sessions"
+	DiscoveryMistralModels       = "mistral_models"
+	DiscoverySiliconModels       = "siliconflow_models"
+	DiscoveryNebiusModels        = "nebius_models"
+	DiscoveryAlibabaModels       = "alibaba_models"
+	DiscoveryCohereModels        = "cohere_models"
+	DiscoveryNotAvailable        = "not_available"
 )
 
 // Known is the protocol, discovery contract and, where one exists globally,
@@ -61,7 +67,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
-	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
+	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryXAIRealtimeSessions},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},

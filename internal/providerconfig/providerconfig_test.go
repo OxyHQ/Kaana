@@ -21,7 +21,7 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	if got := len(providerconfig.Known); got != 31 {
 		t.Fatalf("built-in providers = %d, want the 31 documented in README.md and docs/operating.md", got)
 	}
-	if endpoint := providerconfig.Known["xai-realtime"]; endpoint.Protocol != providerconfig.ProtocolXAIRealtime || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.x.ai/v1" ||
+	if endpoint := providerconfig.Known["xai-realtime"]; endpoint.Protocol != providerconfig.ProtocolXAIRealtime || endpoint.Discovery != providerconfig.DiscoveryXAIRealtimeSessions || endpoint.BaseURL != "https://api.x.ai/v1" ||
 		providerconfig.XAIRealtimeSessionURL != "wss://api.x.ai/v1/realtime" {
 		t.Fatalf("xAI Realtime configuration = %+v", endpoint)
 	}

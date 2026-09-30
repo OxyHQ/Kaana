@@ -119,7 +119,7 @@ role could assume it too.
 | Field | Source |
 |---|---|
 | `provider` | `KAANA_DISCOVERY_PROVIDERS`, filtered to the slugs that hold a credential |
-| `upstreamModelId` | that provider's own `GET /models`, verbatim |
+| `upstreamModelId` | that provider's own `GET /models`, verbatim; for the two xAI profiles also xAI's own answer at the endpoint the model is served on ("xAI speech discovery candidate", "xAI voice discovery" below) |
 | `regions` | explicit `KAANA_PROVIDER_<SLUG>_REGIONS`, backed by upstream execution/residency terms; never `AWS_REGION` |
 | `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
 | `current` | true; each model line has exactly one revision, its observation |
@@ -516,9 +516,16 @@ reasoning; these are the lines a reviewer holds a change to.
 - **The `withheld` list is evidence, not routing: `contentID` never hashes it,
   and `ObservationsFrom` reads it.** Hashing it flaps `snapshotId` every cycle
   the failure count moves; not reading it re-dates a line on its return.
-- **The publisher sends no probe of its own.** Its only upstream request is the
-  model list; withholding reads persisted reports, and an unreadable read keeps
-  the previous unexpired decisions rather than publishing or refusing.
+- **The publisher sends no probe of its own.** Its only upstream requests are
+  its discovery profile's catalogue questions — the model list, and for
+  `xai-realtime` one read-only session open per attributed voice model the
+  list omits ("xAI voice discovery"), which never decides withholding.
+  Withholding reads persisted reports, and an unreadable read keeps the
+  previous unexpired decisions rather than publishing or refusing.
+- **A profile that must NAME a model to ask about it asks only about
+  attributed ones.** `Provider.AttributedModels` is filled from
+  `configs/model-attribution.json` every cycle; no id is ever composed,
+  guessed or taken from documentation.
 - **Inventory order is presentation, never routing authority.** Emit only
   providers holding a key and sort the resulting deployments by exact opaque
   id for stable snapshots. Never reorder `authorizedRoutes` by health, price or
@@ -563,3 +570,69 @@ Neither the discovered identity nor attribution grants Oxy routing authority.
 Specification: https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
 The reviewed 2026-09-13 real `/tts/voices` response contained both identities.
 This publisher change is not yet promoted to production.
+
+## xAI voice discovery
+
+`xai-realtime` uses the `xai_models_and_realtime_sessions` profile
+(`internal/publisher/xai_realtime.go`). xAI's authenticated `GET /v1/models`
+does not list its Voice Agent models, so the account list alone would publish
+no voice deployment. Measured with the production `xai-realtime` key on
+2026-09-30:
+
+| Question | xAI's answer |
+|---|---|
+| `GET /v1/models` | text, image and video models only; no `grok-voice-*` |
+| `GET /v1/models/grok-voice-think-fast-2.0` | `404` "does not exist or your team does not have access" |
+| `GET /v1/realtime/models`, `/v1/realtime/voices` | `403` "Team is not authorized to perform this action" |
+| `POST /v1/realtime/client_secrets` | `200` with an ephemeral secret — a mint, a mutation; not used |
+| `wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-2.0` | `101`, then unprompted `session.created` with `session.model: "grok-voice-think-fast-2.0"`, `turn_detection: {"type": null}`, then `conversation.created` and a JSON `ping` |
+| the same with `?model=grok-voice-bogus-9.9` | `101`, then `session.created` with `session.model: "grok-voice-think-fast-2.0"` — **xAI silently substitutes its default** |
+| the same with no `?model=` | identical to the bogus id |
+
+So neither the upgrade nor a `session.created` is evidence; only a
+`session.created` whose `session.model` is **exactly** the id asked for is. For
+each id attributed under `xai-realtime` that `providerconfig.ClassifyModel`
+calls a conversation session model and the account list does not already name,
+the profile dials `{base}/realtime?model=<id>` (on the locked root, exactly
+`providerconfig.XAIRealtimeSessionURL`) with the discovery key, writes
+nothing, reads at most four events within ten seconds, and closes:
+
+| xAI's answer | Result |
+|---|---|
+| `session.created` naming exactly the id | discovered, as if the list had named it |
+| `session.created` naming anything else (the substitution above, the alias, another case) | absent; discovery continues |
+| an `error` event | absent; discovery continues |
+| handshake refused, a close, a timeout, a binary or non-JSON frame, a `session.created` with no session, four events without one | that provider's discovery fails this cycle |
+
+Failure follows the speech profile: an ANSWER that the model is not served is
+absence; NO answer is a discovery that could not be completed, so the provider
+is absent from that snapshot with an error logged, and the other providers are
+unaffected. For `xai-realtime` the two differ only in the log line, because
+the text models on its list are never published under it.
+
+Because `grok-voice-think-fast-2.0` is also xAI's fallback, a `session.created`
+naming it cannot tell "served because asked for" from "served as the default".
+It does not need to: `session.model` is what xAI says will run the session,
+and that is the fact a deployment asserts. The day xAI's default moves to
+another model, a still-served 2.0 keeps answering with its own name, and a
+retired 2.0 answers with the new default's name — absent, never re-pointed.
+
+Cost of a probe. xAI (https://docs.x.ai/developers/models/speech-to-speech,
+read 2026-09-30): "Sessions using the default `server_vad` turn detection are
+billed for session duration. Push-to-talk sessions are billed only for audio
+sent and received", and `$0.004` per client `conversation.item.create`. The
+probe sends no event and no audio, receives no audio, and the session xAI
+opened reported `turn_detection: {"type": null}` — push-to-talk, not the
+`server_vad` the pricing page calls the default. By xAI's published terms the
+probe is therefore unbilled. That is a reading of the terms, not a billing
+statement: no per-session usage record was available to confirm it. The upper
+bound, if xAI billed the probe's wall clock as a `server_vad` session anyway,
+is under one second at $0.08/minute — about $0.0013 per probe, $0.13 per day
+at the 15-minute cadence. Each probe also holds one of the team's 10
+concurrent sessions for well under a second.
+
+A line absent from one snapshot takes the date of the cycle it returns in, as
+for every provider (`ObservationsFrom` reads only the previous snapshot). A
+probe failure that straddles a UTC date change therefore costs the voice line
+a new deployment id, and with it a new rate card (realtime.md, "Operating
+`xai-realtime`"); one that recovers the same day keeps its id.
