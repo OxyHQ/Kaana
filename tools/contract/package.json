@@ -10,6 +10,6 @@
     "validate": "bun validate.mjs"
   },
   "dependencies": {
-    "@oxy.so/contracts": "4.4.0"
+    "@oxy.so/contracts": "4.5.0"
   }
 }

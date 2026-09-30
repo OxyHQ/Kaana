@@ -2,6 +2,7 @@ package openairealtime
 
 import (
 	"sync"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -21,9 +22,13 @@ import (
 //	audio meter instead."
 //	"response.create is not billed as a text input."
 //
-// Kaana serves only push-to-talk sessions for xAI (turnDetection none; the
-// server_vad session-duration charge has no contract unit, dialect.go), so the
-// whole bill is three measurable quantities, each a contract unit:
+//	"Sessions using the default server_vad turn detection are billed for
+//	session duration." (https://docs.x.ai/developers/pricing)
+//
+// So a session is billed in exactly one of two modes, fixed when it opens
+// (a session.update that would change the mode is refused, session.go):
+//
+// Push-to-talk (turnDetection none), three measurable quantities:
 //
 //	audio_input_milliseconds  = decoded audio Kaana wrote upstream, at the
 //	                            session's input format's byte rate
@@ -31,11 +36,20 @@ import (
 //	                            format's byte rate
 //	requests                  = billed text conversation.item.create events
 //
-// Both audio units are priced at the same per-minute rate on the deployment's
-// rate card, and `requests` at the per-event fee. The units are `oxy_measured`:
-// Kaana counted them, and xAI reports no duration of its own to reconcile
-// against. Milliseconds are rounded up once, over the session's total, so
-// rounding never charges per event.
+// server_vad (the dialect's sessionClock), two:
+//
+//	session_milliseconds      = wall-clock time the upstream session was open,
+//	                            from the accepted handshake to the upstream's
+//	                            close (contract set 3.3.0)
+//	requests                  = billed text conversation.item.create events
+//
+// and never the audio units: the clock already bills that span, and reporting
+// the audio too would charge it twice. The audio units and the session clock
+// are priced at the same per-minute rate on the deployment's rate card, and
+// `requests` at the per-event fee. The units are `oxy_measured`: Kaana counted
+// them, and xAI reports no duration of its own to reconcile against.
+// Milliseconds are rounded up once, over the session's total, so rounding
+// never charges per event.
 
 // bytesPerSecond is the decoded byte rate of a contract realtime audio format:
 // 16-bit PCM at 24 kHz, or 8-bit G.711 at 8 kHz.
@@ -62,14 +76,34 @@ type meter struct {
 	inputBytes int64
 	outBytes   int64
 	textInputs int
+
+	// clock is a session billed by its wall clock. now reads the monotonic
+	// clock; openedAt is the accepted upstream handshake and endedAt the
+	// first moment the upstream was known to be over (zero until then).
+	clock    bool
+	now      func() time.Time
+	openedAt time.Time
+	endedAt  time.Time
 }
 
-func newMeter(config contract.RealtimeSessionConfig) *meter {
-	m := &meter{inputRate: bytesPerSecond(config.InputAudioFormat)}
+// newMeter measures a session opened at openedAt. clock is whether the
+// provider bills this session by its wall clock rather than by its audio.
+func newMeter(config contract.RealtimeSessionConfig, clock bool, openedAt time.Time, now func() time.Time) *meter {
+	m := &meter{inputRate: bytesPerSecond(config.InputAudioFormat), clock: clock, now: now, openedAt: openedAt}
 	if config.OutputAudioFormat != nil {
 		m.outputRate = bytesPerSecond(*config.OutputAudioFormat)
 	}
 	return m
+}
+
+// end stops the session clock at the first moment the upstream is known to be
+// over: its connection ended, or Kaana closed it. Later calls change nothing.
+func (m *meter) end() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.endedAt.IsZero() {
+		m.endedAt = m.now()
+	}
 }
 
 // measure is what a command will be billed, decided before it is written. An
@@ -128,11 +162,27 @@ func milliseconds(bytes, rate int64) int {
 	return int((bytes*1000 + rate - 1) / rate)
 }
 
-// units is the session's measured totals so far.
+// units is the session's measured totals so far. A session billed by its
+// clock reports the clock up to now if the upstream is still open: the
+// session reads its measurement once, as it settles, immediately before it
+// closes the upstream (internal/realtime).
 func (m *meter) units() []contract.UsageQuantity {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	units := []contract.UsageQuantity{}
+	if m.clock {
+		end := m.endedAt
+		if end.IsZero() {
+			end = m.now()
+		}
+		if open := end.Sub(m.openedAt); open > 0 {
+			units = append(units, contract.UsageQuantity{Unit: contract.UnitSessionMilliseconds, Quantity: int((open + time.Millisecond - 1) / time.Millisecond)})
+		}
+		if m.textInputs > 0 {
+			units = append(units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: m.textInputs})
+		}
+		return units
+	}
 	if m.inputBytes > 0 && m.inputRate > 0 {
 		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: milliseconds(m.inputBytes, m.inputRate)})
 	}

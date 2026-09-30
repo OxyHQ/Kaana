@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -80,6 +81,11 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 	if err != nil {
 		return err
 	}
+	if update, ok := command.(*contract.RealtimeSessionUpdateCommand); ok {
+		if err := s.admitUpdate(update.Config); err != nil {
+			return err
+		}
+	}
 	var billed measurement
 	if s.meter != nil {
 		if billed, err = s.meter.measure(command); err != nil {
@@ -109,6 +115,37 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 		s.meter.record(billed)
 	}
 	return nil
+}
+
+// admitUpdate refuses, before anything is written, an update whose effect the
+// provider does not document how to bill or cannot express against the
+// session as it will then be: switching between a clock-billed turn detection
+// and one billed by audio (xAI documents each mode's billing, not a session
+// that changes mode), and a server_vad session that could not speak on a
+// provider that creates server_vad responses itself.
+func (s *session) admitUpdate(update contract.RealtimeSessionConfigUpdate) error {
+	d := s.dialect
+	s.mu.Lock()
+	turnDetection, modalities := s.config.TurnDetection.Type, s.config.OutputModalities
+	for _, pending := range s.pending {
+		if pending.update.TurnDetection != nil {
+			turnDetection = pending.update.TurnDetection.Type
+		}
+		if pending.update.OutputModalities != nil {
+			modalities = pending.update.OutputModalities
+		}
+	}
+	s.mu.Unlock()
+	if update.TurnDetection != nil {
+		if d.sessionClock != "" && (update.TurnDetection.Type == d.sessionClock) != (turnDetection == d.sessionClock) {
+			return refused("config.turnDetection", fmt.Sprintf("%s bills a %s session by its duration and any other by its audio, and does not document a session that changes between them; open a new session instead", d.name, d.sessionClock))
+		}
+		turnDetection = update.TurnDetection.Type
+	}
+	if update.OutputModalities != nil {
+		modalities = update.OutputModalities
+	}
+	return d.checkServerCreatedModalities(turnDetection, modalities)
 }
 
 // sessionModalities is the output modalities in effect for the next response:
@@ -173,6 +210,10 @@ func (s *session) ended(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if s.meter != nil {
+		// The provider's side of the session is over: its clock stops here.
+		s.meter.end()
+	}
 	s.mu.Lock()
 	failure := s.failure
 	s.mu.Unlock()
@@ -190,7 +231,12 @@ func (s *session) ended(ctx context.Context, err error) error {
 // is nothing to keep.
 func (s *session) Close() error {
 	var err error
-	s.closeOnce.Do(func() { err = s.conn.Close(websocket.StatusNormalClosure, "") })
+	s.closeOnce.Do(func() {
+		if s.meter != nil {
+			s.meter.end()
+		}
+		err = s.conn.Close(websocket.StatusNormalClosure, "")
+	})
 	return err
 }
 
