@@ -250,6 +250,13 @@ type DeploymentDescriptor struct {
 	ModelReference contract.ModelReference `json:"modelReference"`
 	Provider       contract.ProviderSlug   `json:"provider"`
 	Regions        []contract.Region       `json:"regions"`
+	// AcceptedParameters is this deployment's own accepted-parameter set
+	// (Observed.AcceptedParameters): the caller controls its upstream takes.
+	// Absent is unknown, `[]` is "takes none of these". It is not part of the
+	// route identity Oxy signs and compares; Oxy stores it so it never signs a
+	// route Translate would refuse, which the catalogue's per-line intersection
+	// cannot tell it for a line served by several providers.
+	AcceptedParameters *[]provider.RequestParameter `json:"acceptedParameters,omitempty"`
 }
 
 // RouteSet is every endpoint serving ONE model reference, in the order the
@@ -573,6 +580,9 @@ func (i *Inventory) DeploymentDescriptors() []DeploymentDescriptor {
 				ModelReference: set.reference,
 				Provider:       endpoint.Provider,
 				Regions:        regions,
+				// The same copy Candidates() makes, so a descriptor states
+				// exactly the set Translate will check.
+				AcceptedParameters: acceptedParametersOf(endpoint.Observed),
 			})
 		}
 	}

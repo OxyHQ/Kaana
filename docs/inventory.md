@@ -81,8 +81,13 @@ value to another therefore invalidates the signature rather than changing an
 unsigned selector.
 
 The response contains `snapshotId` and a `deployments` array whose entries have
-only `deploymentId`, revision-pinned `modelReference`, `provider`, and `regions`.
-It never exposes `upstreamModelId`, endpoints or credential state. `regions: []`
+only `deploymentId`, revision-pinned `modelReference`, `provider`, `regions`
+and, when the deployment's provider stated it, `acceptedParameters` — the same
+per-deployment set `Candidates()` copies into the route Translate checks
+(absent unknown, `[]` a statement). It is not route identity and Oxy's
+attestation does not compare it; Oxy stores it so it never signs a route
+Translate would refuse, which the catalogue's per-line intersection cannot tell
+it when several providers serve a line. It never exposes `upstreamModelId`, endpoints or credential state. `regions: []`
 is meaningful: no upstream execution/residency region is attested, and Kaana's
 AWS region must not be substituted. Entries are sorted by `deploymentId` only
 to make the projection stable for operators; array order is not routing
