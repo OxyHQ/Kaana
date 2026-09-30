@@ -90,6 +90,17 @@ type RealtimeUpstreamEvent struct {
 	Units []contract.UsageQuantity
 }
 
+// RealtimeMeter is an open session whose provider bills what Kaana itself
+// measures — audio it sent and received, events it wrote — rather than units
+// the provider reports (xAI's Voice Agent API bills audio by the minute and
+// text inputs per event, and reports only tokens it does not bill). Measured
+// is the session's cumulative measurement; the session reads it once, when it
+// settles, adds it to its totals and reports them `oxy_measured`. It must be
+// safe to call while Send and Next run.
+type RealtimeMeter interface {
+	Measured() []contract.UsageQuantity
+}
+
 // ErrRealtimeUpstreamClosed reports that the provider ended a session without
 // reporting a failure.
 var ErrRealtimeUpstreamClosed = errors.New("provider: the upstream ended the realtime session")

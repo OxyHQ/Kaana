@@ -426,6 +426,26 @@ func translate(adapter provider.Adapter, request *contract.Request, route provid
 			Detail: fmt.Sprintf("the %s deployment does not execute %s requests", route.Provider, request.Client.APIFormat),
 		}
 	}
+	if request.Client.APIFormat == contract.APIFormatChatCompletions {
+		// Whether a chat is answered aloud is decided per deployment, not per
+		// adapter: OpenRouter's adapter speaks for OpenAI's audio models and
+		// writes for every other row, and the OpenAI audio adapter only speaks.
+		outputs := provider.ChatOutputsOf(adapter, route)
+		switch spoken := request.AudioOutput != nil; {
+		case spoken && !outputs.Spoken:
+			return nil, provider.ErrUnsupported{
+				Code:   contract.CodeUnsupportedModality,
+				Param:  "audioOutput",
+				Detail: fmt.Sprintf("the %s deployment of %s does not answer aloud", route.Provider, route.UpstreamModelID),
+			}
+		case !spoken && !outputs.Text:
+			return nil, provider.ErrUnsupported{
+				Code:   contract.CodeInvalidRequest,
+				Param:  "audioOutput",
+				Detail: fmt.Sprintf("the %s deployment answers aloud only; a text chat belongs to a text deployment", route.Provider),
+			}
+		}
+	}
 	return adapter.Translate(request, route)
 }
 

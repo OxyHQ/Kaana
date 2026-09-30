@@ -40,6 +40,48 @@ func TestDeepgramBuildsNativeVoiceAdapter(t *testing.T) {
 	}
 }
 
+// TestXAIRealtimeBuildsTheSessionAdapterBesideTheRequestAdapter: `xai` stays
+// the request adapter, `xai-realtime` is the session adapter, and neither the
+// origin nor the protocol can be borrowed.
+func TestXAIRealtimeBuildsTheSessionAdapterBesideTheRequestAdapter(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "xai,xai-realtime"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrants, err := buildAdapters(configs)
+	if err != nil || len(registrants) != 2 {
+		t.Fatalf("adapter construction: %v", err)
+	}
+	for _, registrant := range registrants {
+		_, oneShot := registrant.(provider.Adapter)
+		session, realtime := registrant.(*openairealtime.Adapter)
+		switch registrant.Provider() {
+		case "xai":
+			if !oneShot || realtime {
+				t.Fatalf("xai built as %T", registrant)
+			}
+		case "xai-realtime":
+			if oneShot || !realtime || !provider.OpensRealtime(session, contract.RealtimeConversation) {
+				t.Fatalf("xai-realtime built as %T", registrant)
+			}
+		default:
+			t.Fatalf("unexpected %s", registrant.Provider())
+		}
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS":                      "xai-realtime",
+		"KAANA_PROVIDER_XAI_REALTIME_BASE_URL": "https://api.openai.com/v1",
+	})); err == nil {
+		t.Fatal("xai-realtime accepted an origin other than xAI's")
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS":             "xai",
+		"KAANA_PROVIDER_XAI_PROTOCOL": "xai_realtime",
+	})); err == nil {
+		t.Fatal("the xAI Realtime protocol was accepted under another slug")
+	}
+}
+
 func TestOpenAIAudioBuildsTheAudioAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
 	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "openai,openai-audio,openai-realtime"}))
 	if err != nil {

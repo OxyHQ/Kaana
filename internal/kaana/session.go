@@ -182,6 +182,10 @@ type SessionEnd struct {
 	ClosedAt time.Time
 	// Units are the session's totals, each unit once.
 	Units []contract.UsageQuantity
+	// UsageSource is where the units came from: the provider's reports, or
+	// Kaana's own measurement for a provider billed by it
+	// (provider.RealtimeMeter). Empty means provider-reported.
+	UsageSource contract.UsageSource
 	// FirstOutputAt is when the first output reached the session; zero when
 	// none did.
 	FirstOutputAt time.Time
@@ -231,10 +235,14 @@ func (e *Executor) SettleSession(ctx context.Context, opening *SessionOpening, e
 	}
 	settlement := SessionSettlement{UpstreamCost: e.costs.MeasureRequest(opening.requestID, usage)}
 
+	source := end.UsageSource
+	if source == "" {
+		source = contract.UsageProviderReported
+	}
 	report := &contract.UsageReport{
 		SchemaVersion: contract.UsageReportSchemaVersion, RequestID: opening.requestID, GenerationID: opening.generationID,
 		Attribution: withGeneration(opening.attribution, opening.generationID), Outcome: end.ReportOutcome,
-		Units: units, UsageSource: contract.UsageProviderReported,
+		Units: units, UsageSource: source,
 		ResolvedModelReference: opening.Route.ModelReference, ServingProvider: opening.Route.Provider,
 		DeploymentID: opening.Route.DeploymentID, RouteSwitches: min(switches, 100),
 		StartedAt: contract.NewTimestamp(opening.startedAt), CompletedAt: contract.NewTimestamp(end.ClosedAt),

@@ -13,6 +13,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/spokenchat"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
@@ -39,6 +40,9 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/tts") {
 		return a.streamSpeech(ctx, call, out, credentials)
+	}
+	if spokenchat.IsCall(call) {
+		return a.streamSpoken(ctx, call, out, credentials)
 	}
 
 	if credentials == nil {

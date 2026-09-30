@@ -216,12 +216,21 @@ func TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter(t *testing.T) {
 		}
 	}
 
-	for slug := range openAINamespaces {
+	// Every checked-in row, in every namespace the family gate classifies
+	// (OpenAI's, OpenRouter's `openai/`, xAI's), is one the publisher would
+	// publish under its slug.
+	for slug, models := range table.byProvider {
 		target := Provider{Slug: slug, Protocol: providerconfig.Known[slug].Protocol}
-		for upstreamModelID := range table.byProvider[slug] {
+		for upstreamModelID := range models {
 			if !executable(target, upstreamModelID) {
 				t.Errorf("%s/%s is attributed, and its adapter cannot execute its request family", slug, upstreamModelID)
 			}
+		}
+	}
+	// OpenRouter's rows of OpenAI's audio chat models answer aloud there.
+	for _, upstreamModelID := range []string{"openai/gpt-audio", "openai/gpt-audio-mini"} {
+		if _, ok := table.ModelLine("openrouter", upstreamModelID); !ok || !providerconfig.SpeaksAloud("openrouter", providerconfig.ProtocolOpenAICompatible, upstreamModelID) {
+			t.Errorf("openrouter/%s is not an attributed deployment that answers aloud", upstreamModelID)
 		}
 	}
 }

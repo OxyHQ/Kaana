@@ -147,7 +147,7 @@ func TestSpokenChatExecutesThroughTheAudioAdapterAndSettlesAudioTokens(t *testin
 func TestSpokenOutputWithoutUsageNeverEstimatesAudioTokens(t *testing.T) {
 	for name, transcript := range map[string]string{"with transcript": "Hola mundo", "audio only": ""} {
 		t.Run(name, func(t *testing.T) {
-			adapter := &scriptedAdapter{slug: "openai-audio", stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+			adapter := speaking{&scriptedAdapter{slug: "openai-audio", stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
 				if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 					return provider.Outcome{}, err
 				}
@@ -160,7 +160,7 @@ func TestSpokenOutputWithoutUsageNeverEstimatesAudioTokens(t *testing.T) {
 					return provider.Outcome{}, err
 				}
 				return provider.Outcome{FinishReason: contract.FinishStop}, nil
-			}}
+			}}}
 			_, result := (harness{deployments: audioChatDeployment, adapters: []provider.Adapter{adapter}}).run(t, spokenChatRequest())
 			if result.Report == nil || result.Report.Outcome != contract.OutcomeCompleted || result.Report.UsageSource != contract.UsageEstimated {
 				t.Fatalf("result: %+v", result)

@@ -31,6 +31,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/spokenchat"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
@@ -241,7 +242,7 @@ func (t transcription) units() ([]contract.UsageQuantity, bool) {
 }
 
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
-	if isChatCall(call) {
+	if spokenchat.IsCall(call) {
 		return a.streamChat(ctx, call, out, credentials)
 	}
 	result := provider.Outcome{UsageSource: contract.UsageProviderReported}

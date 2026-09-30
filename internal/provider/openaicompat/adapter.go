@@ -160,16 +160,20 @@ func (a *Adapter) APIFormats() []contract.APIFormat {
 // protocol cannot express must cost nothing.
 func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	if request.AudioOutput != nil {
-		// Spoken output is audio events plus a transcript channel, and this
-		// adapter emits text. A gateway row for an audio chat model (OpenRouter's
-		// `openai/gpt-audio`) routes here all the same, so the refusal cannot
-		// rest on the modality check below staying where it is: the one adapter
-		// that answers aloud is `openai-audio` (docs/openai-audio.md).
-		return nil, provider.ErrUnsupported{
-			Code:   contract.CodeUnsupportedModality,
-			Param:  "audioOutput",
-			Detail: "this deployment produces text; spoken output needs an audio deployment",
+		// Spoken output is audio events plus a transcript channel. This adapter
+		// produces it only on a deployment that answers aloud — OpenRouter's
+		// rows for OpenAI's audio chat models — through the shared spoken wire
+		// (internal/provider/spokenchat). Everywhere else it writes text, so
+		// the refusal is here as well as in the executor's gate, and cannot
+		// rest on the modality check below staying where it is.
+		if !providerconfig.SpeaksAloud(a.config.Provider, providerconfig.ProtocolOpenAICompatible, route.UpstreamModelID) {
+			return nil, provider.ErrUnsupported{
+				Code:   contract.CodeUnsupportedModality,
+				Param:  "audioOutput",
+				Detail: "this deployment produces text; spoken output needs a deployment that answers aloud",
+			}
 		}
+		return a.translateSpoken(request, route)
 	}
 	if request.Reasoning != nil && (request.Client.APIFormat == contract.APIFormatAudioSpeech || request.Modality != contract.ModalityText) {
 		// Speech and embeddings have no reasoning step to control. Accepting

@@ -135,8 +135,10 @@ Kaana status:
   3.2.0 the envelope asks for it with `audioOutput` and the report meters it in
   audio-token units, so it is attributed to `openai-audio`, whose adapter
   executes chat_completions only for spoken output; the publisher drops it under
-  `openai`, and the text adapter refuses `audioOutput` for any gateway row that
-  reaches it (docs/openai-audio.md).[^openai-audio]
+  `openai`. Speaking is decided per slug and model (`providerconfig.SpeaksAloud`):
+  OpenRouter's `openai/gpt-audio` and `openai/gpt-audio-mini` rows answer aloud
+  through the shared spoken wire, and every other OpenAI-compatible deployment
+  refuses `audioOutput` (docs/openai-audio.md).[^openai-audio]
 - A successful catalogue read is not a paid-account balance check. The new
   OpenAI credential remains unavailable to economic routing until Oxy records
   verified usable balance.

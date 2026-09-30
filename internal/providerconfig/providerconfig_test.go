@@ -18,8 +18,24 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 30 {
-		t.Fatalf("built-in providers = %d, want the 30 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 31 {
+		t.Fatalf("built-in providers = %d, want the 31 documented in README.md and docs/operating.md", got)
+	}
+	if endpoint := providerconfig.Known["xai-realtime"]; endpoint.Protocol != providerconfig.ProtocolXAIRealtime || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.x.ai/v1" ||
+		providerconfig.XAIRealtimeSessionURL != "wss://api.x.ai/v1/realtime" {
+		t.Fatalf("xAI Realtime configuration = %+v", endpoint)
+	}
+	if err := providerconfig.ValidateEndpointIdentity("xai-realtime", "https://api.x.ai/v1"); err != nil {
+		t.Fatalf("xai-realtime refused xAI's canonical API root: %v", err)
+	}
+	if err := providerconfig.ValidateEndpointIdentity("xai-realtime", "https://api.openai.com/v1"); err == nil {
+		t.Fatal("xai-realtime accepted an address other than xAI's canonical API root")
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("xai-realtime", providerconfig.ProtocolXAIRealtime); len(kinds) != 1 || kinds[0] != contract.RealtimeConversation {
+		t.Fatalf("xAI realtime session kinds = %v", kinds)
+	}
+	if formats := providerconfig.ExecutableAPIFormats("xai-realtime", providerconfig.ProtocolXAIRealtime); len(formats) != 0 {
+		t.Fatalf("the xAI realtime protocol executes requests: %v", formats)
 	}
 	if endpoint := providerconfig.Known["openai-audio"]; endpoint.Protocol != providerconfig.ProtocolOpenAIAudio || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" {
 		t.Fatalf("OpenAI audio configuration = %+v", endpoint)
@@ -286,21 +302,6 @@ func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
 		got := providerconfig.ExecutableAPIFormats(c.slug, c.protocol)
 		if fmt.Sprint(got) != fmt.Sprint(c.want) {
 			t.Errorf("%s/%s executes %v, want %v", c.slug, c.protocol, got, c.want)
-		}
-	}
-}
-
-func TestOnlyTheOpenAIAudioProtocolSpeaksChatCompletions(t *testing.T) {
-	speaking := map[string]bool{
-		providerconfig.ProtocolOpenAIAudio:       true,
-		providerconfig.ProtocolOpenAICompatible:  false,
-		providerconfig.ProtocolAnthropicMessages: false,
-		providerconfig.ProtocolDeepgramVoice:     false,
-		"not_a_protocol":                         false,
-	}
-	for protocol, want := range speaking {
-		if got := providerconfig.SpokenChatCompletions(protocol); got != want {
-			t.Errorf("%s speaks chat completions: %t, want %t", protocol, got, want)
 		}
 	}
 }
