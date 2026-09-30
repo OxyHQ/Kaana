@@ -257,4 +257,43 @@ type upstreamError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    any    `json:"code"`
+	// Metadata carries OpenRouter's `error_type` (rate_limit_exceeded,
+	// provider_overloaded, ...). OpenRouter sends no `type`; its `code` is the
+	// numeric HTTP status the failure would have had.
+	Metadata *struct {
+		ErrorType string `json:"error_type"`
+	} `json:"metadata"`
+}
+
+// kind is the provider's own classification of a failure: OpenAI's `type`,
+// else OpenRouter's `metadata.error_type`, else OpenRouter's numeric `code`
+// read as the HTTP status it names. OpenRouter documents mid-stream errors as
+// `{"error": {"code": <status>, "message": ..., "metadata": {"error_type": ...}}}`
+// (https://openrouter.ai/docs/api/reference/errors-and-debugging), so a reader
+// that looked only at `type` found nothing and reported a rate limit as an
+// unclassified failure.
+func (e upstreamError) kind() string {
+	if e.Type != "" {
+		return e.Type
+	}
+	if e.Metadata != nil && e.Metadata.ErrorType != "" {
+		return e.Metadata.ErrorType
+	}
+	status, numeric := e.Code.(float64)
+	if !numeric {
+		return ""
+	}
+	switch int(status) {
+	case 402:
+		return "billing_error"
+	case 401:
+		return "authentication_error"
+	case 429:
+		return "rate_limit_exceeded"
+	case 502:
+		return "server_error"
+	case 503:
+		return "overloaded_error"
+	}
+	return ""
 }
