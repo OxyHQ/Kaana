@@ -1496,7 +1496,8 @@ func TestModelsCarriesProviderObservedMetadata(t *testing.T) {
 			"displayName": "Stub: Model", "createdAt": "2025-08-05T17:17:11Z", "contextTokens": 131072,
 			"maxOutputTokens": 32768, "inputModalities": []string{"image", "text"}, "outputModalities": []string{"text"},
 			"supportsTools": true, "reasoningEfforts": []string{"low", "medium", "high"},
-			"listPrice": map[string]any{"currency": "USD", "input": "0.072", "output": "0.28"},
+			"acceptedParameters": []string{"maxOutputTokens", "sampling.seed", "tools"},
+			"listPrice":          map[string]any{"currency": "USD", "input": "0.072", "output": "0.28"},
 		},
 	}})
 	request, err := http.NewRequest(http.MethodGet, harness.server.URL+"/internal/v1/models", nil)
@@ -1518,7 +1519,7 @@ func TestModelsCarriesProviderObservedMetadata(t *testing.T) {
 	want := `{"model":"stub/model","modelReference":"stub/model@2026-05-01","providers":["stub"],` +
 		`"displayName":"Stub: Model","createdAt":"2025-08-05T17:17:11.000Z","contextTokens":131072,"maxOutputTokens":32768,` +
 		`"inputModalities":["image","text"],"outputModalities":["text"],"supportsTools":true,` +
-		`"reasoningEfforts":["low","medium","high"],` +
+		`"reasoningEfforts":["low","medium","high"],"acceptedParameters":["maxOutputTokens","sampling.seed","tools"],` +
 		`"listPrices":[{"deploymentId":"dep_stub","provider":"stub","currency":"USD","input":"0.072","output":"0.28"}]}`
 	if string(body.Models[0]) != want {
 		t.Errorf("the catalogue entry is\n%s\nwant\n%s", body.Models[0], want)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // openRouterModelsFixture is the shape of OpenRouter's documented
@@ -46,10 +47,50 @@ const groqModelsFixture = `{"object":"list","data":[{
   "active":true,"context_window":131072,"public_apps":null,"max_completion_tokens":65536
 }]}`
 
+// openRouterZDRFixture is OpenRouter's public `GET /api/v1/endpoints/zdr`
+// shape (captured 2026-09-30, trimmed), covering both models in
+// openRouterModelsFixture. gpt-oss-120b has two zero-retention endpoints whose
+// lists differ, so only their UNION names everything the model list does.
+const openRouterZDRFixture = `{"data":[{
+  "name":"Groq | openai/gpt-oss-120b","model_id":"openai/gpt-oss-120b","model_name":"OpenAI: gpt-oss-120b",
+  "context_length":131072,"pricing":{"prompt":"0.00000015","completion":"0.0000006","discount":0},
+  "provider_name":"Groq","tag":"groq","quantization":"unknown","max_completion_tokens":65536,"max_prompt_tokens":null,
+  "supported_parameters":["reasoning","include_reasoning","max_tokens","temperature","top_p","stop","seed","response_format","tools","tool_choice","reasoning_effort"],
+  "supports_tool_choice":{"none":true,"auto":true,"required":true,"function":true},"status":0,"uptime_last_30m":99.9
+},{
+  "name":"Nebius | openai/gpt-oss-120b","model_id":"openai/gpt-oss-120b","model_name":"OpenAI: gpt-oss-120b",
+  "context_length":131072,"pricing":{"prompt":"0.00000015","completion":"0.0000006","discount":0},
+  "provider_name":"Nebius","tag":"nebius/fp4","quantization":"fp4","max_completion_tokens":null,"max_prompt_tokens":null,
+  "supported_parameters":["reasoning","max_tokens","temperature","top_p","frequency_penalty"],
+  "status":0,"uptime_last_30m":98.1
+},{
+  "name":"DeepInfra | meta-llama/llama-3.1-8b-instruct","model_id":"meta-llama/llama-3.1-8b-instruct","model_name":"Meta: Llama 3.1 8B Instruct",
+  "context_length":16384,"pricing":{"prompt":"0.000000015","completion":"0.00000002","discount":0},
+  "provider_name":"DeepInfra","tag":"deepinfra/bf16","quantization":"bf16","max_completion_tokens":null,"max_prompt_tokens":null,
+  "supported_parameters":["max_tokens","temperature","top_p","stop"],"status":0,"uptime_last_30m":100
+}]}`
+
 func serveModelList(t *testing.T, body string) *httptest.Server {
 	t.Helper()
+	return serveOpenRouter(t, body, "")
+}
+
+// serveOpenRouter serves a model list and, when zdr is non-empty, OpenRouter's
+// public zero-retention endpoint list beside it. The zero-retention request
+// must arrive WITHOUT a credential: it is a public list.
+func serveOpenRouter(t *testing.T, models, zdr string) *httptest.Server {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models" {
+		var body string
+		switch {
+		case r.URL.Path == "/v1/models":
+			body = models
+		case r.URL.Path == "/v1/endpoints/zdr" && zdr != "":
+			if r.Header.Get("Authorization") != "" {
+				t.Errorf("the public zero-retention list was sent a credential")
+			}
+			body = zdr
+		default:
 			http.NotFound(w, r)
 			return
 		}
@@ -63,7 +104,7 @@ func serveModelList(t *testing.T, body string) *httptest.Server {
 func intPointer(value int) *int { return &value }
 
 func TestDiscoveryKeepsWhatOpenRouterPublishesAboutEachModel(t *testing.T) {
-	server := serveModelList(t, openRouterModelsFixture)
+	server := serveOpenRouter(t, openRouterModelsFixture, openRouterZDRFixture)
 	models, err := Discover(context.Background(), server.Client(), Provider{Slug: "openrouter", BaseURL: server.URL + "/v1", APIKey: "k"})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
@@ -84,15 +125,23 @@ func TestDiscoveryKeepsWhatOpenRouterPublishesAboutEachModel(t *testing.T) {
 	allEfforts := contract.ReasoningEfforts()
 	tools := true
 	name := "OpenAI: gpt-oss-120b"
+	// The union of both zero-retention endpoints: frequency_penalty only on
+	// Nebius, seed/stop/tools only on Groq.
+	accepted := []provider.RequestParameter{
+		provider.ParameterMaxOutputTokens, provider.ParameterReasoningEffort, provider.ParameterResponseFormat,
+		provider.ParameterFrequencyPenalty, provider.ParameterSeed, provider.ParameterStopSequences,
+		provider.ParameterTemperature, provider.ParameterTopP, provider.ParameterToolChoice, provider.ParameterTools,
+	}
 	want := inventory.Observed{
-		DisplayName:      &name,
-		CreatedAt:        &created,
-		ContextTokens:    intPointer(131072),
-		MaxOutputTokens:  intPointer(32768),
-		InputModalities:  []string{"text"},
-		OutputModalities: []string{"text"},
-		SupportsTools:    &tools,
-		ReasoningEfforts: &allEfforts,
+		DisplayName:        &name,
+		CreatedAt:          &created,
+		ContextTokens:      intPointer(131072),
+		MaxOutputTokens:    intPointer(32768),
+		InputModalities:    []string{"text"},
+		OutputModalities:   []string{"text"},
+		SupportsTools:      &tools,
+		ReasoningEfforts:   &allEfforts,
+		AcceptedParameters: &accepted,
 	}
 	if oss.ListPrice == nil || oss.ListPrice.Currency != "USD" || oss.ListPrice.Input != "0.072" || oss.ListPrice.Output != "0.28" {
 		t.Errorf("list price = %+v, want USD 0.072 / 0.28 per million", oss.ListPrice)
@@ -111,6 +160,11 @@ func TestDiscoveryKeepsWhatOpenRouterPublishesAboutEachModel(t *testing.T) {
 	}
 	if llama.ReasoningEfforts == nil || len(*llama.ReasoningEfforts) != 0 {
 		t.Errorf("a present parameter list without reasoning must report [] efforts: %+v", llama.ReasoningEfforts)
+	}
+	if llama.AcceptedParameters == nil || !reflect.DeepEqual(*llama.AcceptedParameters, []provider.RequestParameter{
+		provider.ParameterMaxOutputTokens, provider.ParameterStopSequences, provider.ParameterTemperature, provider.ParameterTopP,
+	}) {
+		t.Errorf("accepted parameters = %v", llama.AcceptedParameters)
 	}
 	if llama.MaxOutputTokens != nil {
 		t.Errorf("a null max_completion_tokens became %d instead of staying absent", *llama.MaxOutputTokens)
@@ -137,12 +191,12 @@ func TestDiscoveryKeepsOnlyWhatGroqPublishes(t *testing.T) {
 }
 
 func TestMalformedMetadataNeverWithdrawsAModel(t *testing.T) {
-	server := serveModelList(t, `{"data":[
+	server := serveOpenRouter(t, `{"data":[
 	  {"id":"a","name":"  padded  ","created":"yesterday","context_length":-1,
 	   "architecture":{"input_modalities":["text","Image!"]},
 	   "pricing":{"prompt":"-1","completion":"-1"},"supported_parameters":"tools"},
 	  {"id":"b","created":0,"owned_by":"x"}
-	]}`)
+	]}`, `{"data":[{"model_id":"a","supported_parameters":"tools"},{"model_id":"b"}]}`)
 	models, err := Discover(context.Background(), server.Client(), Provider{Slug: "openrouter", BaseURL: server.URL + "/v1", APIKey: "k"})
 	if err != nil {
 		t.Fatalf("a metadata change failed discovery: %v", err)
@@ -181,7 +235,7 @@ func TestObservedMetadataReachesTheReaderWithoutMovingTheSnapshotID(t *testing.T
 		t.Fatalf("attribution: %v", err)
 	}
 	discover := func(slug contract.ProviderSlug, fixture string) Discovery {
-		server := serveModelList(t, fixture)
+		server := serveOpenRouter(t, fixture, openRouterZDRFixture)
 		models, err := Discover(context.Background(), server.Client(), Provider{Slug: slug, BaseURL: server.URL + "/v1", APIKey: "k"})
 		if err != nil {
 			t.Fatalf("Discover %s: %v", slug, err)
@@ -221,6 +275,9 @@ func TestObservedMetadataReachesTheReaderWithoutMovingTheSnapshotID(t *testing.T
 	// Groq is silent on tools and reasoning, so it abstains; OpenRouter decides.
 	if entry.SupportsTools == nil || !*entry.SupportsTools || entry.ReasoningEfforts == nil || len(*entry.ReasoningEfforts) != 3 {
 		t.Errorf("capabilities = tools %v efforts %v", entry.SupportsTools, entry.ReasoningEfforts)
+	}
+	if entry.AcceptedParameters == nil || len(*entry.AcceptedParameters) != 10 {
+		t.Errorf("accepted parameters = %v, want OpenRouter's zero-retention union with Groq abstaining", entry.AcceptedParameters)
 	}
 	if len(entry.ListPrices) != 1 || entry.ListPrices[0].Provider != "openrouter" || entry.ListPrices[0].Input != "0.072" {
 		t.Errorf("list prices = %+v", entry.ListPrices)

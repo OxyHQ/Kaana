@@ -92,6 +92,20 @@ provider failures. Streamed requests ask for `stream_options.include_usage`,
 and an absent sampling parameter stays absent so the selected deployment's own
 default applies. The adapter never invents `temperature` or `max_tokens`.
 
+**Accepted parameters.** A route whose inventory deployment publishes
+`acceptedParameters` (`inventory.md`) carries that set, and `Translate` —
+text and spoken wire alike — reads the encoded body it is about to send and
+refuses, with `invalid_request` naming the field, any control the set lacks.
+That is what the policy above makes necessary on OpenRouter: with `zdr` and
+`require_parameters`, a parameter none of the model's zero-retention endpoints
+lists is a guaranteed 404 after the request has crossed the network (in
+production, `temperature` on `google/gemini-3.7-flash` and the GPT Luna rows).
+An unknown set refuses nothing, and a refused control is never dropped.
+OpenRouter's own 404s for "No endpoints found that ..." and "... data
+policy" are classified `invalid_request` (non-retryable, not attributable)
+with its redacted message; only its other 404s are `model_not_found`
+(`provider-onboarding.md`, "OpenRouter").
+
 **Missing-usage fallback.** Asking for `stream_options.include_usage` is not a
 guarantee: gateways can strip the terminal usage frame, and non-streamed
 responses can omit the object too. A successful answer is therefore never

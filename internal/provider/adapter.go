@@ -85,6 +85,12 @@ type Route struct {
 	ModelReference  contract.ModelReference
 	UpstreamModelID string
 	Regions         []contract.Region
+	// AcceptedParameters is the deployment's published statement of which
+	// caller controls its upstream accepts (inventory `observed`). Nil is
+	// UNKNOWN and refuses nothing; a present set lets Translate refuse a
+	// control the upstream would reject before anything is spent. It can only
+	// refuse: nothing in it is ever sent or defaulted.
+	AcceptedParameters *[]RequestParameter
 	// CustomerProviderCredential is the exact non-secret binding Oxy signed for
 	// this route. Nil means the provider call uses Kaana's platform pool.
 	CustomerProviderCredential *contract.CustomerProviderCredential

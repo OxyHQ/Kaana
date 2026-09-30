@@ -51,6 +51,9 @@ func (a *Adapter) translateSpoken(request *contract.Request, route provider.Rout
 	if err != nil {
 		return nil, err
 	}
+	if err := a.refuseUnacceptedParameters(call.Body, route); err != nil {
+		return nil, err
+	}
 	for name, value := range a.config.Headers {
 		call.Header.Set(name, value)
 	}

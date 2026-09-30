@@ -207,8 +207,10 @@ audio chunking and ceiling, and the audio-token partition — is one package,
 ## OpenRouter's audio chat rows
 
 OpenRouter serves OpenAI's audio chat models under its own namespace,
-`openai/gpt-audio` and `openai/gpt-audio-mini`, both already attributed and
-published under `openrouter`. They answer aloud through the `openaicompat`
+`openai/gpt-audio` and `openai/gpt-audio-mini`, both attributed under
+`openrouter`. **Neither is servable under Kaana's OpenRouter policy today, and
+the publisher does not publish them** (below, "Zero data retention"). When a
+zero-retention endpoint appears they answer aloud through the `openaicompat`
 adapter on the shared spoken wire; a text chat to the same deployment still
 runs on the text path. What is OpenRouter's own:
 
@@ -240,11 +242,30 @@ A rate card for these deployments prices `audio_input_tokens` at `audio` and
 `audio_output_tokens` at `audio_output`, the text units at `prompt` and
 `completion`.
 
-Not verified from OpenRouter's documentation, and so what the first signed
-canary must confirm: whether `require_parameters: true` counts `modalities` and
-`audio` (neither is in either model's `supported_parameters`, and OpenRouter's
-parameter enum has no audio entry — if it counts them, OpenRouter answers 404
-for "no endpoints" and the route fails as `model_not_found`); whether a
+**Zero data retention (checked 2026-09-30).** Every Kaana request to
+OpenRouter carries `zdr: true`, so it is served only from an endpoint in
+OpenRouter's public zero-retention list (`GET /api/v1/endpoints/zdr`). Neither
+model has one: `GET /api/v1/models/openai/gpt-audio/endpoints` (and
+`.../gpt-audio-mini/endpoints`) lists exactly one endpoint, OpenAI's own, and
+it is absent from the zero-retention list. Every request to either model —
+spoken or text, whatever its parameters — therefore meets OpenRouter's
+data-policy 404. The publisher drops a model with no zero-retention endpoint
+as unservable (`inventory.md`), so these two are no longer published; the
+spoken path stays in place for when one appears.
+
+Whether `require_parameters: true` counts `modalities` and `audio` could not
+be settled by a request, because no request to these models can reach that
+check. The documentation's answer: `require_parameters` restricts routing to
+providers supporting "all parameters in your request", linked to the "LLM
+parameters" reference, whose list (temperature through verbosity) names
+neither `modalities` nor `audio`; and across all 921 zero-retention endpoints
+the `supported_parameters` vocabulary is 26 words, none of them `modalities`
+or `audio`. Nothing documented says they count, so `require_parameters` is
+left on (dropping it would weaken the policy for every other parameter on the
+strength of a guess). If OpenRouter does count them, the answer is its
+"No endpoints found that ..." 404, which the adapter now reports as a
+non-retryable `invalid_request` with OpenRouter's message, not as
+`model_not_found`. Also unverified: whether a
 non-`pcm16` format streams through OpenRouter (its own example streams `wav`;
 OpenAI documents streaming as `pcm16` only); and whether a stream chunk carries
 `id` and `expires_at`, which this reader ignores. Both OpenRouter models are
@@ -269,7 +290,8 @@ entry is not evidence that the account can transcribe or speak.
 
 OpenRouter's spoken rows need no new slug, key or discovery: `openrouter` is
 already served and discovered, and `openai/gpt-audio` and
-`openai/gpt-audio-mini` are already published. What enabling them needs is a
+`openai/gpt-audio-mini` are attributed, so they publish as soon as OpenRouter
+lists a zero-retention endpoint for them. What enabling them then needs is a
 rate card for each of those deployments pricing `audio_input_tokens` and
 `audio_output_tokens` (in 10⁻¹² USD per token: `32000000` / `64000000` for
 `gpt-audio`, `600000` / `2400000` for `gpt-audio-mini`, beside `input_tokens`

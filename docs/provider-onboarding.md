@@ -458,6 +458,59 @@ Kaana status:
 - New accounts receive a USD 10 credit for three months, after which billing is
   required. That trial is expiring account state, not a free model tier.[^ai21-pricing]
 
+## OpenRouter
+
+Every Kaana request to OpenRouter carries the fixed policy
+`provider: {zdr: true, data_collection: "deny", require_parameters: true}`
+(`adapters.md`). OpenRouter therefore serves it only from one of the model's
+**zero-data-retention endpoints**, and only from one that accepts every
+parameter the request carries. The model's own `/models` entry is the union
+over ALL of its endpoints, most of which Kaana can never reach, so it is the
+wrong source for what a Kaana route accepts. Production proved it (2026-09-30):
+every model whose zero-retention endpoints list `temperature` served a
+`temperature: 0.7` request, and every one whose zero-retention endpoints do
+not (`openai/gpt-5.6-luna`, `openai/gpt-6-luna`, `google/gemini-3.7-flash`)
+answered 404 — although each `/models` entry lists `temperature`.
+`qwen/qwen3.8-flash` has no zero-retention endpoint at all and answered 404 to
+everything, as do `openai/gpt-audio` and `openai/gpt-audio-mini`, whose one
+endpoint is OpenAI's own.
+
+So OpenRouter discovery reads one more list, OpenRouter's public
+`GET /api/v1/endpoints/zdr` (unauthenticated; no credential is sent; 921
+endpoints over 326 models, 0.9 MiB on 2026-09-30).[^openrouter-zdr] Each entry
+has `model_id` (the `/models` id) and its own `supported_parameters`. Per
+discovered model:
+
+- **No zero-retention endpoint:** the model can never be served under the
+  policy. The publisher drops it and warns naming it, like an unattributed
+  model; it publishes once OpenRouter lists one.
+- **Otherwise** `supportsTools`, `reasoningEfforts` and `acceptedParameters`
+  come from the UNION of its zero-retention endpoints' lists
+  (`inventory.md`). The union is the widest honest statement — a parameter no
+  reachable endpoint lists is certainly refused — not a promise that one
+  endpoint takes a whole combination.
+- **One endpoint's list absent or unreadable:** the union is incomplete, so
+  those three fields are absent (unknown) rather than under-reported.
+- **The list cannot be read, is not the documented shape, is empty, or has an
+  entry with no `model_id`:** OpenRouter's discovery fails for the cycle
+  exactly as a failed `/models` read does; its routes are absent and the other
+  providers still publish.
+
+A request carrying a control its route's `acceptedParameters` lacks is refused
+in `Translate` with `invalid_request` naming the field (for example
+`sampling.temperature`: "this model's zero-data-retention endpoints on
+openrouter do not accept sampling.temperature"), before anything is sent. The
+residue — a combination no single endpoint takes — reaches OpenRouter, whose
+404 message is then classified: "No endpoints found that ..." (the
+`require_parameters` family: "... can handle the requested parameters", "...
+support tool use", "... support the provided 'tool_choice' value") and "No
+endpoints ... data policy" are `invalid_request`, non-retryable and not
+deployment-attributable, with OpenRouter's redacted message as the
+passthrough; any other 404 ("No endpoints found for <model>.") stays
+`model_not_found`. OpenRouter's typed fields cannot separate the two (both are
+`code: 404`, `metadata.error_type: not_found`), so its documented message is
+the discriminator.[^openrouter-errors][^openrouter-routing]
+
 ## Live OpenRouter, Groq and xAI catalogue delta
 
 The publisher task's authenticated 2026-09-01 run exposed a useful trap: an
@@ -767,6 +820,9 @@ green:
 [^ai21-models]: [AI21 Jamba models and API versioning](https://docs.ai21.com/docs/jamba-foundation-models)
 [^ai21-pricing]: [AI21 pricing and introductory credit](https://docs.ai21.com/docs/usage-cost)
 [^openrouter-models]: [OpenRouter model catalogue API](https://openrouter.ai/api/v1/models)
+[^openrouter-zdr]: [OpenRouter zero-data-retention endpoint list](https://openrouter.ai/api/v1/endpoints/zdr); per model: `https://openrouter.ai/api/v1/models/{id}/endpoints`
+[^openrouter-errors]: [OpenRouter API errors](https://openrouter.ai/docs/api-reference/errors)
+[^openrouter-routing]: [OpenRouter provider selection: `require_parameters`, `zdr`](https://openrouter.ai/docs/guides/routing/provider-selection)
 [^groq-systems]: [Groq Compound systems](https://console.groq.com/docs/compound/systems)
 [^groq-speech]: [Groq Orpheus text-to-speech](https://console.groq.com/docs/text-to-speech/orpheus)
 [^groq-transcription]: [Groq API reference — audio transcription](https://console.groq.com/docs/api-reference)

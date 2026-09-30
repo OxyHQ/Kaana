@@ -58,6 +58,10 @@ type DiscoveredModel struct {
 	// said nothing Kaana could keep. It is catalogue metadata and never
 	// changes routing, which is why snapshotId does not hash it.
 	Observed *inventory.Observed
+	// Unservable, when non-empty, says why Kaana's fixed request policy for
+	// this provider can never be served by the model (an OpenRouter model with
+	// no zero-data-retention endpoint). BuildSnapshot drops it and names it.
+	Unservable string
 }
 
 // Discover asks a provider which models it serves.
@@ -127,6 +131,16 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	}
 	if len(models) == 0 {
 		return nil, fmt.Errorf("publisher: %s reports serving no models at all", target.Slug)
+	}
+	if target.Slug == "openrouter" {
+		// The slug is bound to OpenRouter's reserved origin (providerconfig),
+		// and it is the slug Translate attaches the zero-retention policy to,
+		// so the two decisions key on the same fact. See zdr.go.
+		zeroRetention, err := readZeroRetentionEndpoints(ctx, client, target)
+		if err != nil {
+			return nil, err
+		}
+		restrictToZeroRetention(models, zeroRetention)
 	}
 
 	// xAI's speech endpoint has no model selector and is absent from /models.

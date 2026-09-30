@@ -323,10 +323,12 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		}
 		body.ResponseFormat = translated
 	}
-
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("openaicompat: encoding the upstream request: %w", err)
+	}
+	if err := a.refuseUnacceptedParameters(encoded, route); err != nil {
+		return nil, err
 	}
 
 	header := http.Header{}
@@ -344,6 +346,67 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		Header: header,
 		Stream: request.Stream,
 	}, nil
+}
+
+// refuseUnacceptedParameters refuses a control the route's published
+// accepted-parameter set says its upstream does not take.
+//
+// It reads the encoded BODY about to be sent rather than the contract request,
+// so it judges exactly what the upstream would see — a `text` response format
+// sends nothing and is not a response_format — and it serves the text and the
+// spoken wire alike. A route whose set is unknown refuses nothing: absence is
+// "nobody said", never "nothing is accepted".
+//
+// This matters most for OpenRouter. Every request there requires zero data
+// retention AND that the serving endpoint accept every parameter sent
+// (`require_parameters`), so a parameter no zero-retention endpoint of the
+// model lists can never be served: OpenRouter answers 404 after the request
+// has crossed the network. Dropping the parameter instead would change what
+// the model does while reporting success.
+func (a *Adapter) refuseUnacceptedParameters(encoded []byte, route provider.Route) error {
+	if route.AcceptedParameters == nil {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return fmt.Errorf("openaicompat: reading back the upstream request: %w", err)
+	}
+	var sent []provider.RequestParameter
+	for word, parameter := range wireParameters {
+		if value, present := fields[word]; present && string(value) != "null" {
+			sent = append(sent, parameter)
+		}
+	}
+	parameter, refused := route.UnacceptedParameter(sent...)
+	if !refused {
+		return nil
+	}
+	detail := fmt.Sprintf("%s reports that this model does not accept %s; omit it to use the model's own behaviour", a.config.Provider, parameter)
+	if a.config.Provider == "openrouter" {
+		detail = fmt.Sprintf("this model's zero-data-retention endpoints on openrouter do not accept %s; omit it to use the model's own behaviour", parameter)
+	}
+	return provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: string(parameter), Detail: detail}
+}
+
+// wireParameters maps the Chat Completions body fields this adapter (and the
+// shared spoken wire) sends onto the control each expresses. Every other body
+// field (`model`, `messages`, `stream`, `stream_options`, `provider`,
+// `modalities`, `audio`) is not a caller control the accepted-parameter set
+// states.
+var wireParameters = map[string]provider.RequestParameter{
+	"max_tokens":            provider.ParameterMaxOutputTokens,
+	"max_completion_tokens": provider.ParameterMaxOutputTokens,
+	"reasoning":             provider.ParameterReasoningEffort,
+	"reasoning_effort":      provider.ParameterReasoningEffort,
+	"response_format":       provider.ParameterResponseFormat,
+	"frequency_penalty":     provider.ParameterFrequencyPenalty,
+	"presence_penalty":      provider.ParameterPresencePenalty,
+	"seed":                  provider.ParameterSeed,
+	"stop":                  provider.ParameterStopSequences,
+	"temperature":           provider.ParameterTemperature,
+	"top_p":                 provider.ParameterTopP,
+	"tool_choice":           provider.ParameterToolChoice,
+	"tools":                 provider.ParameterTools,
 }
 
 // Health implements provider.Adapter.
