@@ -217,6 +217,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	providerClient := &http.Client{Transport: provider.BoundResponseHeaders(providerBase, responseHeaderTimeout)}
+	// The header deadline's twin for the body: how long a stream that has
+	// answered may go without one real frame. See provider.StreamWatch.
+	streamIdleTimeout, err = strictPositiveDurationFromEnv("KAANA_PROVIDER_STREAM_IDLE_TIMEOUT", provider.DefaultStreamIdleTimeout)
+	if err != nil {
+		return err
+	}
 	adapters, err := buildAdaptersWithClient(providerConfigs, providerClient)
 	if err != nil {
 		return err
@@ -828,6 +834,10 @@ func buildAdapters(configs []providerConfig) ([]provider.Registrant, error) {
 	return buildAdaptersWithClient(configs, nil)
 }
 
+// streamIdleTimeout is read once at startup from KAANA_PROVIDER_STREAM_IDLE_TIMEOUT
+// and applies to every adapter built afterwards, including rebuilt ones.
+var streamIdleTimeout = provider.DefaultStreamIdleTimeout
+
 func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]provider.Registrant, error) {
 	adapters := make([]provider.Registrant, 0, len(configs))
 	for _, config := range configs {
@@ -858,12 +868,13 @@ func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]p
 			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolOpenAICompatible:
 			adapter, err := openaicompat.New(openaicompat.Config{
-				HTTPClient:   client,
-				Provider:     config.Slug,
-				BaseURL:      config.BaseURL,
-				Declarations: config.Declarations,
-				Keys:         config.Keys,
-				Headers:      config.Headers,
+				HTTPClient:        client,
+				StreamIdleTimeout: streamIdleTimeout,
+				Provider:          config.Slug,
+				BaseURL:           config.BaseURL,
+				Declarations:      config.Declarations,
+				Keys:              config.Keys,
+				Headers:           config.Headers,
 			})
 			if err != nil {
 				return nil, err

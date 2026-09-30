@@ -20,7 +20,8 @@ there is no provider-key fallback outside its database.
 | `KAANA_OXY_VALIDATION_TIMEOUT` | no | timeout per token/verdict HTTP operation, default `5s` |
 | `KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT` | no | deadline for the isolated one-token upstream bootstrap probe, default `20s`, maximum `45s` so it cannot outlive its PostgreSQL lease |
 | `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent means cost is not measured |
-| `KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` | no | how long an upstream may take to send response HEADERS, default `90s`; the body is never bounded |
+| `KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` | no | how long an upstream may take to send response HEADERS, default `90s` |
+| `KAANA_PROVIDER_STREAM_IDLE_TIMEOUT` | no | how long a streamed response may go without one real frame once its headers are in, default `300s`; keep-alive comments do not count. A stall ends the attempt as a retryable `provider_timeout`. The body's total length is never bounded |
 | `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon, default `1h` |
 | `KAANA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
 | `KAANA_CREDENTIAL_RELOAD_INTERVAL` | no | atomic database/KMS pool reload, default `1m` |
