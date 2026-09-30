@@ -17,6 +17,10 @@ func TestTheErrorEnvelopeReadsBothShapes(t *testing.T) {
 		// OpenAI and every provider copying it: an object.
 		"OpenAI object": {`{"error":{"message":"slow down","type":"rate_limit_exceeded"}}`, "slow down", "rate_limit_exceeded"},
 		"no error":      {`{"code":"x"}`, "", ""},
+		// Cohere's compatibility root: flat, no `error`, no type (measured
+		// against api.cohere.ai/compatibility/v1 without a key, 2026-09-30).
+		"Cohere flat":        {`{"id":"ecb5cee7-5fd4-46b0-8b1b-1282fa95ae22","message":"no api key supplied"}`, "no api key supplied", ""},
+		"non-string message": {`{"message":{"nested":true}}`, "", ""},
 	} {
 		var body upstreamErrorBody
 		if err := json.Unmarshal([]byte(testCase.raw), &body); err != nil {

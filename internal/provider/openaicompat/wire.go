@@ -261,10 +261,17 @@ type upstreamErrorBody struct {
 // "<text>"}`, where `error` is the message itself rather than an object. Read
 // only as an object, every xAI refusal reached the customer with no reason at
 // all ("xai rejected the request").
+//
+// It also reads Cohere's compatibility envelope, `{"id": "...", "message":
+// "<text>"}`, which carries neither `error` nor a type: the message is the only
+// reason Cohere gives (a trial key's monthly cap arrives this way). Only the
+// message is kept; classification stays with the status, as for any failure
+// that names no type.
 func (b *upstreamErrorBody) UnmarshalJSON(raw []byte) error {
 	var envelope struct {
-		Error json.RawMessage `json:"error"`
-		Code  any             `json:"code"`
+		Error   json.RawMessage `json:"error"`
+		Code    any             `json:"code"`
+		Message json.RawMessage `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return err
@@ -275,6 +282,9 @@ func (b *upstreamErrorBody) UnmarshalJSON(raw []byte) error {
 		return nil
 	}
 	if len(envelope.Error) == 0 || string(envelope.Error) == "null" {
+		if json.Unmarshal(envelope.Message, &text) == nil {
+			b.Error = upstreamError{Message: text}
+		}
 		return nil
 	}
 	return json.Unmarshal(envelope.Error, &b.Error)

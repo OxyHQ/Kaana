@@ -257,3 +257,106 @@ func TestXAISpeechDiscoveryRequiresTheAuthenticatedVoiceCatalogue(t *testing.T) 
 		})
 	}
 }
+
+// cohereModelListServer answers Cohere's native list in the documented shape
+// (https://docs.cohere.com/reference/list-models), one page per token.
+func cohereModelListServer(t *testing.T, pages map[string]string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Errorf("path = %q, want Cohere's native /v1/models", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Errorf("Authorization = %q", got)
+		}
+		if got := r.URL.Query().Get("endpoint"); got != "chat" {
+			t.Errorf("endpoint = %q, want chat", got)
+		}
+		if got := r.URL.Query().Get("page_size"); got != "1000" {
+			t.Errorf("page_size = %q", got)
+		}
+		page, ok := pages[r.URL.Query().Get("page_token")]
+		if !ok {
+			http.Error(w, "unexpected page", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(page))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestCohereDiscoveryReadsTheNativePaginatedChatCatalogue(t *testing.T) {
+	server := cohereModelListServer(t, map[string]string{
+		"": `{"models":[
+			{"name":"command-a-03-2025","endpoints":["generate","chat","summarize"],"finetuned":false,"context_length":256000,"is_deprecated":false,"features":["tools"]},
+			{"name":"embed-v4.0","endpoints":["embed"],"finetuned":false,"context_length":128000}
+		],"next_page_token":"page-2"}`,
+		"page-2": `{"models":[
+			{"name":"command-r7b-12-2024","endpoints":["chat"],"finetuned":false,"context_length":128000},
+			{"name":"a1b2c3-ft","endpoints":["chat"],"finetuned":true,"context_length":128000}
+		]}`,
+	})
+
+	models, err := publisher.Discover(context.Background(), server.Client(), publisher.Provider{
+		Slug: "cohere", BaseURL: server.URL + "/compatibility/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryCohereModels,
+	})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	var ids []string
+	for _, model := range models {
+		ids = append(ids, model.UpstreamModelID)
+		if model.Observed == nil || model.Observed.ContextTokens == nil || model.Observed.DisplayName != nil {
+			t.Errorf("%s observed = %+v, want only Cohere's context_length", model.UpstreamModelID, model.Observed)
+		}
+	}
+	if want := []string{"command-a-03-2025", "command-r7b-12-2024"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("models = %v, want %v (chat-capable, not fine-tuned, both pages)", ids, want)
+	}
+	if got := *models[0].Observed.ContextTokens; got != 256000 {
+		t.Errorf("command-a-03-2025 context = %d", got)
+	}
+}
+
+func TestCohereDiscoveryRefusesAMalformedCatalogue(t *testing.T) {
+	for name, pages := range map[string]map[string]string{
+		// Empty pages, so only the token itself can stop a loop.
+		"repeated page token": {
+			"":  `{"models":[{"name":"command-a-03-2025","endpoints":["chat"]}],"next_page_token":"a"}`,
+			"a": `{"models":[],"next_page_token":"b"}`,
+			"b": `{"models":[],"next_page_token":"a"}`,
+		},
+		"duplicate name": {
+			"":  `{"models":[{"name":"command-a-03-2025","endpoints":["chat"]}],"next_page_token":"a"}`,
+			"a": `{"models":[{"name":"command-a-03-2025","endpoints":["chat"]}]}`,
+		},
+		"blank name":   {"": `{"models":[{"name":" command-a-03-2025","endpoints":["chat"]}]}`},
+		"no chat rows": {"": `{"models":[{"name":"embed-v4.0","endpoints":["embed"]}]}`},
+		"wrong shape":  {"": `{"models":[{"name":7}]}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := cohereModelListServer(t, pages)
+			if _, err := publisher.Discover(context.Background(), server.Client(), publisher.Provider{
+				Slug: "cohere", BaseURL: server.URL + "/compatibility/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryCohereModels,
+			}); err == nil {
+				t.Fatal("Discover accepted a malformed Cohere catalogue")
+			}
+		})
+	}
+}
+
+func TestCohereDiscoveryRequiresTheDocumentedCompatibilityRoot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("a credential was sent to %s", r.URL)
+	}))
+	t.Cleanup(server.Close)
+	for _, base := range []string{server.URL + "/v1", server.URL + "/compatibility/v2", server.URL} {
+		if _, err := publisher.Discover(context.Background(), server.Client(), publisher.Provider{
+			Slug: "cohere", BaseURL: base, APIKey: "test-key", Discovery: providerconfig.DiscoveryCohereModels,
+		}); err == nil {
+			t.Errorf("Discover accepted Cohere base %q", base)
+		}
+	}
+}

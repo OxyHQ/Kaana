@@ -310,6 +310,13 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 			"zai-glm-5-3":       "z-ai/glm-5.3",
 		},
 		"xai": {"grok-4.7": "x-ai/grok-4.7"},
+		// Cohere's direct ids share OpenRouter's Command lines, so the two
+		// providers are one failover set rather than two catalogue entries.
+		"cohere": {
+			"command-a-03-2025":      "cohere/command-a",
+			"command-a-plus-05-2026": "cohere/command-a-plus",
+			"command-r7b-12-2024":    "cohere/command-r7b-12-2024",
+		},
 		// `Pro/` is a delivery tier, never part of the model line.
 		"siliconflow": {
 			"Pro/zai-org/GLM-5.1":         "z-ai/glm-5.1",
@@ -471,6 +478,27 @@ func TestCheckedInAttributionPinsOnlyDocumentedAlibabaSnapshots(t *testing.T) {
 	for _, excluded := range []string{"qwen3.7-plus", "qwen3.7-flash", "qwen3.8-max", "qwen3.7-max-preview", "qwen3.7-max", "qwen3.8-flash", "qwen3.7-max-2026-05-17"} {
 		if _, ok := table.ModelLine("alibaba", excluded); ok {
 			t.Errorf("alibaba/%s attributes a moving or preview id", excluded)
+		}
+	}
+}
+
+// Cohere's `command-r` and `command-r-plus` are aliases that pointed at the
+// 2024-03/04 weights, and those and the original `command` models were
+// deprecated on 2025-09-15. None names weights that serve tomorrow.
+func TestCheckedInCohereAttributionHoldsOnlyLiveDatedIDs(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	if got := len(table.byProvider["cohere"]); got != 8 {
+		t.Fatalf("Cohere attributions = %d, want the 8 live dated Command ids", got)
+	}
+	for _, excluded := range []string{
+		"command-r", "command-r-plus", "command-r-03-2024", "command-r-plus-04-2024",
+		"command", "command-light", "command-a", "command-a-plus",
+	} {
+		if _, ok := table.ModelLine("cohere", excluded); ok {
+			t.Errorf("cohere/%s is attributed; it is an alias or a deprecated model", excluded)
 		}
 	}
 }

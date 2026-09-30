@@ -55,6 +55,7 @@ credential only at send time.
 |---|---|---|---|---|---|
 | OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | Authenticated `GET /models`, OpenAI list shape | Seven GPT-6/GPT-5.6 ids that OpenAI publishes only as their own snapshot, plus eleven dated snapshots of older chat lines, are reviewed; undated aliases (`gpt-5.6`, `gpt-5.4`, `gpt-4o`, ...) move, Responses-only and gated models have no Chat Completions route, and specialized media models require other transports/contracts | Built-in `openaicompat` serving and authenticated discovery. Only the eighteen ids listed under "OpenAI" below can currently publish direct deployments. |
 | Mistral | `https://api.mistral.ai/v1` | `POST /chat/completions` | `GET /models`; response includes `capabilities.completion_chat` | Fixed GA ids are available; `*-latest` and major aliases move; `labs-*` may update silently | Built-in `openaicompat` serving; publisher filters for chat capability; eight fixed ids are attributed. No live credential conformance has been recorded. |
+| Cohere | `https://api.cohere.ai/compatibility/v1` | `POST /chat/completions` | Native authenticated `GET /v1/models?endpoint=chat` on the same host, paginated by `next_page_token`; the compatibility root documents no list | Eight live dated Command ids are fixed; `command-r`/`command-r-plus` are deprecated aliases | Built-in `openaicompat` serving and native authenticated discovery; eight fixed ids are attributed. Trial keys are evaluation capacity (see "Cohere"). No live credential conformance has been recorded. |
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `GET /models`, OpenAI list shape | Current direct ids are moving aliases; vision id is experimental | Built-in `openaicompat` serving and generic discovery. Direct attribution is deliberately absent, so discovery cannot emit a direct DeepSeek deployment yet. |
 | SambaNova | `https://api.sambanova.ai/v1` | `POST /chat/completions` | `GET /models`; includes context, max output and pricing metadata | Four production ids are allowed; `DeepSeek-V3.2` is preview | Built-in `openaicompat` serving and generic discovery; four production ids are attributed. Publisher reads only the metadata spellings `observed.go` documents; SambaNova's own fields are not yet mapped. No live credential conformance has been recorded. |
 | Alibaba Model Studio | Workspace- and region-scoped; for Singapore, `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | Authenticated native `GET /api/v1/models`, paginated and filterable by capability/support | Seven dated Qwen snapshots are allowed; moving family ids and previews remain absent | Built-in protocol and endpoint identity with explicit base; native authenticated discovery; exact snapshot attribution. No live credential conformance has been recorded. |
@@ -205,6 +206,58 @@ Kaana status:
 - Free mode is an account plan with included monthly usage, not a permanent
   property of a model deployment. It must not become `cost = 0` in inventory.
   Labs being free is not enough to overcome their mutable lifecycle.[^mistral-free]
+
+## Cohere
+
+Cohere documents an OpenAI-compatible Compatibility API at
+`https://api.cohere.ai/compatibility/v1` with `POST /chat/completions`,
+streaming, tools, `response_format`, `temperature`, `max_tokens`, `stop`,
+`seed`, `top_p` and the two penalties. It does not support `n`, `logit_bias`,
+`parallel_tool_calls`, `store` or `metadata`, none of which Kaana
+sends.[^cohere-openai] `reasoning_effort` takes only `none` and `high`, so
+`reasoningDialectFor` still refuses a reasoning effort for Cohere rather than
+map Kaana's efforts onto two values nobody has verified on the wire.
+
+The Compatibility API documents no model list. Cohere's account-scoped list is
+the native `GET /v1/models`, which takes `endpoint`, `page_size` (at most 1000)
+and `page_token`, and answers `{"models": [...], "next_page_token": ...}` with
+`name`, `endpoints`, `finetuned`, `is_deprecated` and `context_length` per
+row.[^cohere-list-models] The `cohere_models` profile reads it on the same host
+as the configured compatibility root (`/compatibility/v1` becomes
+`/v1/models`), asks for `endpoint=chat`, re-checks `endpoints` itself, drops
+fine-tunes (one account's private weights, never a public model line), pages
+until no token is returned and refuses a repeated token. It keeps only
+`context_length` as observed metadata: Cohere's `name` is the id, not a display
+name.
+
+Fixed, chat-capable ids allowed by Kaana (Cohere's models page,
+2026-09-30):[^cohere-models]
+
+- `command-a-03-2025` and `command-a-plus-05-2026`, on OpenRouter's existing
+  `cohere/command-a` and `cohere/command-a-plus` lines
+- `command-r7b-12-2024`, `command-r-08-2024`, `command-r-plus-08-2024`, on the
+  same OpenRouter lines
+- `command-a-reasoning-08-2025`, `command-a-vision-07-2025` and
+  `command-a-translate-08-2025`, each its own dated line
+
+`command-r`, `command-r-plus` (aliases), the 2024-03/04 ids, `command` and
+`command-light` were deprecated on 2025-09-15 and are absent.
+
+Cohere's compatibility errors are flat, `{"id": "...", "message": "..."}`
+(measured unauthenticated, 2026-09-30). The adapter keeps the message for the
+redacted passthrough; classification stays with the status.
+
+**Trial keys are evaluation capacity, not production capacity.** Cohere issues
+every account a free, rate-limited trial key (20 chat requests a minute, 1,000
+calls a month) and says to upgrade to a production key "to serve Cohere in
+production"; its FAQ repeats that a production application needs a production
+key.[^cohere-rate-limits][^cohere-going-live][^cohere-faq] A trial key's
+credential metadata must therefore say `capacityCategory: trial` and
+`commercialUse: not_permitted`, and Cohere stays out of the production
+`KAANA_PROVIDERS` until a production key exists or the owner records a
+different reading of Cohere's terms. A spent monthly cap arrives as a 429 and
+is a rate limit to Kaana (the key is not retired), because Cohere names no
+error type that separates it from a per-minute throttle.
 
 ## DeepSeek
 
@@ -638,10 +691,11 @@ This is serving configuration, not automatic publication:
   is emitted until an exact, immutable upstream id has an explicit publisher
   attribution.
 - Google's documented model list uses the native Gemini shape and path, not the
-  compatibility root's OpenAI list shape. Cohere's list is likewise native, and
-  Fireworks and Hyperbolic do not document the generic account-list contract
-  Kaana's publisher consumes. Those four are therefore marked
-  `not_available` for discovery instead of trying a plausible `/models` URL.
+  compatibility root's OpenAI list shape, and Fireworks and Hyperbolic do not
+  document the generic account-list contract Kaana's publisher consumes. Those
+  three are therefore marked `not_available` for discovery instead of trying a
+  plausible `/models` URL. Cohere's list is likewise native; it has its own
+  `cohere_models` profile (see "Cohere").
 - Cloudflare Workers AI and Alibaba Model Studio now carry built-in protocol and
   endpoint-identity rules, while their account/workspace-scoped roots remain
   explicit through `KAANA_PROVIDER_<SLUG>_BASE_URL`. Both API tokens remain only
@@ -860,6 +914,11 @@ green:
 [^google-openai]: [Gemini API OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)
 [^together-openai]: [Together OpenAI compatibility](https://docs.together.ai/docs/inference/openai-compatibility)
 [^cohere-openai]: [Cohere Compatibility API](https://docs.cohere.com/docs/compatibility-api)
+[^cohere-list-models]: [Cohere — List Models](https://docs.cohere.com/reference/list-models)
+[^cohere-models]: [Cohere — Models overview](https://docs.cohere.com/docs/models)
+[^cohere-rate-limits]: [Cohere — API keys and rate limits](https://docs.cohere.com/docs/rate-limits)
+[^cohere-going-live]: [Cohere — Going live](https://docs.cohere.com/docs/going-live)
+[^cohere-faq]: [Cohere — FAQs](https://docs.cohere.com/docs/cohere-faqs)
 [^fireworks-openai]: [Fireworks OpenAI compatibility](https://docs.fireworks.ai/tools-sdks/openai-compatibility)
 [^hyperbolic-openai]: [Hyperbolic serverless inference quickstart](https://docs.hyperbolic.xyz/docs/getting-started)
 [^digitalocean-openai]: [DigitalOcean Serverless Inference endpoints](https://docs.digitalocean.com/products/inference/how-to/si-endpoints/)

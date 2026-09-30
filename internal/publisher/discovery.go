@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -83,6 +84,9 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	}
 	if target.Discovery == providerconfig.DiscoveryAlibabaModels {
 		return discoverAlibabaModels(ctx, client, target)
+	}
+	if target.Discovery == providerconfig.DiscoveryCohereModels {
+		return discoverCohereModels(ctx, client, target)
 	}
 
 	endpoint, err := discoveryEndpoint(target, 1)
@@ -266,6 +270,110 @@ func discoverAlibabaModels(ctx context.Context, client *http.Client, target Prov
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })
 	return models, nil
+}
+
+// discoverCohereModels reads Cohere's native authenticated model list,
+// `GET /v1/models?endpoint=chat` (https://docs.cohere.com/reference/list-models).
+// The OpenAI compatibility surface Kaana serves through documents no model
+// list, so the native one is the only account-scoped catalogue there is.
+//
+// It pages on `next_page_token` until Cohere returns none, and refuses a
+// repeated token or a catalogue past maxModelListEntries rather than loop.
+// A row is kept only when Cohere reports it compatible with the chat endpoint
+// (the query filter is re-checked, not trusted) and it is not a fine-tune: a
+// fine-tuned model is one account's private weights, never a public model
+// line. Deprecated rows are kept — deprecation announces a retirement date,
+// and attribution, not discovery, decides what may publish.
+func discoverCohereModels(ctx context.Context, client *http.Client, target Provider) ([]DiscoveredModel, error) {
+	seen := make(map[string]struct{})
+	pageTokens := make(map[string]struct{})
+	models := make([]DiscoveredModel, 0)
+	listed := 0
+	pageToken := ""
+	for {
+		endpoint, err := cohereModelListEndpoint(target, pageToken)
+		if err != nil {
+			return nil, err
+		}
+		var list cohereModelListResponse
+		if err := readModelList(ctx, client, target, endpoint, "Cohere", &list); err != nil {
+			return nil, err
+		}
+		for _, raw := range list.Models {
+			var entry cohereModelListEntry
+			if err := json.Unmarshal(raw, &entry); err != nil {
+				return nil, fmt.Errorf("publisher: %s's model list is not the documented Cohere list shape: %w", target.Slug, err)
+			}
+			if entry.Name == "" || strings.TrimSpace(entry.Name) != entry.Name {
+				return nil, fmt.Errorf("publisher: %s's model list contains a missing or whitespace-normalized model name", target.Slug)
+			}
+			if _, duplicate := seen[entry.Name]; duplicate {
+				return nil, fmt.Errorf("publisher: %s's model list names %q twice", target.Slug, entry.Name)
+			}
+			seen[entry.Name] = struct{}{}
+			listed++
+			if listed > maxModelListEntries {
+				return nil, fmt.Errorf("publisher: %s's model list exceeds %d entries", target.Slug, maxModelListEntries)
+			}
+			if entry.Finetuned || !slices.Contains(entry.Endpoints, "chat") {
+				continue
+			}
+			var observed *inventory.Observed
+			if entry.ContextLength != nil && *entry.ContextLength > 0 && *entry.ContextLength == float64(int(*entry.ContextLength)) {
+				contextTokens := int(*entry.ContextLength)
+				observed = &inventory.Observed{ContextTokens: &contextTokens}
+			}
+			models = append(models, DiscoveredModel{UpstreamModelID: entry.Name, Observed: observed})
+		}
+		if list.NextPageToken == "" {
+			break
+		}
+		if _, repeated := pageTokens[list.NextPageToken]; repeated {
+			return nil, fmt.Errorf("publisher: %s's model list repeated a page token", target.Slug)
+		}
+		pageTokens[list.NextPageToken] = struct{}{}
+		pageToken = list.NextPageToken
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("publisher: %s reports serving no chat models", target.Slug)
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })
+	return models, nil
+}
+
+// cohereModelListEndpoint derives the native list from the compatibility
+// root: the same host, `/compatibility/v1` replaced by `/v1/models`. Nothing
+// but that exact documented root is accepted, so the credential never reaches
+// a path Cohere did not document.
+func cohereModelListEndpoint(target Provider, pageToken string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSuffix(target.BaseURL, "/"))
+	if err != nil || parsed.Path != "/compatibility/v1" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("publisher: provider %s must use a compatibility base ending exactly in /compatibility/v1", target.Slug)
+	}
+	parsed.Path = "/v1/models"
+	query := url.Values{}
+	query.Set("endpoint", "chat")
+	query.Set("page_size", fmt.Sprint(cohereModelListPageSize))
+	if pageToken != "" {
+		query.Set("page_token", pageToken)
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+// cohereModelListPageSize is the documented maximum page.
+const cohereModelListPageSize = 1000
+
+type cohereModelListResponse struct {
+	Models        []json.RawMessage `json:"models"`
+	NextPageToken string            `json:"next_page_token"`
+}
+
+type cohereModelListEntry struct {
+	Name          string   `json:"name"`
+	Endpoints     []string `json:"endpoints"`
+	Finetuned     bool     `json:"finetuned"`
+	ContextLength *float64 `json:"context_length"`
 }
 
 // maxModelListBytes bounds a response this process will read into memory. A
