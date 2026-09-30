@@ -597,8 +597,8 @@ func (a *Adapter) streamFailure(reported upstreamError, key provider.Key) error 
 	failure := provider.ErrUpstream{
 		Passthrough: &contract.ProviderErrorPassthrough{Provider: a.config.Provider},
 	}
-	if reported.Type != "" {
-		kind := reported.Type
+	kind := reported.kind()
+	if kind != "" {
 		failure.Passthrough.Code = &kind
 	}
 	if reported.Message != "" {
@@ -606,7 +606,7 @@ func (a *Adapter) streamFailure(reported upstreamError, key provider.Key) error 
 		failure.Passthrough.Message = &message
 	}
 
-	switch reported.Type {
+	switch kind {
 	case "insufficient_quota", "billing_error":
 		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
 		failure.Detail = fmt.Sprintf("the platform's own %s account cannot be billed for this request", a.config.Provider)
@@ -616,7 +616,7 @@ func (a *Adapter) streamFailure(reported upstreamError, key provider.Key) error 
 	case "rate_limit_exceeded":
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = fmt.Sprintf("%s rate-limited this request part-way through it", a.config.Provider)
-	case "server_error", "internal_error", "overloaded_error":
+	case "server_error", "internal_error", "overloaded_error", "provider_overloaded":
 		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
 		failure.Detail = fmt.Sprintf("%s failed part-way through the response", a.config.Provider)
 	case "content_filter", "content_policy_violation":
