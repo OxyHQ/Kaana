@@ -89,7 +89,9 @@ func subject() conformance.Subject {
 					Name:    "an embedding request",
 					Request: embedding,
 					Code:    contract.CodeUnsupportedModality,
-					Param:   "modality",
+					// Refused by the executor's request-family gate before
+					// Translate, so it names the family, not the modality.
+					Param: "client.apiFormat",
 				},
 				{
 					Name:    "a request with no output token limit",

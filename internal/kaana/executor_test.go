@@ -42,6 +42,8 @@ type scriptedAdapter struct {
 	// credentials observes the request-scoped override before the scripted
 	// stream runs. nil is the platform-pool path.
 	credentials func(*provider.KeyPool)
+	// formats, when set, replaces the declaration of every request family.
+	formats []contract.APIFormat
 
 	mutex        sync.Mutex
 	calls        int
@@ -69,6 +71,16 @@ func (s *scriptedAdapter) Provider() contract.ProviderSlug {
 		return "stub"
 	}
 	return s.slug
+}
+
+func (s *scriptedAdapter) APIFormats() []contract.APIFormat {
+	if s.formats != nil {
+		return s.formats
+	}
+	return []contract.APIFormat{
+		contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatImagesGenerations,
+		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches,
+	}
 }
 
 func (s *scriptedAdapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
@@ -1101,6 +1113,34 @@ func TestAnAdapterThatCompletesWithoutStartingIsAFailure(t *testing.T) {
 	}
 	if result.Report == nil || result.Report.Outcome != contract.OutcomeFailed {
 		t.Errorf("the report says %v", result.Report)
+	}
+}
+
+// TestARequestFamilyTheAdapterNeverDeclaredIsRefusedBeforeTranslate is the
+// executor half of the request-family gate: a transcription-only adapter is
+// never asked to translate, let alone send, a chat request.
+func TestARequestFamilyTheAdapterNeverDeclaredIsRefusedBeforeTranslate(t *testing.T) {
+	translated := false
+	adapter := happyAdapter()
+	adapter.formats = []contract.APIFormat{contract.APIFormatAudioTranscriptions}
+	adapter.translate = func(request *contract.Request, route provider.Route) (*provider.Call, error) {
+		translated = true
+		return &provider.Call{Route: route, Stream: request.Stream}, nil
+	}
+
+	_, result := execute(t, adapter, baseRequest())
+
+	if result.Failure == nil || result.Failure.Code != contract.CodeUnsupportedModality {
+		t.Fatalf("an undeclared request family reached the adapter: %+v", result.Failure)
+	}
+	if translated || adapter.calls != 0 {
+		t.Fatal("the adapter translated or streamed a request family it never declared")
+	}
+
+	// Positive control: declaring the family is what lets the same request run.
+	adapter.formats = []contract.APIFormat{baseRequest().Client.APIFormat}
+	if _, result := execute(t, adapter, baseRequest()); result.Failure != nil || !translated {
+		t.Fatalf("a declared request family was refused: %+v", result.Failure)
 	}
 }
 

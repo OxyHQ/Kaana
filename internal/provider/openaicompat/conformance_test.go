@@ -164,11 +164,14 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 				unexpressible.Client.APIFormat = contract.APIFormatImagesGenerations
 				unexpressible.Client.Endpoint = "/v1/images/generations"
 			}
+			// The executor refuses a request family the adapter never
+			// declared before Translate runs, so the refusal names the family
+			// rather than the modality the adapter's own check would name.
 			return []conformance.Refusal{{
 				Name:    name,
 				Request: unexpressible,
 				Code:    contract.CodeUnsupportedModality,
-				Param:   "modality",
+				Param:   "client.apiFormat",
 			}}
 		},
 	}

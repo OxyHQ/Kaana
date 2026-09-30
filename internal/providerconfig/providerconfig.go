@@ -32,6 +32,7 @@ const (
 	ProtocolOpenAICompatible  = "openai_compatible"
 	ProtocolAnthropicMessages = "anthropic_messages"
 	ProtocolDeepgramVoice     = "deepgram_voice"
+	ProtocolOpenAIAudio       = "openai_audio"
 
 	DiscoveryOpenAIModels  = "openai_models"
 	DiscoveryXAIModels     = "xai_models_and_speech"
@@ -55,6 +56,7 @@ const (
 var Known = map[contract.ProviderSlug]Endpoint{
 	"deepgram":         {Protocol: ProtocolDeepgramVoice, BaseURL: "https://api.deepgram.com/v1", Discovery: DiscoveryNotAvailable},
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
+	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
@@ -81,6 +83,44 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"ovhcloud":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", Discovery: DiscoveryNotAvailable},
 	"alibaba":          {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryAlibabaModels},
 	"cloudflare":       {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryNotAvailable},
+}
+
+// OpenAIAudioBaseURL is the only origin the `openai-audio` slug may reach.
+//
+// It is OpenAI's own API root, deliberately under a second slug: a provider
+// slug resolves to exactly one adapter, and the file-transcription wire is a
+// different request family from Chat Completions. Keeping it apart means a
+// transcription deployment can only ever be executed by the transcription
+// adapter, and a chat deployment only by the chat adapter.
+const OpenAIAudioBaseURL = "https://api.openai.com/v1"
+
+// ExecutableAPIFormats is the request families a slug's adapter executes under
+// a protocol. It is the one table both the serving process (each adapter's
+// declaration, which the registry and executor enforce) and the publisher
+// (which refuses to attach a model to an adapter that cannot execute it) read.
+//
+// An empty result means the protocol is not one this build speaks. The lists
+// are what each adapter's Translate actually builds a call for — never what the
+// upstream might also accept.
+func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contract.APIFormat {
+	switch protocol {
+	case ProtocolOpenAICompatible:
+		formats := []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
+		switch slug {
+		case "siliconflow":
+			formats = append(formats, contract.APIFormatEmbeddings)
+		case "xai":
+			formats = append(formats, contract.APIFormatAudioSpeech)
+		}
+		return formats
+	case ProtocolAnthropicMessages:
+		return []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
+	case ProtocolDeepgramVoice:
+		return []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}
+	case ProtocolOpenAIAudio:
+		return []contract.APIFormat{contract.APIFormatAudioTranscriptions}
+	}
+	return nil
 }
 
 // ValidateBaseURL limits provider credentials to a verified HTTPS origin.
@@ -111,6 +151,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 	if slug == "deepgram" {
 		if raw != "https://api.deepgram.com/v1" && raw != "https://api.eu.deepgram.com/v1" {
 			return fmt.Errorf("deepgram requires its canonical US or EU HTTPS API base")
+		}
+		return nil
+	}
+	if slug == "openai-audio" {
+		if raw != OpenAIAudioBaseURL {
+			return fmt.Errorf("openai-audio requires OpenAI's canonical HTTPS API base")
 		}
 		return nil
 	}

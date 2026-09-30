@@ -96,6 +96,12 @@ type probeAdapter struct {
 }
 
 func (*probeAdapter) Provider() contract.ProviderSlug { return "stub" }
+func (*probeAdapter) APIFormats() []contract.APIFormat {
+	return []contract.APIFormat{
+		contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatImagesGenerations,
+		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches,
+	}
+}
 
 func (a *probeAdapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	a.requests++
