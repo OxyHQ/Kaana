@@ -168,6 +168,13 @@ Protocols are a closed list because a binary can only construct adapters it
 contains; provider slugs are not. A built-in serving configuration does not
 imply discovery or publication support.
 
+OpenAI's own origin is served under three locked slugs, one adapter each:
+`openai` (Chat Completions), `openai-audio` (transcription and spoken chat,
+docs/openai-audio.md) and `openai-realtime` (WebSocket realtime sessions on
+`GET /internal/v1/realtime`, docs/realtime.md). Each takes its own credential
+rows and deployment bindings; `realtime.md`, "Operating it", covers the
+realtime slug's credential, discovery, health and load-balancer notes.
+
 Two slugs that collapse onto one environment prefix are refused. For example,
 `open-router` and `open.router` would both read `KAANA_PROVIDER_OPEN_ROUTER_*`;
 silently choosing one would configure a provider under another identity.

@@ -18,6 +18,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
 	"github.com/OxyHQ/Kaana/internal/provider/openaiaudio"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
+	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
@@ -39,21 +40,32 @@ func TestDeepgramBuildsNativeVoiceAdapter(t *testing.T) {
 	}
 }
 
-func TestOpenAIAudioBuildsTheTranscriptionAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
-	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "openai,openai-audio"}))
+func TestOpenAIAudioBuildsTheAudioAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "openai,openai-audio,openai-realtime"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapters, err := buildAdapters(configs)
-	if err != nil || len(adapters) != 2 {
+	registrants, err := buildAdapters(configs)
+	if err != nil || len(registrants) != 3 {
 		t.Fatalf("adapter construction: %v", err)
 	}
-	for _, adapter := range adapters {
+	for _, registrant := range registrants {
+		if registrant.Provider() == "openai-realtime" {
+			session, ok := registrant.(*openairealtime.Adapter)
+			if _, oneShot := registrant.(provider.Adapter); !ok || oneShot || !provider.OpensRealtime(session, contract.RealtimeConversation) {
+				t.Fatalf("openai-realtime built as %T", registrant)
+			}
+			continue
+		}
+		adapter, ok := registrant.(provider.Adapter)
+		if !ok {
+			t.Fatalf("%s built as %T, which executes no request", registrant.Provider(), registrant)
+		}
 		transcribes := provider.Executes(adapter, contract.APIFormatAudioTranscriptions)
 		chats := provider.Executes(adapter, contract.APIFormatChatCompletions)
 		switch adapter.Provider() {
 		case "openai-audio":
-			if _, ok := adapter.(*openaiaudio.Adapter); !ok || !transcribes || chats {
+			if _, ok := adapter.(*openaiaudio.Adapter); !ok || !transcribes || !chats {
 				t.Fatalf("openai-audio built as %T executing %v", adapter, adapter.APIFormats())
 			}
 		case "openai":
@@ -61,6 +73,19 @@ func TestOpenAIAudioBuildsTheTranscriptionAdapterOnlyAtOpenAIsOrigin(t *testing.
 				t.Fatalf("the chat adapter executes %v", adapter.APIFormats())
 			}
 		}
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS":                         "openai-realtime",
+		"KAANA_PROVIDER_OPENAI_REALTIME_BASE_URL": "https://example.com/v1",
+	})); err == nil {
+		t.Fatal("openai-realtime accepted an origin other than OpenAI's")
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS": "realtime-elsewhere",
+		"KAANA_PROVIDER_REALTIME_ELSEWHERE_PROTOCOL": "openai_realtime",
+		"KAANA_PROVIDER_REALTIME_ELSEWHERE_BASE_URL": "https://api.openai.com/v1",
+	})); err == nil {
+		t.Fatal("the OpenAI Realtime protocol was accepted under another slug")
 	}
 	if _, err := parseProviders(lookup(map[string]string{
 		"KAANA_PROVIDERS":                      "openai-audio",
@@ -461,7 +486,7 @@ func TestOneConditionHasOneMessage(t *testing.T) {
 	// An exact count rather than a floor, and deliberately blunt: a legitimate
 	// future use of Lookup here fails this and has to say why, which is the
 	// cheapest way to make somebody look at the log the alarm reads.
-	if count := strings.Count(string(source), ".Lookup("); count != 1 {
+	if count := strings.Count(string(source), ".Serves("); count != 1 {
 		t.Errorf("the snapshot's providers are checked against the registry in %d places; each one is a warning an alarm has to know about separately", count)
 	}
 

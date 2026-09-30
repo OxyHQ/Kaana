@@ -112,6 +112,9 @@ type Call struct {
 	// providers express it in the body and Kaana has to know without re-reading
 	// it.
 	Stream bool
+	// AudioMediaType is the media type of the audio this call asks the upstream
+	// to produce, for a response that does not name it. It is never sent.
+	AudioMediaType string
 }
 
 // Outcome is what an adapter measured, and it is returned even when Stream
@@ -230,6 +233,16 @@ type ToolCallDelta struct {
 	Complete       bool
 }
 
+// Registrant is what the registry holds: one provider implementation under
+// its own slug. It is exactly one of Adapter (one-shot requests) or
+// RealtimeAdapter (sessions). A slug resolves to one implementation, so a type
+// that claimed both would make which code serves a deployment depend on which
+// question happened to be asked.
+type Registrant interface {
+	Provider() contract.ProviderSlug
+	Health(ctx context.Context) Health
+}
+
 // Registry holds the adapters this process can route to.
 //
 // It keys on the adapter's OWN slug rather than on a name supplied at
@@ -238,6 +251,7 @@ type ToolCallDelta struct {
 type Registry struct {
 	mu               sync.RWMutex
 	adapters         map[contract.ProviderSlug]Adapter
+	sessions         map[contract.ProviderSlug]RealtimeAdapter
 	bindings         map[contract.DeploymentID]CredentialBinding
 	bindingsRequired bool
 }
@@ -248,29 +262,70 @@ type CredentialBinding struct {
 	KeyID        string
 }
 
-// NewRegistry builds a registry, refusing duplicates and invalid slugs.
-func NewRegistry(adapters ...Adapter) (*Registry, error) {
-	registry := &Registry{adapters: make(map[contract.ProviderSlug]Adapter, len(adapters)), bindings: make(map[contract.DeploymentID]CredentialBinding)}
-	for _, adapter := range adapters {
-		slug := adapter.Provider()
+// NewRegistry builds a registry, refusing duplicates, invalid slugs, and an
+// implementation that is not exactly one of the two adapter kinds.
+func NewRegistry(registrants ...Registrant) (*Registry, error) {
+	registry := &Registry{
+		adapters: make(map[contract.ProviderSlug]Adapter, len(registrants)),
+		sessions: make(map[contract.ProviderSlug]RealtimeAdapter),
+		bindings: make(map[contract.DeploymentID]CredentialBinding),
+	}
+	for _, registrant := range registrants {
+		slug := registrant.Provider()
 		if !slug.Valid() {
-			return nil, fmt.Errorf("provider: %T reports slug %q, which is not a provider slug", adapter, slug)
+			return nil, fmt.Errorf("provider: %T reports slug %q, which is not a provider slug", registrant, slug)
 		}
-		if _, duplicate := registry.adapters[slug]; duplicate {
+		if registry.serves(slug) {
 			return nil, fmt.Errorf("provider: two adapters claim the slug %q", slug)
 		}
-		formats := adapter.APIFormats()
-		if len(formats) == 0 {
-			return nil, fmt.Errorf("provider: %s declares no request family it can execute", slug)
-		}
-		for _, format := range formats {
-			if !format.Valid() {
-				return nil, fmt.Errorf("provider: %s declares %q, which is not an api format", slug, format)
+		adapter, oneShot := registrant.(Adapter)
+		session, realtime := registrant.(RealtimeAdapter)
+		switch {
+		case oneShot && realtime:
+			return nil, fmt.Errorf("provider: %T for %s is both a request adapter and a realtime session adapter; a slug resolves to exactly one", registrant, slug)
+		case oneShot:
+			formats := adapter.APIFormats()
+			if len(formats) == 0 {
+				return nil, fmt.Errorf("provider: %s declares no request family it can execute", slug)
 			}
+			for _, format := range formats {
+				if !format.Valid() {
+					return nil, fmt.Errorf("provider: %s declares %q, which is not an api format", slug, format)
+				}
+			}
+			registry.adapters[slug] = adapter
+		case realtime:
+			kinds := session.RealtimeSessionKinds()
+			if len(kinds) == 0 {
+				return nil, fmt.Errorf("provider: %s declares no realtime session kind it can open", slug)
+			}
+			for _, kind := range kinds {
+				if !kind.Valid() {
+					return nil, fmt.Errorf("provider: %s declares %q, which is not a realtime session kind", slug, kind)
+				}
+			}
+			registry.sessions[slug] = session
+		default:
+			return nil, fmt.Errorf("provider: %T for %s executes neither requests nor realtime sessions", registrant, slug)
 		}
-		registry.adapters[slug] = adapter
 	}
 	return registry, nil
+}
+
+func (r *Registry) serves(slug contract.ProviderSlug) bool {
+	_, oneShot := r.adapters[slug]
+	_, realtime := r.sessions[slug]
+	return oneShot || realtime
+}
+
+func (r *Registry) registrant(slug contract.ProviderSlug) (Registrant, bool) {
+	if adapter, ok := r.adapters[slug]; ok {
+		return adapter, true
+	}
+	if session, ok := r.sessions[slug]; ok {
+		return session, true
+	}
+	return nil, false
 }
 
 // ResolveExecution returns an adapter and its exact platform credential view
@@ -295,38 +350,83 @@ func (r *Registry) ResolveExecution(deploymentID contract.DeploymentID, slug con
 	defer r.mu.RUnlock()
 	adapter, ok := r.adapters[slug]
 	if !ok {
+		if _, realtime := r.sessions[slug]; realtime {
+			return nil, nil, fmt.Errorf("provider: %s holds realtime sessions and executes no request", slug)
+		}
 		return nil, nil, fmt.Errorf("provider: no adapter for %s", slug)
 	}
-	if !platform || !r.bindingsRequired {
+	if !platform {
 		return adapter, nil, nil
 	}
-	source, ok := adapter.(PlatformCredentialSource)
-	if !ok {
-		return nil, nil, fmt.Errorf("provider: adapter for %s has no platform credential source", slug)
-	}
-	keyID := ""
-	if binding, bound := r.bindings[deploymentID]; bound {
-		if binding.Provider != slug {
-			return nil, nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s", deploymentID, slug)
-		}
-		keyID = binding.KeyID
-	} else {
-		sole, count := source.PlatformCredentials().SoleKeyID()
-		if count != 1 {
-			return nil, nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s, and %s holds %d platform keys, so none is its default", deploymentID, slug, slug, count)
-		}
-		keyID = sole
-	}
-	pool, err := source.PlatformCredentials().Bind(keyID)
+	pool, err := r.platformCredential(deploymentID, slug, adapter)
 	if err != nil {
 		return nil, nil, err
 	}
 	return adapter, pool, nil
 }
 
+// ResolveRealtimeExecution is ResolveExecution for a realtime session: the
+// session adapter serving the slug and the deployment's exact platform
+// credential view, by the same three rules. A slug served by a request adapter
+// is refused here, so a text adapter is never handed a session.
+func (r *Registry) ResolveRealtimeExecution(deploymentID contract.DeploymentID, slug contract.ProviderSlug) (RealtimeAdapter, *KeyPool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	session, ok := r.sessions[slug]
+	if !ok {
+		if _, oneShot := r.adapters[slug]; oneShot {
+			return nil, nil, fmt.Errorf("provider: %s executes requests: %w", slug, ErrNotASessionAdapter)
+		}
+		return nil, nil, fmt.Errorf("provider: no realtime adapter for %s", slug)
+	}
+	pool, err := r.platformCredential(deploymentID, slug, session)
+	if err != nil {
+		return nil, nil, err
+	}
+	return session, pool, nil
+}
+
+// ResolveCredential answers the credential half of either resolution for any
+// served slug. The startup and reload binding gates ask it, so "unbound" there
+// and "refused" at execution cannot drift apart.
+func (r *Registry) ResolveCredential(deploymentID contract.DeploymentID, slug contract.ProviderSlug) (*KeyPool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	registrant, ok := r.registrant(slug)
+	if !ok {
+		return nil, fmt.Errorf("provider: no adapter for %s", slug)
+	}
+	return r.platformCredential(deploymentID, slug, registrant)
+}
+
+// platformCredential applies the three rules. The caller holds the read lock.
+func (r *Registry) platformCredential(deploymentID contract.DeploymentID, slug contract.ProviderSlug, registrant Registrant) (*KeyPool, error) {
+	if !r.bindingsRequired {
+		return nil, nil
+	}
+	source, ok := registrant.(PlatformCredentialSource)
+	if !ok {
+		return nil, fmt.Errorf("provider: adapter for %s has no platform credential source", slug)
+	}
+	keyID := ""
+	if binding, bound := r.bindings[deploymentID]; bound {
+		if binding.Provider != slug {
+			return nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s", deploymentID, slug)
+		}
+		keyID = binding.KeyID
+	} else {
+		sole, count := source.PlatformCredentials().SoleKeyID()
+		if count != 1 {
+			return nil, fmt.Errorf("provider: deployment %q has no exact credential binding for %s, and %s holds %d platform keys, so none is its default", deploymentID, slug, slug, count)
+		}
+		keyID = sole
+	}
+	return source.PlatformCredentials().Bind(keyID)
+}
+
 // ReplaceGeneration atomically swaps adapters and exact credential bindings.
-func (r *Registry) ReplaceGeneration(bindings []CredentialBinding, adapters ...Adapter) error {
-	replacement, err := NewRegistry(adapters...)
+func (r *Registry) ReplaceGeneration(bindings []CredentialBinding, registrants ...Registrant) error {
+	replacement, err := NewRegistry(registrants...)
 	if err != nil {
 		return err
 	}
@@ -337,11 +437,11 @@ func (r *Registry) ReplaceGeneration(bindings []CredentialBinding, adapters ...A
 		if _, duplicate := replacement.bindings[binding.DeploymentID]; duplicate {
 			return fmt.Errorf("provider: deployment %q has duplicate credential bindings", binding.DeploymentID)
 		}
-		adapter, ok := replacement.adapters[binding.Provider]
+		registrant, ok := replacement.registrant(binding.Provider)
 		if !ok {
 			return fmt.Errorf("provider: binding for %q names unconfigured provider %s", binding.DeploymentID, binding.Provider)
 		}
-		source, ok := adapter.(PlatformCredentialSource)
+		source, ok := registrant.(PlatformCredentialSource)
 		if !ok {
 			return fmt.Errorf("provider: adapter for %s has no platform credential source", binding.Provider)
 		}
@@ -352,9 +452,16 @@ func (r *Registry) ReplaceGeneration(bindings []CredentialBinding, adapters ...A
 	}
 	replacement.bindingsRequired = true
 	r.mu.Lock()
-	r.adapters, r.bindings, r.bindingsRequired = replacement.adapters, replacement.bindings, replacement.bindingsRequired
+	r.adapters, r.sessions, r.bindings, r.bindingsRequired = replacement.adapters, replacement.sessions, replacement.bindings, replacement.bindingsRequired
 	r.mu.Unlock()
 	return nil
+}
+
+// Serves reports whether an adapter of either kind serves the slug.
+func (r *Registry) Serves(slug contract.ProviderSlug) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.serves(slug)
 }
 
 // Lookup returns the adapter serving a provider slug.
@@ -365,13 +472,16 @@ func (r *Registry) Lookup(slug contract.ProviderSlug) (Adapter, bool) {
 	return adapter, found
 }
 
-// All returns every registered adapter, for the health surface.
-func (r *Registry) All() []Adapter {
+// All returns every registered adapter of either kind, for the health surface.
+func (r *Registry) All() []Registrant {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	all := make([]Adapter, 0, len(r.adapters))
+	all := make([]Registrant, 0, len(r.adapters)+len(r.sessions))
 	for _, adapter := range r.adapters {
 		all = append(all, adapter)
+	}
+	for _, session := range r.sessions {
+		all = append(all, session)
 	}
 	return all
 }
@@ -379,13 +489,13 @@ func (r *Registry) All() []Adapter {
 // Replace atomically swaps every adapter after validating the complete new
 // registry. Requests already holding an old adapter finish on it; subsequent
 // lookups see the new credential pools as one coherent generation.
-func (r *Registry) Replace(adapters ...Adapter) error {
-	replacement, err := NewRegistry(adapters...)
+func (r *Registry) Replace(registrants ...Registrant) error {
+	replacement, err := NewRegistry(registrants...)
 	if err != nil {
 		return err
 	}
 	r.mu.Lock()
-	r.adapters = replacement.adapters
+	r.adapters, r.sessions = replacement.adapters, replacement.sessions
 	r.mu.Unlock()
 	return nil
 }
@@ -400,6 +510,25 @@ func Executes(adapter Adapter, format contract.APIFormat) bool {
 		}
 	}
 	return false
+}
+
+// MaxAudioChunkBytes is the most raw audio one contract audio event carries.
+const MaxAudioChunkBytes = 49152
+
+// EmitAudio sends raw audio as bounded audio events, stopping between chunks
+// once ctx is done.
+func EmitAudio(ctx context.Context, out AudioEmitter, outputIndex int, mediaType string, data []byte) error {
+	for len(data) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		size := min(len(data), MaxAudioChunkBytes)
+		if err := out.Audio(outputIndex, mediaType, data[:size]); err != nil {
+			return err
+		}
+		data = data[size:]
+	}
+	return nil
 }
 
 // AudioEmitter extends semantic output for providers producing binary audio.

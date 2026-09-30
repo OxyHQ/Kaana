@@ -137,6 +137,10 @@ func (e *usageEstimate) addDelta(channel contract.DeltaChannel, text string) {
 		e.reasoning.add(text)
 		return
 	}
+	// The transcript of spoken output is text the model generated, and counts
+	// as output text. The audio itself is never estimated: its token count has
+	// no honest reconstruction from transport bytes, so an estimate carries no
+	// audio-token or audio-duration unit at all.
 	e.output.add(text)
 }
 

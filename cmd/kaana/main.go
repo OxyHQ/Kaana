@@ -33,8 +33,10 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
 	"github.com/OxyHQ/Kaana/internal/provider/openaiaudio"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
+	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
@@ -282,8 +284,16 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// Realtime sessions are held in this task's memory and authenticated by
+	// the same inference signature, over each connection's first frame.
+	sessions, err := realtime.NewManager(realtime.Config{Opener: executor, Verifier: verifier, Logger: logger})
+	if err != nil {
+		return err
+	}
+
 	server, err := httpapi.New(httpapi.Config{
 		Executor:            executor,
+		Realtime:            sessions,
 		Verifier:            verifier,
 		ValidationVerifier:  validationVerifier,
 		CredentialValidator: credentialValidator,
@@ -376,7 +386,17 @@ func run(logger *slog.Logger) error {
 		// drain would cut streams a customer is already being charged for.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		// A realtime session is a hijacked connection the HTTP server no
+		// longer tracks, and it would outlive any drain on its own: each is
+		// closed with server_shutdown and settled, concurrently with the
+		// HTTP drain.
+		drained := make(chan error, 1)
+		go func() { drained <- sessions.Shutdown(shutdownCtx) }()
+		serverErr := httpServer.Shutdown(shutdownCtx)
+		if sessionErr := <-drained; sessionErr != nil {
+			logger.Error("realtime sessions did not settle within the drain", "error", sessionErr)
+		}
+		return serverErr
 	}
 }
 
@@ -499,8 +519,8 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 // deploymentBindingCoverage partitions the deployments of a snapshot whose
 // provider this process serves into those that resolve to one exact, active
 // platform credential (an exact binding, or the provider's only key) and those
-// that do not. It asks ResolveExecution, the
-// same question the executor asks per request, so "unbound" here and
+// that do not. It asks ResolveCredential, the credential half of the question
+// the executor asks per request and per session, so "unbound" here and
 // "refused" there cannot drift apart. Providers this process deliberately does
 // not serve are not counted: they are warnAboutUnroutableProviders' condition.
 type deploymentBindingCoverage struct {
@@ -525,7 +545,7 @@ func bindingCoverage(current *inventory.Inventory, registry *provider.Registry) 
 			continue
 		}
 		coverage.served++
-		_, _, err := registry.ResolveExecution(deployment.DeploymentID, deployment.Provider, true)
+		_, err := registry.ResolveCredential(deployment.DeploymentID, deployment.Provider)
 		if err == nil {
 			continue
 		}
@@ -804,14 +824,20 @@ func durationOrZero(value string) time.Duration {
 // operator see the gap before a customer does. What would be a claim this build
 // cannot support is an INVENTORY entry routing to a provider that was never
 // declared here, and the server refuses to start in that state.
-func buildAdapters(configs []providerConfig) ([]provider.Adapter, error) {
+func buildAdapters(configs []providerConfig) ([]provider.Registrant, error) {
 	return buildAdaptersWithClient(configs, nil)
 }
 
-func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]provider.Adapter, error) {
-	adapters := make([]provider.Adapter, 0, len(configs))
+func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]provider.Registrant, error) {
+	adapters := make([]provider.Registrant, 0, len(configs))
 	for _, config := range configs {
 		switch config.Protocol {
+		case providerconfig.ProtocolOpenAIRealtime:
+			adapter, err := openairealtime.New(openairealtime.Config{HTTPClient: client, Declarations: config.Declarations, Keys: config.Keys})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolDeepgramVoice:
 			adapter, err := deepgram.New(deepgram.Config{HTTPClient: client, BaseURL: config.BaseURL, Declarations: config.Declarations, Keys: config.Keys})
 			if err != nil {
@@ -865,7 +891,7 @@ func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]p
 func warnAboutUnroutableProviders(logger *slog.Logger, current *inventory.Inventory, registry *provider.Registry) {
 	unroutable := make([]contract.ProviderSlug, 0)
 	for _, slug := range current.Providers() {
-		if _, found := registry.Lookup(slug); !found {
+		if !registry.Serves(slug) {
 			unroutable = append(unroutable, slug)
 		}
 	}
@@ -949,6 +975,10 @@ func validateProvider(config *providerConfig, source string) error {
 		if config.Slug != openaiaudio.Slug {
 			return fmt.Errorf("%s: OpenAI audio protocol requires the %s slug", source, openaiaudio.Slug)
 		}
+	case providerconfig.ProtocolOpenAIRealtime:
+		if config.Slug != openairealtime.Slug {
+			return fmt.Errorf("%s: OpenAI Realtime protocol requires the %s slug", source, openairealtime.Slug)
+		}
 	case providerconfig.ProtocolOpenAICompatible:
 	case providerconfig.ProtocolAnthropicMessages:
 		if config.Slug != anthropic.Slug {
@@ -961,7 +991,7 @@ func validateProvider(config *providerConfig, source string) error {
 	case "":
 		return fmt.Errorf("%s: provider %q declares no protocol and this build has no default for that slug", source, config.Slug)
 	default:
-		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice, providerconfig.ProtocolOpenAIAudio)
+		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s, %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice, providerconfig.ProtocolOpenAIAudio, providerconfig.ProtocolOpenAIRealtime)
 	}
 
 	if config.BaseURL == "" {

@@ -168,17 +168,18 @@ func TestOpenAIAttributionPublishesOnlyReviewedChatModels(t *testing.T) {
 		if _, ok := table.ModelLine("openai", excluded); ok {
 			t.Errorf("OpenAI specialized or moving model %q is published through the chat-only contract", excluded)
 		}
-		if _, ok := table.ModelLine("openai-audio", excluded); ok && excluded != "gpt-5.6" {
-			t.Errorf("OpenAI session or audio-output model %q is attributed to the transcription adapter", excluded)
+		if _, ok := table.ModelLine("openai-audio", excluded); ok && excluded != "gpt-5.6" && excluded != "gpt-audio-1.5" {
+			t.Errorf("OpenAI session model %q is attributed to the audio adapter", excluded)
 		}
 	}
 }
 
-// TestOpenAITranscriptionIsAttributedOnlyToTheTranscriptionAdapter pins the
-// reviewed transcription ids to `openai-audio`, and proves every OpenAI row in
-// the checked-in table is one the publisher would actually publish: a row the
-// request-family gate drops would be an attribution that silently does nothing.
-func TestOpenAITranscriptionIsAttributedOnlyToTheTranscriptionAdapter(t *testing.T) {
+// TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter pins the reviewed
+// transcription and audio chat ids to `openai-audio`, and proves every OpenAI
+// row in the checked-in table is one the publisher would actually publish: a
+// row the request-family gate drops would be an attribution that silently does
+// nothing.
+func TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter(t *testing.T) {
 	table, err := LoadAttribution("../../configs/model-attribution.json")
 	if err != nil {
 		t.Fatalf("attribution: %v", err)
@@ -189,21 +190,29 @@ func TestOpenAITranscriptionIsAttributedOnlyToTheTranscriptionAdapter(t *testing
 		"gpt-4o-mini-transcribe-2025-03-20": "openai/gpt-4o-mini-transcribe-2025-03-20",
 		"gpt-4o-mini-transcribe-2025-12-15": "openai/gpt-4o-mini-transcribe-2025-12-15",
 		"whisper-1":                         "openai/whisper-1",
+		"gpt-audio-1.5":                     "openai/gpt-audio-1.5",
 	}
 	if got := len(table.byProvider["openai-audio"]); got != len(want) {
-		t.Fatalf("openai-audio has %d attributions, want exactly the %d reviewed transcription models", got, len(want))
+		t.Fatalf("openai-audio has %d attributions, want exactly the %d reviewed audio models", got, len(want))
 	}
 	for upstreamModelID, modelLine := range want {
 		if got, ok := table.ModelLine("openai-audio", upstreamModelID); !ok || got != modelLine {
 			t.Errorf("openai-audio/%s = %q, %t; want %q", upstreamModelID, got, ok, modelLine)
 		}
 		if _, ok := table.ModelLine("openai", upstreamModelID); ok {
-			t.Errorf("transcription model %q is attributed to the chat adapter", upstreamModelID)
+			t.Errorf("audio model %q is attributed to the text chat adapter", upstreamModelID)
 		}
 	}
-	for _, excluded := range []string{"gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize"} {
-		if _, ok := table.ModelLine("openai-audio", excluded); ok {
-			t.Errorf("%q is attributed; it is a moving alias or has no contract representation", excluded)
+	for _, excluded := range []string{
+		"gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize",
+		// Retired, or scheduled for shutdown with gpt-audio-1.5 as the replacement.
+		"gpt-audio", "gpt-audio-2025-08-28", "gpt-audio-mini", "gpt-audio-mini-2025-10-06", "gpt-audio-mini-2025-12-15",
+		"gpt-4o-audio-preview", "gpt-4o-audio-preview-2025-06-03", "gpt-4o-mini-audio-preview",
+	} {
+		for slug := range openAINamespaces {
+			if _, ok := table.ModelLine(slug, excluded); ok {
+				t.Errorf("%s/%s is attributed; it is a moving alias, retiring, or has no contract representation", slug, excluded)
+			}
 		}
 	}
 

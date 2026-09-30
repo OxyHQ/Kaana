@@ -1,14 +1,17 @@
-// Package openaiaudio implements OpenAI's synchronous file-transcription API.
+// Package openaiaudio implements OpenAI's audio APIs: synchronous file
+// transcription, and Chat Completions answered aloud (chat.go).
 //
 // It is a separate adapter, under its own provider slug, from the Chat
 // Completions adapter that serves the `openai` slug. The two share an origin and
 // nothing else: a transcription is a multipart upload answered by one JSON
-// document, not a conversation answered by a stream, and branching the chat
-// adapter on the request family would make one adapter's refusals depend on
-// which endpoint a request happened to name. A separate slug is also what makes
-// the capability boundary structural: a deployment is routed to exactly one
-// adapter, so a transcription model published under `openai-audio` can only be
-// executed by this code, and a chat model can never reach it.
+// document, and a spoken answer is audio plus its transcript, neither of which
+// the text adapter can carry. Branching the text adapter on them would make one
+// adapter's refusals depend on which endpoint a request happened to name. A
+// separate slug is also what makes the capability boundary structural: a
+// deployment is routed to exactly one adapter, so an audio model published
+// under `openai-audio` can only be executed by this code, and a text chat model
+// can never reach it — this adapter refuses any chat request that does not ask
+// to be answered aloud.
 package openaiaudio
 
 import (
@@ -90,7 +93,8 @@ func New(config Config) (*Adapter, error) {
 func (a *Adapter) Provider() contract.ProviderSlug        { return Slug }
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
 
-// APIFormats implements provider.Adapter: file transcription, and nothing else.
+// APIFormats implements provider.Adapter: file transcription, and Chat
+// Completions answered aloud (chat.go). A text chat is refused in Translate.
 func (a *Adapter) APIFormats() []contract.APIFormat {
 	return providerconfig.ExecutableAPIFormats(Slug, providerconfig.ProtocolOpenAIAudio)
 }
@@ -106,8 +110,14 @@ func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provide
 	if r == nil || route.Provider != Slug || route.UpstreamModelID == "" {
 		return refuse("model", "an exact OpenAI audio deployment is required")
 	}
+	if r.Client.APIFormat == contract.APIFormatChatCompletions {
+		return a.translateChat(r, route)
+	}
 	if r.Client.APIFormat != contract.APIFormatAudioTranscriptions {
-		return refuse("client.apiFormat", "only audio_transcriptions is supported")
+		return refuse("client.apiFormat", "only audio_transcriptions and spoken chat_completions are supported")
+	}
+	if r.AudioOutput != nil {
+		return refuse("audioOutput", "spoken output is a chat_completions request")
 	}
 	if r.Stream {
 		return refuse("stream", "streamed transcription events are not supported by this adapter")
@@ -231,6 +241,9 @@ func (t transcription) units() ([]contract.UsageQuantity, bool) {
 }
 
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
+	if isChatCall(call) {
+		return a.streamChat(ctx, call, out, credentials)
+	}
 	result := provider.Outcome{UsageSource: contract.UsageProviderReported}
 	if credentials == nil {
 		credentials = a.credentials
@@ -357,20 +370,21 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		failure.Detail = "OpenAI returned an internal error"
 	case status == http.StatusRequestEntityTooLarge:
 		failure.Code, failure.Category = contract.CodeRequestTooLarge, contract.UpstreamInvalidReq
-		failure.Detail = "the audio is larger than OpenAI accepts"
+		failure.Detail = "the request is larger than OpenAI accepts"
 	default:
 		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
-		failure.Detail = "OpenAI rejected the transcription request"
+		failure.Detail = "OpenAI rejected the request"
 	}
 	return provider.CustomerCredentialFailure(key, failure)
 }
 
-// Health never uploads audio: a probe that spent transcription credit would be
-// a charge nobody asked for. Entitlement is proved by a signed canary.
+// Health never uploads audio or asks for speech: a probe that spent audio
+// credit would be a charge nobody asked for. Entitlement is proved by a signed
+// canary.
 func (a *Adapter) Health(_ context.Context) provider.Health {
 	now := time.Now()
 	pool := a.credentials.Projection(now)
-	health := provider.Health{Provider: Slug, CheckedAt: contract.NewTimestamp(now), Credentials: &pool, Status: provider.HealthDegraded, Detail: "credential configured; transcription entitlement requires a signed canary"}
+	health := provider.Health{Provider: Slug, CheckedAt: contract.NewTimestamp(now), Credentials: &pool, Status: provider.HealthDegraded, Detail: "credential configured; audio entitlement requires a signed canary"}
 	if !a.credentials.Configured() {
 		health.Status, health.Detail = provider.HealthUnconfigured, "no OpenAI audio credential configured"
 	} else if pool.Usable == 0 {

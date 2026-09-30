@@ -222,15 +222,8 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return result, err
 	}
 	if isSpeech {
-		for len(data) > 0 {
-			if err := ctx.Err(); err != nil {
-				return result, err
-			}
-			n := min(len(data), 49152)
-			if err := out.(provider.AudioEmitter).Audio(0, "audio/mpeg", data[:n]); err != nil {
-				return result, err
-			}
-			data = data[n:]
+		if err := provider.EmitAudio(ctx, out.(provider.AudioEmitter), 0, "audio/mpeg", data); err != nil {
+			return result, err
 		}
 	} else if err := out.Delta(0, contract.ChannelOutputText, transcript); err != nil {
 		return result, err

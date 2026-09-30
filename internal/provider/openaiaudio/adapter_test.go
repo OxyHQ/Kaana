@@ -393,7 +393,4 @@ func TestHealthNeverSpendsTranscriptionCredit(t *testing.T) {
 	if unconfigured.Health(context.Background()).Status != provider.HealthUnconfigured {
 		t.Fatal("configuration invented a credential")
 	}
-	if got := a.APIFormats(); len(got) != 1 || got[0] != contract.APIFormatAudioTranscriptions {
-		t.Fatalf("declares %v", got)
-	}
 }

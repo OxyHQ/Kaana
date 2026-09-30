@@ -159,6 +159,18 @@ func (a *Adapter) APIFormats() []contract.APIFormat {
 // the whole reason translation is a separate, pure method: a request this
 // protocol cannot express must cost nothing.
 func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if request.AudioOutput != nil {
+		// Spoken output is audio events plus a transcript channel, and this
+		// adapter emits text. A gateway row for an audio chat model (OpenRouter's
+		// `openai/gpt-audio`) routes here all the same, so the refusal cannot
+		// rest on the modality check below staying where it is: the one adapter
+		// that answers aloud is `openai-audio` (docs/openai-audio.md).
+		return nil, provider.ErrUnsupported{
+			Code:   contract.CodeUnsupportedModality,
+			Param:  "audioOutput",
+			Detail: "this deployment produces text; spoken output needs an audio deployment",
+		}
+	}
 	if request.Reasoning != nil && (request.Client.APIFormat == contract.APIFormatAudioSpeech || request.Modality != contract.ModalityText) {
 		// Speech and embeddings have no reasoning step to control. Accepting
 		// the effort and dropping it would report a control that did nothing.

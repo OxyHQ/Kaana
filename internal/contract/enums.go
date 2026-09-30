@@ -115,9 +115,14 @@ const (
 	ChannelOutputText DeltaChannel = "output_text"
 	ChannelReasoning  DeltaChannel = "reasoning"
 	ChannelRefusal    DeltaChannel = "refusal"
+	// ChannelOutputAudioTranscript carries the words of spoken output requested
+	// with audioOutput (contract set 3.2.0). A renderer that shows it as
+	// output_text presents the transcript of what the customer is hearing as a
+	// second, written answer.
+	ChannelOutputAudioTranscript DeltaChannel = "output_audio_transcript"
 )
 
-var deltaChannelValues = []DeltaChannel{ChannelOutputText, ChannelReasoning, ChannelRefusal}
+var deltaChannelValues = []DeltaChannel{ChannelOutputText, ChannelReasoning, ChannelRefusal, ChannelOutputAudioTranscript}
 
 // FinishReason is why generation stopped.
 type FinishReason string
@@ -185,12 +190,20 @@ const (
 	UnitVideoMilliseconds       UsageUnit = "video_milliseconds"
 	UnitCharacters              UsageUnit = "characters"
 	UnitEmbeddings              UsageUnit = "embeddings"
+	// Audio consumed or produced AS TOKENS (contract set 3.2.0): audio chat and
+	// realtime models. They are siblings of the text-token units, never inside
+	// them, and a report never carries the same audio as tokens and as
+	// milliseconds.
+	UnitAudioInputTokens       UsageUnit = "audio_input_tokens"
+	UnitCachedAudioInputTokens UsageUnit = "cached_audio_input_tokens"
+	UnitAudioOutputTokens      UsageUnit = "audio_output_tokens"
 )
 
 var usageUnitValues = []UsageUnit{
 	UnitInputTokens, UnitCachedInputTokens, UnitOutputTokens, UnitReasoningTokens,
 	UnitRequests, UnitImages, UnitAudioInputMilliseconds, UnitAudioOutputMilliseconds,
 	UnitVideoMilliseconds, UnitCharacters, UnitEmbeddings,
+	UnitAudioInputTokens, UnitCachedAudioInputTokens, UnitAudioOutputTokens,
 }
 
 // Valid reports whether the unit is one the contract declares. A unit that is

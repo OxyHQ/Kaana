@@ -84,11 +84,13 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
 	"inferenceSpeechParametersSchema": reflect.TypeOf(SpeechParameters{}),
-	"inferenceStreamAudioEventSchema": reflect.TypeOf(StreamAudioEvent{}),
-	"embeddingVectorSchema":           reflect.TypeOf(EmbeddingVector{}),
-	"embeddingUsageSchema":            reflect.TypeOf(EmbeddingUsage{}),
-	"embeddingSuccessSchema":          reflect.TypeOf(EmbeddingSuccess{}),
-	"embeddingFailureSchema":          reflect.TypeOf(EmbeddingFailure{}),
+	// contracts 4.4.0 (set 3.2.0): spoken output from a conversational model.
+	"inferenceAudioOutputParametersSchema": reflect.TypeOf(AudioOutputParameters{}),
+	"inferenceStreamAudioEventSchema":      reflect.TypeOf(StreamAudioEvent{}),
+	"embeddingVectorSchema":                reflect.TypeOf(EmbeddingVector{}),
+	"embeddingUsageSchema":                 reflect.TypeOf(EmbeddingUsage{}),
+	"embeddingSuccessSchema":               reflect.TypeOf(EmbeddingSuccess{}),
+	"embeddingFailureSchema":               reflect.TypeOf(EmbeddingFailure{}),
 	// The request envelope and everything it embeds.
 	"inferenceRequestSchema":       reflect.TypeOf(Request{}),
 	"inferenceAttributionSchema":   reflect.TypeOf(Attribution{}),
@@ -137,6 +139,52 @@ var goShapes = map[string]reflect.Type{
 	"usageQuantitySchema":            reflect.TypeOf(UsageQuantity{}),
 	"inferenceErrorSchema":           reflect.TypeOf(Error{}),
 	"providerErrorPassthroughSchema": reflect.TypeOf(ProviderErrorPassthrough{}),
+
+	// Realtime sessions (contracts 4.4.0, set 3.2.0).
+	"realtimeClientMetadataSchema":           reflect.TypeOf(RealtimeClientMetadata{}),
+	"realtimeCommandAcceptedEventSchema":     reflect.TypeOf(RealtimeCommandAcceptedEvent{}),
+	"realtimeContentPartSchema":              reflect.TypeOf(RealtimeContentPart{}),
+	"realtimeConversationItemSchema":         reflect.TypeOf(RealtimeConversationItem{}),
+	"realtimeErrorEventSchema":               reflect.TypeOf(RealtimeErrorEvent{}),
+	"realtimeInputAudioAppendCommandSchema":  reflect.TypeOf(RealtimeInputAudioAppendCommand{}),
+	"realtimeInputAudioClearCommandSchema":   reflect.TypeOf(RealtimeInputAudioClearCommand{}),
+	"realtimeInputAudioClearedEventSchema":   reflect.TypeOf(RealtimeInputAudioClearedEvent{}),
+	"realtimeInputAudioCommitCommandSchema":  reflect.TypeOf(RealtimeInputAudioCommitCommand{}),
+	"realtimeInputAudioCommittedEventSchema": reflect.TypeOf(RealtimeInputAudioCommittedEvent{}),
+	"realtimeInputTranscriptionSchema":       reflect.TypeOf(RealtimeInputTranscription{}),
+	"realtimeItemAddedEventSchema":           reflect.TypeOf(RealtimeItemAddedEvent{}),
+	"realtimeItemCreateCommandSchema":        reflect.TypeOf(RealtimeItemCreateCommand{}),
+	"realtimeItemDeleteCommandSchema":        reflect.TypeOf(RealtimeItemDeleteCommand{}),
+	"realtimeItemDeletedEventSchema":         reflect.TypeOf(RealtimeItemDeletedEvent{}),
+	"realtimeItemDoneEventSchema":            reflect.TypeOf(RealtimeItemDoneEvent{}),
+	"realtimeItemTruncateCommandSchema":      reflect.TypeOf(RealtimeItemTruncateCommand{}),
+	"realtimeItemTruncatedEventSchema":       reflect.TypeOf(RealtimeItemTruncatedEvent{}),
+	"realtimeOutputAudioDeltaEventSchema":    reflect.TypeOf(RealtimeOutputAudioDeltaEvent{}),
+	"realtimeOutputAudioDoneEventSchema":     reflect.TypeOf(RealtimeOutputAudioDoneEvent{}),
+	"realtimeResponseCancelCommandSchema":    reflect.TypeOf(RealtimeResponseCancelCommand{}),
+	"realtimeResponseCreateCommandSchema":    reflect.TypeOf(RealtimeResponseCreateCommand{}),
+	"realtimeResponseCreatedEventSchema":     reflect.TypeOf(RealtimeResponseCreatedEvent{}),
+	"realtimeResponseDoneEventSchema":        reflect.TypeOf(RealtimeResponseDoneEvent{}),
+	"realtimeResponseParametersSchema":       reflect.TypeOf(RealtimeResponseParameters{}),
+	"realtimeSessionCloseCommandSchema":      reflect.TypeOf(RealtimeSessionCloseCommand{}),
+	"realtimeSessionClosedEventSchema":       reflect.TypeOf(RealtimeSessionClosedEvent{}),
+	"realtimeSessionConfigSchema":            reflect.TypeOf(RealtimeSessionConfig{}),
+	"realtimeSessionConfigUpdateSchema":      reflect.TypeOf(RealtimeSessionConfigUpdate{}),
+	"realtimeSessionCreatedEventSchema":      reflect.TypeOf(RealtimeSessionCreatedEvent{}),
+	"realtimeSessionLimitsSchema":            reflect.TypeOf(RealtimeSessionLimits{}),
+	"realtimeSessionRequestSchema":           reflect.TypeOf(RealtimeSessionRequest{}),
+	"realtimeSessionResumeCommandSchema":     reflect.TypeOf(RealtimeSessionResumeCommand{}),
+	"realtimeSessionResumedEventSchema":      reflect.TypeOf(RealtimeSessionResumedEvent{}),
+	"realtimeSessionUpdateCommandSchema":     reflect.TypeOf(RealtimeSessionUpdateCommand{}),
+	"realtimeSessionUpdatedEventSchema":      reflect.TypeOf(RealtimeSessionUpdatedEvent{}),
+	"realtimeSpeechStartedEventSchema":       reflect.TypeOf(RealtimeSpeechStartedEvent{}),
+	"realtimeSpeechStoppedEventSchema":       reflect.TypeOf(RealtimeSpeechStoppedEvent{}),
+	"realtimeTextDeltaEventSchema":           reflect.TypeOf(RealtimeTextDeltaEvent{}),
+	"realtimeToolCallEventSchema":            reflect.TypeOf(RealtimeToolCallEvent{}),
+	"realtimeTranscriptDeltaEventSchema":     reflect.TypeOf(RealtimeTranscriptDeltaEvent{}),
+	"realtimeTranscriptDoneEventSchema":      reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
+	"realtimeTranslationSchema":              reflect.TypeOf(RealtimeTranslationTarget{}),
+	"realtimeTurnDetectionSchema":            reflect.TypeOf(RealtimeTurnDetection{}),
 }
 
 // goEnums maps a published enum to the Go named type that restates it, together
@@ -165,6 +213,17 @@ var goEnums = map[string]enumBinding{
 	"inferenceAudioMediaTypeSchema": bindEnum(audioMediaTypeValues),
 	// contracts 1.4.0 (set 3.1.0): the envelope's optional reasoning control.
 	"reasoningEffortSchema": bindEnum(reasoningEffortValues),
+	// contracts 4.4.0 (set 3.2.0) named the api-format vocabulary that
+	// clientRequestMetadataSchema used to declare inline; the members did not
+	// change.
+	"inferenceApiFormatSchema":         bindEnum(apiFormatValues),
+	"realtimeAudioFormatSchema":        bindEnum(realtimeAudioFormatValues),
+	"realtimeOutputModalitySchema":     bindEnum(realtimeOutputModalityValues),
+	"realtimeResponseStatusSchema":     bindEnum(realtimeResponseStatusValues),
+	"realtimeSessionCloseReasonSchema": bindEnum(realtimeSessionCloseReasonValues),
+	"realtimeSessionKindSchema":        bindEnum(realtimeSessionKindValues),
+	"realtimeSessionTransportSchema":   bindEnum(realtimeSessionTransportValues),
+	"realtimeTranscriptSourceSchema":   bindEnum(realtimeTranscriptSourceValues),
 }
 
 // goScalars maps a published scalar (a branded id, a constrained string) to the
@@ -187,6 +246,9 @@ var goScalars = map[string]reflect.Type{
 	"safeErrorTextSchema":              reflect.TypeOf(""),
 	"kaanaCredentialHandleSchema":      reflect.TypeOf(KaanaCredentialHandle("")),
 	"kaanaCredentialOperationIdSchema": reflect.TypeOf(KaanaCredentialOperationID("")),
+	"realtimeCommandIdSchema":          reflect.TypeOf(RealtimeCommandID("")),
+	"realtimeItemIdSchema":             reflect.TypeOf(RealtimeItemID("")),
+	"realtimeResponseIdSchema":         reflect.TypeOf(RealtimeResponseID("")),
 }
 
 // goUnions covers the two published unions that are not plain objects: the
@@ -210,6 +272,43 @@ var goCustomUnions = map[string]reflect.Type{
 }
 
 var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
+	"realtimeClientCommandSchema": {
+		"conversation.item.create":   reflect.TypeOf(RealtimeItemCreateCommand{}),
+		"conversation.item.delete":   reflect.TypeOf(RealtimeItemDeleteCommand{}),
+		"conversation.item.truncate": reflect.TypeOf(RealtimeItemTruncateCommand{}),
+		"input_audio.append":         reflect.TypeOf(RealtimeInputAudioAppendCommand{}),
+		"input_audio.clear":          reflect.TypeOf(RealtimeInputAudioClearCommand{}),
+		"input_audio.commit":         reflect.TypeOf(RealtimeInputAudioCommitCommand{}),
+		"response.cancel":            reflect.TypeOf(RealtimeResponseCancelCommand{}),
+		"response.create":            reflect.TypeOf(RealtimeResponseCreateCommand{}),
+		"session.close":              reflect.TypeOf(RealtimeSessionCloseCommand{}),
+		"session.resume":             reflect.TypeOf(RealtimeSessionResumeCommand{}),
+		"session.update":             reflect.TypeOf(RealtimeSessionUpdateCommand{}),
+	},
+	"realtimeServerEventSchema": {
+		"command.accepted":            reflect.TypeOf(RealtimeCommandAcceptedEvent{}),
+		"conversation.item.added":     reflect.TypeOf(RealtimeItemAddedEvent{}),
+		"conversation.item.deleted":   reflect.TypeOf(RealtimeItemDeletedEvent{}),
+		"conversation.item.done":      reflect.TypeOf(RealtimeItemDoneEvent{}),
+		"conversation.item.truncated": reflect.TypeOf(RealtimeItemTruncatedEvent{}),
+		"error":                       reflect.TypeOf(RealtimeErrorEvent{}),
+		"input_audio.cleared":         reflect.TypeOf(RealtimeInputAudioClearedEvent{}),
+		"input_audio.committed":       reflect.TypeOf(RealtimeInputAudioCommittedEvent{}),
+		"input_audio.speech_started":  reflect.TypeOf(RealtimeSpeechStartedEvent{}),
+		"input_audio.speech_stopped":  reflect.TypeOf(RealtimeSpeechStoppedEvent{}),
+		"output_audio.delta":          reflect.TypeOf(RealtimeOutputAudioDeltaEvent{}),
+		"output_audio.done":           reflect.TypeOf(RealtimeOutputAudioDoneEvent{}),
+		"response.created":            reflect.TypeOf(RealtimeResponseCreatedEvent{}),
+		"response.done":               reflect.TypeOf(RealtimeResponseDoneEvent{}),
+		"session.closed":              reflect.TypeOf(RealtimeSessionClosedEvent{}),
+		"session.created":             reflect.TypeOf(RealtimeSessionCreatedEvent{}),
+		"session.resumed":             reflect.TypeOf(RealtimeSessionResumedEvent{}),
+		"session.updated":             reflect.TypeOf(RealtimeSessionUpdatedEvent{}),
+		"text.delta":                  reflect.TypeOf(RealtimeTextDeltaEvent{}),
+		"tool_call":                   reflect.TypeOf(RealtimeToolCallEvent{}),
+		"transcript.delta":            reflect.TypeOf(RealtimeTranscriptDeltaEvent{}),
+		"transcript.done":             reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
+	},
 	"inferenceStreamEventSchema": goStreamEventVariants,
 	"kaanaCredentialMutationSchema": {
 		"create": reflect.TypeOf(KaanaCredentialCreateMutation{}),
@@ -246,6 +345,7 @@ var notApplicable = map[string]string{
 	"inferenceDataPolicySchema":             "catalogue: retention and training policy are published by Oxy",
 	"inferenceProviderSchema":               "catalogue: Oxy owns provider identity; Kaana owns provider health only",
 	"modelCapabilitiesSchema":               "catalogue: Oxy owns capability advertisement",
+	"modelRealtimeCapabilitiesSchema":       "catalogue: Oxy owns capability advertisement, including which session kinds a model serves",
 	"modelCatalogueEntrySchema":             "catalogue: the assembled customer view is served by Oxy",
 	"modelDeploymentSchema":                 "catalogue: carries Oxy commercial fields and no upstream model id; Kaana's own inventory is internal/inventory",
 	"modelDeprecationSchema":                "catalogue: deprecation is an Oxy product decision",
@@ -372,7 +472,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 96
+const expectedNotApplicableCount = 97
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -914,7 +1014,7 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 var inlineEnumBindings = []enumBinding{
 	bindEnum(speechFormatValues),
 	bindEnum(audioMediaTypeValues),
-	bindEnum(apiFormatValues),
+	bindEnum(audioOutputFormatValues),
 	bindEnum(imageDetailValues),
 	bindEnum(deltaChannelValues),
 	bindEnum(toolChoiceModeValues),
@@ -926,6 +1026,11 @@ var inlineEnumBindings = []enumBinding{
 	bindEnum(routeSubstitutionValues),
 	bindEnum(routeSwitchScopeValues),
 	bindEnum(streamEventTypeValues),
+	bindEnum(realtimeTurnDetectionTypeValues),
+	bindEnum(realtimeVADEagernessValues),
+	bindEnum(realtimeContentPartTypeValues),
+	bindEnum(realtimeItemTypeValues),
+	bindEnum(realtimeItemRoleValues),
 }
 
 /* -------------------------------------------------------------------------- */

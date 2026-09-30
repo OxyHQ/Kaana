@@ -133,9 +133,26 @@ func (h *headerDeadline) RoundTrip(request *http.Request) (*http.Response, error
 	// The headers arrived, so the clock stops and the BODY is left unbounded:
 	// that is the generation, and the customer's own context is what ends it.
 	// cancel is owed to the context either way, so it rides on Close.
-	response.Body = &cancelOnClose{ReadCloser: response.Body, cancel: cancel}
+	body := &cancelOnClose{ReadCloser: response.Body, cancel: cancel}
+	if upgraded, writable := response.Body.(io.ReadWriteCloser); writable && response.StatusCode == http.StatusSwitchingProtocols {
+		// A 101's body IS the upgraded connection, and a WebSocket client
+		// writes to it. Hiding its Write behind the wrapper would refuse every
+		// realtime handshake that went through this transport.
+		response.Body = &cancelOnCloseConn{cancelOnClose: body, writer: upgraded}
+		return response, nil
+	}
+	response.Body = body
 	return response, nil
 }
+
+// cancelOnCloseConn is cancelOnClose for a protocol-switch body, which is read
+// AND written.
+type cancelOnCloseConn struct {
+	*cancelOnClose
+	writer io.Writer
+}
+
+func (c *cancelOnCloseConn) Write(p []byte) (int, error) { return c.writer.Write(p) }
 
 // cancelOnClose releases the request context when the body is closed. Every
 // path that reads an upstream response closes it — the conformance suite has a

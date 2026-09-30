@@ -18,11 +18,27 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 29 {
-		t.Fatalf("built-in providers = %d, want the 29 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 30 {
+		t.Fatalf("built-in providers = %d, want the 30 documented in README.md and docs/operating.md", got)
 	}
 	if endpoint := providerconfig.Known["openai-audio"]; endpoint.Protocol != providerconfig.ProtocolOpenAIAudio || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" {
 		t.Fatalf("OpenAI audio configuration = %+v", endpoint)
+	}
+	if endpoint := providerconfig.Known["openai-realtime"]; endpoint.Protocol != providerconfig.ProtocolOpenAIRealtime || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" ||
+		providerconfig.OpenAIRealtimeSessionURL != "wss://api.openai.com/v1/realtime" {
+		t.Fatalf("OpenAI Realtime configuration = %+v", endpoint)
+	}
+	if err := providerconfig.ValidateEndpointIdentity("openai-realtime", "https://api.openai.com/v1/"); err == nil {
+		t.Fatal("openai-realtime accepted an address other than OpenAI's canonical API root")
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(kinds) != 1 || kinds[0] != contract.RealtimeConversation {
+		t.Fatalf("realtime session kinds = %v", kinds)
+	}
+	if formats := providerconfig.ExecutableAPIFormats("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(formats) != 0 {
+		t.Fatalf("the realtime protocol executes requests: %v", formats)
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("openai", providerconfig.ProtocolOpenAICompatible); len(kinds) != 0 {
+		t.Fatalf("a request protocol holds sessions: %v", kinds)
 	}
 	if endpoint := providerconfig.Known["deepgram"]; endpoint.Protocol != providerconfig.ProtocolDeepgramVoice || endpoint.Discovery != providerconfig.DiscoveryNotAvailable || endpoint.BaseURL != "https://api.deepgram.com/v1" {
 		t.Fatalf("Deepgram native voice configuration = %+v", endpoint)
@@ -263,13 +279,28 @@ func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
 		{"xai", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatAudioSpeech}},
 		{"anthropic", providerconfig.ProtocolAnthropicMessages, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}},
 		{"deepgram", providerconfig.ProtocolDeepgramVoice, []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}},
-		{"openai-audio", providerconfig.ProtocolOpenAIAudio, []contract.APIFormat{contract.APIFormatAudioTranscriptions}},
+		{"openai-audio", providerconfig.ProtocolOpenAIAudio, []contract.APIFormat{contract.APIFormatAudioTranscriptions, contract.APIFormatChatCompletions}},
 		{"openai", "not_a_protocol", nil},
 	}
 	for _, c := range cases {
 		got := providerconfig.ExecutableAPIFormats(c.slug, c.protocol)
 		if fmt.Sprint(got) != fmt.Sprint(c.want) {
 			t.Errorf("%s/%s executes %v, want %v", c.slug, c.protocol, got, c.want)
+		}
+	}
+}
+
+func TestOnlyTheOpenAIAudioProtocolSpeaksChatCompletions(t *testing.T) {
+	speaking := map[string]bool{
+		providerconfig.ProtocolOpenAIAudio:       true,
+		providerconfig.ProtocolOpenAICompatible:  false,
+		providerconfig.ProtocolAnthropicMessages: false,
+		providerconfig.ProtocolDeepgramVoice:     false,
+		"not_a_protocol":                         false,
+	}
+	for protocol, want := range speaking {
+		if got := providerconfig.SpokenChatCompletions(protocol); got != want {
+			t.Errorf("%s speaks chat completions: %t, want %t", protocol, got, want)
 		}
 	}
 }

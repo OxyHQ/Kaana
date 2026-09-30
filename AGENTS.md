@@ -65,6 +65,8 @@ Adapters — docs/adapters.md#rules-a-reviewer-applies
 - A reasoning effort goes in the provider's own documented field or is refused.
 - Classify by the provider's error type; redact your own key by exact match.
 - `Stream` returns measured units even on failure; `ctx` reaches upstream.
+- A realtime session is a `provider.RealtimeAdapter`, never a branch of a
+  request adapter; it settles exactly once — docs/realtime.md#rules-a-reviewer-applies
 
 Cross-cutting — docs/rules.md
 - No secret in repo, test, CI or env; none in a log, error or usage record.
@@ -76,4 +78,4 @@ Cross-cutting — docs/rules.md
 
 schema→architecture · envelope→contract · executor→routing · publisher→inventory ·
 keys→key-pools, customer-provider-credentials · provider→adapters,
-provider-onboarding · deploy→operating.
+provider-onboarding · realtime sessions→realtime · deploy→operating.
