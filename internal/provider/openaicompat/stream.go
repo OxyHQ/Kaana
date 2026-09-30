@@ -536,6 +536,21 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
 		failure.Detail = fmt.Sprintf("%s rate-limited this request", a.config.Provider)
 		failure.RetryAfterMs = provider.RetryAfterMs(response.Header)
+	case status == http.StatusForbidden && a.config.Provider == "openrouter":
+		// OpenRouter's 403 is not about the key: it documents 403 as a
+		// moderation block or a permission the request lacks for this model
+		// (https://openrouter.ai/docs/api/reference/errors-and-debugging); a
+		// refused credential is its 401. Reading this 403 as a rejected key
+		// retired the platform's only OpenRouter key on one odd model
+		// (meta/muse-spark-1.1, 2026-09-30) and took every OpenRouter route out
+		// of rotation. It is the request's fault and retires nothing.
+		if parsed.Error.Metadata != nil && len(parsed.Error.Metadata.Reasons) > 0 {
+			failure.Code, failure.Category = contract.CodeUpstreamContentFiltered, contract.UpstreamContentFilter
+			failure.Detail = "the provider's moderation refused this request"
+		} else {
+			failure.Code, failure.Category = contract.CodePermissionDenied, contract.UpstreamInvalidReq
+			failure.Detail = fmt.Sprintf("%s does not permit this request on this model", a.config.Provider)
+		}
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
 		// Kaana's own credential was refused, NOT the customer's.
 		// `authentication_failed` would tell a customer their key is bad when

@@ -59,13 +59,7 @@ func TestOpenRouterMidStreamErrorsAreClassifiedByTheirOwnFields(t *testing.T) {
 		t.Fatalf("building the adapter: %v", err)
 	}
 	key, _ := adapter.credentials.Begin().Next(time.Now())
-	metadata := func(kind string) *struct {
-		ErrorType string `json:"error_type"`
-	} {
-		return &struct {
-			ErrorType string `json:"error_type"`
-		}{ErrorType: kind}
-	}
+	metadata := func(kind string) *upstreamErrorMetadata { return &upstreamErrorMetadata{ErrorType: kind} }
 	for name, testCase := range map[string]struct {
 		reported upstreamError
 		want     contract.ErrorCode
@@ -87,5 +81,70 @@ func TestOpenRouterMidStreamErrorsAreClassifiedByTheirOwnFields(t *testing.T) {
 	if !errors.As(adapter.streamFailure(upstreamError{Message: "something"}, key), &upstreamErr) ||
 		upstreamErr.Category != contract.UpstreamUnknown {
 		t.Errorf("an unnamed failure was classified %s/%s", upstreamErr.Code, upstreamErr.Category)
+	}
+}
+
+// OpenRouter's 403 is a moderation block or a missing model permission, never
+// the key (its 401 is). One such 403 used to retire the platform's only
+// OpenRouter key and take every OpenRouter route out of rotation.
+func TestOpenRouterForbiddenNeverRetiresTheKey(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		body string
+		want contract.ErrorCode
+	}{
+		"permission": {`{"error":{"code":403,"message":"This model is not available to your account"}}`, contract.CodePermissionDenied},
+		"moderation": {`{"error":{"code":403,"message":"Input was flagged","metadata":{"reasons":["harassment"],"flagged_input":"…"}}}`, contract.CodeUpstreamContentFiltered},
+	} {
+		t.Run(name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(testCase.body))
+			}))
+			t.Cleanup(upstream.Close)
+			base := providerconfig.Known["openrouter"].BaseURL
+			adapter, err := New(Config{Provider: "openrouter", BaseURL: base, HTTPClient: identityBoundFakeClient(t, upstream.URL), Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+			if err != nil {
+				t.Fatalf("building the adapter: %v", err)
+			}
+			call := &provider.Call{
+				Route:  provider.Route{Provider: "openrouter", ModelReference: "meta/muse-spark-1.1@2026-09-01", UpstreamModelID: "meta/muse-spark-1.1"},
+				Method: http.MethodPost, URL: base + "/chat/completions", Body: []byte(`{}`), Stream: true,
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+			}
+			_, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, nil)
+			var upstreamErr provider.ErrUpstream
+			if !errors.As(streamErr, &upstreamErr) || upstreamErr.Code != testCase.want {
+				t.Fatalf("an OpenRouter 403 was classified %v", streamErr)
+			}
+			if provider.CredentialVerdictFor(streamErr) == provider.CredentialRejected {
+				t.Fatal("an OpenRouter 403 still reads as a rejected key")
+			}
+			if usable := adapter.credentials.Projection(time.Now()).Usable; usable != 1 {
+				t.Fatalf("the only OpenRouter key left rotation after a 403; usable=%d", usable)
+			}
+		})
+	}
+
+	// The control: OpenRouter's 401 is the refused credential and still retires it.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":401,"message":"No auth credentials found"}}`))
+	}))
+	t.Cleanup(upstream.Close)
+	base := providerconfig.Known["openrouter"].BaseURL
+	adapter, err := New(Config{Provider: "openrouter", BaseURL: base, HTTPClient: identityBoundFakeClient(t, upstream.URL), Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+	if err != nil {
+		t.Fatalf("building the adapter: %v", err)
+	}
+	call := &provider.Call{
+		Route:  provider.Route{Provider: "openrouter", ModelReference: "meta/muse-spark-1.1@2026-09-01", UpstreamModelID: "meta/muse-spark-1.1"},
+		Method: http.MethodPost, URL: base + "/chat/completions", Body: []byte(`{}`), Stream: true,
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+	}
+	_, streamErr := adapter.Stream(context.Background(), call, silentEmitter{}, nil)
+	if provider.CredentialVerdictFor(streamErr) != provider.CredentialRejected {
+		t.Fatalf("OpenRouter's 401 no longer retires the refused key: %v", streamErr)
 	}
 }
