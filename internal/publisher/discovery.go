@@ -46,6 +46,12 @@ type Provider struct {
 	// means "ask again later", not "this key is spent". The serving process
 	// owns the pool; this asks a question.
 	APIKey string
+	// AttributedModels are the upstream ids configs/model-attribution.json
+	// attributes under this slug. Only a profile that has to NAME a model to
+	// learn whether it is served (xAI's voice sessions) reads it. The
+	// publisher fills it from the attribution table every cycle, so a profile
+	// never asks about an id nobody reviewed.
+	AttributedModels []string
 }
 
 // DiscoveredModel is one model a provider reports serving.
@@ -174,6 +180,18 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 			}
 			models = append(models, DiscoveredModel{UpstreamModelID: "tts"})
 		}
+	}
+
+	// xAI's authenticated /models does not list its voice models, and its
+	// realtime catalogue endpoints refuse an ordinary team key. xAI's own
+	// session.created, on a read-only session open naming the exact attributed
+	// model, is the discovery authority (xai_realtime.go).
+	if target.Discovery == providerconfig.DiscoveryXAIRealtimeSessions {
+		voices, err := discoverXAIRealtimeSessions(ctx, client, target, seen)
+		if err != nil {
+			return nil, err
+		}
+		models = append(models, voices...)
 	}
 
 	// Sorted so a snapshot's content — and therefore its id — does not change
@@ -418,7 +436,7 @@ type alibabaModelListResponse struct {
 func discoveryEndpoint(target Provider, page int) (string, error) {
 	base := strings.TrimSuffix(target.BaseURL, "/")
 	switch target.Discovery {
-	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryMistralModels:
+	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryXAIRealtimeSessions, providerconfig.DiscoveryMistralModels:
 		return base + "/models", nil
 	case providerconfig.DiscoveryNebiusModels:
 		parsed, err := url.Parse(base + "/models")

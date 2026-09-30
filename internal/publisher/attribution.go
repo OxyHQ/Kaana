@@ -129,3 +129,17 @@ func (a *Attribution) Providers() []contract.ProviderSlug {
 	sort.Slice(slugs, func(i, j int) bool { return slugs[i] < slugs[j] })
 	return slugs
 }
+
+// UpstreamModelIDs lists, sorted, the provider's own ids this table
+// attributes under one slug. It is how a discovery profile that must ASK about
+// a model by name (xAI's voice sessions, xai_realtime.go) learns which names
+// it may ask about: only reviewed ones, never an id it made up.
+func (a *Attribution) UpstreamModelIDs(slug contract.ProviderSlug) []string {
+	models := a.byProvider[slug]
+	ids := make([]string, 0, len(models))
+	for id := range models {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}

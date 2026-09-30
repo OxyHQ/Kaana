@@ -389,7 +389,7 @@ shared code, and every documented difference is a dialect field.
 | | |
 |---|---|
 | Protocol | `xai_realtime` (only under the `xai-realtime` slug) |
-| Configured root | `https://api.x.ai/v1`, locked; the publisher reads the account's `GET /v1/models` there |
+| Configured root | `https://api.x.ai/v1`, locked; the publisher reads the account's `GET /v1/models` there and, for the voice models that list omits, opens a read-only session (`xai_models_and_realtime_sessions`, "Publishing") |
 | Session endpoint | `wss://api.x.ai/v1/realtime?model=<signed upstream id>`, fixed in `providerconfig` |
 | Authentication | `Authorization: Bearer <key>` on the handshake |
 | Session kinds | `conversation` only (xAI documents no other) |
@@ -515,13 +515,21 @@ accepted and yields push-to-talk billing; the function-tool shape xAI
 enforces; whether `event_id` is echoed on `error.event_id` (the schema has the
 field; client events document no `event_id`); whether `usage` is always on
 `response.done`; the relative order of `session.created` and
-`conversation.created` (the open waits for `session.created` either way);
-whether `GET /v1/models` lists `grok-voice-think-fast-2.0` for the account (if
-it does not, the publisher publishes no xAI voice deployment and says so); under `server_vad`, whether xAI's
-self-created responses also stream text (relayed if they do) and that a
-caller's speech interrupts them without an `interrupt_response` field; and how
-closely `session_milliseconds` (handshake to close, measured by Kaana) matches
-the duration xAI bills.
+`conversation.created` (the open waits for `session.created` either way).
+
+Measured with the production key on 2026-09-30 by the publisher's discovery
+probe, which opens and closes a session without writing to it: `session.created`
+arrives first, unprompted, then `conversation.created`, then a JSON `ping`;
+the opened session reports `turn_detection: {"type": null}` and
+`voice: "xai_ara"`; `GET /v1/models` does NOT list
+`grok-voice-think-fast-2.0`; and the handshake does not validate `?model=` —
+a bogus id, and no id, are upgraded and answered with a `session.created`
+naming `grok-voice-think-fast-2.0` (inventory.md, "xAI voice discovery").
+
+Still unverified: under `server_vad`, whether xAI's self-created responses also
+stream text (relayed if they do) and that a caller's speech interrupts them
+without an `interrupt_response` field; and how closely `session_milliseconds`
+(handshake to close, measured by Kaana) matches the duration xAI bills.
 
 ## Publishing
 
@@ -530,6 +538,18 @@ the duration xAI bills.
 ids are classified by `providerconfig.ClassifyModel`: `grok-voice*` is a
 conversation session, published only under a slug whose adapter opens one, so
 it is dropped under `xai` and a text model is dropped under `xai-realtime`.
+
+xAI's account list does not name its voice models, and its realtime catalogue
+endpoints answer a team key 403, so `xai-realtime` is discovered with the
+`xai_models_and_realtime_sessions` profile (`internal/publisher/xai_realtime.go`,
+inventory.md, "xAI voice discovery"): for each voice id attributed under the
+slug and absent from the list, the publisher opens
+`wss://api.x.ai/v1/realtime?model=<id>` with the discovery key, sends nothing,
+and discovers the id only when xAI's first `session.created` names exactly that
+id. An `error` event or another model there leaves it absent; no answer fails
+that cycle's `xai-realtime` discovery. The probe sends no event and no audio on
+a session xAI opens as push-to-talk, which xAI's pricing bills only for audio
+and `conversation.item.create` events.
 
 `configs/model-attribution.json` attributes `gpt-realtime-2.1`,
 `gpt-realtime-2.1-mini` and `gpt-realtime-2` to `openai-realtime` only. Each
@@ -659,7 +679,17 @@ pins the set and proves each row publishable there and nowhere else.
    reported, which says nothing about sessions. Oxy can read the capability
    from the `openai-realtime` slug of a deployment; a first-class field needs an
    inventory decision.
-8. **A `requestId` is not remembered after its session settles.** Opening a
+8. **xAI substitutes an unknown model silently, and the serving open does not
+   check.** Measured 2026-09-30: `?model=<bogus>` is answered with a
+   `session.created` naming `grok-voice-think-fast-2.0`. The publisher
+   discovers an id only when `session.created` names exactly it, but the
+   adapter's `configure` accepts any `session.created` without comparing
+   `session.model` to the signed upstream id. Today the only attributed id is
+   xAI's default, so the two agree; the day they diverge (2.0 retired, the
+   default moved) a session could run on other weights than its pinned
+   reference names until the next publish drops the line. Refusing a
+   `session.created` whose model differs is an adapter change not made here.
+9. **A `requestId` is not remembered after its session settles.** Opening a
    second session under a settled request id is the edge's idempotency to
    refuse, exactly as a replayed one-shot envelope is (`architecture.md`,
    "Replay protection beyond the signature time window").
