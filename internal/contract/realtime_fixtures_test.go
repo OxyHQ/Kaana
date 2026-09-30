@@ -32,6 +32,15 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 	if err := audioReport.Validate(); err != nil {
 		t.Fatalf("the audio token usage report does not satisfy Kaana's own validation: %v", err)
 	}
+	// Contract set 3.3.0: an xAI server_vad session, billed for its wall clock
+	// and its text items, measured by Kaana.
+	sessionReport := sessionMillisecondsReport(attribution, started)
+	if err := sessionReport.Validate(); err != nil {
+		t.Fatalf("the session-time usage report does not satisfy Kaana's own validation: %v", err)
+	}
+	sessionClosed := &RealtimeSessionClosedEvent{Reason: RealtimeClosedByClient, DeploymentID: pointerTo(DeploymentID("dep_xai_realtime")),
+		Units: sessionReport.Units, UsageSource: UsageOxyMeasured, ClosedAt: started}
+	sessionClosed.Stamp(RealtimeEventHeader{SchemaVersion: 1, RequestID: session, Sequence: 9})
 
 	request, transcription := sampleRealtimeSessions(t)
 	config, limits := request.Config, request.Limits
@@ -102,6 +111,8 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 	fixtures := []fixture{
 		{Schema: "inferenceRequestSchema", Case: "audio-chat-streamed-pcm", Value: audioChat},
 		{Schema: "normalizedUsageReportSchema", Case: "audio-token-units", Value: audioReport},
+		{Schema: "normalizedUsageReportSchema", Case: "session-milliseconds", Value: sessionReport},
+		{Schema: "realtimeServerEventSchema", Case: "session.closed-session-milliseconds", Value: sessionClosed},
 		{Schema: "inferenceStreamEventSchema", Case: "delta-output-audio-transcript", Value: &StreamDeltaEvent{
 			SchemaVersion: SchemaVersion, Type: EventDelta, RequestID: session, Seq: 2, OutputIndex: 0,
 			Channel: ChannelOutputAudioTranscript, Text: "hello",
@@ -125,6 +136,19 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 	return fixtures
 }
 
+// sessionMillisecondsReport is an xAI Voice Agent session under server_vad:
+// three minutes and a bit of session wall clock and two billed text items, both
+// measured by Kaana (contract set 3.3.0).
+func sessionMillisecondsReport(attribution Attribution, at Timestamp) UsageReport {
+	return UsageReport{
+		SchemaVersion: UsageReportSchemaVersion, RequestID: attribution.RequestID, GenerationID: attribution.GenerationID,
+		Attribution: attribution, Outcome: OutcomeCompleted,
+		Units:       []UsageQuantity{{Unit: UnitRequests, Quantity: 2}, {Unit: UnitSessionMilliseconds, Quantity: 187_412}},
+		UsageSource: UsageOxyMeasured, ResolvedModelReference: "xai/grok-voice-think-fast-2.0@2026-09-30",
+		ServingProvider: "xai-realtime", DeploymentID: "dep_xai_realtime", StartedAt: at, CompletedAt: at,
+	}
+}
+
 // realtimeInvalidFixtures are shapes Kaana's types can express and the
 // published schemas must refuse.
 func realtimeInvalidFixtures(t *testing.T) []fixture {
@@ -142,6 +166,12 @@ func realtimeInvalidFixtures(t *testing.T) []fixture {
 	audioChat := sampleAudioChatRequest(t)
 	audioChat.AudioOutput = &AudioOutputParameters{Voice: "alloy", Format: "mp3"}
 
+	// The control beside the session-milliseconds fixture: the same report with
+	// a near-miss unit must be refused, so accepting the real one means the
+	// published vocabulary has it rather than that units go unchecked.
+	sessionSeconds := sessionMillisecondsReport(sampleAttribution(), "2026-09-30T09:41:00.000Z")
+	sessionSeconds.Units = []UsageQuantity{{Unit: UnitRequests, Quantity: 2}, {Unit: UsageUnit("session_seconds"), Quantity: 188}}
+
 	return []fixture{
 		{Schema: "realtimeSessionRequestSchema", Case: "cross-model-session", Value: substituted},
 		{Schema: "realtimeSessionRequestSchema", Case: "transcription-with-a-voice", Value: transcriptionThatResponds},
@@ -152,6 +182,7 @@ func realtimeInvalidFixtures(t *testing.T) []fixture {
 			Units:       []UsageQuantity{{Unit: UnitAudioInputTokens, Quantity: 1}, {Unit: UnitAudioInputTokens, Quantity: 2}},
 			UsageSource: UsageProviderReported,
 		}},
+		{Schema: "normalizedUsageReportSchema", Case: "session-seconds-is-not-a-unit", Value: sessionSeconds},
 		{Schema: "realtimeClientCommandSchema", Case: "audio-frame-not-base64", Value: &RealtimeInputAudioAppendCommand{
 			SchemaVersion: 1, RequestID: "req_01JQZABCDEF", CommandID: "cmd", Type: "input_audio.append", Data: "not base64!",
 		}},

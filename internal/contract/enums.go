@@ -197,6 +197,12 @@ const (
 	UnitAudioInputTokens       UsageUnit = "audio_input_tokens"
 	UnitCachedAudioInputTokens UsageUnit = "cached_audio_input_tokens"
 	UnitAudioOutputTokens      UsageUnit = "audio_output_tokens"
+	// UnitSessionMilliseconds is the wall-clock milliseconds a realtime
+	// session was open with the upstream provider (contract set 3.3.0):
+	// reported only by a provider that bills session time, and never together
+	// with a per-audio reading of the same span. Kaana measures it itself,
+	// from the accepted upstream handshake to the upstream's close.
+	UnitSessionMilliseconds UsageUnit = "session_milliseconds"
 )
 
 var usageUnitValues = []UsageUnit{
@@ -204,6 +210,7 @@ var usageUnitValues = []UsageUnit{
 	UnitRequests, UnitImages, UnitAudioInputMilliseconds, UnitAudioOutputMilliseconds,
 	UnitVideoMilliseconds, UnitCharacters, UnitEmbeddings,
 	UnitAudioInputTokens, UnitCachedAudioInputTokens, UnitAudioOutputTokens,
+	UnitSessionMilliseconds,
 }
 
 // Valid reports whether the unit is one the contract declares. A unit that is
