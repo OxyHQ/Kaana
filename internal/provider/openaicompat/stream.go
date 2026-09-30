@@ -563,6 +563,24 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		// holding a different credential is still permitted.
 		failure.Code, failure.Category = contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication
 		failure.Detail = fmt.Sprintf("%s refused the platform's credential for this route", a.config.Provider)
+	case status == http.StatusNotFound && a.config.Provider == "openrouter" && openRouterPolicyRefusal(parsed.Error.Message) != "":
+		// OpenRouter answers 404 both when a model is absent AND when its
+		// router found no endpoint satisfying the request under Kaana's fixed
+		// policy (zero data retention, no data collection, every parameter
+		// supported). Its typed code cannot tell them apart — both are
+		// `error.code: 404` with `metadata.error_type: not_found` where present
+		// — so the documented message is the only discriminator it gives.
+		//
+		// The second is not the model missing: the same model with other
+		// parameters is served. Reporting `model_not_found` sent operators and
+		// callers looking for a catalogue fault. It is the request that no
+		// eligible endpoint accepts, so it is `invalid_request`: non-retryable
+		// (an identical retry meets the same filter) and not attributable, so
+		// the breaker never takes a healthy deployment out of rotation for
+		// one caller's parameters. OpenRouter's own message rides in the
+		// redacted passthrough.
+		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
+		failure.Detail = openRouterPolicyRefusal(parsed.Error.Message)
 	case status == http.StatusNotFound:
 		// The upstream does not have the model this route names. From the
 		// customer's side there is no working route for what they asked for,
@@ -599,6 +617,36 @@ func (a *Adapter) Refuse(response *http.Response, key provider.Key) error {
 		failure.Detail = fmt.Sprintf("%s rejected the request", a.config.Provider)
 	}
 	return provider.CustomerCredentialFailure(key, failure)
+}
+
+// openRouterPolicyRefusal recognises OpenRouter's 404 messages for "no
+// endpoint of this model satisfies the request's routing constraints" and
+// returns the customer-facing detail, or "" for anything else — including
+// OpenRouter's true model absence, "No endpoints found for <model>.", which
+// stays `model_not_found`.
+//
+// The families, as OpenRouter words them:
+//
+//   - "No endpoints found that can handle the requested parameters." and its
+//     parameter-specific siblings ("...that support tool use.", "...that
+//     support the provided 'tool_choice' value.") — `require_parameters`
+//     left no endpoint;
+//   - "No endpoints found matching your data policy (...)" and "No endpoints
+//     available matching your guardrail restrictions and data policy" — the
+//     zero-retention / no-collection filter left none.
+//
+// Matching is on the documented prefix and phrases, case-insensitively, and
+// never on a bare substring like "not found" that true absence also carries.
+func openRouterPolicyRefusal(message string) string {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	switch {
+	case strings.HasPrefix(normalized, "no endpoints found that "):
+		return "no zero-data-retention endpoint of this model on openrouter accepts every parameter this request carries"
+	case strings.HasPrefix(normalized, "no endpoints") && strings.Contains(normalized, "data policy"):
+		return "no endpoint of this model on openrouter satisfies Kaana's zero-data-retention policy for this request"
+	default:
+		return ""
+	}
 }
 
 // streamFailure classifies an error object that arrived INSIDE the stream,

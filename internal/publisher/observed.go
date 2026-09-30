@@ -10,6 +10,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
@@ -28,7 +29,9 @@ import (
 //	max_completion_tokens              Groq
 //	architecture.input_modalities      OpenRouter
 //	architecture.output_modalities     OpenRouter
-//	supported_parameters               OpenRouter ("tools", "reasoning", "reasoning_effort")
+//	supported_parameters               OpenRouter (tools, reasoning and every control in
+//	                                   providerParameterWords; for OpenRouter the publisher
+//	                                   replaces it with the zero-retention union, zdr.go)
 //	capabilities.function_calling      Mistral
 //	pricing.prompt / pricing.completion OpenRouter, USD per token (only when
 //	                                    publishesUSDPerTokenPrices)
@@ -87,24 +90,7 @@ func observeModelListEntry(raw json.RawMessage, publishesUSDPerTokenPrices bool)
 		}
 	}
 	if parameters, ok := stringListField(fields, "supported_parameters"); ok {
-		// A PRESENT list is a complete statement of what the model takes, so a
-		// parameter it does not name is reported as unsupported. An absent list
-		// says nothing, and both fields then stay absent.
-		supported := make(map[string]bool, len(parameters))
-		for _, parameter := range parameters {
-			supported[parameter] = true
-		}
-		tools := supported["tools"]
-		observed.SupportsTools = &tools
-		efforts := []contract.ReasoningEffort{}
-		if supported["reasoning"] || supported["reasoning_effort"] {
-			// OpenRouter documents `reasoning.effort` as one normalized control
-			// over every model that accepts `reasoning`, mapping it to the
-			// upstream's own budget or effort. Its word "reasoning" is therefore
-			// a statement about the whole effort vocabulary.
-			efforts = contract.ReasoningEfforts()
-		}
-		observed.ReasoningEfforts = &efforts
+		applySupportedParameters(&observed, parameters)
 		kept = true
 	} else if capabilities, ok := objectField(fields, "capabilities"); ok {
 		var functionCalling bool
@@ -135,6 +121,72 @@ func observeModelListEntry(raw json.RawMessage, publishesUSDPerTokenPrices bool)
 		return nil
 	}
 	return &observed
+}
+
+// applySupportedParameters records what a PRESENT `supported_parameters`
+// list says. A present list is a complete statement of what the model takes,
+// so a parameter it does not name is reported as unsupported; an absent list
+// says nothing and never reaches here, leaving every derived field absent.
+//
+// It sets the three fields that list decides — supportsTools,
+// reasoningEfforts and acceptedParameters — together, so they can never be
+// read from two different lists.
+func applySupportedParameters(observed *inventory.Observed, parameters []string) {
+	supported := make(map[string]bool, len(parameters))
+	for _, parameter := range parameters {
+		supported[parameter] = true
+	}
+	tools := supported["tools"]
+	observed.SupportsTools = &tools
+	efforts := []contract.ReasoningEffort{}
+	if supported["reasoning"] || supported["reasoning_effort"] {
+		// OpenRouter documents `reasoning.effort` as one normalized control
+		// over every model that accepts `reasoning`, mapping it to the
+		// upstream's own budget or effort. Its word "reasoning" is therefore
+		// a statement about the whole effort vocabulary.
+		efforts = contract.ReasoningEfforts()
+	}
+	observed.ReasoningEfforts = &efforts
+
+	accepted := make([]provider.RequestParameter, 0, len(providerParameterWords))
+	for _, parameter := range provider.RequestParameters() {
+		for _, word := range providerParameterWords[parameter] {
+			if supported[word] {
+				accepted = append(accepted, parameter)
+				break
+			}
+		}
+	}
+	observed.AcceptedParameters = &accepted
+}
+
+// providerParameterWords maps each request control onto the words an
+// OpenAI-compatible `supported_parameters` list uses for it. A control is
+// accepted when ANY of its words is listed:
+//
+//   - `max_tokens` and `max_completion_tokens` are one control. OpenRouter
+//     maps either onto the upstream's own spelling (gpt-4o-mini's zero-retention
+//     endpoints list only `max_completion_tokens` and serve `max_tokens`), and
+//     Kaana sends `max_tokens`.
+//   - `reasoning` and `reasoning_effort` are one control, as for
+//     reasoningEfforts above.
+//   - `response_format` is what Kaana sends for every non-text response
+//     format; `structured_outputs` alone is not read as accepting it.
+//
+// Every vocabulary member has an entry; `TestEveryRequestParameterHasAProviderWord`
+// keeps a member added to the vocabulary from silently never being accepted.
+var providerParameterWords = map[provider.RequestParameter][]string{
+	provider.ParameterMaxOutputTokens:  {"max_tokens", "max_completion_tokens"},
+	provider.ParameterReasoningEffort:  {"reasoning", "reasoning_effort"},
+	provider.ParameterResponseFormat:   {"response_format"},
+	provider.ParameterFrequencyPenalty: {"frequency_penalty"},
+	provider.ParameterPresencePenalty:  {"presence_penalty"},
+	provider.ParameterSeed:             {"seed"},
+	provider.ParameterStopSequences:    {"stop"},
+	provider.ParameterTemperature:      {"temperature"},
+	provider.ParameterTopP:             {"top_p"},
+	provider.ParameterToolChoice:       {"tool_choice"},
+	provider.ParameterTools:            {"tools"},
 }
 
 func stringField(fields map[string]json.RawMessage, key string) (string, bool) {

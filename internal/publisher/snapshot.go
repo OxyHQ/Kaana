@@ -100,6 +100,11 @@ type BuildResult struct {
 	// They are omitted so no reference can route a request or a session to an
 	// adapter that cannot faithfully serve it.
 	Inexecutable []string
+	// Unservable names attributed (provider, upstream id) pairs Kaana's fixed
+	// request policy for that provider can never be served by, with the
+	// reason: an OpenRouter model with no zero-data-retention endpoint. A
+	// route to one would fail every request it was ever given.
+	Unservable []string
 }
 
 // BuildSnapshot renders the inventory file from what the providers reported.
@@ -124,6 +129,7 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 		deployments  []snapshotDeployment
 		unattributed []string
 		inexecutable []string
+		unservable   []string
 	)
 	for _, discovery := range discoveries {
 		for _, model := range discovery.Models {
@@ -134,6 +140,10 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 			}
 			if !executable(discovery.Provider, model.UpstreamModelID) {
 				inexecutable = append(inexecutable, string(discovery.Provider.Slug)+"/"+model.UpstreamModelID)
+				continue
+			}
+			if model.Unservable != "" {
+				unservable = append(unservable, string(discovery.Provider.Slug)+"/"+model.UpstreamModelID+": "+model.Unservable)
 				continue
 			}
 
@@ -194,6 +204,7 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 
 	sort.Strings(unattributed)
 	sort.Strings(inexecutable)
+	sort.Strings(unservable)
 	return BuildResult{
 		Body:         body,
 		SnapshotID:   file.SnapshotID,
@@ -201,6 +212,7 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 		Observations: observations,
 		Unattributed: unattributed,
 		Inexecutable: inexecutable,
+		Unservable:   unservable,
 	}, nil
 }
 
@@ -290,7 +302,7 @@ func snapshotComment() []string {
 		"INVENTORY ORDER IS PRESENTATION ONLY. Every inference request carries a non-empty signed authorizedRoutes list of exact deployment ids, and Kaana executes only that list in its signed order. Deployments here are sorted by exact id so provider declaration order cannot select a route.",
 		"REGIONS ARE UPSTREAM EXECUTION/RESIDENCY, NOT THE AWS REGION RUNNING KAANA. A provider's model API does not report them. KAANA_PROVIDER_<SLUG>_REGIONS carries an explicit verified declaration; when absent, the route has no regional attestation and matches only an explicitly empty signed set that Oxy permits under no regional policy control.",
 		"IT HOLDS NOTHING OXY OWNS: no account, application, credential, customer price or commercial permission. Provider credentials resolve from Kaana's PostgreSQL/KMS store and are never here.",
-		"`observed` IS WHAT THE PROVIDER'S OWN /models ENTRY SAID, AND NOTHING ELSE. Absent means the provider did not say; nothing is defaulted or curated. It is catalogue metadata for the signed operator catalogue, never routing, and snapshotId does not hash it. `observed.listPrice` is the provider's PUBLISHED list price (USD per million tokens), not Kaana's cost and not a customer price.",
+		"`observed` IS WHAT THE PROVIDER'S OWN /models ENTRY SAID, AND NOTHING ELSE — except that for OpenRouter, whose every Kaana request requires zero data retention, supportsTools, reasoningEfforts and acceptedParameters are what its zero-retention endpoint list says those endpoints accept. Absent means the provider did not say; nothing is defaulted or curated. It is catalogue metadata for the signed operator catalogue, never routing (acceptedParameters only lets Translate refuse a control the route rejects), and snapshotId does not hash it. `observed.listPrice` is the provider's PUBLISHED list price (USD per million tokens), not Kaana's cost and not a customer price.",
 		"STALENESS IS MEASURED FROM `issuedAt`. This file is re-issued on a cadence shorter than KAANA_INVENTORY_MAX_AGE even when nothing has changed, because an unchanged snapshot with an old issuedAt is indistinguishable from a publisher that has stopped.",
 	}
 }

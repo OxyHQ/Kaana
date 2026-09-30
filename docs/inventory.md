@@ -148,11 +148,45 @@ hand and nothing is defaulted — an absent field means the provider did not say
 | `inputModalities`, `outputModalities` | `architecture.*_modalities` (OpenRouter), provider words passed through, sorted |
 | `supportsTools` | `"tools"` in `supported_parameters` (OpenRouter); `capabilities.function_calling` (Mistral) |
 | `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]` |
+| `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below) |
 | `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
 
 A PRESENT `supported_parameters` list is a complete statement, so a parameter it
-omits is reported unsupported; an absent list leaves `supportsTools` and
-`reasoningEfforts` absent. Each field is decoded independently: a field of the
+omits is reported unsupported; an absent list leaves `supportsTools`,
+`reasoningEfforts` and `acceptedParameters` absent.
+
+**For OpenRouter the parameter list is not the `/models` entry's.** Every Kaana
+request to OpenRouter requires zero data retention and that the serving
+endpoint accept every parameter sent, so what a Kaana route accepts is what
+the model's zero-data-retention endpoints accept. The publisher reads
+OpenRouter's public `GET /api/v1/endpoints/zdr` once per cycle and derives
+`supportsTools`, `reasoningEfforts` and `acceptedParameters` from the UNION of
+that model's zero-retention endpoints' `supported_parameters`; if any of those
+endpoints lists none, the three stay absent. A model with NO zero-retention
+endpoint can never be served under that policy and is dropped (the table
+below). A failed or malformed read of that list fails OpenRouter's discovery
+for the cycle, exactly as a failed `/models` read does
+(`provider-onboarding.md`, "OpenRouter").
+
+`acceptedParameters` names caller controls by the contract request path a
+caller sets and a refusal names (`provider.RequestParameter`), sorted, from a
+closed vocabulary: `maxOutputTokens` (`max_tokens` or `max_completion_tokens`
+— one control), `reasoning.effort` (`reasoning` or `reasoning_effort`),
+`responseFormat` (`response_format`), `sampling.frequencyPenalty`,
+`sampling.presencePenalty`, `sampling.seed`, `sampling.stopSequences`
+(`stop`), `sampling.temperature`, `sampling.topP`, `toolChoice`, `tools`.
+`sampling.topK` is deliberately absent: no adapter a discovered provider is
+served through sends it. The same three states as `reasoningEfforts`: absent is
+unknown, `[]` is "reported, takes none of these", a list names them. Only a
+provider whose own list states it gets one; every other provider's is absent.
+
+**It is the one observation that reaches a route.** `Candidates()` copies
+`acceptedParameters` into `provider.Route`, and `Translate` refuses, with
+`invalid_request` naming the field, a control the route's KNOWN set lacks —
+before anything is spent, instead of a provider 404 or a silently dropped
+parameter. An unknown set refuses nothing. It can only refuse: it never
+changes where a request goes or what is sent, so `snapshotId` still does not
+hash it. Each field is decoded independently: a field of the
 wrong type, zero, negative or unreadable is dropped and never fails discovery,
 because a provider's metadata change must make the catalogue say less, not
 withdraw its models. `inventory.Parse` validates the block (bounded name,
@@ -160,17 +194,19 @@ positive limits, sorted modality tokens, contract efforts, canonical decimal
 prices); the publisher's round-trip through it is what keeps a bad block from
 being written.
 
-`observed` is presentation metadata. `Candidates()` never copies it into a
-route, so it cannot change what is sent, and `snapshotId` does not hash it: a
-provider renaming a model is not a routing change.
+`observed` is presentation metadata. `Candidates()` copies none of it into a
+route except `acceptedParameters`, which can only refuse, so it cannot change
+what is sent, and `snapshotId` does not hash it: a provider renaming a model
+is not a routing change.
 
 `GET /internal/v1/models` aggregates each line's current-revision deployments
 into its catalogue entry (`inventory.CatalogueEntry`). A deployment whose
 provider said nothing ABSTAINS; one that reported can only narrow:
 `displayName` is the first in deployment-id order, `createdAt` the earliest,
 `contextTokens`/`maxOutputTokens` the smallest, modalities and
-`reasoningEfforts` the intersection, `supportsTools` true only if every reporter
-says so, and `listPrices` one entry per pricing deployment, never combined.
+`reasoningEfforts` and `acceptedParameters` the intersection, `supportsTools`
+true only if every reporter says so, and `listPrices` one entry per pricing
+deployment, never combined.
 `reasoningEfforts: []` means a provider reported the model takes no effort;
 absent means nobody said. An entry:
 
@@ -187,6 +223,10 @@ absent means nobody said. An entry:
   "outputModalities": ["text"],
   "supportsTools": true,
   "reasoningEfforts": ["low", "medium", "high"],
+  "acceptedParameters": ["maxOutputTokens", "reasoning.effort", "responseFormat",
+    "sampling.frequencyPenalty", "sampling.presencePenalty", "sampling.seed",
+    "sampling.stopSequences", "sampling.temperature", "sampling.topP",
+    "toolChoice", "tools"],
   "listPrices": [
     {"deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_08_06",
      "provider": "openrouter", "currency": "USD", "input": "0.072", "output": "0.28"}
@@ -212,6 +252,7 @@ re-date. Only a genuine 404 — nothing published yet — mints today's date.
 |---|---|
 | a declared provider holds no active database credential | publisher startup refuses; it must not emit a route the serving process cannot authenticate |
 | a provider serves a model nobody attributed | dropped, warned; inferring a publisher from a model id is a claim about somebody else's work |
+| an attributed OpenRouter model has no zero-data-retention endpoint | dropped, warned by name; every Kaana request to OpenRouter requires one, so a route to it would fail every request |
 | one provider cannot be asked | its routes are absent for that cycle; the others still publish |
 | no provider could be asked | the cycle refuses and the published snapshot is left alone |
 | the previous snapshot cannot be read | the cycle refuses rather than re-date every reference |
@@ -343,10 +384,14 @@ reasoning; these are the lines a reviewer holds a change to.
   id for stable snapshots. Never reorder `authorizedRoutes` by health, price or
   inventory preference.
 - **`observed` is what the provider's model list said, never curated, never
-  defaulted.** Absent is unknown. It never reaches a route, never enters
-  `snapshotId`, and an unreadable field is dropped rather than failing
-  discovery. Aggregation lets a silent deployment abstain and a reporting one
-  only narrow.
+  defaulted.** Absent is unknown. It never enters `snapshotId`, and an
+  unreadable field is dropped rather than failing discovery. Aggregation lets a
+  silent deployment abstain and a reporting one only narrow. Only
+  `acceptedParameters` reaches a route, and only to let `Translate` refuse.
+- **An OpenRouter route's parameters are its ZERO-RETENTION endpoints'.** Kaana
+  forces `zdr`, so the `/models` list (all endpoints) overstates what a Kaana
+  request can use; derive from `/endpoints/zdr`, and never publish a model
+  with no zero-retention endpoint.
 - **Never default `KAANA_INVENTORY_BUCKET`.** A plausible default turns a
   variable that never arrived into "published somewhere else, everything green".
 - **It runs in its own process under its own task role.** The write decides all

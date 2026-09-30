@@ -83,7 +83,8 @@ type Deployment struct {
 	Current bool `json:"current"`
 	// Observed is what the provider's own model list said about this model when
 	// the publisher last read it. It is presentation metadata for the signed
-	// catalogue and never participates in routing, resolution or translation.
+	// catalogue and never participates in routing or resolution; its one
+	// translation role is AcceptedParameters, which only lets Translate refuse.
 	// Absent means the provider said nothing Kaana could keep.
 	Observed *Observed `json:"observed,omitempty"`
 }
@@ -108,6 +109,14 @@ type Observed struct {
 	// empty list is "the provider reports this model takes no reasoning
 	// control", and a non-empty list names the efforts it takes.
 	ReasoningEfforts *[]contract.ReasoningEffort `json:"reasoningEfforts,omitempty"`
+	// AcceptedParameters is which caller controls this deployment's upstream
+	// accepts, in Kaana's request-path vocabulary (provider.RequestParameter),
+	// sorted. The same three states: nil is "not reported", an empty list is
+	// "reported, and it takes none of them", a non-empty list names them. It is
+	// the ONE observation that reaches a route (Candidates), because Translate
+	// refuses a control the route is known not to accept rather than spend a
+	// request the upstream will reject; it can refuse, never add or default.
+	AcceptedParameters *[]provider.RequestParameter `json:"acceptedParameters,omitempty"`
 	// ListPrice is the provider's own published catalogue price. It is an
 	// observation of a public catalogue, not Kaana's cost and not a customer
 	// price; its type is providercost's, the only package that holds an amount.
@@ -176,6 +185,11 @@ func (o Observed) Validate() error {
 			}
 		}
 	}
+	if o.AcceptedParameters != nil {
+		if err := provider.ValidateParameterSet(*o.AcceptedParameters); err != nil {
+			return fmt.Errorf("acceptedParameters: %w", err)
+		}
+	}
 	if o.ListPrice != nil {
 		if err := o.ListPrice.Validate(); err != nil {
 			return err
@@ -211,8 +225,10 @@ type Endpoint struct {
 	Provider        contract.ProviderSlug
 	UpstreamModelID string
 	Regions         []contract.Region
-	// Observed is catalogue metadata only. Candidates() never copies it into a
-	// route: nothing the provider's model list said can change what is sent.
+	// Observed is catalogue metadata. Candidates() copies exactly one field of
+	// it into a route, AcceptedParameters, which can only refuse a request;
+	// nothing the provider's model list said can change where a request goes
+	// or what is sent.
 	Observed *Observed
 }
 
@@ -258,9 +274,23 @@ func (s RouteSet) Candidates() []provider.Route {
 			ModelReference:  s.reference,
 			UpstreamModelID: endpoint.UpstreamModelID,
 			Regions:         append([]contract.Region(nil), endpoint.Regions...),
+			// The accepted-parameter set is the one observation a route
+			// carries: it only lets Translate refuse what the upstream would
+			// reject, so it cannot change where a request goes or what is sent.
+			AcceptedParameters: acceptedParametersOf(endpoint.Observed),
 		})
 	}
 	return routes
+}
+
+// acceptedParametersOf copies a deployment's accepted-parameter set so a route
+// cannot alias the inventory's slice. Nil stays nil: unknown is not empty.
+func acceptedParametersOf(observed *Observed) *[]provider.RequestParameter {
+	if observed == nil || observed.AcceptedParameters == nil {
+		return nil
+	}
+	parameters := append([]provider.RequestParameter{}, *observed.AcceptedParameters...)
+	return &parameters
 }
 
 // Inventory resolves a model reference to the set of routes that serve it.
@@ -588,6 +618,10 @@ type CatalogueEntry struct {
 	// efforts, in ascending order. `[]` means a deployment reported that the
 	// model takes no effort control; absent means nobody said.
 	ReasoningEfforts *[]contract.ReasoningEffort `json:"reasoningEfforts,omitempty"`
+	// AcceptedParameters is the intersection of the reporting deployments'
+	// accepted-parameter sets, sorted: the controls every reporting route
+	// accepts. `[]` means the reports leave none; absent means nobody said.
+	AcceptedParameters *[]provider.RequestParameter `json:"acceptedParameters,omitempty"`
 	// ListPrices is one entry per deployment whose provider publishes a price,
 	// in deployment-id order. Prices are never combined: two providers' list
 	// prices are two observations, and a single number would hide which one
@@ -645,6 +679,7 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 		createdAt       time.Time
 		inputs, outputs map[string]bool
 		efforts         map[contract.ReasoningEffort]bool
+		parameters      map[provider.RequestParameter]bool
 	)
 	for _, endpoint := range ordered {
 		observed := endpoint.Observed
@@ -679,6 +714,15 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 			}
 			efforts = reported
 		}
+		if observed.AcceptedParameters != nil {
+			reported := make(map[provider.RequestParameter]bool, len(*observed.AcceptedParameters))
+			for _, parameter := range *observed.AcceptedParameters {
+				if parameters == nil || parameters[parameter] {
+					reported[parameter] = true
+				}
+			}
+			parameters = reported
+		}
 		if observed.ListPrice != nil {
 			entry.ListPrices = append(entry.ListPrices, ListPriceObservation{
 				DeploymentID: endpoint.DeploymentID,
@@ -697,6 +741,15 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 			}
 		}
 		entry.ReasoningEfforts = &ordered
+	}
+	if parameters != nil {
+		ordered := make([]provider.RequestParameter, 0, len(parameters))
+		for _, parameter := range provider.RequestParameters() {
+			if parameters[parameter] {
+				ordered = append(ordered, parameter)
+			}
+		}
+		entry.AcceptedParameters = &ordered
 	}
 }
 
