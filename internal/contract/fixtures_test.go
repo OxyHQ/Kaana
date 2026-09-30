@@ -35,18 +35,22 @@ type fixture struct {
 
 func TestWriteWireFixtures(t *testing.T) {
 	valid := append(validFixtures(t), credentialTextFixtures(false)...)
+	valid = append(valid, realtimeValidFixtures(t)...)
 	invalid := append(invalidFixtures(), credentialTextFixtures(true)...)
+	invalid = append(invalid, realtimeInvalidFixtures(t)...)
 
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
 	// reason the not-applicable list is exact.
 	// 23 wire variants plus the 6 credential-text strings the published schema
-	// must ACCEPT; 12 controls plus the 6 it must REJECT.
-	if len(valid) != 29 {
-		t.Fatalf("expected 29 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// must ACCEPT, plus 38 for contract set 3.2.0 (audio chat, audio tokens,
+	// the transcript channel, two sessions, 11 commands and 22 events); 12
+	// controls plus the 6 it must REJECT, plus 5 realtime controls.
+	if len(valid) != 67 {
+		t.Fatalf("expected 67 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 19 {
-		t.Fatalf("expected 19 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 24 {
+		t.Fatalf("expected 24 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)

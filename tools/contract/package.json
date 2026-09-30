@@ -10,6 +10,6 @@
     "validate": "bun validate.mjs"
   },
   "dependencies": {
-    "@oxy.so/contracts": "1.4.0"
+    "@oxy.so/contracts": "/tmp/claude-1000/-home-nate-Oxy-Kaana/b7077c1d-25c5-4f1a-9535-1a02af302ffb/scratchpad/oxy.so-contracts-4.4.0.tgz"
   }
 }

@@ -351,8 +351,28 @@ type SpeechParameters struct {
 	Speed          *float64     `json:"speed,omitempty"`
 }
 
+// AudioOutputParameters asks a conversational model to answer in its own
+// voice (contract set 3.2.0), as opposed to Speech, which reads given text
+// aloud. The audio streams as audio events and the words on the
+// output_audio_transcript channel.
+type AudioOutputParameters struct {
+	Voice  string            `json:"voice"`
+	Format AudioOutputFormat `json:"format"`
+}
+
+// AudioOutputFormat is the encoding of a conversational model's spoken output.
+// pcm is the only one that streams.
+type AudioOutputFormat string
+
+const AudioOutputPCM AudioOutputFormat = "pcm"
+
+var audioOutputFormatValues = []AudioOutputFormat{"wav", "mp3", "flac", "opus", "pcm"}
+
+func (f AudioOutputFormat) Valid() bool { return isMember(f, audioOutputFormatValues) }
+
 type Request struct {
 	Speech           *SpeechParameters      `json:"speech,omitempty"`
+	AudioOutput      *AudioOutputParameters `json:"audioOutput,omitempty"`
 	SchemaVersion    int                    `json:"schemaVersion"`
 	Attribution      Attribution            `json:"attribution"`
 	Target           RoutingTarget          `json:"target"`
@@ -378,6 +398,20 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
+	if r.AudioOutput != nil {
+		switch {
+		case r.Client.APIFormat != APIFormatChatCompletions:
+			return fmt.Errorf("contract: audioOutput: spoken output from a conversational model requires the chat_completions API format")
+		case r.Modality != ModalityAudio || r.Input.Format != InputMessages:
+			return fmt.Errorf("contract: audioOutput: spoken output requires audio modality and a messages input")
+		case len(r.AudioOutput.Voice) == 0 || len(utf16.Encode([]rune(r.AudioOutput.Voice))) > 64:
+			return fmt.Errorf("contract: audioOutput.voice must be 1 to 64 characters")
+		case !r.AudioOutput.Format.Valid():
+			return fmt.Errorf("contract: audioOutput.format %q is not an audio output format", r.AudioOutput.Format)
+		case r.Stream && r.AudioOutput.Format != AudioOutputPCM:
+			return fmt.Errorf("contract: audioOutput.format: streamed spoken output is pcm; the other formats exist only whole")
+		}
+	}
 	if r.Speech != nil {
 		if r.Client.APIFormat != APIFormatAudioSpeech || r.Modality != ModalityAudio || r.Input.Format != InputText || r.Stream {
 			return fmt.Errorf("contract: speech requires non-streaming audio_speech with text input")
