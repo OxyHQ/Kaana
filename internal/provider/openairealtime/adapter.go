@@ -1,16 +1,20 @@
-// Package openairealtime opens OpenAI Realtime (GA) conversation sessions over
-// a server-to-server WebSocket.
+// Package openairealtime opens OpenAI-Realtime-shaped conversation sessions
+// over a server-to-server WebSocket: OpenAI's Realtime (GA) API, and xAI's
+// Voice Agent API, which xAI documents as compatible with it.
 //
-// It is a provider.RealtimeAdapter under its own slug, `openai-realtime`,
-// bound to OpenAI's own origin exactly as `openai-audio` is. A session is not a
-// request, so it is not served by the Chat Completions adapter under `openai`
-// either: a deployment resolves to one adapter, and a realtime model published
-// under this slug can only be opened by this code.
+// Each is a provider.RealtimeAdapter under its own slug bound to its own
+// origin: `openai-realtime` (as `openai-audio` is) and `xai-realtime` (beside
+// the `xai` request adapter). A session is not a request, so neither is served
+// by a Chat Completions adapter: a deployment resolves to one adapter, and a
+// realtime model published under one of these slugs can only be opened by this
+// code, in that provider's dialect (dialect.go).
 //
-// Wire reviewed against OpenAI's documentation on 2026-09-30:
+// Wire reviewed on 2026-09-30:
 // https://developers.openai.com/api/docs/guides/voice-websockets,
 // https://developers.openai.com/api/reference/resources/realtime/client-events,
-// https://developers.openai.com/api/reference/resources/realtime/server-events.
+// https://developers.openai.com/api/reference/resources/realtime/server-events,
+// https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech,
+// https://docs.x.ai/voice-realtime.ws.json.
 package openairealtime
 
 import (
@@ -34,10 +38,10 @@ import (
 const Slug contract.ProviderSlug = "openai-realtime"
 
 // openTimeout bounds the configuration half of opening: from the accepted
-// handshake to OpenAI confirming the session's configuration.
+// handshake to the provider confirming the session's configuration.
 const openTimeout = 20 * time.Second
 
-// maxUpstreamEventBytes bounds one OpenAI server event. The largest are
+// maxUpstreamEventBytes bounds one server event. The largest are
 // response.done and conversation.item.done, which carry a response's whole
 // output text and transcripts but never its audio.
 const maxUpstreamEventBytes = 16 << 20
@@ -53,44 +57,53 @@ type Config struct {
 }
 
 type Adapter struct {
+	dialect     *dialect
 	client      *http.Client
 	credentials *provider.KeyPool
 }
 
-// New builds the adapter. Its origin is not configurable: the slug is bound to
-// OpenAI's own API root, and the session endpoint to OpenAI's own WebSocket.
-func New(config Config) (*Adapter, error) {
-	if err := providerconfig.ValidateEndpointIdentity(Slug, providerconfig.OpenAIRealtimeBaseURL); err != nil {
+// New builds the OpenAI Realtime adapter. Its origin is not configurable: the
+// slug is bound to OpenAI's own API root, and the session endpoint to OpenAI's
+// own WebSocket.
+func New(config Config) (*Adapter, error) { return buildAdapter(openAIDialect, config) }
+
+// NewXAI builds the xAI Voice Agent adapter, bound to xAI's own API root and
+// session endpoint exactly as New is to OpenAI's.
+func NewXAI(config Config) (*Adapter, error) { return buildAdapter(xAIDialect, config) }
+
+func buildAdapter(d *dialect, config Config) (*Adapter, error) {
+	if err := providerconfig.ValidateEndpointIdentity(d.slug, d.baseURL); err != nil {
 		return nil, err
 	}
-	pool, err := provider.NewKeyPool(Slug, config.Declarations, config.Keys, provider.QuotaHeaders{})
+	pool, err := provider.NewKeyPool(d.slug, config.Declarations, config.Keys, provider.QuotaHeaders{})
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{client: provider.RefuseRedirects(config.HTTPClient), credentials: pool}, nil
+	return &Adapter{dialect: d, client: provider.RefuseRedirects(config.HTTPClient), credentials: pool}, nil
 }
 
-func (a *Adapter) Provider() contract.ProviderSlug        { return Slug }
+func (a *Adapter) Provider() contract.ProviderSlug        { return a.dialect.slug }
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
 
 // RealtimeSessionKinds implements provider.RealtimeAdapter: conversations only.
 func (a *Adapter) RealtimeSessionKinds() []contract.RealtimeSessionKind {
-	return providerconfig.RealtimeSessionKinds(Slug, providerconfig.ProtocolOpenAIRealtime)
+	return providerconfig.RealtimeSessionKinds(a.dialect.slug, a.dialect.protocol)
 }
 
 func (a *Adapter) refuseOpen(request provider.RealtimeOpenRequest) (*sessionConfig, error) {
-	if request.Route.Provider != Slug || request.Route.UpstreamModelID == "" {
-		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "authorizedRoutes", Detail: "an exact OpenAI Realtime deployment is required"}
+	d := a.dialect
+	if request.Route.Provider != d.slug || request.Route.UpstreamModelID == "" {
+		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "authorizedRoutes", Detail: "an exact " + d.name + " Realtime deployment is required"}
 	}
 	if !provider.OpensRealtime(a, request.Kind) {
 		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "kind",
-			Detail: fmt.Sprintf("the %s deployment holds %s sessions only; OpenAI's %s sessions are not served", Slug, contract.RealtimeConversation, request.Kind)}
+			Detail: fmt.Sprintf("the %s deployment holds %s sessions only; %s's %s sessions are not served", d.slug, contract.RealtimeConversation, d.name, request.Kind)}
 	}
-	return wireSession(request.Config)
+	return d.wireSession(request.Config)
 }
 
-// Open dials OpenAI, waits for the session it creates, configures it, and
-// returns it once OpenAI has confirmed the configuration. That is what "open"
+// Open dials the provider, waits for the session it creates, configures it,
+// and returns it once the provider has confirmed the configuration. That is what "open"
 // means for failover: a session that dialled but refused its configuration
 // never opened, and the credential rules read that refusal exactly as they
 // read a refused request.
@@ -107,7 +120,8 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 	if credentials == nil {
 		credentials = a.credentials
 	}
-	endpoint := providerconfig.OpenAIRealtimeSessionURL + "?model=" + url.QueryEscape(request.Route.UpstreamModelID)
+	d := a.dialect
+	endpoint := d.sessionURL + "?model=" + url.QueryEscape(request.Route.UpstreamModelID)
 	call := &provider.Call{RequestID: request.RequestID, Route: request.Route, Method: http.MethodGet, URL: endpoint}
 
 	conn, key, err := provider.WalkAttempts(ctx, credentials, call, func(ctx context.Context, key provider.Key) (*websocket.Conn, provider.CredentialedAttempt) {
@@ -115,7 +129,7 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 		if dialled == nil {
 			return nil, attempt
 		}
-		if failure := configure(ctx, dialled, update, key); failure != nil {
+		if failure := d.configure(ctx, dialled, update, key); failure != nil {
 			_ = dialled.CloseNow()
 			attempt.Failure = failure
 			var transport transportFailure
@@ -132,12 +146,18 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 	if err != nil {
 		return nil, opened, err
 	}
-	inputFormat := request.Config.InputAudioFormat
-	return newSession(conn, request, key, inputFormat), opened, nil
+	upstream := newSession(d, conn, request, key, request.Config.InputAudioFormat)
+	if d.tokenUsage {
+		return upstream, opened, nil
+	}
+	// A provider that bills by what Kaana can measure, not by the tokens it
+	// reports, is metered (meter.go).
+	upstream.meter = newMeter(request.Config)
+	return meteredSession{upstream}, opened, nil
 }
 
-// dial performs the WebSocket handshake with one credential. A handshake
-// OpenAI refused is classified from its status and body like any other
+// dial performs the WebSocket handshake with one credential. A handshake the
+// provider refused is classified from its status and body like any other
 // refusal; one that never got an answer is a transport failure.
 func (a *Adapter) dial(ctx context.Context, endpoint string, key provider.Key) (provider.CredentialedAttempt, *websocket.Conn) {
 	header := http.Header{}
@@ -152,52 +172,52 @@ func (a *Adapter) dial(ctx context.Context, endpoint string, key provider.Key) (
 				body, _ = io.ReadAll(io.LimitReader(response.Body, 64<<10))
 				_ = response.Body.Close()
 			}
-			return provider.CredentialedAttempt{Header: response.Header, Failure: classifyRefusal(response.StatusCode, response.Header, body, key)}, nil
+			return provider.CredentialedAttempt{Header: response.Header, Failure: a.dialect.classifyRefusal(response.StatusCode, response.Header, body, key)}, nil
 		}
-		return provider.CredentialedAttempt{Failure: transport(ctx, err), Transport: true}, nil
+		return provider.CredentialedAttempt{Failure: a.dialect.transport(ctx, err), Transport: true}, nil
 	}
 	conn.SetReadLimit(maxUpstreamEventBytes)
 	return provider.CredentialedAttempt{Header: response.Header}, conn
 }
 
-// transportFailure marks a configuration exchange that ended without OpenAI
-// answering it, which says nothing about the credential.
+// transportFailure marks a configuration exchange that ended without the
+// provider answering it, which says nothing about the credential.
 type transportFailure struct{ failure error }
 
 func (t transportFailure) Error() string { return t.failure.Error() }
 
 // configure waits for session.created, sends the configuration and waits for
-// OpenAI to confirm it. An error event in between is OpenAI's own answer about
-// this session on this credential.
-func configure(ctx context.Context, conn *websocket.Conn, update []byte, key provider.Key) error {
+// the provider to confirm it. An error event in between is the provider's own
+// answer about this session on this credential.
+func (d *dialect) configure(ctx context.Context, conn *websocket.Conn, update []byte, key provider.Key) error {
 	openContext, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
 	created := false
 	for {
 		kind, data, err := conn.Read(openContext)
 		if err != nil {
-			return transportFailure{transport(openContext, err)}
+			return transportFailure{d.transport(openContext, err)}
 		}
 		if kind != websocket.MessageText {
-			return transportFailure{invalidEvent()}
+			return transportFailure{d.invalidEvent()}
 		}
 		var event serverEvent
 		if json.Unmarshal(data, &event) != nil {
-			return transportFailure{invalidEvent()}
+			return transportFailure{d.invalidEvent()}
 		}
 		switch event.Type {
 		case "error":
 			if event.Error == nil {
-				return transportFailure{invalidEvent()}
+				return transportFailure{d.invalidEvent()}
 			}
-			return classifyEvent(*event.Error, key)
+			return d.classifyEvent(d, *event.Error, key)
 		case "session.created":
 			if created {
-				return transportFailure{invalidEvent()}
+				return transportFailure{d.invalidEvent()}
 			}
 			created = true
 			if err := conn.Write(openContext, websocket.MessageText, update); err != nil {
-				return transportFailure{transport(openContext, err)}
+				return transportFailure{d.transport(openContext, err)}
 			}
 		case "session.updated":
 			if created {
@@ -209,68 +229,93 @@ func configure(ctx context.Context, conn *websocket.Conn, update []byte, key pro
 	}
 }
 
-func invalidEvent() error {
+func (d *dialect) invalidEvent() error {
 	return provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
-		Detail: "OpenAI sent a Realtime event this adapter cannot read", Passthrough: &contract.ProviderErrorPassthrough{Provider: Slug}}
+		Detail: d.name + " sent a Realtime event this adapter cannot read", Passthrough: &contract.ProviderErrorPassthrough{Provider: d.slug}}
 }
 
-func transport(ctx context.Context, err error) error {
+func (d *dialect) transport(ctx context.Context, err error) error {
 	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
 		return context.Canceled
 	}
-	passthrough := &contract.ProviderErrorPassthrough{Provider: Slug}
+	passthrough := &contract.ProviderErrorPassthrough{Provider: d.slug}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
-		return provider.ErrUpstream{Code: contract.CodeProviderTimeout, Category: contract.UpstreamTimeout, Detail: "OpenAI's Realtime session did not answer in time", Passthrough: passthrough}
+		return provider.ErrUpstream{Code: contract.CodeProviderTimeout, Category: contract.UpstreamTimeout, Detail: d.name + "'s Realtime session did not answer in time", Passthrough: passthrough}
 	}
-	return provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamServerError, Detail: "the connection to OpenAI's Realtime API failed", Passthrough: passthrough}
+	return provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamServerError, Detail: "the connection to " + d.name + "'s Realtime API failed", Passthrough: passthrough}
 }
 
-// classifyRefusal reads a refused handshake by status and OpenAI's own error
-// type and code, never by message prose
+// classifyRefusal reads a refused handshake by status and the provider's own
+// error type and code, never by message prose
 // (https://developers.openai.com/api/docs/guides/error-codes). The message is
 // bounded, stripped of this key by exact match, and redacted.
-func classifyRefusal(status int, header http.Header, body []byte, key provider.Key) error {
-	var parsed struct {
-		Error wireError `json:"error"`
-	}
-	_ = json.Unmarshal(body, &parsed)
-	passthrough := passthroughFor(parsed.Error, key)
+//
+// xAI documents no status table for the WebSocket handshake. Probed on
+// 2026-09-30 without a credential it answered 401, and with an invalid one 400
+// `{"code":"Client specified an invalid argument","error":"Incorrect API key
+// provided..."}`: a gRPC status description, not a credential-specific code,
+// so that 400 is read as the invalid request it is labelled and the key is not
+// retired on prose (docs/realtime.md).
+func (d *dialect) classifyRefusal(status int, header http.Header, body []byte, key provider.Key) error {
+	reported := d.refusalBody(body)
+	passthrough := d.passthroughFor(reported, key)
 	passthrough.Status = &status
 	code := ""
-	if parsed.Error.Code != nil {
-		code = *parsed.Error.Code
+	if reported.Code != nil {
+		code = *reported.Code
 	}
 	failure := provider.ErrUpstream{Passthrough: passthrough}
 	switch {
 	case status == http.StatusPaymentRequired,
-		status == http.StatusTooManyRequests && quotaExhausted(parsed.Error.Type, code):
+		status == http.StatusTooManyRequests && quotaExhausted(reported.Type, code):
 		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
-		failure.Detail = "the platform's own OpenAI account cannot be billed for this session"
+		failure.Detail = "the platform's own " + d.name + " account cannot be billed for this session"
 	case status == http.StatusTooManyRequests:
 		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
-		failure.Detail = "OpenAI rate-limited this session"
+		failure.Detail = d.name + " rate-limited this session"
 		failure.RetryAfterMs = provider.RetryAfterMs(header)
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
 		failure.Code, failure.Category = contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication
-		failure.Detail = "OpenAI refused the platform's credential for this route"
+		failure.Detail = d.name + " refused the platform's credential for this route"
 	case status == http.StatusNotFound:
 		failure.Code, failure.Category = contract.CodeModelNotFound, contract.UpstreamInvalidReq
-		failure.Detail = "OpenAI does not serve the model this route names"
+		failure.Detail = d.name + " does not serve the model this route names"
 	case status == http.StatusRequestTimeout, status == http.StatusGatewayTimeout:
 		failure.Code, failure.Category = contract.CodeProviderTimeout, contract.UpstreamTimeout
-		failure.Detail = "OpenAI timed out"
+		failure.Detail = d.name + " timed out"
 	case status == http.StatusServiceUnavailable:
 		failure.Code, failure.Category = contract.CodeProviderOverloaded, contract.UpstreamOverloaded
-		failure.Detail = "OpenAI is overloaded"
+		failure.Detail = d.name + " is overloaded"
 		failure.RetryAfterMs = provider.RetryAfterMs(header)
 	case status >= 500:
 		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
-		failure.Detail = "OpenAI returned an internal error"
+		failure.Detail = d.name + " returned an internal error"
 	default:
 		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
-		failure.Detail = "OpenAI refused the Realtime session"
+		failure.Detail = d.name + " refused the Realtime session"
 	}
 	return provider.CustomerCredentialFailure(key, failure)
+}
+
+// openAIRefusalBody reads OpenAI's `{"error": {type, code, message}}`.
+func openAIRefusalBody(body []byte) wireError {
+	var parsed struct {
+		Error wireError `json:"error"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	return parsed.Error
+}
+
+// xAIRefusalBody reads the body xAI's handshake answered with when probed:
+// `{"code": "<status description>", "error": "<message>"}`, two strings. The
+// code is carried as the passthrough's code and classifies nothing.
+func xAIRefusalBody(body []byte) wireError {
+	var parsed struct {
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	return wireError{Type: parsed.Code, Message: parsed.Error}
 }
 
 // quotaExhausted recognises OpenAI's account-exhaustion vocabulary. The error
@@ -286,16 +331,16 @@ func quotaExhausted(kind, code string) bool {
 	return false
 }
 
-// classifyEvent reads an in-band error event by OpenAI's type and code. Most
-// are refusals of one client event ("Most errors are recoverable and the
+// classifyOpenAIEvent reads an in-band error event by OpenAI's type and code.
+// Most are refusals of one client event ("Most errors are recoverable and the
 // session will stay open"); the account and credential vocabulary is the same
 // one the HTTP API uses, and a server_error is OpenAI's own failure.
-func classifyEvent(value wireError, key provider.Key) error {
+func classifyOpenAIEvent(d *dialect, value wireError, key provider.Key) error {
 	code := ""
 	if value.Code != nil {
 		code = *value.Code
 	}
-	failure := provider.ErrUpstream{Passthrough: passthroughFor(value, key)}
+	failure := provider.ErrUpstream{Passthrough: d.passthroughFor(value, key)}
 	switch {
 	case quotaExhausted(value.Type, code):
 		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
@@ -319,8 +364,33 @@ func classifyEvent(value wireError, key provider.Key) error {
 	return provider.CustomerCredentialFailure(key, failure)
 }
 
-func passthroughFor(value wireError, key provider.Key) *contract.ProviderErrorPassthrough {
-	passthrough := &contract.ProviderErrorPassthrough{Provider: Slug}
+// classifyXAIEvent reads an in-band error event by xAI's documented types:
+// `invalid_request_error` and `invalid_event` refuse one client event and the
+// session stays open ("Most errors are recoverable"); `internal_error` is
+// xAI's own failure; `timeout` (inactivity) and `max_duration` (its 120-minute
+// session ceiling) end the session. xAI documents `code` as "same as type" and
+// then gives a code beside a type in its own example, so the type decides.
+func classifyXAIEvent(d *dialect, value wireError, key provider.Key) error {
+	failure := provider.ErrUpstream{Passthrough: d.passthroughFor(value, key)}
+	switch value.Type {
+	case "invalid_request_error", "invalid_event":
+		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
+		failure.Detail = "xAI refused a Realtime event"
+	case "internal_error":
+		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
+		failure.Detail = "xAI's Realtime session failed"
+	case "timeout", "max_duration":
+		failure.Code, failure.Category = contract.CodeProviderTimeout, contract.UpstreamTimeout
+		failure.Detail = "xAI ended the Realtime session at its own inactivity or duration limit"
+	default:
+		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamUnknown
+		failure.Detail = "xAI reported a Realtime error this adapter does not classify"
+	}
+	return provider.CustomerCredentialFailure(key, failure)
+}
+
+func (d *dialect) passthroughFor(value wireError, key provider.Key) *contract.ProviderErrorPassthrough {
+	passthrough := &contract.ProviderErrorPassthrough{Provider: d.slug}
 	if value.Type != "" {
 		kind := contract.SafeErrorText(provider.RedactSecret(value.Type, key.Secret()))
 		passthrough.Code = &kind
@@ -337,12 +407,12 @@ func passthroughFor(value wireError, key provider.Key) *contract.ProviderErrorPa
 func (a *Adapter) Health(_ context.Context) provider.Health {
 	now := time.Now()
 	pool := a.credentials.Projection(now)
-	health := provider.Health{Provider: Slug, CheckedAt: contract.NewTimestamp(now), Credentials: &pool, Status: provider.HealthDegraded,
+	health := provider.Health{Provider: a.dialect.slug, CheckedAt: contract.NewTimestamp(now), Credentials: &pool, Status: provider.HealthDegraded,
 		Detail: "credential configured; realtime entitlement requires a signed canary session"}
 	if !a.credentials.Configured() {
-		health.Status, health.Detail = provider.HealthUnconfigured, "no OpenAI Realtime credential configured"
+		health.Status, health.Detail = provider.HealthUnconfigured, "no "+a.dialect.name+" Realtime credential configured"
 	} else if pool.Usable == 0 {
-		health.Status, health.Detail = provider.HealthUnavailable, "no usable OpenAI Realtime credential"
+		health.Status, health.Detail = provider.HealthUnavailable, "no usable "+a.dialect.name+" Realtime credential"
 	}
 	return health
 }

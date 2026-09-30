@@ -838,6 +838,12 @@ func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]p
 				return nil, err
 			}
 			adapters = append(adapters, adapter)
+		case providerconfig.ProtocolXAIRealtime:
+			adapter, err := openairealtime.NewXAI(openairealtime.Config{HTTPClient: client, Declarations: config.Declarations, Keys: config.Keys})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolDeepgramVoice:
 			adapter, err := deepgram.New(deepgram.Config{HTTPClient: client, BaseURL: config.BaseURL, Declarations: config.Declarations, Keys: config.Keys})
 			if err != nil {
@@ -979,6 +985,10 @@ func validateProvider(config *providerConfig, source string) error {
 		if config.Slug != openairealtime.Slug {
 			return fmt.Errorf("%s: OpenAI Realtime protocol requires the %s slug", source, openairealtime.Slug)
 		}
+	case providerconfig.ProtocolXAIRealtime:
+		if config.Slug != openairealtime.XAISlug {
+			return fmt.Errorf("%s: xAI Realtime protocol requires the %s slug", source, openairealtime.XAISlug)
+		}
 	case providerconfig.ProtocolOpenAICompatible:
 	case providerconfig.ProtocolAnthropicMessages:
 		if config.Slug != anthropic.Slug {
@@ -991,7 +1001,7 @@ func validateProvider(config *providerConfig, source string) error {
 	case "":
 		return fmt.Errorf("%s: provider %q declares no protocol and this build has no default for that slug", source, config.Slug)
 	default:
-		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s, %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice, providerconfig.ProtocolOpenAIAudio, providerconfig.ProtocolOpenAIRealtime)
+		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s, %s, %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice, providerconfig.ProtocolOpenAIAudio, providerconfig.ProtocolOpenAIRealtime, providerconfig.ProtocolXAIRealtime)
 	}
 
 	if config.BaseURL == "" {

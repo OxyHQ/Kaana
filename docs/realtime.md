@@ -13,7 +13,8 @@ Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 | Routing a session open, settling it | `kaana.Executor.OpenSession`, `SettleSession` |
 | The provider-side session interface | `provider.RealtimeAdapter`, `provider.RealtimeUpstream` |
 | OpenAI Realtime (GA) | `internal/provider/openairealtime`, slug `openai-realtime` |
-| The real-wire fake OpenAI upstream | `internal/provider/openairealtime/openairealtimetest` |
+| xAI Voice Agent (the same adapter, xAI's dialect) | `internal/provider/openairealtime` (`dialect.go`, `meter.go`), slug `xai-realtime` |
+| The real-wire fake upstreams | `internal/provider/openairealtime/openairealtimetest` (`New`, `NewXAI`) |
 
 ## The wire between the edge and Kaana
 
@@ -184,7 +185,9 @@ session that measured nothing and ended normally settles as cancelled.
 1. the fatal error, if the session ends on one;
 2. `session.closed` with the reason, the deployment (absent when nothing
    opened) and the session's units: the sum of every unit the provider
-   reported, each unit once;
+   reported, each unit once — or, for a provider billed by what Kaana
+   measures (`provider.RealtimeMeter`, xAI), that measurement, read once here
+   and labelled `oxy_measured` on `session.closed` and the report;
 3. the provider session is closed;
 4. `SettleSession` builds the usage report and prices and records the operator
    cost: one `provider_cost_events` row per attempt — each failed open with its
@@ -371,7 +374,142 @@ No live OpenAI call has been made from this repository. The fake speaks the
 wire as the reference documents it; every "UNVERIFIED" below is a place where
 the documentation does not say and the fake therefore cannot know.
 
+## xAI Voice Agent: `xai-realtime`
+
+xAI's Voice Agent (speech-to-speech) API is served by the same adapter in
+xAI's dialect (`internal/provider/openairealtime/dialect.go`), under its own
+slug for the reason `openai-realtime` is one: `xai` is already the
+OpenAI-compatible request adapter, and a slug resolves to exactly one adapter.
+xAI documents the API as OpenAI-Realtime-compatible and lists the differences;
+the handshake, the configure-then-confirm open, the command and event
+vocabulary, the item model, tool-call accumulation and audio framing are the
+shared code, and every documented difference is a dialect field.
+
+| | |
+|---|---|
+| Protocol | `xai_realtime` (only under the `xai-realtime` slug) |
+| Configured root | `https://api.x.ai/v1`, locked; the publisher reads the account's `GET /v1/models` there |
+| Session endpoint | `wss://api.x.ai/v1/realtime?model=<signed upstream id>`, fixed in `providerconfig` |
+| Authentication | `Authorization: Bearer <key>` on the handshake |
+| Session kinds | `conversation` only (xAI documents no other) |
+| Model | `grok-voice-think-fast-2.0`, the pinned flagship; `grok-voice-latest` is xAI's alias for it and is not attributed |
+| Turn detection | `none` (push-to-talk) only — see "Metering" |
+| Session limit | xAI's own: 120 minutes, 10 concurrent sessions per team at tier 0 |
+
+### What differs from OpenAI's dialect
+
+| | OpenAI GA | xAI |
+|---|---|---|
+| `session.type` | `"realtime"` | absent from xAI's schema; not sent |
+| Voice | `audio.output.voice` | `session.voice` |
+| Turn detection | `audio.input.turn_detection`; none is `null` | `session.turn_detection`; none is `{"type": null}` |
+| `server_vad` / `semantic_vad` | served | refused (below) / xAI has none |
+| Output modalities | `session.output_modalities`, one per response | no session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one), and `["text","audio"]` together is accepted |
+| `tool_choice`, `max_output_tokens`, `temperature` | the first two served | none documented: refused naming the field |
+| Function tools | flat `{type, name, description, parameters}` | the guide's examples are flat; the machine-readable schema nests under `function` (UNVERIFIED which xAI enforces; flat is sent) |
+| Assistant content parts | `output_text` / `output_audio` | `text` / `audio` (read back as the contract's output parts for the assistant, input parts otherwise) |
+| Event aliases | — | `response.text.delta` = `response.output_text.delta` ("Functionally identical... handle both"); `response.audio.delta` = `response.output_audio.delta` |
+| `conversation.item.done` | sent | not emitted by xAI; the contract event simply does not occur |
+| In-band errors | OpenAI's type/code vocabulary | `invalid_request_error` / `invalid_event` refuse one event (session continues); `internal_error` is xAI's failure; `timeout` / `max_duration` end the session (`provider_timeout`) |
+| Handshake refusal body | `{"error": {type, code, message}}` | `{"code": "<status text>", "error": "<message>"}` (probed, see below) |
+| Usage | `response.done.usage` tokens, billed | tokens reported but NOT billed: never settled; the session is metered instead |
+
+Input transcription (`grok-transcribe`) is refused for the reason OpenAI's is,
+and because xAI does not document what enabling it costs. xAI's extensions
+(server-side `web_search`/`x_search`/`file_search`/`mcp` tools, `force_message`,
+resumption, `replace`, binary transport, `idle_timeout_ms`,
+`reasoning.effort`) have no contract field and are never sent; `reasoning.effort`
+therefore stays at xAI's default (`high`).
+
+### Metering: what xAI bills, in contract units
+
+xAI's pricing (https://docs.x.ai/developers/models/speech-to-speech,
+https://docs.x.ai/developers/pricing, read 2026-09-30):
+
+> Audio $0.08 / minute or $4.80 / hour
+> Text Input $0.004 per conversation.item.create event
+> Sessions using the default `server_vad` turn detection are billed for session
+> duration. Push-to-talk sessions are billed only for audio sent and received.
+> Every `conversation.item.create` event you send from the client is billed at
+> $0.004, with two exceptions: `function_call_output` items (server-requested
+> tool results) are not billed. Items whose content is `input_audio` or `audio`
+> are billed by the audio meter instead.
+> `response.create` is not billed as a text input.
+
+`response.done.usage` carries only `input_tokens`/`output_tokens`/`total_tokens`,
+which xAI does not bill for voice, and no duration. So the adapter meters the
+session itself (`meter.go`, `provider.RealtimeMeter`):
+
+| xAI charge | Contract unit | Measured as |
+|---|---|---|
+| audio sent | `audio_input_milliseconds` | decoded bytes of every `input_audio_buffer.append` and `input_audio` item part Kaana wrote upstream, at the input format's rate (PCM16 24 kHz = 48 bytes/ms, G.711 = 8 bytes/ms) |
+| audio received | `audio_output_milliseconds` | decoded bytes of every output audio delta xAI sent, at the output format's rate, whether or not the customer received it |
+| text input event | `requests` | each written `conversation.item.create` that is not a `function_call_output` and carries no audio |
+
+Milliseconds are rounded up once over the session total. The units are read
+once when the session settles, added to its totals and labelled `oxy_measured`
+on `session.closed`, the usage report and the operator record;
+`response.done` carries no units for xAI. An item carrying both text and audio
+is refused (`item.content`): xAI does not say which meter bills it. A command
+that is refused or never written is not measured.
+
+**`server_vad` is refused, and the contract addition it needs.** A `server_vad`
+session is billed for its whole duration — wall clock, not audio — and no
+contract unit carries a session's duration: `audio_input_milliseconds` is
+audio the client sent, which under VAD is not what xAI bills, and reporting the
+session clock under it would misdescribe the charge (and invite pricing the
+same audio twice if a provider ever reported both). Serving it faithfully needs
+a new usage unit in `@oxy.so/contracts`, e.g. `session_milliseconds`
+("wall-clock milliseconds a realtime session was open upstream, for providers
+that bill a session's duration"), measured by Kaana from the accepted handshake
+to the upstream close. Until then `turnDetection` must be `none`, at open and in
+`session.update` (`config.turnDetection`, refused before anything is dialled or
+written).
+
+A rate card prices the three units per deployment in 10⁻¹² USD
+(`providercost.Scale`): `audio_input_milliseconds` and
+`audio_output_milliseconds` at `1333333` each ($0.08 / 60 000 ms, truncated —
+$0.07999998/min), `requests` at `4000000000` ($0.004).
+
+### Errors and credentials
+
+Handshake refusals are classified by status as for OpenAI. xAI documents no
+handshake status table; probed on 2026-09-30, no credential answered `401`
+and an invalid one `400 {"code":"Client specified an invalid argument","error":"Incorrect API key provided..."}`.
+That 400 labels itself an invalid argument and names no credential-specific
+code, so it is `invalid_request` and the key is NOT retired on the strength of
+its prose; a revoked key that xAI answers this way stays in its pool until a
+`401`/`403` or an operator retires it (UNVERIFIED which status a revoked, as
+opposed to malformed, key receives). xAI documents no insufficient-credit code
+for the handshake; a `402` is read as the platform account refusing to be
+billed, as everywhere.
+
+### Sources
+
+- https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech (guide, "OpenAI Realtime API Compatibility")
+- https://docs.x.ai/developers/rest-api-reference/inference/voice (client and server events)
+- https://docs.x.ai/voice-realtime.ws.json (machine-readable schema)
+- https://docs.x.ai/developers/models/speech-to-speech (pricing, limits)
+- https://docs.x.ai/developers/pricing , https://docs.x.ai/developers/rate-limits
+- https://x.ai/news/grok-voice-think-fast-2 ($0.08/min for 2.0; the December 2025 launch post's $0.05/min is the retired 1.0 price)
+
+No keyed xAI session has been opened from this repository. UNVERIFIED, for the
+first signed canary: that `turn_detection: {"type": null}` (not `null`) is
+accepted and yields push-to-talk billing; the function-tool shape xAI
+enforces; whether `event_id` is echoed on `error.event_id` (the schema has the
+field; client events document no `event_id`); whether `usage` is always on
+`response.done`; the relative order of `session.created` and
+`conversation.created` (the open waits for `session.created` either way);
+whether `GET /v1/models` lists `grok-voice-think-fast-2.0` for the account (if
+it does not, the publisher publishes no xAI voice deployment and says so).
+
 ## Publishing
+
+`configs/model-attribution.json` attributes `grok-voice-think-fast-2.0` to
+`xai-realtime` only (`TestXAIVoiceIsAttributedOnlyToTheRealtimeAdapter`). xAI's
+ids are classified by `providerconfig.ClassifyModel`: `grok-voice*` is a
+conversation session, published only under a slug whose adapter opens one, so
+it is dropped under `xai` and a text model is dropped under `xai-realtime`.
 
 `configs/model-attribution.json` attributes `gpt-realtime-2.1`,
 `gpt-realtime-2.1-mini` and `gpt-realtime-2` to `openai-realtime` only. Each
@@ -415,6 +553,34 @@ pins the set and proves each row publishable there and nowhere else.
 - Logs carry ids, the route, the reason, units and cost — never a command, a
   transcript, an instruction or audio (`TestASessionOpensStreamsAndSettlesExactlyOnce`
   asserts it).
+
+### Operating `xai-realtime`
+
+- Serve it: add `xai-realtime` to the serving task's `KAANA_PROVIDERS` (with
+  `xai`, which stays the request adapter). Protocol and root are locked; a
+  `_BASE_URL` other than `https://api.x.ai/v1`, or `xai_realtime` under another
+  slug, is refused at startup.
+- Its key: a key row belongs to exactly one slug — a binding's foreign key is
+  `(provider_slug, key_id)` (migration 0013) — so the `xai` row cannot be bound
+  to an `xai-realtime` deployment. Import an xAI API key under the new slug
+  from stdin: `kaana-credentials put --provider xai-realtime --key-id <new uuid>
+  --position 1 --class paid < secret` (or `kaana-platform-credential-import`).
+  It may be the same secret as the `xai` row (same team, same credit) or,
+  preferably, a second key on the same xAI team so either can be revoked alone;
+  the two pools retire independently either way. With exactly one key the
+  provider default serves every `xai-realtime` deployment; bind explicitly with
+  `kaana-credentials bind-deployment --provider xai-realtime` once there are two.
+- Publish it: add `xai-realtime` to the publisher's `KAANA_DISCOVERY_PROVIDERS`
+  with `KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID`. The deploy workflow
+  replaces the publisher's discovery key ids from the reviewed five-id map in
+  `.github/credential-admin-operations.json`, so that map and the workflow's
+  exact-key-set check must gain `xai-realtime` in the same change.
+- Price it: a rate card for each published `xai-realtime` deployment with
+  `audio_input_milliseconds`, `audio_output_milliseconds` and `requests`
+  (above); without one every session's operator cost is unknown.
+- Oxy must sign `turnDetection: none` for xAI routes; a `server_vad` session is
+  refused before anything is dialled. Health stays `degraded` until a signed
+  canary session has been validated.
 
 ## Findings, refusals and what is not verified
 
@@ -479,3 +645,13 @@ pins the set and proves each row publishable there and nowhere else.
 - **No command, instruction, transcript or audio enters a log line**, and the
   adapter's own key is redacted by exact match before any upstream text leaves
   it.
+- **A session settles what its provider BILLS.** Units a provider reports but
+  does not bill (xAI's voice tokens) are never settled; a provider billed by
+  what Kaana can measure is metered through `provider.RealtimeMeter` and
+  reported `oxy_measured`; a charge no contract unit expresses (xAI's
+  `server_vad` session duration) is refused, never approximated under another
+  unit.
+- **A provider speaking the OpenAI Realtime shape is a dialect of
+  `internal/provider/openairealtime`, not a copy**: its differences are
+  `dialect` fields, each from the provider's documentation, and it gets its own
+  slug, origin and fake (`openairealtimetest.NewXAI`).

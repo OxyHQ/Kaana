@@ -108,6 +108,9 @@ type harness struct {
 }
 
 type options struct {
+	// xai serves the deployments from xAI's Voice Agent adapter instead of
+	// OpenAI's, on its own fake.
+	xai          bool
 	resumeWindow time.Duration
 	replayEvents int
 	pingInterval time.Duration
@@ -115,7 +118,14 @@ type options struct {
 
 func newHarness(t *testing.T, opts options) *harness {
 	t.Helper()
-	upstream := fake.New(t)
+	upstream, slug, upstreamModel := fake.New(t), contract.ProviderSlug("openai-realtime"), "gpt-realtime-2.1"
+	build, keys := openairealtime.New, []string{fake.Key, fake.SecondKey}
+	rates := `{"unit":"input_tokens","amountPerUnit":4000000},{"unit":"cached_input_tokens","amountPerUnit":400000},{"unit":"audio_input_tokens","amountPerUnit":32000000},{"unit":"cached_audio_input_tokens","amountPerUnit":400000},{"unit":"output_tokens","amountPerUnit":24000000},{"unit":"audio_output_tokens","amountPerUnit":64000000}`
+	if opts.xai {
+		upstream, slug, upstreamModel = fake.NewXAI(t), openairealtime.XAISlug, "grok-voice-think-fast-2.0"
+		build, keys = openairealtime.NewXAI, []string{fake.XAIKey, fake.XAISecondKey}
+		rates = `{"unit":"audio_input_milliseconds","amountPerUnit":2},{"unit":"audio_output_milliseconds","amountPerUnit":3},{"unit":"requests","amountPerUnit":5}`
+	}
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +137,8 @@ func newHarness(t *testing.T, opts options) *harness {
 	}
 
 	deployments := []map[string]any{
-		{"deploymentId": primary, "provider": "openai-realtime", "modelReference": modelReference, "upstreamModelId": "gpt-realtime-2.1", "current": true},
-		{"deploymentId": secondary, "provider": "openai-realtime", "modelReference": modelReference, "upstreamModelId": "gpt-realtime-2.1", "current": true},
+		{"deploymentId": primary, "provider": slug, "modelReference": modelReference, "upstreamModelId": upstreamModel, "current": true},
+		{"deploymentId": secondary, "provider": slug, "modelReference": modelReference, "upstreamModelId": upstreamModel, "current": true},
 		{"deploymentId": textRoute, "provider": "openai", "modelReference": modelReference, "upstreamModelId": "gpt-realtime-2.1", "current": true},
 	}
 	document, _ := json.Marshal(map[string]any{"snapshotId": "snap_realtime", "issuedAt": contract.NewTimestamp(time.Now()), "deployments": deployments})
@@ -143,8 +153,8 @@ func newHarness(t *testing.T, opts options) *harness {
 		t.Fatal(err)
 	}
 
-	adapter, err := openairealtime.New(openairealtime.Config{
-		Declarations: []provider.KeyDeclaration{{KeyID: "key_a", Secret: fake.Key}, {KeyID: "key_b", Secret: fake.SecondKey}},
+	adapter, err := build(openairealtime.Config{
+		Declarations: []provider.KeyDeclaration{{KeyID: "key_a", Secret: keys[0]}, {KeyID: "key_b", Secret: keys[1]}},
 		HTTPClient:   upstream.Client(),
 	})
 	if err != nil {
@@ -159,13 +169,13 @@ func newHarness(t *testing.T, opts options) *harness {
 		t.Fatal(err)
 	}
 	if err := registry.ReplaceGeneration([]provider.CredentialBinding{
-		{DeploymentID: primary, Provider: "openai-realtime", KeyID: "key_a"},
-		{DeploymentID: secondary, Provider: "openai-realtime", KeyID: "key_b"},
+		{DeploymentID: primary, Provider: slug, KeyID: "key_a"},
+		{DeploymentID: secondary, Provider: slug, KeyID: "key_b"},
 	}, adapter, textAdapter{pool: textPool}); err != nil {
 		t.Fatal(err)
 	}
 	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_realtime_v1","source":"operator","sourceVersion":"test","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
-		{"deploymentId":"dep_realtime_a","currency":"USD","rates":[{"unit":"input_tokens","amountPerUnit":4000000},{"unit":"cached_input_tokens","amountPerUnit":400000},{"unit":"audio_input_tokens","amountPerUnit":32000000},{"unit":"cached_audio_input_tokens","amountPerUnit":400000},{"unit":"output_tokens","amountPerUnit":24000000},{"unit":"audio_output_tokens","amountPerUnit":64000000}]}]}`))
+		{"deploymentId":"dep_realtime_a","currency":"USD","rates":[` + rates + `]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

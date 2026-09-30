@@ -478,9 +478,20 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 		s.emit(ctx, &contract.RealtimeErrorEvent{Fatal: true, Error: *failure}, commandID)
 	}
 	closedAt := s.manager.now()
-	units := s.totals()
-	closed := &contract.RealtimeSessionClosedEvent{Reason: reason, Units: units, UsageSource: contract.UsageProviderReported, ClosedAt: contract.NewTimestamp(closedAt)}
 	opened := s.opening != nil && s.opening.Opened()
+	source := contract.UsageProviderReported
+	if opened {
+		if meter, metered := s.opening.Upstream.(provider.RealtimeMeter); metered {
+			// A provider billed by what Kaana measured: its measurement is
+			// read once, here, and is the session's usage.
+			for _, quantity := range meter.Measured() {
+				s.units[quantity.Unit] += quantity.Quantity
+			}
+			source = contract.UsageOxyMeasured
+		}
+	}
+	units := s.totals()
+	closed := &contract.RealtimeSessionClosedEvent{Reason: reason, Units: units, UsageSource: source, ClosedAt: contract.NewTimestamp(closedAt)}
 	if opened {
 		deploymentID := s.opening.Route.DeploymentID
 		closed.DeploymentID = &deploymentID
@@ -492,7 +503,7 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 		_ = s.opening.Upstream.Close()
 	}
 
-	end := kaana.SessionEnd{ClosedAt: closedAt, Units: units, FirstOutputAt: s.firstOutputAt,
+	end := kaana.SessionEnd{ClosedAt: closedAt, Units: units, UsageSource: source, FirstOutputAt: s.firstOutputAt,
 		Outcome: providercost.AttemptSucceeded, ReportOutcome: reportOutcome(reason, len(units) > 0, opened)}
 	switch {
 	case reason == contract.RealtimeUpstreamError:

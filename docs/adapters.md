@@ -77,6 +77,15 @@ while requiring the non-secret base URL at runtime. Both slugs run the complete
 synthetic conformance suite; provider enablement still requires a scrubbed real
 wire capture, and catalogue support remains a separate gate.
 
+**Spoken output.** On a deployment that answers aloud — today only OpenRouter's
+`openai/gpt-audio` and `openai/gpt-audio-mini` rows
+(`providerconfig.SpeaksAloud`) — a request carrying `audioOutput` is translated
+and read by `internal/provider/spokenchat`, the Chat Completions spoken wire the
+`openai-audio` adapter shares, with OpenRouter's policy object on the body and
+the upstream always streamed. The adapter declares this per deployment
+(`provider.ChatOutputDeclarer`) and the executor refuses a spoken request to any
+other deployment before `Translate` (docs/openai-audio.md).
+
 **Protocol invariants.** The raw upstream stream never crosses Kaana's boundary:
 the adapter normalizes events and usage, propagates cancellation and classifies
 provider failures. Streamed requests ask for `stream_options.include_usage`,
@@ -201,11 +210,13 @@ interface, `provider.RealtimeAdapter` (`Open` a session on the exact credential
 view; `Send` a command at most once; `Next` a normalized event with the units
 it reported; `Close`), and never by a branch in a request adapter. A slug is
 exactly one of the two: the registry refuses a type that is both, one that is
-neither, and a session adapter that declares no session kind. The one
-implementation today is `openai-realtime`. Opening walks the key through
-`provider.WalkAttempts`, the same verdicts, retirement and attempt evidence as
-`provider.Walk`. `realtime.md` has the whole design, the OpenAI mapping and the
-edge wire.
+neither, and a session adapter that declares no session kind. There is one
+implementation in two dialects: `openai-realtime` (OpenAI's Realtime API) and
+`xai-realtime` (xAI's Voice Agent API, which xAI documents as
+OpenAI-Realtime-compatible), each under its own slug and origin with its own
+fake. Opening walks the key through `provider.WalkAttempts`, the same
+verdicts, retirement and attempt evidence as `provider.Walk`. `realtime.md` has
+the whole design, both mappings and the edge wire.
 
 ## The conformance harness
 

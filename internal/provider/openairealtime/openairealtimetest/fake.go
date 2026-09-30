@@ -1,11 +1,13 @@
-// Package openairealtimetest is a fake OpenAI Realtime upstream speaking the
-// real GA wire over a real WebSocket, for the adapter's tests and for the
-// session engine's endpoint tests. It is the one fake for this provider.
-//
-// Every event it sends is spelled as OpenAI's GA reference spells it
-// (https://developers.openai.com/api/reference/resources/realtime/server-events);
-// every client event it receives is recorded, so a test can assert what
-// reached the provider and, as importantly, what never did.
+// Package openairealtimetest is a fake OpenAI-Realtime-shaped upstream over a
+// real WebSocket, for the adapter's tests and for the session engine's
+// endpoint tests. New is OpenAI's GA Realtime API; NewXAI is xAI's Voice Agent
+// API at its own origin, with its own credentials. The handshake and the
+// configure-then-confirm open are the two providers' shared wire; everything a
+// test Script sends is spelled as that provider's reference spells it
+// (https://developers.openai.com/api/reference/resources/realtime/server-events,
+// https://docs.x.ai/voice-realtime.ws.json). Every client event the fake
+// receives is recorded, so a test can assert what reached the provider and, as
+// importantly, what never did.
 package openairealtimetest
 
 import (
@@ -27,6 +29,9 @@ import (
 const (
 	Key       = "sk-openai-realtime-synthetic-credential-not-valid"
 	SecondKey = "sk-openai-realtime-second-synthetic-credential-not-valid"
+	// XAIKey and XAISecondKey are what NewXAI accepts.
+	XAIKey       = "xai-realtime-synthetic-credential-not-valid"
+	XAISecondKey = "xai-realtime-second-synthetic-credential-not-valid"
 )
 
 // Event is one JSON event as it crossed the wire.
@@ -43,6 +48,9 @@ func (e Event) Type() string {
 type Upstream struct {
 	t      testing.TB
 	server *httptest.Server
+	// host and keys are the provider's origin and the credentials it accepts.
+	host string
+	keys []string
 
 	// Refuse, when set, may answer the handshake itself: it writes a status
 	// and an OpenAI error body and returns true, and the upgrade never
@@ -62,22 +70,32 @@ type Upstream struct {
 }
 
 // New starts the fake. The caller sets its hooks before the first dial.
-func New(t testing.TB) *Upstream {
+func New(t testing.TB) *Upstream { return start(t, "api.openai.com", Key, SecondKey) }
+
+// NewXAI starts a fake xAI Voice Agent upstream (wss://api.x.ai/v1/realtime).
+func NewXAI(t testing.TB) *Upstream { return start(t, "api.x.ai", XAIKey, XAISecondKey) }
+
+func start(t testing.TB, host string, keys ...string) *Upstream {
 	t.Helper()
-	upstream := &Upstream{t: t, closed: make(chan struct{}, 16)}
+	upstream := &Upstream{t: t, host: host, keys: keys, closed: make(chan struct{}, 16)}
 	upstream.server = httptest.NewServer(http.HandlerFunc(upstream.serve))
 	t.Cleanup(upstream.server.Close)
 	return upstream
 }
 
 // Client points the adapter's real HTTP client at the fake while asserting the
-// handshake left for OpenAI's own WebSocket endpoint with the synthetic key.
+// handshake left for the provider's own WebSocket endpoint with a synthetic
+// key.
 func (u *Upstream) Client() *http.Client {
 	return &http.Client{Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Scheme != "https" || r.URL.Host != "api.openai.com" || r.URL.Path != "/v1/realtime" {
-			u.t.Errorf("the handshake left for %s, not OpenAI's Realtime endpoint", r.URL.Redacted())
+		if r.URL.Scheme != "https" || r.URL.Host != u.host || r.URL.Path != "/v1/realtime" {
+			u.t.Errorf("the handshake left for %s, not %s's Realtime endpoint", r.URL.Redacted(), u.host)
 		}
-		if authorization := r.Header.Get("Authorization"); authorization != "Bearer "+Key && authorization != "Bearer "+SecondKey {
+		authorized := false
+		for _, key := range u.keys {
+			authorized = authorized || r.Header.Get("Authorization") == "Bearer "+key
+		}
+		if !authorized {
 			u.t.Error("the handshake did not carry a platform credential as a bearer token")
 		}
 		if r.Header.Get("OpenAI-Beta") != "" {

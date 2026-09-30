@@ -174,6 +174,22 @@ func TestOpenAIAudioIsDiscoveredWithItsOwnProtocol(t *testing.T) {
 	}
 }
 
+// TestXAIRealtimeIsDiscoveredWithItsOwnProtocol: the voice slug lists xAI's
+// account models over HTTPS and carries its protocol, so the snapshot builder
+// attaches only session models to it.
+func TestXAIRealtimeIsDiscoveredWithItsOwnProtocol(t *testing.T) {
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":           "xai,xai-realtime",
+		"KAANA_DISCOVERY_PROVIDERS": "xai,xai-realtime",
+	}))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	if providers[1].Slug != "xai-realtime" || providers[1].Protocol != "xai_realtime" || providers[1].Discovery != "openai_models" || providers[1].BaseURL != "https://api.x.ai/v1" {
+		t.Fatalf("xAI realtime provider = %+v", providers[1])
+	}
+}
+
 // TestAnUnknownSlugNeedsAnAddress: a build that guessed an address would be
 // asking somebody nobody chose.
 func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {

@@ -8,14 +8,11 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
-// OpenAI's GA Realtime wire, as far as this adapter speaks it. Reviewed against
-// https://developers.openai.com/api/reference/resources/realtime/client-events
-// and .../server-events on 2026-09-30. Field names are OpenAI's; nothing here
-// is a contract shape.
-
-// maxOpenAIOutputTokens is the ceiling OpenAI's GA session and response schemas
-// document for max_output_tokens (an integer 1..4096, or "inf").
-const maxOpenAIOutputTokens = 4096
+// OpenAI's GA Realtime wire, as far as this adapter speaks it, and xAI's
+// Voice Agent dialect of it (dialect.go). Reviewed against
+// https://developers.openai.com/api/reference/resources/realtime/client-events,
+// .../server-events and https://docs.x.ai/voice-realtime.ws.json on
+// 2026-09-30. Field names are the providers'; nothing here is a contract shape.
 
 type audioFormat struct {
 	Type string `json:"type"`
@@ -47,9 +44,11 @@ type functionTool struct {
 }
 
 type sessionConfig struct {
-	Type             string          `json:"type"`
+	Type             string          `json:"type,omitempty"`
 	OutputModalities []string        `json:"output_modalities,omitempty"`
 	Instructions     *string         `json:"instructions,omitempty"`
+	Voice            *string         `json:"voice,omitempty"`
+	TurnDetection    json.RawMessage `json:"turn_detection,omitempty"`
 	Audio            *audioConfig    `json:"audio,omitempty"`
 	Tools            []functionTool  `json:"tools,omitempty"`
 	ToolChoice       json.RawMessage `json:"tool_choice,omitempty"`
@@ -77,6 +76,7 @@ type item struct {
 type responseParameters struct {
 	Instructions     *string         `json:"instructions,omitempty"`
 	OutputModalities []string        `json:"output_modalities,omitempty"`
+	Modalities       []string        `json:"modalities,omitempty"`
 	MaxOutputTokens  *int            `json:"max_output_tokens,omitempty"`
 	ToolChoice       json.RawMessage `json:"tool_choice,omitempty"`
 }
@@ -155,7 +155,7 @@ type serverEvent struct {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Contract -> OpenAI                                                        */
+/*  Contract -> provider                                                      */
 /* -------------------------------------------------------------------------- */
 
 func refused(param, detail string) error {
@@ -176,10 +176,13 @@ func wireFormat(format contract.RealtimeAudioFormat) (*audioFormat, error) {
 	return nil, fmt.Errorf("openairealtime: %q is not an audio format", format)
 }
 
-func wireTurnDetection(detection contract.RealtimeTurnDetection) (json.RawMessage, error) {
+func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (json.RawMessage, error) {
+	if reason, refusedHere := d.refusedTurnDetection[detection.Type]; refusedHere {
+		return nil, refused("config.turnDetection", reason)
+	}
 	switch detection.Type {
 	case contract.TurnDetectionNone:
-		return json.RawMessage("null"), nil
+		return d.turnDetectionNone, nil
 	case contract.TurnDetectionServerVAD:
 		return json.Marshal(struct {
 			Type              string   `json:"type"`
@@ -197,43 +200,55 @@ func wireTurnDetection(detection contract.RealtimeTurnDetection) (json.RawMessag
 			InterruptResponse bool   `json:"interrupt_response"`
 		}{"semantic_vad", string(*detection.Eagerness), *detection.CreateResponse, *detection.InterruptResponse})
 	}
-	return nil, refused("config.turnDetection", "the turn detection is not one OpenAI's Realtime API names")
+	return nil, refused("config.turnDetection", "the turn detection is not one "+d.name+"'s Realtime API names")
 }
 
 // wireModalities maps the contract's output modalities. OpenAI's GA schema
 // takes exactly one: ["audio"] (speech with its transcript) or ["text"]. The
 // contract's ["text","audio"] asks for written output AND speech, which OpenAI
-// cannot produce in one response, so it is refused rather than narrowed.
-func wireModalities(param string, modalities []contract.RealtimeOutputModality) ([]string, error) {
+// cannot produce in one response, so it is refused rather than narrowed. xAI's
+// response.create takes any of `text` and `audio`.
+func (d *dialect) wireModalities(param string, modalities []contract.RealtimeOutputModality) ([]string, error) {
 	if modalities == nil {
 		return nil, nil
 	}
-	if len(modalities) != 1 {
-		return nil, refused(param, "OpenAI's Realtime API produces either text or audio in one response, never both")
+	if d.oneModality && len(modalities) != 1 {
+		return nil, refused(param, d.name+"'s Realtime API produces either text or audio in one response, never both")
 	}
-	return []string{string(modalities[0])}, nil
+	wire := make([]string, 0, len(modalities))
+	for _, modality := range modalities {
+		wire = append(wire, string(modality))
+	}
+	return wire, nil
 }
 
-func wireTools(tools []contract.ToolDefinition) ([]functionTool, error) {
+// wireTools maps function tools to the flat shape both providers' guides use
+// ({type, name, description, parameters}). xAI's machine-readable schema nests
+// the definition under `function`, but every example in its guide is flat,
+// like OpenAI's; docs/realtime.md records the discrepancy.
+func (d *dialect) wireTools(tools []contract.ToolDefinition) ([]functionTool, error) {
 	if tools == nil {
 		return nil, nil
 	}
 	wire := make([]functionTool, 0, len(tools))
 	for index, tool := range tools {
 		if tool.Type != "function" {
-			return nil, refused(fmt.Sprintf("config.tools[%d].type", index), "OpenAI's Realtime API takes function tools only")
+			return nil, refused(fmt.Sprintf("config.tools[%d].type", index), "only function tools are served on "+d.name+"'s Realtime API")
 		}
 		if tool.Strict != nil {
-			return nil, refused(fmt.Sprintf("config.tools[%d].strict", index), "OpenAI's Realtime function tool has no strict mode")
+			return nil, refused(fmt.Sprintf("config.tools[%d].strict", index), d.name+"'s Realtime function tool has no strict mode")
 		}
 		wire = append(wire, functionTool{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	return wire, nil
 }
 
-func wireToolChoice(choice *contract.ToolChoice) (json.RawMessage, error) {
+func (d *dialect) wireToolChoice(param string, choice *contract.ToolChoice) (json.RawMessage, error) {
 	if choice == nil {
 		return nil, nil
+	}
+	if !d.toolChoice {
+		return nil, refused(param, d.name+"'s Realtime API documents no tool_choice")
 	}
 	if choice.Function != nil {
 		return json.Marshal(struct {
@@ -244,9 +259,17 @@ func wireToolChoice(choice *contract.ToolChoice) (json.RawMessage, error) {
 	return json.Marshal(choice)
 }
 
-func wireMaxOutputTokens(param string, limit *int) (*int, error) {
-	if limit != nil && *limit > maxOpenAIOutputTokens {
-		return nil, refused(param, fmt.Sprintf("OpenAI's Realtime API takes at most %d output tokens per response", maxOpenAIOutputTokens))
+// wireMaxOutputTokens is OpenAI GA's max_output_tokens (1..4096, or "inf");
+// xAI documents no output-token ceiling.
+func (d *dialect) wireMaxOutputTokens(param string, limit *int) (*int, error) {
+	if limit == nil {
+		return nil, nil
+	}
+	if d.maxOutputTokens == 0 {
+		return nil, refused(param, d.name+"'s Realtime API documents no output token ceiling")
+	}
+	if *limit > d.maxOutputTokens {
+		return nil, refused(param, fmt.Sprintf("%s's Realtime API takes at most %d output tokens per response", d.name, d.maxOutputTokens))
 	}
 	return limit, nil
 }
@@ -263,41 +286,56 @@ type sessionFields struct {
 	maxOutputTokens         *int
 }
 
-func (f sessionFields) wire() (*sessionConfig, error) {
+func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 	if f.temperature != nil {
-		// Removed from OpenAI's GA session and response schemas; it survives
-		// only in the beta interface this adapter does not speak.
-		return nil, refused("config.temperature", "OpenAI's GA Realtime API has no temperature")
+		// Removed from OpenAI's GA session and response schemas (it survives
+		// only in the beta interface this adapter does not speak), and absent
+		// from xAI's.
+		return nil, refused("config.temperature", d.name+"'s Realtime API has no temperature")
 	}
 	if f.inputAudioTranscription != nil {
-		return nil, refused("config.inputAudioTranscription", "input transcription runs a second, separately billed OpenAI model whose charge the contract's session units cannot keep apart from the session model's; it is not served")
+		// OpenAI runs a second, separately billed ASR model; xAI documents
+		// transcription settings but not what enabling `grok-transcribe`
+		// costs. Either way the session's units could not keep that charge
+		// apart from the session model's.
+		return nil, refused("config.inputAudioTranscription", "input transcription runs a second, separately billed model whose charge the contract's session units cannot keep apart from the session model's; it is not served")
 	}
-	config := &sessionConfig{Type: "realtime", Instructions: f.instructions}
+	config := &sessionConfig{Type: d.sessionType, Instructions: f.instructions}
 	var err error
-	if config.OutputModalities, err = wireModalities("config.outputModalities", f.outputModalities); err != nil {
+	modalities, err := d.wireModalities("config.outputModalities", f.outputModalities)
+	if err != nil {
 		return nil, err
 	}
+	if d.sessionModalities {
+		config.OutputModalities = modalities
+	}
+	// Otherwise (xAI) the session's modalities have no session field: they
+	// ride on every response.create instead (wireCommand).
 	if f.turnDetection != nil {
-		detection, err := wireTurnDetection(*f.turnDetection)
+		detection, err := d.wireTurnDetection(*f.turnDetection)
 		if err != nil {
 			return nil, err
 		}
-		config.Audio = &audioConfig{Input: &audioInput{TurnDetection: detection}}
+		if d.flatSession {
+			config.TurnDetection = detection
+		} else {
+			config.Audio = &audioConfig{Input: &audioInput{TurnDetection: detection}}
+		}
 	}
-	if config.Tools, err = wireTools(f.tools); err != nil {
+	if config.Tools, err = d.wireTools(f.tools); err != nil {
 		return nil, err
 	}
-	if config.ToolChoice, err = wireToolChoice(f.toolChoice); err != nil {
+	if config.ToolChoice, err = d.wireToolChoice("config.toolChoice", f.toolChoice); err != nil {
 		return nil, err
 	}
-	if config.MaxOutputTokens, err = wireMaxOutputTokens("config.maxOutputTokens", f.maxOutputTokens); err != nil {
+	if config.MaxOutputTokens, err = d.wireMaxOutputTokens("config.maxOutputTokens", f.maxOutputTokens); err != nil {
 		return nil, err
 	}
 	return config, nil
 }
 
 // wireSession is the session.update that configures a new conversation.
-func wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) {
+func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) {
 	if config.Translation != nil {
 		return nil, refused("config.translation", "a conversation does not translate")
 	}
@@ -306,7 +344,7 @@ func wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) 
 		instructions: config.Instructions, outputModalities: config.OutputModalities, turnDetection: &turnDetection,
 		inputAudioTranscription: config.InputAudioTranscription, tools: config.Tools, toolChoice: config.ToolChoice,
 		temperature: config.Temperature, maxOutputTokens: config.MaxOutputTokens,
-	}.wire()
+	}.wire(d)
 	if err != nil {
 		return nil, err
 	}
@@ -314,9 +352,16 @@ func wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) 
 	if err != nil {
 		return nil, refused("config.inputAudioFormat", err.Error())
 	}
+	if session.Audio == nil {
+		session.Audio = &audioConfig{Input: &audioInput{}}
+	}
 	session.Audio.Input.Format = input
-	if config.OutputAudioFormat != nil || config.Voice != nil {
-		session.Audio.Output = &audioOutput{Voice: config.Voice}
+	voice := config.Voice
+	if d.flatSession {
+		session.Voice, voice = config.Voice, nil
+	}
+	if config.OutputAudioFormat != nil || voice != nil {
+		session.Audio.Output = &audioOutput{Voice: voice}
 		if config.OutputAudioFormat != nil {
 			if session.Audio.Output.Format, err = wireFormat(*config.OutputAudioFormat); err != nil {
 				return nil, refused("config.outputAudioFormat", err.Error())
@@ -327,12 +372,12 @@ func wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) 
 }
 
 // wireUpdate is the session.update a contract session.update command becomes.
-func wireUpdate(update contract.RealtimeSessionConfigUpdate) (*sessionConfig, error) {
+func (d *dialect) wireUpdate(update contract.RealtimeSessionConfigUpdate) (*sessionConfig, error) {
 	return sessionFields{
 		instructions: update.Instructions, outputModalities: update.OutputModalities, turnDetection: update.TurnDetection,
 		inputAudioTranscription: update.InputAudioTranscription, tools: update.Tools, toolChoice: update.ToolChoice,
 		temperature: update.Temperature, maxOutputTokens: update.MaxOutputTokens,
-	}.wire()
+	}.wire(d)
 }
 
 // mergeUpdate is the effective configuration once OpenAI confirmed an update.
@@ -362,7 +407,7 @@ func mergeUpdate(config contract.RealtimeSessionConfig, update contract.Realtime
 // part carries its frame in the session's own input format (OpenAI's part has
 // no format of its own), and an assistant's spoken audio cannot be created by
 // a client at all.
-func wireItem(value contract.RealtimeConversationItem, inputFormat contract.RealtimeAudioFormat) (*item, error) {
+func (d *dialect) wireItem(value contract.RealtimeConversationItem, inputFormat contract.RealtimeAudioFormat) (*item, error) {
 	wire := &item{Type: string(value.Type), CallID: value.CallID, Name: value.Name, Arguments: value.Arguments, Output: value.Output}
 	if value.ItemID != nil {
 		id := string(*value.ItemID)
@@ -375,18 +420,20 @@ func wireItem(value contract.RealtimeConversationItem, inputFormat contract.Real
 	for index, part := range value.Content {
 		param := fmt.Sprintf("item.content[%d]", index)
 		switch part.Type {
-		case contract.RealtimeInputTextPart, contract.RealtimeOutputTextPart:
+		case contract.RealtimeInputTextPart:
 			wire.Content = append(wire.Content, contentPart{Type: string(part.Type), Text: part.Text})
+		case contract.RealtimeOutputTextPart:
+			wire.Content = append(wire.Content, contentPart{Type: d.outputTextPart, Text: part.Text})
 		case contract.RealtimeInputAudioPart:
 			if part.Data == nil {
-				return nil, refused(param+".data", "OpenAI's input_audio part carries its audio inline")
+				return nil, refused(param+".data", d.name+"'s input_audio part carries its audio inline")
 			}
 			if *part.Format != inputFormat {
-				return nil, refused(param+".format", "OpenAI reads an input_audio part in the session's input audio format")
+				return nil, refused(param+".format", d.name+" reads an input_audio part in the session's input audio format")
 			}
 			wire.Content = append(wire.Content, contentPart{Type: "input_audio", Audio: part.Data, Transcript: part.Transcript})
 		case contract.RealtimeOutputAudioPart:
-			return nil, refused(param+".type", "OpenAI's Realtime API does not accept assistant audio from a client")
+			return nil, refused(param+".type", d.name+"'s Realtime API does not accept assistant audio from a client")
 		}
 	}
 	return wire, nil
@@ -398,13 +445,13 @@ func (s *session) wireCommand(command contract.RealtimeCommand) (clientEvent, er
 	event := clientEvent{EventID: string(commandID)}
 	switch c := command.(type) {
 	case *contract.RealtimeSessionUpdateCommand:
-		session, err := wireUpdate(c.Config)
+		session, err := s.dialect.wireUpdate(c.Config)
 		if err != nil {
 			return event, err
 		}
 		event.Type, event.Session = "session.update", session
 	case *contract.RealtimeItemCreateCommand:
-		wire, err := wireItem(c.Item, s.inputFormat)
+		wire, err := s.dialect.wireItem(c.Item, s.inputFormat)
 		if err != nil {
 			return event, err
 		}
@@ -428,16 +475,33 @@ func (s *session) wireCommand(command contract.RealtimeCommand) (clientEvent, er
 		event.Type = "input_audio_buffer.clear"
 	case *contract.RealtimeResponseCreateCommand:
 		event.Type = "response.create"
-		if parameters := c.Response; parameters != nil {
+		d := s.dialect
+		parameters := c.Response
+		if parameters == nil && !d.sessionModalities {
+			parameters = &contract.RealtimeResponseParameters{}
+		}
+		if parameters != nil {
 			wire := &responseParameters{Instructions: parameters.Instructions}
-			var err error
-			if wire.OutputModalities, err = wireModalities("response.outputModalities", parameters.OutputModalities); err != nil {
+			requested := parameters.OutputModalities
+			if requested == nil && !d.sessionModalities {
+				// The session's modalities, carried on the one field the
+				// provider has for them. Every response of a push-to-talk
+				// session is created here, so none escapes it.
+				requested = s.sessionModalities()
+			}
+			modalities, err := d.wireModalities("response.outputModalities", requested)
+			if err != nil {
 				return event, err
 			}
-			if wire.MaxOutputTokens, err = wireMaxOutputTokens("response.maxOutputTokens", parameters.MaxOutputTokens); err != nil {
+			if d.responseModalitiesField == "modalities" {
+				wire.Modalities = modalities
+			} else {
+				wire.OutputModalities = modalities
+			}
+			if wire.MaxOutputTokens, err = d.wireMaxOutputTokens("response.maxOutputTokens", parameters.MaxOutputTokens); err != nil {
 				return event, err
 			}
-			if wire.ToolChoice, err = wireToolChoice(parameters.ToolChoice); err != nil {
+			if wire.ToolChoice, err = d.wireToolChoice("response.toolChoice", parameters.ToolChoice); err != nil {
 				return event, err
 			}
 			event.Response = wire
@@ -457,7 +521,7 @@ func (s *session) wireCommand(command contract.RealtimeCommand) (clientEvent, er
 }
 
 /* -------------------------------------------------------------------------- */
-/*  OpenAI -> contract                                                        */
+/*  provider -> contract                                                      */
 /* -------------------------------------------------------------------------- */
 
 // units is response.done's usage in the contract's partition. OpenAI nests
