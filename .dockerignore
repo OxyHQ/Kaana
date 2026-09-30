@@ -30,6 +30,10 @@
 !configs/model-attribution.json
 !configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json
 
+# The reviewed PRODUCTION rate card (real list prices, read back deployment ids),
+# by exact name: the example rate card beside it stays out.
+!configs/provider-rates.json
+
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the
 # builder on every build.

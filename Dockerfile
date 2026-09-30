@@ -132,6 +132,13 @@ RUN mkdir -p /out/etc/kaana-cutovers \
     && cp configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json /out/etc/kaana-cutovers/ \
     && chown -R 65532:65532 /out/etc/kaana-cutovers
 
+# The reviewed production rate card (docs/cost.md), in a directory of its own
+# for the reason the attribution table has one: /etc/kaana is a mount point.
+# It is read only when the task sets KAANA_PROVIDER_RATES_PATH to it, and the
+# example file is never baked.
+RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json /out/etc/kaana-rates/ \
+    && chown -R 65532:65532 /out/etc/kaana-rates
+
 RUN mkdir -p /out/etc/ssl/certs \
     && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
@@ -150,14 +157,15 @@ COPY --from=build /out/kaana-platform-credential-control /usr/local/bin/kaana-pl
 COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
 COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
 COPY --from=build --chown=65532:65532 /out/etc/kaana-cutovers /etc/kaana-cutovers
+COPY --from=build --chown=65532:65532 /out/etc/kaana-rates /etc/kaana-rates
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own
 # contract with whatever publishes the snapshot, so the task definition does not
 # restate it; what the task definition decides is what gets mounted at
-# /etc/kaana. KAANA_PROVIDER_RATES_PATH is deliberately unset — absent means
-# provider cost is not measured, and every measurement says so rather than
-# reporting zero.
+# /etc/kaana. KAANA_PROVIDER_RATES_PATH is not set by the image: the serving
+# task names /etc/kaana-rates/provider-rates.json explicitly, and a process
+# without it reports cost as not measured rather than zero.
 # The task definition restates this value because container environment wins
 # over image defaults. Both declarations therefore move together.
 ENV KAANA_INVENTORY_PATH=/etc/kaana/inventory.json

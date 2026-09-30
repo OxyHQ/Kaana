@@ -521,6 +521,37 @@ func TestTheExampleRateCardFileParses(t *testing.T) {
 	}
 }
 
+// The production rate card prices the xAI realtime deployment at xAI's
+// published list price: a minute of audio either way, or of a server_vad
+// session, is $0.08 (truncated per millisecond), and a text item $0.004.
+func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
+	cards, err := providercost.Load("../../configs/provider-rates.json")
+	if err != nil {
+		t.Fatalf("the production rate card is not loadable: %v", err)
+	}
+	observation, loaded := cards.Observation()
+	if !loaded || observation.VersionID != "rc_xai_realtime_2026_09_30" || observation.Source != providercost.RateCardProviderDocumentation {
+		t.Fatalf("production observation = %+v", observation)
+	}
+	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30")
+	if !cards.Priced(deployment) {
+		t.Fatalf("%s is not priced", deployment)
+	}
+	const minute = 60_000
+	for _, unit := range []contract.UsageUnit{
+		contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitSessionMilliseconds,
+	} {
+		measured := cards.Measure(deployment, []contract.UsageQuantity{{Unit: unit, Quantity: minute}})
+		if len(measured.UnpricedUnits) != 0 || measured.Cost.Currency != "USD" || measured.Cost.Amount != 79_999_980_000 {
+			t.Errorf("one minute of %s = %+v, want USD 0.07999998", unit, measured)
+		}
+	}
+	text := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}})
+	if len(text.UnpricedUnits) != 0 || text.Cost.Amount != 4_000_000_000 {
+		t.Errorf("one text item = %+v, want USD 0.004", text)
+	}
+}
+
 func TestARateCardObservationIgnoresFormattingButNotPrices(t *testing.T) {
 	var nothing *providercost.Cards
 	if _, loaded := nothing.Observation(); loaded {
