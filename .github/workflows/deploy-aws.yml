@@ -222,10 +222,10 @@ jobs:
           # than instead of deploying it.
           DISCOVERY_CREDENTIALS=$(jq -ce '
             .discoveryCredentialIds |
-            if (keys == ["cerebras", "groq", "openrouter", "siliconflow", "xai"]) and
+            if (keys == ["cerebras", "groq", "openrouter", "siliconflow", "xai", "xai-realtime"]) and
                all(.[]; test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
             then .
-            else error("the publisher discovery credential map is not the exact reviewed five-ID set")
+            else error("the publisher discovery credential map is not the exact reviewed six-ID set")
             end
           ' .github/credential-admin-operations.json)
 
@@ -258,7 +258,7 @@ jobs:
 
             # Everything except the image comes from the family's current
             # revision — Terraform's shape, carried forward. The publisher is
-            # the one deliberate exception during this cutover: its five exact
+            # the one deliberate exception during this cutover: its six exact
             # discovery credential IDs are replaced from the same reviewed
             # manifest that owns their stable identities. Serving gets no such
             # mutation. The dropped keys are the ones describe-task-definition
@@ -278,13 +278,15 @@ jobs:
                             .name != "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID" and
                             .name != "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID" and
                             .name != "KAANA_PROVIDER_SILICONFLOW_DISCOVERY_KEY_ID" and
-                            .name != "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID"
+                            .name != "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID" and
+                            .name != "KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID"
                           ))) + [
                             {name: "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID", value: $ids.cerebras},
                             {name: "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID", value: $ids.groq},
                             {name: "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID", value: $ids.openrouter},
                             {name: "KAANA_PROVIDER_SILICONFLOW_DISCOVERY_KEY_ID", value: $ids.siliconflow},
-                            {name: "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID", value: $ids.xai}
+                            {name: "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID", value: $ids.xai},
+                            {name: "KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID", value: $ids["xai-realtime"]}
                           ]
                         )
                     else . end
@@ -324,11 +326,12 @@ jobs:
                   {name: "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID", value: .groq},
                   {name: "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID", value: .openrouter},
                   {name: "KAANA_PROVIDER_SILICONFLOW_DISCOVERY_KEY_ID", value: .siliconflow},
-                  {name: "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID", value: .xai}
+                  {name: "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID", value: .xai},
+                  {name: "KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID", value: .["xai-realtime"]}
                 ] | sort_by(.name)
               ')
               if [ "$REGISTERED_DISCOVERY" != "$EXPECTED_DISCOVERY" ]; then
-                echo "::error::$ARN did not preserve the exact five publisher discovery credential IDs"
+                echo "::error::$ARN did not preserve the exact six publisher discovery credential IDs"
                 return 1
               fi
             fi

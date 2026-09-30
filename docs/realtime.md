@@ -562,22 +562,37 @@ pins the set and proves each row publishable there and nowhere else.
   slug, is refused at startup.
 - Its key: a key row belongs to exactly one slug — a binding's foreign key is
   `(provider_slug, key_id)` (migration 0013) — so the `xai` row cannot be bound
-  to an `xai-realtime` deployment. Import an xAI API key under the new slug
-  from stdin: `kaana-credentials put --provider xai-realtime --key-id <new uuid>
-  --position 1 --class paid < secret` (or `kaana-platform-credential-import`).
-  It may be the same secret as the `xai` row (same team, same credit) or,
-  preferably, a second key on the same xAI team so either can be revoked alone;
-  the two pools retire independently either way. With exactly one key the
-  provider default serves every `xai-realtime` deployment; bind explicitly with
+  to an `xai-realtime` deployment, and no command copies a ciphertext row from
+  one slug to another. Import an xAI API key under the new slug, from stdin,
+  with the exact reviewed key id `05a6139b-5009-4d8f-b07c-4abccc79e349` (the
+  id `.github/credential-admin-operations.json` names for discovery):
+  `kaana-platform-credential-import --operation-id kpc_<32 hex> --provider
+  xai-realtime --key-id 05a6139b-5009-4d8f-b07c-4abccc79e349 --class paid
+  --position 1 …` (operating.md, "Container and deployment"), or
+  `kaana-credentials put` with the same selectors from the admin task. It may
+  be the same secret as the `xai` row (same team, same credit) or, preferably,
+  a second key on the same xAI team so either can be revoked alone; the two
+  pools retire independently either way. With exactly one key the provider
+  default serves every `xai-realtime` deployment; bind explicitly with
   `kaana-credentials bind-deployment --provider xai-realtime` once there are two.
-- Publish it: add `xai-realtime` to the publisher's `KAANA_DISCOVERY_PROVIDERS`
-  with `KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID`. The deploy workflow
-  replaces the publisher's discovery key ids from the reviewed five-id map in
-  `.github/credential-admin-operations.json`, so that map and the workflow's
-  exact-key-set check must gain `xai-realtime` in the same change.
+- Order matters: the serving process refuses to start on a `KAANA_PROVIDERS`
+  slug with no enabled credential, and the publisher refuses to publish when a
+  discovery key id names no enabled row — a publisher that stops writing lets
+  every snapshot age past its one-hour horizon. The credential row therefore
+  exists (and `kaana-credentials list` shows it) before the Terraform switch
+  (`var.kaana_xai_realtime` in oxy-infra) adds `xai-realtime` to either set.
+- Publish it: `xai-realtime` joins the publisher's `KAANA_DISCOVERY_PROVIDERS`
+  through the same switch, with `KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID`.
+  The deploy workflow replaces the publisher's discovery key ids from the
+  reviewed six-id map in `.github/credential-admin-operations.json` and reads
+  them back; a key id for a slug the publisher does not discover is ignored,
+  so the map may name `xai-realtime` before the switch is applied.
 - Price it: a rate card for each published `xai-realtime` deployment with
   `audio_input_milliseconds`, `audio_output_milliseconds` and `requests`
-  (above); without one every session's operator cost is unknown.
+  (above); without one every session's operator cost is unknown. A rate card is
+  keyed by deployment id, and a deployment id carries the date the publisher
+  first observed the line (`dep_xai_realtime_grok_voice_think_fast_2_0_observed_<date>`),
+  so the card is written after the first snapshot names it, never guessed.
 - Oxy must sign `turnDetection: none` for xAI routes; a `server_vad` session is
   refused before anything is dialled. Health stays `degraded` until a signed
   canary session has been validated.
