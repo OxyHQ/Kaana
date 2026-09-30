@@ -3,6 +3,7 @@ package realtime_test
 import (
 	"encoding/base64"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -77,6 +78,45 @@ func TestAnXAISessionSettlesWhatKaanaMeasured(t *testing.T) {
 	// 200*2 + 100*3 + 1*5 = 705: each measured unit at its own rate.
 	if !event.Served || event.Source != providercost.SourceRateCard || !event.Complete || event.Cost.Amount != 705 {
 		t.Errorf("cost event = %+v", event)
+	}
+	if strings.Contains(h.logs.String(), "errorCode") {
+		t.Errorf("a session that ended well logged an error:\n%s", h.logs.String())
+	}
+}
+
+// TestAnUnreadableXAIEventIsNamedInTheLog: a session xAI ends with an event
+// the adapter cannot read closes upstream_error, and both the customer's fatal
+// error and Kaana's session log name the event type and field — the shape of
+// the 2026-09-30 production failure, where neither did. The measured session
+// in TestAnXAISessionSettlesWhatKaanaMeasured, which logs no error, is the
+// control.
+func TestAnUnreadableXAIEventIsNamedInTheLog(t *testing.T) {
+	h := newHarness(t, options{xai: true})
+	h.upstream.Script = func(conn *fake.Conn) {
+		conn.Expect("response.create")
+		conn.Send(fake.Event{"type": "response.created", "response": fake.Event{"id": "resp_1", "object": "realtime.response", "status": "in_progress", "status_details": 7, "output": []any{}}})
+	}
+	const requestID = contract.RequestID("req_xai_unreadable")
+	ws := h.open(xaiSessionRequest(requestID))
+	read(t, ws)
+	command(t, ws, &contract.RealtimeResponseCreateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_respond"})
+	const named = "xAI sent a Realtime event this adapter cannot read (response.created: response.status_details is a JSON number)"
+	frames := readUntil(t, ws, "session.closed")
+	if closed := frames[len(frames)-1]; closed["reason"] != "upstream_error" {
+		t.Fatalf("session.closed = %v", closed)
+	}
+	var fatal frame
+	for _, candidate := range frames {
+		if candidate.kind() == "error" && candidate["fatal"] == true {
+			fatal = candidate
+		}
+	}
+	if failure, _ := fatal["error"].(map[string]any); failure == nil || failure["message"] != named {
+		t.Errorf("the fatal error = %v; want it to name the event and field", fatal)
+	}
+	waitFor(t, "the session log", func() bool { return strings.Contains(h.logs.String(), "realtime session closed") })
+	if logs := h.logs.String(); !strings.Contains(logs, `"errorCode":"provider_error"`) || !strings.Contains(logs, named) {
+		t.Errorf("the session log does not name the unreadable event:\n%s", logs)
 	}
 }
 

@@ -404,9 +404,10 @@ shared code, and every documented difference is a dialect field.
 | `session.type` | `"realtime"` | absent from xAI's schema; not sent |
 | Voice | `audio.output.voice` | `session.voice` |
 | Turn detection | `audio.input.turn_detection`; none is `null` | `session.turn_detection`; none is `{"type": null}` |
-| `server_vad` | `create_response`, `interrupt_response` sent | only `threshold` (0.1–0.9), `prefix_padding_ms` and `silence_duration_ms` (0–10000); `createResponse` and `interruptResponse` must be `true` (xAI's VAD always answers and is interruptible; it has neither field); a text-only session is refused (xAI creates the responses, with no session modalities field) |
+| `server_vad` | `create_response`, `interrupt_response` sent | only `threshold` (0.1–0.9), `prefix_padding_ms` and `silence_duration_ms` (0–10000); `createResponse` and `interruptResponse` must be `true` (xAI's VAD always answers and is interruptible; it has neither field) |
 | `semantic_vad` | served | refused: xAI's schema names only `server_vad` or null |
-| Output modalities | `session.output_modalities`, one per response | no session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one), and `["text","audio"]` together is accepted; a `server_vad` response xAI creates itself carries xAI's own modalities |
+| Output modalities | `session.output_modalities`, one per response | no documented session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one); a `server_vad` response xAI creates itself carries xAI's own modalities. **Audio is required**: `["audio"]` and `["text","audio"]` are served, and any set without `audio` — `config.outputModalities` at open or on `session.update`, `response.outputModalities` on `response.create` — is refused `invalid_request` before anything is sent, because xAI answers aloud whatever it is asked (measured, below) |
+| `response.status_details` | an object (`{type, reason}`) or `null` | the string `"unimplemented"` on `response.created` and `response.done` (measured): read as no details, so an incomplete xAI response has no finish reason. Any other non-object is unreadable, and OpenAI's dialect still refuses a string |
 | `tool_choice`, `max_output_tokens`, `temperature` | the first two served | none documented: refused naming the field |
 | Function tools | flat `{type, name, description, parameters}` | the guide's examples are flat; the machine-readable schema nests under `function` (UNVERIFIED which xAI enforces; flat is sent) |
 | Assistant content parts | `output_text` / `output_audio` | `text` / `audio` (read back as the contract's output parts for the assistant, input parts otherwise) |
@@ -422,6 +423,65 @@ and because xAI does not document what enabling it costs. xAI's extensions
 resumption, `replace`, binary transport, `idle_timeout_ms`,
 `reasoning.effort`) have no contract field and are never sent; `reasoning.effort`
 therefore stays at xAI's default (`high`).
+
+### The wire xAI actually sends (measured 2026-09-30)
+
+The first production session through Oxy → Kaana → xAI (requestId
+`253dacf6-2ea5-4c46-9afd-ca87a9a9ec1a`, `grok-voice-think-fast-2.0`,
+`outputModalities: ["text"]`, push-to-talk; and `e5c429ad-…`, the same flow
+spoken) opened, relayed the user's `conversation.item.added`, and then ended
+`upstream_error` with "xAI sent a Realtime event this adapter cannot read" —
+after xAI had billed the $0.004 text item. The cause was the event every xAI
+response starts with: `response.created` carries `"status_details":
+"unimplemented"`, a string where OpenAI's schema (and the adapter's struct) has
+an object or null, so the whole event failed to decode. A raw capture of the
+same flow, replayed verbatim through the adapter by
+`TestXAICapturedResponseIsReadAndMetered`, is
+`internal/provider/openairealtime/testdata/xai-text-only-capture.jsonl`. What it
+shows, beside what xAI documents:
+
+| Event | Measured shape | How it is read |
+|---|---|---|
+| `ping` | `{"type":"ping","timestamp":<ms>,"previous_item_id":null}`, before and between turns | dropped (the contract has no such event) |
+| `session.updated` | `turn_detection: {}` (sent `{"type":null}`), `input_audio_format` / `output_audio_format: "not specified"`, `temperature: -1`, `max_response_output_tokens: "inf"`, and the `modalities: ["text"]` the probe set echoed back | only its arrival is read: it confirms the pending update |
+| `response.created` | `status_details: "unimplemented"`, `usage: {}`, `output: []` | `status_details` per the dialect (above); `usage` is never read for xAI |
+| `conversation.item.added` (assistant) | `content: []`, `status: "in_progress"`, `replayed: false` | a message with no content has no contract shape and is not forwarded |
+| `response.content_part.added` | `part: {"type":"audio","transcript":""}`, `previous_item_id: "0"` | dropped, as every content part event is |
+| `response.output_audio.delta` | extra `rid`, `latency` (a string), `audio_duration_ms`, `ts` | relayed and metered by its decoded bytes; the extras are ignored |
+| `response.output_audio_transcript.delta` / `.done` | the spoken answer's transcript | relayed as transcript events (`source: output`) |
+| `response.done` | `status_details: "unimplemented"`, `response.usage: {}`; a top-level `usage` with `input_token_details.grok_tokens`, `output_token_details.audio_tokens`, `output_audio_seconds: 0.71`, `billable_audio_seconds: 1` | status read; the tokens are never settled (the session is metered) |
+
+**xAI answers aloud whatever it is asked.** The capture set `modalities:
+["text"]` on the session (xAI echoed it on `session.updated`) and still got an
+`audio` part, three output audio deltas (710 ms, exactly xAI's
+`output_audio_seconds: 0.71`), their transcript and `billable_audio_seconds: 1`
+— no `response.output_text.delta` at all. A text-only Kaana session would
+therefore receive audio it has no output format for (and could not frame),
+billed by xAI but invisible to a meter with no output rate. Serving it by
+relaying only the transcript would invent a text channel xAI does not have and
+charge audio the caller did not ask for; the adapter rule is to refuse in
+`Translate` what the provider cannot express, so xAI refuses any output
+modality set without `audio` (`config.outputModalities` /
+`response.outputModalities`). A caller that wants text reads the transcript of
+a spoken session, which is also what it pays for. The capture put
+`modalities` on the session, not on `response.create` (where Kaana sends it);
+UNVERIFIED whether xAI's documented per-response field fares differently — a
+reason to lift the refusal only on a capture that shows text-only output and
+no billable audio.
+
+An event the adapter cannot read is now named in the failure's own detail —
+`xAI sent a Realtime event this adapter cannot read (response.created:
+response.status_details is a JSON string)` — the event type (kept only if it
+looks like one) and the field path in the adapter's own vocabulary with the
+JSON kind found there, never a value the provider sent. That detail is the
+fatal error's message and, with `errorCode`, on Kaana's `realtime session
+closed` log line for a session that ended `upstream_error`.
+
+UNVERIFIED: `billable_audio_seconds: 1` beside `output_audio_seconds: 0.71`
+suggests xAI bills audio in whole seconds (per response, per session or per
+invoice line is not known). Kaana meters milliseconds, rounded up once over
+the session, so a session of many short answers may measure less than xAI
+bills; the first signed canary should compare the two.
 
 ### Metering: what xAI bills, in contract units
 
@@ -509,13 +569,13 @@ billed, as everywhere.
 - https://docs.x.ai/developers/pricing , https://docs.x.ai/developers/rate-limits
 - https://x.ai/news/grok-voice-think-fast-2 ($0.08/min for 2.0; the December 2025 launch post's $0.05/min is the retired 1.0 price)
 
-No keyed xAI session has been opened from this repository. UNVERIFIED, for the
-first signed canary: that `turn_detection: {"type": null}` (not `null`) is
-accepted and yields push-to-talk billing; the function-tool shape xAI
-enforces; whether `event_id` is echoed on `error.event_id` (the schema has the
-field; client events document no `event_id`); whether `usage` is always on
-`response.done`; the relative order of `session.created` and
-`conversation.created` (the open waits for `session.created` either way).
+The capture above is the one keyed xAI conversation measured so far: xAI
+accepted `turn_detection: {"type": null}` (and reported it back as `{}`), and
+`response.done` carried usage at the event's top level with `response.usage`
+empty. UNVERIFIED, for the first signed canary: that push-to-talk is billed by
+audio as documented; the function-tool shape xAI enforces; whether `event_id`
+is echoed on `error.event_id` (the schema has the field; client events document
+no `event_id`).
 
 Measured with the production key on 2026-09-30 by the publisher's discovery
 probe, which opens and closes a session without writing to it: `session.created`
@@ -641,10 +701,14 @@ pins the set and proves each row publishable there and nowhere else.
   serving task through `KAANA_PROVIDER_RATES_PATH=/etc/kaana-rates/provider-rates.json`. Oxy's price
   version for the route must price `session_milliseconds` too (Oxy holds it for
   every realtime session and refuses a route that leaves it unpriced).
-- A `server_vad` session needs `createResponse: true` and
-  `interruptResponse: true`, audio among its output modalities, and xAI's
-  bounds on the tunables; anything else is refused before anything is dialled.
-  Health stays `degraded` until a signed canary session has been validated.
+- Every session needs `audio` among its output modalities (with a voice and an
+  output audio format): xAI speaks whatever it is asked, so a text-only session
+  is refused `invalid_request` naming `config.outputModalities` before anything
+  is dialled. The signed canary is therefore a spoken session
+  (`outputModalities: ["audio"]`, `outputAudioFormat`, `voice`) that checks the
+  transcript. A `server_vad` session also needs `createResponse: true`,
+  `interruptResponse: true` and xAI's bounds on the tunables. Health stays
+  `degraded` until a signed canary session has been validated.
 
 ## Findings, refusals and what is not verified
 

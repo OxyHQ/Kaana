@@ -118,34 +118,27 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 }
 
 // admitUpdate refuses, before anything is written, an update whose effect the
-// provider does not document how to bill or cannot express against the
-// session as it will then be: switching between a clock-billed turn detection
-// and one billed by audio (xAI documents each mode's billing, not a session
-// that changes mode), and a server_vad session that could not speak on a
-// provider that creates server_vad responses itself.
+// provider does not document how to bill: switching between a clock-billed
+// turn detection and one billed by audio (xAI documents each mode's billing,
+// not a session that changes mode). A text-only update on a provider that
+// always speaks is refused by wireModalities, before this.
 func (s *session) admitUpdate(update contract.RealtimeSessionConfigUpdate) error {
 	d := s.dialect
+	if update.TurnDetection == nil || d.sessionClock == "" {
+		return nil
+	}
 	s.mu.Lock()
-	turnDetection, modalities := s.config.TurnDetection.Type, s.config.OutputModalities
+	turnDetection := s.config.TurnDetection.Type
 	for _, pending := range s.pending {
 		if pending.update.TurnDetection != nil {
 			turnDetection = pending.update.TurnDetection.Type
 		}
-		if pending.update.OutputModalities != nil {
-			modalities = pending.update.OutputModalities
-		}
 	}
 	s.mu.Unlock()
-	if update.TurnDetection != nil {
-		if d.sessionClock != "" && (update.TurnDetection.Type == d.sessionClock) != (turnDetection == d.sessionClock) {
-			return refused("config.turnDetection", fmt.Sprintf("%s bills a %s session by its duration and any other by its audio, and does not document a session that changes between them; open a new session instead", d.name, d.sessionClock))
-		}
-		turnDetection = update.TurnDetection.Type
+	if (update.TurnDetection.Type == d.sessionClock) != (turnDetection == d.sessionClock) {
+		return refused("config.turnDetection", fmt.Sprintf("%s bills a %s session by its duration and any other by its audio, and does not document a session that changes between them; open a new session instead", d.name, d.sessionClock))
 	}
-	if update.OutputModalities != nil {
-		modalities = update.OutputModalities
-	}
-	return d.checkServerCreatedModalities(turnDetection, modalities)
+	return nil
 }
 
 // sessionModalities is the output modalities in effect for the next response:
@@ -180,11 +173,11 @@ func (s *session) Next(ctx context.Context) (provider.RealtimeUpstreamEvent, err
 			return provider.RealtimeUpstreamEvent{}, s.ended(ctx, err)
 		}
 		if kind != websocket.MessageText {
-			return provider.RealtimeUpstreamEvent{}, s.dialect.invalidEvent()
+			return provider.RealtimeUpstreamEvent{}, s.dialect.invalidEvent("", "a binary frame")
 		}
-		var event serverEvent
-		if json.Unmarshal(data, &event) != nil {
-			return provider.RealtimeUpstreamEvent{}, s.dialect.invalidEvent()
+		event, err := s.dialect.decode(data)
+		if err != nil {
+			return provider.RealtimeUpstreamEvent{}, err
 		}
 		if alias, named := s.dialect.aliases[event.Type]; named {
 			event.Type = alias
@@ -250,7 +243,7 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 	switch event.Type {
 	case "error":
 		if event.Error == nil {
-			return nil, s.dialect.invalidEvent()
+			return nil, s.dialect.invalidEvent(event.Type, "error is absent")
 		}
 		return s.errorEvent(*event.Error), nil
 
@@ -270,7 +263,7 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 
 	case "conversation.item.added", "conversation.item.done":
 		if event.Item == nil {
-			return nil, s.dialect.invalidEvent()
+			return nil, s.dialect.invalidEvent(event.Type, "item is absent")
 		}
 		s.rememberToolName(*event.Item)
 		value, expressible := s.contractItem(*event.Item)
@@ -299,7 +292,10 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 
 	case "response.created":
 		if event.Response == nil || event.Response.ID == "" {
-			return nil, s.dialect.invalidEvent()
+			return nil, s.dialect.invalidEvent(event.Type, "response.id is absent")
+		}
+		if _, err := s.dialect.statusReason(event.Type, *event.Response); err != nil {
+			return nil, err
 		}
 		return one(&contract.RealtimeResponseCreatedEvent{ResponseID: contract.RealtimeResponseID(event.Response.ID)}), nil
 	case "response.output_item.added", "response.output_item.done":
@@ -418,11 +414,11 @@ func (s *session) toolCall(event serverEvent, text string, complete bool) contra
 // base64 and the frames concatenate to exactly the audio OpenAI sent.
 func (s *session) audioFrames(event serverEvent) ([]provider.RealtimeUpstreamEvent, error) {
 	if s.outputFormat == nil {
-		return nil, s.dialect.invalidEvent()
+		return nil, s.dialect.invalidEvent(event.Type, "audio in a session with no output audio format")
 	}
 	audio, err := base64.StdEncoding.DecodeString(event.Delta)
 	if err != nil || len(audio) == 0 {
-		return nil, s.dialect.invalidEvent()
+		return nil, s.dialect.invalidEvent(event.Type, "delta is not base64 audio")
 	}
 	if s.meter != nil {
 		// Measured as it arrives: the provider bills the audio it sent,
@@ -445,11 +441,15 @@ func (s *session) audioFrames(event serverEvent) ([]provider.RealtimeUpstreamEve
 // carried too; a response with no usage reports none rather than zeros.
 func (s *session) responseDone(event serverEvent) ([]provider.RealtimeUpstreamEvent, error) {
 	if event.Response == nil || event.Response.ID == "" {
-		return nil, s.dialect.invalidEvent()
+		return nil, s.dialect.invalidEvent(event.Type, "response.id is absent")
 	}
 	status, known := responseStatus(event.Response.Status)
 	if !known {
-		return nil, s.dialect.invalidEvent()
+		return nil, s.dialect.invalidEvent(event.Type, "response.status is not a status this adapter knows")
+	}
+	reason, err := s.dialect.statusReason(event.Type, *event.Response)
+	if err != nil {
+		return nil, err
 	}
 	units, source := []contract.UsageQuantity{}, contract.UsageProviderReported
 	switch {
@@ -468,7 +468,7 @@ func (s *session) responseDone(event serverEvent) ([]provider.RealtimeUpstreamEv
 	}
 	done := &contract.RealtimeResponseDoneEvent{
 		ResponseID: contract.RealtimeResponseID(event.Response.ID), Status: status,
-		FinishReason: finishReason(*event.Response, status), Units: units, UsageSource: source,
+		FinishReason: finishReason(*event.Response, status, reason), Units: units, UsageSource: source,
 	}
 	return []provider.RealtimeUpstreamEvent{{Event: done, Units: units}}, nil
 }
