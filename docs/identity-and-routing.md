@@ -1,8 +1,9 @@
 # Identity and request routing
 
-This is the canonical short answer to three questions that used to be mixed
-together: what Kaana is, what Alia is, and where an Oxy product sends an AI
-feature.
+What Kaana is, what Alia is, and where Kaana's identity ends. The concepts an
+app developer needs (exact model, power level, app default, and who owns what)
+are in the [Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md); which product feature
+goes through Alia is decided in [Oxy's request-routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/request-routing.md).
 
 ## One name and one origin
 
@@ -42,32 +43,14 @@ only through the Oxy edge.
 
 `deploymentId` is the opaque identity of one exact Kaana deployment. It is never
 derived from a provider slug, model name, display name, row position or database
-order. Oxy resolves it from Kaana's signed descriptor surface and copies it into
-the signed `authorizedRoutes` entry together with the exact revision-pinned model
-reference, provider and complete region set.
-
-Oxy performs the control-plane selection after all policy filters:
-
-1. explicit routing-profile candidate `priority` first;
-2. reviewed score descending within that priority;
-3. exact `deploymentId` code units only as the equal-score tie-break.
-
-Names, locale collation, insertion order and database return order never
-participate. Kaana receives the already ordered authorized list, resolves every
-ID against one inventory snapshot and attempts that exact order. Its runtime
-health projection and breaker state may make an authorized attempt unavailable;
-they never re-rank or authorize another destination.
-
-Oxy fails closed before reservation and before calling Kaana if any otherwise
-eligible deployment lacks an exact ID, price version or required score; if score
-evidence is stale or belongs to another price version; or if the exact ID is
-duplicated or collides with more than one approved mapping. Kaana independently
-fails closed if the signed provider, model reference or region set does not match
-the inventory entry for that ID.
-
-An empty `regions` set means no execution/residency region is attested. It is not
-an alias for global availability. Oxy excludes that deployment whenever the
-effective policy has an allowed-region or denied-region control.
+order. Oxy copies it into the signed `authorizedRoutes` entry together with the
+exact revision-pinned model reference, provider and complete region set, in an
+order Oxy decides ([Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)). Kaana resolves every ID against one
+inventory snapshot, fails closed if the signed provider, model reference or
+region set does not match, and attempts the list in exactly that order. Its
+health projection and breakers may make an authorized attempt unavailable; they
+never re-rank the list or authorize another destination. An empty `regions` set
+means no attested region, not global availability.
 
 ## Product request paths
 
@@ -76,36 +59,14 @@ app one-shot AI -> Oxy inference edge -> Kaana -> upstream provider
 app agent/chat  -> Alia -> Oxy inference edge -> Kaana -> upstream provider
 ```
 
-Use the first path when the product owns a bounded operation such as translate,
-classify, summarize, rewrite or generate a smart reply. Use the second when the
-operation is part of an assistant with conversation state, tools, memory,
-approvals or agent identity.
+The per-product map (Mention, Inbox, OxyOS, Sindi, Clarity) is kept in one
+place, [Oxy's request-routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/request-routing.md#choose-the-path-by-product-behavior).
+Whichever path a feature takes, only Kaana retries and fails over, along the
+routes Oxy signed; apps and Alia do not.
 
-The resulting product map is:
-
-| Product surface | Canonical path |
-|---|---|
-| Mention assistant/chat | Mention -> Alia -> Oxy -> Kaana |
-| Mention background translation, classification and moderation helpers | Mention -> Oxy -> Kaana |
-| Inbox embedded assistant/chat | Inbox -> Alia -> Oxy -> Kaana |
-| Inbox summary, rewrite and smart reply | Inbox -> Oxy -> Kaana |
-| OxyOS assistant | OxyOS -> Alia -> Oxy -> Kaana |
-| Homiio Sindi | Homiio -> Sindi as an Alia agent/bot -> Oxy -> Kaana |
-| Clarity assistant | Clarity as an Alia agent/bot -> Oxy -> Kaana |
-
-Sindi and Clarity therefore need Alia agent identities and bot accounts, not
-new provider adapters. Their bot-account ownership and delegation must be
-provisioned and verified before either path is called complete; this document
-does not claim that deployment step has already happened.
-
-Customer BYOK is likewise not enabled merely because Kaana can decrypt an exact
-signed generation. Oxy source now emits only the exact `ready + active + valid`
-binding and resolves a separate platform-fee pointer, but production must stay
-fail-closed until the fee amount/version is approved, published and associated,
-the matching schema/images and live probes are deployed, and the dedicated
-authenticated initial-validation bootstrap for pending generations exists.
-Kaana receives no customer price and cannot approve that commercial decision
-itself.
+Customer BYOK is not enabled merely because Kaana can decrypt an exact signed
+generation; its launch gates are Oxy's ([byok.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/byok.md)).
+Kaana receives no customer price and cannot approve that commercial decision.
 
 ## Provider keys: PostgreSQL plus KMS only
 
