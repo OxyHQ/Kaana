@@ -18,11 +18,27 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 29 {
-		t.Fatalf("built-in providers = %d, want the 29 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 30 {
+		t.Fatalf("built-in providers = %d, want the 30 documented in README.md and docs/operating.md", got)
 	}
 	if endpoint := providerconfig.Known["openai-audio"]; endpoint.Protocol != providerconfig.ProtocolOpenAIAudio || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" {
 		t.Fatalf("OpenAI audio configuration = %+v", endpoint)
+	}
+	if endpoint := providerconfig.Known["openai-realtime"]; endpoint.Protocol != providerconfig.ProtocolOpenAIRealtime || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" ||
+		providerconfig.OpenAIRealtimeSessionURL != "wss://api.openai.com/v1/realtime" {
+		t.Fatalf("OpenAI Realtime configuration = %+v", endpoint)
+	}
+	if err := providerconfig.ValidateEndpointIdentity("openai-realtime", "https://api.openai.com/v1/"); err == nil {
+		t.Fatal("openai-realtime accepted an address other than OpenAI's canonical API root")
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(kinds) != 1 || kinds[0] != contract.RealtimeConversation {
+		t.Fatalf("realtime session kinds = %v", kinds)
+	}
+	if formats := providerconfig.ExecutableAPIFormats("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(formats) != 0 {
+		t.Fatalf("the realtime protocol executes requests: %v", formats)
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("openai", providerconfig.ProtocolOpenAICompatible); len(kinds) != 0 {
+		t.Fatalf("a request protocol holds sessions: %v", kinds)
 	}
 	if endpoint := providerconfig.Known["deepgram"]; endpoint.Protocol != providerconfig.ProtocolDeepgramVoice || endpoint.Discovery != providerconfig.DiscoveryNotAvailable || endpoint.BaseURL != "https://api.deepgram.com/v1" {
 		t.Fatalf("Deepgram native voice configuration = %+v", endpoint)

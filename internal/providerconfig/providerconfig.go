@@ -33,6 +33,7 @@ const (
 	ProtocolAnthropicMessages = "anthropic_messages"
 	ProtocolDeepgramVoice     = "deepgram_voice"
 	ProtocolOpenAIAudio       = "openai_audio"
+	ProtocolOpenAIRealtime    = "openai_realtime"
 
 	DiscoveryOpenAIModels  = "openai_models"
 	DiscoveryXAIModels     = "xai_models_and_speech"
@@ -57,6 +58,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"deepgram":         {Protocol: ProtocolDeepgramVoice, BaseURL: "https://api.deepgram.com/v1", Discovery: DiscoveryNotAvailable},
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
+	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
@@ -94,14 +96,46 @@ var Known = map[contract.ProviderSlug]Endpoint{
 // adapter, and a chat deployment only by the chat adapter.
 const OpenAIAudioBaseURL = "https://api.openai.com/v1"
 
+// OpenAIRealtimeBaseURL is the only API root the `openai-realtime` slug may
+// name, and OpenAIRealtimeSessionURL the only WebSocket endpoint its adapter
+// dials.
+//
+// It is OpenAI's own origin under a third slug for the reason `openai-audio`
+// is: a slug resolves to exactly one adapter, and a realtime session is not a
+// request at all. The configured root stays the HTTPS API root because the
+// publisher lists the account's models there (GET /v1/models); the session
+// endpoint is fixed here, once, and is not configurable.
+const (
+	OpenAIRealtimeBaseURL    = "https://api.openai.com/v1"
+	OpenAIRealtimeSessionURL = "wss://api.openai.com/v1/realtime"
+)
+
+// RealtimeSessionKinds is the realtime session kinds a slug's adapter opens
+// under a protocol: the session-family counterpart of ExecutableAPIFormats,
+// read by the adapter's own declaration (which the registry enforces) and by
+// the publisher (which attaches a session model only to an adapter that can
+// open it). Empty means the protocol holds no session.
+func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.RealtimeSessionKind {
+	switch protocol {
+	case ProtocolOpenAIRealtime:
+		// Conversation only. OpenAI's translation sessions are a separate
+		// endpoint and event protocol with no items, responses or usage, and
+		// its transcription sessions document no WebSocket endpoint; both are
+		// refused rather than approximated (docs/realtime.md).
+		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+	}
+	return nil
+}
+
 // ExecutableAPIFormats is the request families a slug's adapter executes under
 // a protocol. It is the one table both the serving process (each adapter's
 // declaration, which the registry and executor enforce) and the publisher
 // (which refuses to attach a model to an adapter that cannot execute it) read.
 //
-// An empty result means the protocol is not one this build speaks. The lists
-// are what each adapter's Translate actually builds a call for — never what the
-// upstream might also accept.
+// An empty result means the protocol executes no request: it is not one this
+// build speaks, or it holds realtime sessions instead (RealtimeSessionKinds).
+// The lists are what each adapter's Translate actually builds a call for —
+// never what the upstream might also accept.
 func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contract.APIFormat {
 	switch protocol {
 	case ProtocolOpenAICompatible:
@@ -167,6 +201,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 	if slug == "openai-audio" {
 		if raw != OpenAIAudioBaseURL {
 			return fmt.Errorf("openai-audio requires OpenAI's canonical HTTPS API base")
+		}
+		return nil
+	}
+	if slug == "openai-realtime" {
+		if raw != OpenAIRealtimeBaseURL {
+			return fmt.Errorf("openai-realtime requires OpenAI's canonical HTTPS API base")
 		}
 		return nil
 	}

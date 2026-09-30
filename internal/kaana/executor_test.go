@@ -190,6 +190,8 @@ type harness struct {
 	// unbound deployments get no exact credential binding, as a deployment the
 	// publisher discovered and no operator has bound yet.
 	unbound map[contract.DeploymentID]bool
+	// sessions are realtime session adapters registered beside adapters.
+	sessions []provider.RealtimeAdapter
 }
 
 func (h harness) build(t *testing.T) *kaana.Executor {
@@ -215,13 +217,20 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		t.Fatalf("building the inventory store: %v", err)
 	}
 
-	registry, err := provider.NewRegistry(h.adapters...)
+	registrants := make([]provider.Registrant, 0, len(h.adapters)+len(h.sessions))
+	for _, adapter := range h.adapters {
+		registrants = append(registrants, adapter)
+	}
+	for _, session := range h.sessions {
+		registrants = append(registrants, session)
+	}
+	registry, err := provider.NewRegistry(registrants...)
 	if err != nil {
 		t.Fatalf("registering: %v", err)
 	}
 	bindings := make([]provider.CredentialBinding, 0)
 	for _, descriptor := range store.Current().DeploymentDescriptors() {
-		if _, ok := registry.Lookup(descriptor.Provider); !ok || h.unbound[descriptor.DeploymentID] {
+		if !registry.Serves(descriptor.Provider) || h.unbound[descriptor.DeploymentID] {
 			continue
 		}
 		keyID := string(descriptor.Provider) + "-test"
@@ -230,7 +239,7 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		}
 		bindings = append(bindings, provider.CredentialBinding{DeploymentID: descriptor.DeploymentID, Provider: descriptor.Provider, KeyID: keyID})
 	}
-	if err := registry.ReplaceGeneration(bindings, h.adapters...); err != nil {
+	if err := registry.ReplaceGeneration(bindings, registrants...); err != nil {
 		t.Fatalf("binding test credentials: %v", err)
 	}
 	rotationRegistry := h.rotation

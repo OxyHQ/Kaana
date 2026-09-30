@@ -769,19 +769,20 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 			}
 		}
 	}
-	return e.resolveAuthorizedRoutes(request, at)
+	return resolveAuthorizedRoutes(e.inventory.Current(), requestID, request.AuthorizedRoutes, at)
 }
 
 // resolveAuthorizedRoutes turns the signed list into executable routes without
 // adding, reordering or correcting an entry. Inventory is an identity oracle
 // here, not an authorization source: a disagreement is refused whole.
-func (e *Executor) resolveAuthorizedRoutes(request *contract.Request, at time.Time) ([]candidate, *contract.Error) {
-	requestID := request.Attribution.RequestID
-	snapshot := e.inventory.Current()
-	candidates := make([]candidate, 0, len(request.AuthorizedRoutes))
+//
+// A realtime session resolves its signed list through the same function, so a
+// session and a request cannot disagree about what a route means.
+func resolveAuthorizedRoutes(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time) ([]candidate, *contract.Error) {
+	candidates := make([]candidate, 0, len(routes))
 	resolvedRevisions := make(map[contract.ModelID]contract.ModelReference)
 
-	for index, authorized := range request.AuthorizedRoutes {
+	for index, authorized := range routes {
 		set, err := snapshot.Resolve(authorized.ModelReference, at)
 		if err != nil {
 			return nil, invalidAuthorizedRoute(requestID, index,
@@ -898,7 +899,13 @@ func switchReason(err error) contract.RouteSwitchReason {
 // module says the data plane generates both, but requestId is REQUIRED on the
 // inbound envelope, so it cannot be. See README, "What Oxy still has to decide".
 func (e *Executor) generationID(request *contract.Request) *contract.GenerationID {
-	if existing := request.Attribution.GenerationID; existing != nil && *existing != "" {
+	return generationFor(request.Attribution)
+}
+
+// generationFor allocates a generation id unless the attribution already
+// carries one. A realtime session is one generation, allocated the same way.
+func generationFor(attribution contract.Attribution) *contract.GenerationID {
+	if existing := attribution.GenerationID; existing != nil && *existing != "" {
 		return existing
 	}
 	var entropy [16]byte
@@ -960,11 +967,7 @@ func upstreamFailure(requestID contract.RequestID, slug contract.ProviderSlug, e
 	}
 	var upstream provider.ErrUpstream
 	if errors.As(err, &upstream) {
-		failure := contract.NewError(requestID, upstream.Code, upstream.Detail)
-		if upstream.RetryAfterMs > 0 {
-			failure = failure.WithRetryAfter(upstream.RetryAfterMs)
-		}
-		return failure.WithUpstream(upstream.Category, upstream.Passthrough)
+		return upstream.ContractError(requestID)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return contract.NewError(requestID, contract.CodeProviderTimeout,
