@@ -87,10 +87,12 @@ jobs:
         with:
           version: v2.13.2
 
-      - name: deployment binding and bound retirement PostgreSQL integration
+      - name: credential store PostgreSQL integration
+        # Every PostgreSQL suite, not a hand-picked few: a suite CI never runs
+        # rots silently, as three of them did while only two were selected.
         env:
           KAANA_POSTGRES_TEST_URL: postgres://postgres:kaana-ci-password@127.0.0.1:5432/kaana_test?sslmode=disable
-        run: go test -race -count=1 -run '^(TestDeploymentBindingPostgresLifecycle|TestABoundRefusalRecordsThePoliciesRetirementInPostgres)$' ./internal/credentialstore
+        run: make test-integration
 
       - name: go test
         # -race because the data plane is concurrent by nature: a stream, a

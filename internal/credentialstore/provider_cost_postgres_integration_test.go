@@ -30,7 +30,7 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 		provider_cost_events,
 		provider_credential_admin_operations,
 		provider_credential_audit,
-		provider_credentials RESTART IDENTITY`); err != nil {
+		provider_credentials RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("resetting provider cost test tables: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO provider_credentials

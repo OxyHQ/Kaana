@@ -40,24 +40,26 @@ func TestPlatformCredentialMutationIsAtomicAndIdempotentInPostgres(t *testing.T)
 		providerSlug = "platform-control-test"
 		keyID        = "123e4567-e89b-42d3-a456-426614174000"
 	)
-	for _, statement := range []string{
-		`DELETE FROM platform_provider_credential_operations WHERE operation_id = $1 OR (provider_slug = $2 AND key_id = $3)`,
-		`DELETE FROM provider_credential_audit WHERE provider_slug = $2 AND key_id = $3`,
-		`DELETE FROM provider_credentials WHERE provider_slug = $2 AND key_id = $3`,
-	} {
-		if _, err := pool.Exec(ctx, statement, operationID, providerSlug, keyID); err != nil {
+	// Each reset statement carries only the parameters it references:
+	// PostgreSQL cannot infer the type of a parameter a statement never uses.
+	resets := []struct {
+		statement string
+		arguments []any
+	}{
+		{`DELETE FROM platform_provider_credential_operations WHERE operation_id = $1 OR (provider_slug = $2 AND key_id = $3)`, []any{operationID, providerSlug, keyID}},
+		{`DELETE FROM provider_credential_audit WHERE provider_slug = $1 AND key_id = $2`, []any{providerSlug, keyID}},
+		{`DELETE FROM provider_credentials WHERE provider_slug = $1 AND key_id = $2`, []any{providerSlug, keyID}},
+	}
+	for _, reset := range resets {
+		if _, err := pool.Exec(ctx, reset.statement, reset.arguments...); err != nil {
 			t.Fatalf("resetting exact platform mutation fixture: %v", err)
 		}
 	}
 	t.Cleanup(func() {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		for _, statement := range []string{
-			`DELETE FROM platform_provider_credential_operations WHERE operation_id = $1 OR (provider_slug = $2 AND key_id = $3)`,
-			`DELETE FROM provider_credential_audit WHERE provider_slug = $2 AND key_id = $3`,
-			`DELETE FROM provider_credentials WHERE provider_slug = $2 AND key_id = $3`,
-		} {
-			_, _ = pool.Exec(cleanupContext, statement, operationID, providerSlug, keyID)
+		for _, reset := range resets {
+			_, _ = pool.Exec(cleanupContext, reset.statement, reset.arguments...)
 		}
 	})
 
