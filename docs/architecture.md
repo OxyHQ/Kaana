@@ -1,6 +1,6 @@
 # Architecture and boundary
 
-How Kaana splits between this data plane and Oxy's control plane, and what is deliberately not here. Read `../README.md` first.
+How Kaana splits between this data plane and Oxy's control plane, and what is deliberately not here. Read `../README.md` first; for the caller-facing concepts (exact model, power level, app default) read the [Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md).
 
 ## The boundary, in one paragraph
 

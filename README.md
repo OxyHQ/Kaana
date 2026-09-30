@@ -26,7 +26,14 @@ app one-shot AI -> Oxy inference edge -> Kaana -> upstream provider
 app agent/chat  -> Alia -> Oxy inference edge -> Kaana -> upstream provider
 ```
 
-A request names a **model** or an exact opaque Oxy routing-profile ID, never a
+**New to Oxy inference?** The concepts (exact model vs power level vs app
+default), who owns what, and how apps call inference are in the
+[Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md). This repository documents
+the data plane only.
+
+At Oxy a request names a **model**, a **power level** (routing profile slug) or
+nothing (the app's default). Oxy resolves that before signing, so the envelope
+Kaana receives carries a model or an exact opaque routing-profile ID, never a
 vendor or profile name. Oxy authorizes and orders the exact provider
 deployments; Kaana attempts only that signed order, translates each attempt for
 the selected provider API, streams the answer back, cancels it when the caller
@@ -34,12 +41,13 @@ goes away, and reports what was consumed. During the coordinated contract
 rollout, envelope v1 is accepted only for direct model targets; its historical
 routing-profile slug is refused.
 
-Oxy authorizes one ordered list of exact Kaana `deploymentId` values. It ranks
-policy-qualified routes by explicit profile priority, then score descending,
-using exact ID code units only to break an equal-score tie. Provider/model names,
-insertion order and database order never select a route. Kaana verifies every
-signed identity against one inventory snapshot and executes the list exactly as
-received; it does not recompute the control-plane ranking.
+Oxy authorizes one ordered list of exact Kaana `deploymentId` values; how it
+orders them (profile priority, BYOK preference, funding class, score, exact ID)
+is stated once, in [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification). Kaana verifies every signed identity
+against one inventory snapshot and executes the list exactly as received,
+retrying the same route on transient failures and failing over down the list
+before the first output (`docs/routing.md`). It does not recompute the
+control-plane ranking.
 
 Do not confuse the two opaque identity layers: `deploymentId` selects one exact
 authorized deployment, while `(provider, keyId)` selects one exact encrypted
