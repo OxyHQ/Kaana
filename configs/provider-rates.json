@@ -1,0 +1,37 @@
+{
+  "$comment": [
+    "PRODUCTION rate cards: what the UPSTREAM provider charges Kaana, per deployment. Baked into the image at /etc/kaana-rates/provider-rates.json and read when the serving task sets KAANA_PROVIDER_RATES_PATH to that path. Never a customer price (docs/cost.md). Amounts are integers in 1e-12 USD.",
+    "One file is one immutable rate-card version, registered append-only in provider_rate_card_versions at startup. A changed price, or another deployment, is a NEW rateCardVersionId; reusing an id with different content stops the process.",
+    "rc_xai_realtime_2026_09_30: xAI Voice Agent (grok-voice-think-fast-2.0) under Kaana's xai-realtime slug, deployment id read back from the production inventory. xAI's list price, read 2026-09-30 at https://docs.x.ai/developers/models/speech-to-speech and https://x.ai/news/grok-voice-think-fast-2: audio $0.08 / minute; text input $0.004 per conversation.item.create. A push-to-talk session is billed for audio sent and received (audio_input_milliseconds, audio_output_milliseconds); a server_vad session for its duration (session_milliseconds), never both for one span. $0.08 / 60000 ms = 1333333.33 x 1e-12 USD per ms, truncated to 1333333 ($0.07999998/min). $0.004 = 4000000000 x 1e-12 USD per text item (requests)."
+  ],
+  "schemaVersion": 1,
+  "rateCardVersionId": "rc_xai_realtime_2026_09_30",
+  "source": "provider_documentation",
+  "sourceVersion": "docs.x.ai/developers/models/speech-to-speech@2026-09-30",
+  "observedAt": "2026-09-30T00:00:00Z",
+  "effectiveAt": "2026-09-30T00:00:00Z",
+  "rateCards": [
+    {
+      "deploymentId": "dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30",
+      "currency": "USD",
+      "rates": [
+        {
+          "unit": "audio_input_milliseconds",
+          "amountPerUnit": 1333333
+        },
+        {
+          "unit": "audio_output_milliseconds",
+          "amountPerUnit": 1333333
+        },
+        {
+          "unit": "session_milliseconds",
+          "amountPerUnit": 1333333
+        },
+        {
+          "unit": "requests",
+          "amountPerUnit": 4000000000
+        }
+      ]
+    }
+  ]
+}

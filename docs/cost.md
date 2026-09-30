@@ -32,7 +32,9 @@ unpriced units. Summing unknowns as zero yields a reconciliation that looks
 complete and is quietly short by exactly the traffic nobody priced.
 
 Rate cards are optional (`KAANA_PROVIDER_RATES_PATH`), live in their own file
-read by their own package, and are keyed by deployment id. Amounts are integers
+read by their own package, and are keyed by deployment id. Production's reviewed
+card is `configs/provider-rates.json`, baked at
+`/etc/kaana-rates/provider-rates.json` (the example file is never baked). Amounts are integers
 in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
 is comparing like with like.

@@ -635,7 +635,10 @@ pins the set and proves each row publishable there and nowhere else.
   operator cost is unknown. A rate card is keyed by deployment id, and a
   deployment id carries the date the publisher first observed the line
   (`dep_xai_realtime_grok_voice_think_fast_2_0_observed_<date>`), so the card
-  is written after the first snapshot names it, never guessed. Oxy's price
+  is written after the first snapshot names it, never guessed. It is
+  `rc_xai_realtime_2026_09_30` in `configs/provider-rates.json`, for
+  `dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30`, read by the
+  serving task through `KAANA_PROVIDER_RATES_PATH=/etc/kaana-rates/provider-rates.json`. Oxy's price
   version for the route must price `session_milliseconds` too (Oxy holds it for
   every realtime session and refuses a route that leaves it unpriced).
 - A `server_vad` session needs `createResponse: true` and
