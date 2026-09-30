@@ -64,6 +64,9 @@ var migration0010 string
 //go:embed migrations/0015_provider_rate_card_versions.sql
 var migration0015 string
 
+//go:embed migrations/0017_provider_credential_descriptions.sql
+var migration0017 string
+
 //go:embed migrations/0016_provider_attempt_telemetry.sql
 var migration0016 string
 
@@ -189,6 +192,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0014", body: migration0014},
 		{version: "0015", body: migration0015},
 		{version: "0016", body: migration0016},
+		{version: "0017", body: migration0017},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
