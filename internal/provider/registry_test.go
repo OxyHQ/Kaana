@@ -32,8 +32,42 @@ func (a blockingCredentialAdapter) PlatformCredentials() *KeyPool {
 }
 
 func (a registryAdapter) Provider() contract.ProviderSlug { return a.slug }
+func (registryAdapter) APIFormats() []contract.APIFormat {
+	return []contract.APIFormat{
+		contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatImagesGenerations,
+		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches,
+	}
+}
 func (registryAdapter) Translate(*contract.Request, Route) (*Call, error) {
 	return nil, nil
+}
+
+type declaredFormatsAdapter struct {
+	registryAdapter
+	formats []contract.APIFormat
+}
+
+func (a declaredFormatsAdapter) APIFormats() []contract.APIFormat { return a.formats }
+
+// TestRegistryRefusesAnAdapterThatDeclaresNoExecutableFamily is the
+// registration half of the request-family gate: an adapter that cannot say what
+// it executes is not registered at all, so nothing can route to it.
+func TestRegistryRefusesAnAdapterThatDeclaresNoExecutableFamily(t *testing.T) {
+	if _, err := NewRegistry(declaredFormatsAdapter{registryAdapter{slug: "groq"}, nil}); err == nil {
+		t.Error("an adapter declaring no request family was registered")
+	}
+	if _, err := NewRegistry(declaredFormatsAdapter{registryAdapter{slug: "groq"}, []contract.APIFormat{"realtime"}}); err == nil {
+		t.Error("an adapter declaring a family the contract does not name was registered")
+	}
+	// Positive control: the same adapter with a real family registers.
+	registry, err := NewRegistry(declaredFormatsAdapter{registryAdapter{slug: "groq"}, []contract.APIFormat{contract.APIFormatAudioTranscriptions}})
+	if err != nil {
+		t.Fatalf("a declaring adapter was refused: %v", err)
+	}
+	adapter, _ := registry.Lookup("groq")
+	if !Executes(adapter, contract.APIFormatAudioTranscriptions) || Executes(adapter, contract.APIFormatChatCompletions) {
+		t.Fatal("Executes does not answer from the adapter's own declaration")
+	}
 }
 func (registryAdapter) Stream(context.Context, *Call, Emitter, *KeyPool) (Outcome, error) {
 	return Outcome{}, nil

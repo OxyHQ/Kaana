@@ -93,6 +93,12 @@ type BuildResult struct {
 	// They are omitted from the snapshot; the caller warns about them, because
 	// an unattributed model is invisible in the output by construction.
 	Unattributed []string
+	// Inexecutable names attributed (provider, upstream id) pairs whose
+	// request family the provider's adapter cannot execute: a transcription
+	// model under the chat adapter, or a Realtime session model anywhere. They
+	// are omitted so no reference can route a request to an adapter that
+	// cannot faithfully serve it.
+	Inexecutable []string
 }
 
 // BuildSnapshot renders the inventory file from what the providers reported.
@@ -116,12 +122,17 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 	var (
 		deployments  []snapshotDeployment
 		unattributed []string
+		inexecutable []string
 	)
 	for _, discovery := range discoveries {
 		for _, model := range discovery.Models {
 			line, attributed := attribution.ModelLine(discovery.Provider.Slug, model.UpstreamModelID)
 			if !attributed {
 				unattributed = append(unattributed, string(discovery.Provider.Slug)+"/"+model.UpstreamModelID)
+				continue
+			}
+			if !executable(discovery.Provider, model.UpstreamModelID) {
+				inexecutable = append(inexecutable, string(discovery.Provider.Slug)+"/"+model.UpstreamModelID)
 				continue
 			}
 
@@ -181,12 +192,14 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 	}
 
 	sort.Strings(unattributed)
+	sort.Strings(inexecutable)
 	return BuildResult{
 		Body:         body,
 		SnapshotID:   file.SnapshotID,
 		Deployments:  len(deployments),
 		Observations: observations,
 		Unattributed: unattributed,
+		Inexecutable: inexecutable,
 	}, nil
 }
 

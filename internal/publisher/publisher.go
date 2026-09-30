@@ -244,6 +244,10 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	for _, dropped := range built.Inexecutable {
+		p.logger.Warn("an attributed model needs a request family its provider's adapter cannot execute; it is absent from the snapshot",
+			"model", dropped)
+	}
 	for _, dropped := range built.Unattributed {
 		p.logger.Warn("a provider serves a model nobody has attributed to a publisher; it is absent from the snapshot and no reference resolves to it",
 			"model", dropped)

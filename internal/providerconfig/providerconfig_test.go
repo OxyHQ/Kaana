@@ -1,6 +1,7 @@
 package providerconfig_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -17,8 +18,11 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 28 {
-		t.Fatalf("built-in providers = %d, want the 28 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 29 {
+		t.Fatalf("built-in providers = %d, want the 29 documented in README.md and docs/operating.md", got)
+	}
+	if endpoint := providerconfig.Known["openai-audio"]; endpoint.Protocol != providerconfig.ProtocolOpenAIAudio || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("OpenAI audio configuration = %+v", endpoint)
 	}
 	if endpoint := providerconfig.Known["deepgram"]; endpoint.Protocol != providerconfig.ProtocolDeepgramVoice || endpoint.Discovery != providerconfig.DiscoveryNotAvailable || endpoint.BaseURL != "https://api.deepgram.com/v1" {
 		t.Fatalf("Deepgram native voice configuration = %+v", endpoint)
@@ -233,6 +237,39 @@ func TestAccountScopedProviderEndpointIdentityIsExact(t *testing.T) {
 	} {
 		if err := providerconfig.ValidateEndpointIdentity(candidate.slug, candidate.raw); err == nil {
 			t.Errorf("provider %q accepted mismatched endpoint %q", candidate.slug, candidate.raw)
+		}
+	}
+}
+
+func TestOpenAIAudioIsBoundToOpenAIsOwnOrigin(t *testing.T) {
+	if err := providerconfig.ValidateEndpointIdentity("openai-audio", "https://api.openai.com/v1"); err != nil {
+		t.Fatalf("canonical origin refused: %v", err)
+	}
+	for _, other := range []string{"https://api.openai.com/v1/", "https://example.com/v1", "https://api.openai.com/v2"} {
+		if providerconfig.ValidateEndpointIdentity("openai-audio", other) == nil {
+			t.Errorf("openai-audio accepted %s", other)
+		}
+	}
+}
+
+func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
+	cases := []struct {
+		slug     contract.ProviderSlug
+		protocol string
+		want     []contract.APIFormat
+	}{
+		{"openai", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}},
+		{"siliconflow", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings}},
+		{"xai", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatAudioSpeech}},
+		{"anthropic", providerconfig.ProtocolAnthropicMessages, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}},
+		{"deepgram", providerconfig.ProtocolDeepgramVoice, []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}},
+		{"openai-audio", providerconfig.ProtocolOpenAIAudio, []contract.APIFormat{contract.APIFormatAudioTranscriptions}},
+		{"openai", "not_a_protocol", nil},
+	}
+	for _, c := range cases {
+		got := providerconfig.ExecutableAPIFormats(c.slug, c.protocol)
+		if fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%s/%s executes %v, want %v", c.slug, c.protocol, got, c.want)
 		}
 	}
 }

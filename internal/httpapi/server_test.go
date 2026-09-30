@@ -66,6 +66,12 @@ type stubAdapter struct {
 }
 
 func (s *stubAdapter) Provider() contract.ProviderSlug { return "stub" }
+func (*stubAdapter) APIFormats() []contract.APIFormat {
+	return []contract.APIFormat{
+		contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatImagesGenerations,
+		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches,
+	}
+}
 
 func (s *stubAdapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	s.mutex.Lock()

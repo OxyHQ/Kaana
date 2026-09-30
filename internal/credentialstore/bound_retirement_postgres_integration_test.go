@@ -22,6 +22,12 @@ type boundRetirementAdapter struct {
 }
 
 func (a boundRetirementAdapter) Provider() contract.ProviderSlug { return a.slug }
+func (boundRetirementAdapter) APIFormats() []contract.APIFormat {
+	return []contract.APIFormat{
+		contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatImagesGenerations,
+		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches,
+	}
+}
 func (boundRetirementAdapter) Translate(*contract.Request, provider.Route) (*provider.Call, error) {
 	return nil, errors.New("not used")
 }

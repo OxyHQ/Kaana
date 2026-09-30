@@ -152,6 +152,23 @@ func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 	}
 }
 
+// TestOpenAIAudioIsDiscoveredWithItsOwnProtocol: the transcription slug reads
+// OpenAI's account list, and carries its protocol so the snapshot builder can
+// refuse to attach a chat model to it.
+func TestOpenAIAudioIsDiscoveredWithItsOwnProtocol(t *testing.T) {
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":           "openai,openai-audio",
+		"KAANA_DISCOVERY_PROVIDERS": "openai,openai-audio",
+	}))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	if providers[0].Protocol != "openai_compatible" || providers[1].Protocol != "openai_audio" ||
+		providers[1].Discovery != "openai_models" || providers[1].BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("providers = %+v, %+v", providers[0], providers[1])
+	}
+}
+
 // TestAnUnknownSlugNeedsAnAddress: a build that guessed an address would be
 // asking somebody nobody chose.
 func TestAnUnknownSlugNeedsAnAddress(t *testing.T) {

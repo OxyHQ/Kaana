@@ -147,6 +147,12 @@ var declaredQuotaHeaders = map[contract.ProviderSlug]provider.QuotaHeaders{}
 // Provider implements provider.Adapter.
 func (a *Adapter) Provider() contract.ProviderSlug { return a.config.Provider }
 
+// APIFormats implements provider.Adapter. Embeddings and speech are provider
+// specific endpoints; the table in providerconfig names which slug has them.
+func (a *Adapter) APIFormats() []contract.APIFormat {
+	return providerconfig.ExecutableAPIFormats(a.config.Provider, providerconfig.ProtocolOpenAICompatible)
+}
+
 // Translate implements provider.Adapter.
 //
 // Every refusal below happens before a single byte is sent upstream, which is

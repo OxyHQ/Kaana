@@ -23,12 +23,17 @@ import (
 // Adapter translates the normalized inference contract into one upstream
 // provider's wire protocol and back.
 //
-// Four methods, and each exists because the concern it names has a different
+// Five methods, and each exists because the concern it names has a different
 // lifetime from the others:
 //
 //   - Provider names the slug every event and usage record attributes the work
 //     to. It comes from the adapter rather than from its registration site so a
 //     mis-registration cannot mislabel a receipt.
+//   - APIFormats declares the request families this adapter executes. It is a
+//     static fact about the adapter, not a per-request decision, so the
+//     registry can refuse an adapter that declares none and the executor can
+//     refuse a request family before Translate is ever reached: a text adapter
+//     is never handed a transcription or session request to guess about.
 //   - Translate is pure. A request this provider cannot express must be refused
 //     BEFORE anything is spent upstream, and a pure translation is testable
 //     without a network, which is what makes that refusal cheap to cover.
@@ -52,6 +57,7 @@ import (
 // re-deriving the contract each time.
 type Adapter interface {
 	Provider() contract.ProviderSlug
+	APIFormats() []contract.APIFormat
 	Translate(request *contract.Request, route Route) (*Call, error)
 	Stream(ctx context.Context, call *Call, out Emitter, credentials *KeyPool) (Outcome, error)
 	Health(ctx context.Context) Health
@@ -253,6 +259,15 @@ func NewRegistry(adapters ...Adapter) (*Registry, error) {
 		if _, duplicate := registry.adapters[slug]; duplicate {
 			return nil, fmt.Errorf("provider: two adapters claim the slug %q", slug)
 		}
+		formats := adapter.APIFormats()
+		if len(formats) == 0 {
+			return nil, fmt.Errorf("provider: %s declares no request family it can execute", slug)
+		}
+		for _, format := range formats {
+			if !format.Valid() {
+				return nil, fmt.Errorf("provider: %s declares %q, which is not an api format", slug, format)
+			}
+		}
 		registry.adapters[slug] = adapter
 	}
 	return registry, nil
@@ -373,6 +388,18 @@ func (r *Registry) Replace(adapters ...Adapter) error {
 	r.adapters = replacement.adapters
 	r.mu.Unlock()
 	return nil
+}
+
+// Executes reports whether an adapter declared a request family. The executor
+// asks before Translate, so an adapter's refusal logic is a second line rather
+// than the only thing keeping a request off an endpoint that cannot serve it.
+func Executes(adapter Adapter, format contract.APIFormat) bool {
+	for _, declared := range adapter.APIFormats() {
+		if declared == format {
+			return true
+		}
+	}
+	return false
 }
 
 // AudioEmitter extends semantic output for providers producing binary audio.

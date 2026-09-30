@@ -276,7 +276,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			break
 		}
 
-		call, err := adapter.Translate(request, route)
+		call, err := translate(adapter, request, route)
 		if err != nil {
 			// A refusal to translate is about the REQUEST, and it is terminal.
 			// Trying another deployment would make what a request means depend
@@ -411,6 +411,22 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 	refusal := e.everyRouteOutOfRotation(requestID, len(candidates), skipped, startedAt)
 	_ = emit.finishWithError(refusal)
 	return Result{Failure: refusal}
+}
+
+// translate refuses a request family the adapter never declared before its own
+// Translate runs. Every adapter also refuses what it cannot express, but that
+// refusal is written once per provider; this one is written once, so a text
+// adapter cannot be handed a transcription or session request because its own
+// checks happened to key on modality rather than on the family.
+func translate(adapter provider.Adapter, request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if !provider.Executes(adapter, request.Client.APIFormat) {
+		return nil, provider.ErrUnsupported{
+			Code:   contract.CodeUnsupportedModality,
+			Param:  "client.apiFormat",
+			Detail: fmt.Sprintf("the %s deployment does not execute %s requests", route.Provider, request.Client.APIFormat),
+		}
+	}
+	return adapter.Translate(request, route)
 }
 
 // streamAttempt confines a request-scoped customer credential pool to exactly

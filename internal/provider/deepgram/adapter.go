@@ -51,6 +51,9 @@ func New(config Config) (*Adapter, error) {
 }
 func (a *Adapter) Provider() contract.ProviderSlug        { return Slug }
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
+func (a *Adapter) APIFormats() []contract.APIFormat {
+	return providerconfig.ExecutableAPIFormats(Slug, providerconfig.ProtocolDeepgramVoice)
+}
 
 func refuse(param, message string) (*provider.Call, error) {
 	return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: param, Detail: message}

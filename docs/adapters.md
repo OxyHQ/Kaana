@@ -7,6 +7,7 @@ The `provider.Adapter` interface, the two protocol adapters, and the conformance
 ```go
 type Adapter interface {
 	Provider() contract.ProviderSlug
+	APIFormats() []contract.APIFormat
 	Translate(request *contract.Request, route Route) (*Call, error)
 	Stream(ctx context.Context, call *Call, out Emitter) (Outcome, error)
 	Health(ctx context.Context) Health
@@ -16,6 +17,12 @@ type Adapter interface {
 - **`Provider`** names the slug every event and usage record attributes work to.
   It comes from the adapter, not its registration site, so a mis-registration
   cannot mislabel a receipt.
+- **`APIFormats`** declares the request families (`client.apiFormat`) the
+  adapter executes, from the one table in `providerconfig.ExecutableAPIFormats`.
+  The registry refuses an adapter that declares none, the executor refuses an
+  undeclared family before `Translate` runs, and the publisher refuses to attach
+  a model whose family the provider's adapter cannot execute. A text adapter is
+  therefore never handed a transcription or session request to guess about.
 - **`Translate`** is pure. A request the provider cannot express is refused
   before anything is spent upstream, and a pure translation is testable with no
   network — which is what makes covering that refusal cheap.
@@ -246,6 +253,9 @@ changes, and the distinction matters:
 - **Adapters never** allocate ids, assign sequence numbers, decide terminality,
   emit `done`/`error`/`route_switch`, resolve a model reference to an upstream
   model id, or apply routing policy.
+- **Declare exactly the request families `Translate` builds a call for.** A
+  new family is a new entry in `providerconfig.ExecutableAPIFormats` and a
+  `Translate` path in the same change, never one without the other.
 - **Refuse in `Translate` what the provider cannot express**, with a
   non-retryable code and the field named. Silently dropping a parameter changes
   what the model does while reporting success.

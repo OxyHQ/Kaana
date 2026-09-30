@@ -42,6 +42,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // apiVersion is the Messages API version this adapter is written against. The
@@ -116,6 +117,11 @@ var quotaHeaders = provider.QuotaHeaders{}
 
 // Provider implements provider.Adapter.
 func (a *Adapter) Provider() contract.ProviderSlug { return Slug }
+
+// APIFormats implements provider.Adapter: the Messages API is text generation.
+func (a *Adapter) APIFormats() []contract.APIFormat {
+	return providerconfig.ExecutableAPIFormats(Slug, providerconfig.ProtocolAnthropicMessages)
+}
 
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
 

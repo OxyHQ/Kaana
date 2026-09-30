@@ -16,6 +16,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
+	"github.com/OxyHQ/Kaana/internal/provider/openaiaudio"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/rotation"
@@ -35,6 +36,44 @@ func TestDeepgramBuildsNativeVoiceAdapter(t *testing.T) {
 	}
 	if adapters[0].Health(context.Background()).Status != provider.HealthUnconfigured {
 		t.Fatal("configuration invented an account credential")
+	}
+}
+
+func TestOpenAIAudioBuildsTheTranscriptionAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "openai,openai-audio"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapters, err := buildAdapters(configs)
+	if err != nil || len(adapters) != 2 {
+		t.Fatalf("adapter construction: %v", err)
+	}
+	for _, adapter := range adapters {
+		transcribes := provider.Executes(adapter, contract.APIFormatAudioTranscriptions)
+		chats := provider.Executes(adapter, contract.APIFormatChatCompletions)
+		switch adapter.Provider() {
+		case "openai-audio":
+			if _, ok := adapter.(*openaiaudio.Adapter); !ok || !transcribes || chats {
+				t.Fatalf("openai-audio built as %T executing %v", adapter, adapter.APIFormats())
+			}
+		case "openai":
+			if transcribes || !chats {
+				t.Fatalf("the chat adapter executes %v", adapter.APIFormats())
+			}
+		}
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS":                      "openai-audio",
+		"KAANA_PROVIDER_OPENAI_AUDIO_BASE_URL": "https://example.com/v1",
+	})); err == nil {
+		t.Fatal("openai-audio accepted an origin other than OpenAI's")
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS":                     "transcriber",
+		"KAANA_PROVIDER_TRANSCRIBER_PROTOCOL": "openai_audio",
+		"KAANA_PROVIDER_TRANSCRIBER_BASE_URL": "https://api.openai.com/v1",
+	})); err == nil {
+		t.Fatal("the OpenAI audio protocol was served under another slug")
 	}
 }
 

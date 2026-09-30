@@ -83,6 +83,8 @@ var apiFormatValues = []APIFormat{
 	APIFormatAudioTranscriptions, APIFormatAudioSpeech, APIFormatRerank, APIFormatBatches,
 }
 
+func (f APIFormat) Valid() bool { return isMember(f, apiFormatValues) }
+
 // ImageDetail is a provider-independent resolution hint.
 type ImageDetail string
 
