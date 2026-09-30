@@ -70,16 +70,23 @@ func (c *capture) Usage(u []contract.UsageQuantity, _ contract.UsageSource) erro
 
 func transcriptionRequest(model, mediaType string, audio []byte) (*contract.Request, provider.Route) {
 	data := base64.StdEncoding.EncodeToString(audio)
-	return &contract.Request{
-			Modality: contract.ModalityAudio,
-			Client:   contract.ClientRequestMetadata{APIFormat: contract.APIFormatAudioTranscriptions},
-			Input: contract.Input{Format: contract.InputMessages, Messages: []contract.Message{{Role: contract.RoleUser, Content: []contract.ContentPart{{
-				Type: contract.ContentPartAudio, Source: &contract.ContentSource{Kind: contract.ContentSourceInline, Data: &data, MediaType: &mediaType},
-			}}}}},
-		}, provider.Route{
-			Provider: Slug, UpstreamModelID: model, DeploymentID: "dep_openai_audio_test",
-			ModelReference: contract.ModelReference("openai/" + model + "@observed-2026-09-30"),
-		}
+	part := contract.ContentPart{
+		Type:   contract.ContentPartAudio,
+		Source: &contract.ContentSource{Kind: contract.ContentSourceInline, Data: &data, MediaType: &mediaType},
+	}
+	request := &contract.Request{
+		Modality: contract.ModalityAudio,
+		Client:   contract.ClientRequestMetadata{APIFormat: contract.APIFormatAudioTranscriptions},
+		Input: contract.Input{
+			Format:   contract.InputMessages,
+			Messages: []contract.Message{{Role: contract.RoleUser, Content: []contract.ContentPart{part}}},
+		},
+	}
+	route := provider.Route{
+		Provider: Slug, UpstreamModelID: model, DeploymentID: "dep_openai_audio_test",
+		ModelReference: contract.ModelReference("openai/" + model + "@observed-2026-09-30"),
+	}
+	return request, route
 }
 
 // readUpload parses the request the fake received exactly as OpenAI would: a
