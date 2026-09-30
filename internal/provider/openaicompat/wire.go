@@ -260,9 +260,14 @@ type upstreamError struct {
 	// Metadata carries OpenRouter's `error_type` (rate_limit_exceeded,
 	// provider_overloaded, ...). OpenRouter sends no `type`; its `code` is the
 	// numeric HTTP status the failure would have had.
-	Metadata *struct {
-		ErrorType string `json:"error_type"`
-	} `json:"metadata"`
+	Metadata *upstreamErrorMetadata `json:"metadata"`
+}
+
+type upstreamErrorMetadata struct {
+	ErrorType string `json:"error_type"`
+	// Reasons is present on OpenRouter's moderation refusal (403), which
+	// names why the input was flagged.
+	Reasons []string `json:"reasons"`
 }
 
 // kind is the provider's own classification of a failure: OpenAI's `type`,
