@@ -429,7 +429,7 @@ func TestSpokenAnswerFailuresKeepWhatWasMeasured(t *testing.T) {
 }
 
 func TestOversizedSpokenAnswerIsRefused(t *testing.T) {
-	data := make([]byte, maxOutputAudioBytes+1)
+	data := make([]byte, maxAudioBytes+1)
 	a := adapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"choices":[{"index":0,"message":{"audio":{"data":%q,"transcript":"x"}},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
 			base64.StdEncoding.EncodeToString(data))
@@ -446,14 +446,14 @@ func TestOversizedSpokenAnswerIsRefused(t *testing.T) {
 		t.Errorf("delivered %d bytes; units %+v", len(out.audio), outcome.Units)
 	}
 	// Positive control: exactly the ceiling is delivered whole.
-	data = data[:maxOutputAudioBytes]
+	data = data[:maxAudioBytes]
 	a = adapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"choices":[{"index":0,"message":{"audio":{"data":%q,"transcript":"x"}},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
 			base64.StdEncoding.EncodeToString(data))
 	})
 	call, _ = a.Translate(r, route)
 	out = &spoken{}
-	if _, err := a.Stream(context.Background(), call, out, nil); err != nil || len(out.audio) != maxOutputAudioBytes {
+	if _, err := a.Stream(context.Background(), call, out, nil); err != nil || len(out.audio) != maxAudioBytes {
 		t.Fatalf("the contract's ceiling was refused: %v (%d bytes)", err, len(out.audio))
 	}
 }

@@ -17,29 +17,7 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 	started := Timestamp("2026-09-30T09:41:00.000Z")
 	frame := "AAAAAAAA"
 
-	audioChat := Request{
-		SchemaVersion: RequestEnvelopeVersion,
-		Attribution:   attribution,
-		Target:        RoutingTarget{Kind: TargetModel, ModelReference: pointerTo(ModelReference("openai/gpt-audio-1.5@2026-09-01"))},
-		Modality:      ModalityAudio,
-		Input: Input{Format: InputMessages, Messages: []Message{{
-			Role:    RoleUser,
-			Content: []ContentPart{{Type: ContentPartText, Text: pointerTo("say hello")}},
-		}}},
-		Stream:      true,
-		AudioOutput: &AudioOutputParameters{Voice: "alloy", Format: AudioOutputPCM},
-		Client:      ClientRequestMetadata{APIFormat: APIFormatChatCompletions, Endpoint: "/v1/chat/completions", ReceivedAt: started},
-		RoutingPolicy: RoutingPolicyReference{
-			RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3,
-		},
-		AuthorizedRoutes: []AuthorizedRoute{{
-			Substitution: SubstitutionSameModel, DeploymentID: "dep_openai_audio_chat",
-			ModelReference: "openai/gpt-audio-1.5@2026-09-01", Provider: "openai-audio", Regions: []Region{},
-		}},
-	}
-	if err := audioChat.Validate(); err != nil {
-		t.Fatalf("the audio chat fixture does not satisfy Kaana's own validation: %v", err)
-	}
+	audioChat := sampleAudioChatRequest(t)
 	audioReport := UsageReport{
 		SchemaVersion: UsageReportSchemaVersion, RequestID: session, GenerationID: attribution.GenerationID,
 		Attribution: attribution, Outcome: OutcomeCompleted,
@@ -55,113 +33,29 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 		t.Fatalf("the audio token usage report does not satisfy Kaana's own validation: %v", err)
 	}
 
-	serverVAD := RealtimeTurnDetection{
-		Type: TurnDetectionServerVAD, Threshold: pointerTo(0.5), PrefixPaddingMs: pointerTo(300),
-		SilenceDurationMs: pointerTo(500), CreateResponse: pointerTo(true), InterruptResponse: pointerTo(true),
-	}
-	config := RealtimeSessionConfig{
-		Instructions:            pointerTo("be brief"),
-		OutputModalities:        []RealtimeOutputModality{RealtimeOutputAudio},
-		Voice:                   pointerTo("marin"),
-		InputAudioFormat:        RealtimePCM16,
-		OutputAudioFormat:       pointerTo(RealtimePCM16),
-		TurnDetection:           serverVAD,
-		InputAudioTranscription: &RealtimeInputTranscription{Language: pointerTo("en"), Prompt: pointerTo("names")},
-		Tools: []ToolDefinition{{
-			Type: "function", Name: "lookup", Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
-		}},
-		ToolChoice:      &ToolChoice{Mode: pointerTo(ToolChoiceAuto)},
-		Temperature:     pointerTo(0.8),
-		MaxOutputTokens: pointerTo(4096),
-	}
-	limits := RealtimeSessionLimits{
-		MaxDurationMs: 600_000, IdleTimeoutMs: 60_000, MaxInputAudioBytes: 28_800_000,
-		MaxOutputAudioBytes: 28_800_000, MaxResponses: 200,
-	}
-	request := RealtimeSessionRequest{
-		SchemaVersion: 1, Attribution: attribution, ModelReference: "openai/gpt-realtime-2.1",
-		Kind: RealtimeConversation, Transport: RealtimeWebSocket, Config: config, Limits: limits,
-		Client: RealtimeClientMetadata{
-			Endpoint: "/v1/realtime", ClientSessionID: pointerTo("client-session-1"), ReceivedAt: started,
-			Labels: map[string]string{"team": "voice"},
-		},
-		RoutingPolicy: RoutingPolicyReference{RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3},
-		AuthorizedRoutes: []AuthorizedRoute{{
-			Substitution: SubstitutionSameModel, DeploymentID: "dep_openai_realtime",
-			ModelReference: "openai/gpt-realtime-2.1@2026-09-01", Provider: "openai-realtime", Regions: []Region{},
-		}},
-	}
-	if err := request.Validate(); err != nil {
-		t.Fatalf("the realtime session fixture does not satisfy Kaana's own validation: %v", err)
-	}
-	transcription := request
-	transcription.Kind = RealtimeTranscription
-	transcription.Config = RealtimeSessionConfig{
-		InputAudioFormat: RealtimeULaw,
-		TurnDetection: RealtimeTurnDetection{
-			Type: TurnDetectionSemanticVAD, Eagerness: pointerTo(RealtimeVADEagerness("low")),
-			CreateResponse: pointerTo(false), InterruptResponse: pointerTo(false),
-		},
-		InputAudioTranscription: &RealtimeInputTranscription{},
-	}
-	if err := transcription.Validate(); err != nil {
-		t.Fatalf("the transcription session fixture does not satisfy Kaana's own validation: %v", err)
-	}
+	request, transcription := sampleRealtimeSessions(t)
+	config, limits := request.Config, request.Limits
 
-	base := func(id string) (int, RequestID, RealtimeCommandID) { return 1, session, RealtimeCommandID(id) }
-	commands := []RealtimeCommand{}
-	add := func(command RealtimeCommand) { commands = append(commands, command) }
-	{
-		v, r, c := base("cmd-update")
-		add(&RealtimeSessionUpdateCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "session.update",
-			Config: RealtimeSessionConfigUpdate{Instructions: pointerTo("be terse"), TurnDetection: &RealtimeTurnDetection{Type: TurnDetectionNone}}})
-	}
-	{
-		v, r, c := base("cmd-item")
-		add(&RealtimeItemCreateCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "conversation.item.create",
+	commands := []RealtimeCommand{
+		&RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-update", Type: "session.update",
+			Config: RealtimeSessionConfigUpdate{Instructions: pointerTo("be terse"), TurnDetection: &RealtimeTurnDetection{Type: TurnDetectionNone}}},
+		&RealtimeItemCreateCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-item", Type: "conversation.item.create",
 			PreviousItemID: pointerTo(RealtimeItemID("item_0")),
 			Item: RealtimeConversationItem{Type: RealtimeMessageItem, Role: pointerTo(RealtimeItemRole("user")), Content: []RealtimeContentPart{
 				{Type: RealtimeInputTextPart, Text: pointerTo("hello")},
 				{Type: RealtimeInputAudioPart, Format: pointerTo(RealtimePCM16), Data: pointerTo(frame)},
-			}}})
-	}
-	{
-		v, r, c := base("cmd-delete")
-		add(&RealtimeItemDeleteCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "conversation.item.delete", ItemID: "item_1"})
-	}
-	{
-		v, r, c := base("cmd-truncate")
-		add(&RealtimeItemTruncateCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "conversation.item.truncate", ItemID: "item_2", AudioEndMs: 1500})
-	}
-	{
-		v, r, c := base("cmd-append")
-		add(&RealtimeInputAudioAppendCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "input_audio.append", Data: frame})
-	}
-	{
-		v, r, c := base("cmd-commit")
-		add(&RealtimeInputAudioCommitCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "input_audio.commit"})
-	}
-	{
-		v, r, c := base("cmd-clear")
-		add(&RealtimeInputAudioClearCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "input_audio.clear"})
-	}
-	{
-		v, r, c := base("cmd-respond")
-		add(&RealtimeResponseCreateCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "response.create",
+			}}},
+		&RealtimeItemDeleteCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-delete", Type: "conversation.item.delete", ItemID: "item_1"},
+		&RealtimeItemTruncateCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-truncate", Type: "conversation.item.truncate", ItemID: "item_2", AudioEndMs: 1500},
+		&RealtimeInputAudioAppendCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-append", Type: "input_audio.append", Data: frame},
+		&RealtimeInputAudioCommitCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-commit", Type: "input_audio.commit"},
+		&RealtimeInputAudioClearCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-clear", Type: "input_audio.clear"},
+		&RealtimeResponseCreateCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-respond", Type: "response.create",
 			Response: &RealtimeResponseParameters{Instructions: pointerTo("answer"), OutputModalities: []RealtimeOutputModality{RealtimeOutputText},
-				MaxOutputTokens: pointerTo(100), ToolChoice: &ToolChoice{Mode: pointerTo(ToolChoiceNone)}}})
-	}
-	{
-		v, r, c := base("cmd-cancel")
-		add(&RealtimeResponseCancelCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "response.cancel", ResponseID: pointerTo(RealtimeResponseID("resp_1"))})
-	}
-	{
-		v, r, c := base("cmd-resume")
-		add(&RealtimeSessionResumeCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "session.resume", AfterSequence: -1})
-	}
-	{
-		v, r, c := base("cmd-close")
-		add(&RealtimeSessionCloseCommand{SchemaVersion: v, RequestID: r, CommandID: c, Type: "session.close"})
+				MaxOutputTokens: pointerTo(100), ToolChoice: &ToolChoice{Mode: pointerTo(ToolChoiceNone)}}},
+		&RealtimeResponseCancelCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-cancel", Type: "response.cancel", ResponseID: pointerTo(RealtimeResponseID("resp_1"))},
+		&RealtimeSessionResumeCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-resume", Type: "session.resume", AfterSequence: -1},
+		&RealtimeSessionCloseCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-close", Type: "session.close"},
 	}
 
 	answering := pointerTo(RealtimeCommandID("cmd-respond"))
@@ -235,18 +129,17 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 // published schemas must refuse.
 func realtimeInvalidFixtures(t *testing.T) []fixture {
 	t.Helper()
-	valid := realtimeValidFixtures(t)
-	request := valid[3].Value.(RealtimeSessionRequest)
+	request, transcription := sampleRealtimeSessions(t)
 
 	substituted := request
 	substituted.AuthorizedRoutes = []AuthorizedRoute{{
 		Substitution: SubstitutionCrossModel, DeploymentID: "dep_other",
 		ModelReference: "openai/gpt-5@2026-05-01", Provider: "openai",
 	}}
-	transcriptionThatResponds := valid[4].Value.(RealtimeSessionRequest)
+	transcriptionThatResponds := transcription
 	transcriptionThatResponds.Config.Voice = pointerTo("marin")
 
-	audioChat := valid[0].Value.(Request)
+	audioChat := sampleAudioChatRequest(t)
 	audioChat.AudioOutput = &AudioOutputParameters{Voice: "alloy", Format: "mp3"}
 
 	return []fixture{
@@ -339,4 +232,98 @@ func TestRealtimeDiscriminatorsMatchThePublishedUnions(t *testing.T) {
 			}
 		}
 	}
+}
+
+// sampleAudioChatRequest is a streamed spoken-output chat request that Kaana
+// and the published schema both accept.
+func sampleAudioChatRequest(t *testing.T) Request {
+	t.Helper()
+	attribution := sampleAttribution()
+	started := Timestamp("2026-09-30T09:41:00.000Z")
+	audioChat := Request{
+		SchemaVersion: RequestEnvelopeVersion,
+		Attribution:   attribution,
+		Target:        RoutingTarget{Kind: TargetModel, ModelReference: pointerTo(ModelReference("openai/gpt-audio-1.5@2026-09-01"))},
+		Modality:      ModalityAudio,
+		Input: Input{Format: InputMessages, Messages: []Message{{
+			Role:    RoleUser,
+			Content: []ContentPart{{Type: ContentPartText, Text: pointerTo("say hello")}},
+		}}},
+		Stream:      true,
+		AudioOutput: &AudioOutputParameters{Voice: "alloy", Format: AudioOutputPCM},
+		Client:      ClientRequestMetadata{APIFormat: APIFormatChatCompletions, Endpoint: "/v1/chat/completions", ReceivedAt: started},
+		RoutingPolicy: RoutingPolicyReference{
+			RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3,
+		},
+		AuthorizedRoutes: []AuthorizedRoute{{
+			Substitution: SubstitutionSameModel, DeploymentID: "dep_openai_audio_chat",
+			ModelReference: "openai/gpt-audio-1.5@2026-09-01", Provider: "openai-audio", Regions: []Region{},
+		}},
+	}
+	if err := audioChat.Validate(); err != nil {
+		t.Fatalf("the audio chat fixture does not satisfy Kaana's own validation: %v", err)
+	}
+	return audioChat
+}
+
+// sampleRealtimeSessions is a conversation session with every optional field
+// and a transcription session, both valid to Kaana and the published schema.
+func sampleRealtimeSessions(t *testing.T) (RealtimeSessionRequest, RealtimeSessionRequest) {
+	t.Helper()
+	attribution := sampleAttribution()
+	started := Timestamp("2026-09-30T09:41:00.000Z")
+	serverVAD := RealtimeTurnDetection{
+		Type: TurnDetectionServerVAD, Threshold: pointerTo(0.5), PrefixPaddingMs: pointerTo(300),
+		SilenceDurationMs: pointerTo(500), CreateResponse: pointerTo(true), InterruptResponse: pointerTo(true),
+	}
+	config := RealtimeSessionConfig{
+		Instructions:            pointerTo("be brief"),
+		OutputModalities:        []RealtimeOutputModality{RealtimeOutputAudio},
+		Voice:                   pointerTo("marin"),
+		InputAudioFormat:        RealtimePCM16,
+		OutputAudioFormat:       pointerTo(RealtimePCM16),
+		TurnDetection:           serverVAD,
+		InputAudioTranscription: &RealtimeInputTranscription{Language: pointerTo("en"), Prompt: pointerTo("names")},
+		Tools: []ToolDefinition{{
+			Type: "function", Name: "lookup", Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
+		}},
+		ToolChoice:      &ToolChoice{Mode: pointerTo(ToolChoiceAuto)},
+		Temperature:     pointerTo(0.8),
+		MaxOutputTokens: pointerTo(4096),
+	}
+	limits := RealtimeSessionLimits{
+		MaxDurationMs: 600_000, IdleTimeoutMs: 60_000, MaxInputAudioBytes: 28_800_000,
+		MaxOutputAudioBytes: 28_800_000, MaxResponses: 200,
+	}
+	request := RealtimeSessionRequest{
+		SchemaVersion: 1, Attribution: attribution, ModelReference: "openai/gpt-realtime-2.1",
+		Kind: RealtimeConversation, Transport: RealtimeWebSocket, Config: config, Limits: limits,
+		Client: RealtimeClientMetadata{
+			Endpoint: "/v1/realtime", ClientSessionID: pointerTo("client-session-1"), ReceivedAt: started,
+			Labels: map[string]string{"team": "voice"},
+		},
+		RoutingPolicy: RoutingPolicyReference{RoutingPolicyID: "rp_01JQZ", PolicyVersion: 3},
+		AuthorizedRoutes: []AuthorizedRoute{{
+			Substitution: SubstitutionSameModel, DeploymentID: "dep_openai_realtime",
+			ModelReference: "openai/gpt-realtime-2.1@2026-09-01", Provider: "openai-realtime", Regions: []Region{},
+		}},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("the realtime session fixture does not satisfy Kaana's own validation: %v", err)
+	}
+	transcription := request
+	transcription.Kind = RealtimeTranscription
+	transcription.Config = RealtimeSessionConfig{
+		InputAudioFormat: RealtimeULaw,
+		TurnDetection: RealtimeTurnDetection{
+			Type: TurnDetectionSemanticVAD, Eagerness: pointerTo(RealtimeVADEagerness("low")),
+			CreateResponse: pointerTo(false), InterruptResponse: pointerTo(false),
+		},
+		InputAudioTranscription: &RealtimeInputTranscription{},
+	}
+	if err := transcription.Validate(); err != nil {
+		t.Fatalf("the transcription session fixture does not satisfy Kaana's own validation: %v", err)
+	}
+
+	return request, transcription
 }

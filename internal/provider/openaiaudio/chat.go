@@ -29,14 +29,6 @@ import (
 //   - https://developers.openai.com/api/reference/resources/chat
 //   - https://developers.openai.com/api/docs/models/gpt-audio-1.5
 
-// maxOutputAudioBytes is the contract's MAX_INFERENCE_AUDIO_BYTES: the most one
-// folded audio output may hold at the edge and in the SDK. An answer longer
-// than that could not be delivered whole, so it is cut here rather than there.
-const maxOutputAudioBytes = 20 << 20
-
-// maxAudioChunkBytes is the most raw audio one contract audio event carries.
-const maxAudioChunkBytes = 49152
-
 // maxChatResponseBytes bounds a non-streamed answer: the base64 of the largest
 // audio the contract can carry, plus its transcript and usage.
 const maxChatResponseBytes = 32 << 20
@@ -176,7 +168,7 @@ func (a *Adapter) translateChat(r *contract.Request, route provider.Route) (*pro
 	if err != nil {
 		return nil, fmt.Errorf("openaiaudio: encoding the chat request: %w", err)
 	}
-	call := &provider.Call{Route: route, Method: http.MethodPost, URL: a.base + "/chat/completions", Body: encoded, Header: make(http.Header), Stream: r.Stream}
+	call := &provider.Call{Route: route, Method: http.MethodPost, URL: a.base + "/chat/completions", Body: encoded, Header: make(http.Header), Stream: r.Stream, AudioMediaType: format.mediaType}
 	call.Header.Set("Content-Type", "application/json")
 	call.Header.Set("Accept", map[bool]string{true: "text/event-stream", false: "application/json"}[r.Stream])
 	return call, nil
@@ -224,9 +216,11 @@ func translateChatMessage(message contract.Message) (chatMessage, error) {
 			if len(*source.Data) > base64.StdEncoding.EncodedLen(maxAudioBytes) {
 				return chatMessage{}, provider.ErrUnsupported{Code: contract.CodeRequestTooLarge, Param: param, Detail: "input audio exceeds 20 MiB"}
 			}
-			decoded, err := base64.StdEncoding.Strict().DecodeString(*source.Data)
-			if err != nil || len(decoded) == 0 {
-				return chatMessage{}, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: param, Detail: "input audio must be nonempty base64"}
+			// Validated as it streams through the decoder: the base64 text is
+			// what is forwarded, so the decoded bytes are never kept.
+			decoded, err := io.Copy(io.Discard, base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(*source.Data)))
+			if err != nil || decoded == 0 || decoded > maxAudioBytes {
+				return chatMessage{}, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: param, Detail: "input audio must be nonempty base64 of at most 20 MiB"}
 			}
 			audio := audioPart{Type: "input_audio"}
 			audio.InputAudio.Data, audio.InputAudio.Format = *source.Data, wire
@@ -273,15 +267,19 @@ type chatAudio struct {
 	Transcript *string `json:"transcript"`
 }
 
+// chatChoiceBody is what one choice carries, whether as a stream `delta` or a
+// whole `message`.
+type chatChoiceBody struct {
+	Content *string    `json:"content"`
+	Refusal *string    `json:"refusal"`
+	Audio   *chatAudio `json:"audio"`
+}
+
 type chatChunk struct {
 	Choices []struct {
-		Index int `json:"index"`
-		Delta struct {
-			Content *string    `json:"content"`
-			Refusal *string    `json:"refusal"`
-			Audio   *chatAudio `json:"audio"`
-		} `json:"delta"`
-		FinishReason *string `json:"finish_reason"`
+		Index        int            `json:"index"`
+		Delta        chatChoiceBody `json:"delta"`
+		FinishReason *string        `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *chatUsage     `json:"usage"`
 	Error *upstreamError `json:"error"`
@@ -289,13 +287,9 @@ type chatChunk struct {
 
 type chatCompletion struct {
 	Choices []struct {
-		Index   int `json:"index"`
-		Message struct {
-			Content *string    `json:"content"`
-			Refusal *string    `json:"refusal"`
-			Audio   *chatAudio `json:"audio"`
-		} `json:"message"`
-		FinishReason *string `json:"finish_reason"`
+		Index        int            `json:"index"`
+		Message      chatChoiceBody `json:"message"`
+		FinishReason *string        `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *chatUsage `json:"usage"`
 }
@@ -389,7 +383,9 @@ func (w *audioWriter) write(ctx context.Context, index int, encoded string) erro
 	if encoded == "" {
 		return nil
 	}
-	if base64.StdEncoding.DecodedLen(len(encoded)) > maxOutputAudioBytes-w.total+3 {
+	// maxAudioBytes is also the most one folded audio answer may hold at the
+	// edge and in the SDK, so an answer longer than that is cut here.
+	if base64.StdEncoding.DecodedLen(len(encoded)) > maxAudioBytes-w.total+3 {
 		return invalidChatResponse("more audio than one answer may carry")
 	}
 	data, err := base64.StdEncoding.Strict().DecodeString(encoded)
@@ -397,37 +393,10 @@ func (w *audioWriter) write(ctx context.Context, index int, encoded string) erro
 		return invalidChatResponse("audio that is not base64")
 	}
 	w.total += len(data)
-	if w.total > maxOutputAudioBytes {
+	if w.total > maxAudioBytes {
 		return invalidChatResponse("more audio than one answer may carry")
 	}
-	for len(data) > 0 {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		size := min(len(data), maxAudioChunkBytes)
-		if err := w.out.Audio(index, w.mediaType, data[:size]); err != nil {
-			return err
-		}
-		data = data[size:]
-	}
-	return nil
-}
-
-// chatMediaType recovers the media type from the call this adapter built, so
-// Stream labels the audio exactly as Translate asked for it.
-func chatMediaType(call *provider.Call) (string, error) {
-	var sent struct {
-		Audio audioParams `json:"audio"`
-	}
-	if err := json.Unmarshal(call.Body, &sent); err != nil {
-		return "", fmt.Errorf("openaiaudio: reading the translated chat call: %w", err)
-	}
-	for _, format := range outputFormats {
-		if format.wire == sent.Audio.Format {
-			return format.mediaType, nil
-		}
-	}
-	return "", fmt.Errorf("openaiaudio: the translated chat call names no audio format")
+	return provider.EmitAudio(ctx, w.out, index, w.mediaType, data)
 }
 
 func (a *Adapter) streamChat(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
@@ -436,9 +405,8 @@ func (a *Adapter) streamChat(ctx context.Context, call *provider.Call, out provi
 	if !ok {
 		return outcome, fmt.Errorf("openaiaudio: the emitter cannot carry audio")
 	}
-	mediaType, err := chatMediaType(call)
-	if err != nil {
-		return outcome, err
+	if call.AudioMediaType == "" {
+		return outcome, fmt.Errorf("openaiaudio: the translated chat call names no audio format")
 	}
 	if credentials == nil {
 		credentials = a.credentials
@@ -449,7 +417,7 @@ func (a *Adapter) streamChat(ctx context.Context, call *provider.Call, out provi
 		return outcome, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	writer := &audioWriter{out: audio, mediaType: mediaType}
+	writer := &audioWriter{out: audio, mediaType: call.AudioMediaType}
 	var measured provider.Outcome
 	if call.Stream {
 		measured, err = a.readChatStream(ctx, response.Body, call, writer, key)
@@ -490,31 +458,12 @@ func (a *Adapter) readChatStream(ctx context.Context, body io.Reader, call *prov
 		if chunk.Error != nil {
 			return outcome, a.streamFailure(*chunk.Error, key)
 		}
-		if chunk.Usage != nil {
-			units, consistent := chunk.Usage.units()
-			if !consistent {
-				return outcome, invalidChatResponse("an inconsistent usage report")
-			}
-			outcome.Units, outcome.UsageSource = units, contract.UsageProviderReported
+		if err := applyUsage(chunk.Usage, &outcome); err != nil {
+			return outcome, err
 		}
 		for _, choice := range chunk.Choices {
-			if err := emitText(out, choice.Index, choice.Delta.Content, choice.Delta.Refusal); err != nil {
+			if err := emitChoice(ctx, audio, choice.Index, choice.Delta, choice.FinishReason, &outcome); err != nil {
 				return outcome, err
-			}
-			if spoken := choice.Delta.Audio; spoken != nil {
-				if spoken.Transcript != nil && *spoken.Transcript != "" {
-					if err := out.Delta(choice.Index, contract.ChannelOutputAudioTranscript, *spoken.Transcript); err != nil {
-						return outcome, err
-					}
-				}
-				if spoken.Data != nil {
-					if err := audio.write(ctx, choice.Index, *spoken.Data); err != nil {
-						return outcome, err
-					}
-				}
-			}
-			if choice.FinishReason != nil {
-				outcome.FinishReason = finishReason(*choice.FinishReason)
 			}
 		}
 	}
@@ -527,15 +476,7 @@ func (a *Adapter) readChatStream(ctx context.Context, body io.Reader, call *prov
 	if !terminated {
 		return outcome, a.TransportFailure(ctx, io.ErrUnexpectedEOF)
 	}
-	if outcome.UsageSource == contract.UsageProviderReported {
-		if err := out.Usage(outcome.Units, outcome.UsageSource); err != nil {
-			return outcome, err
-		}
-	}
-	if outcome.FinishReason == "" {
-		outcome.FinishReason = contract.FinishStop
-	}
-	return outcome, nil
+	return outcome, finishAnswer(out, &outcome)
 }
 
 // readChatCompletion consumes a non-streamed answer: the whole audio file in
@@ -556,12 +497,8 @@ func (a *Adapter) readChatCompletion(ctx context.Context, body io.Reader, call *
 	}
 	// Units are measured before anything is delivered: OpenAI bills the
 	// answer it generated whether or not it reaches the customer.
-	if completion.Usage != nil {
-		units, consistent := completion.Usage.units()
-		if !consistent {
-			return outcome, invalidChatResponse("an inconsistent usage report")
-		}
-		outcome.Units, outcome.UsageSource = units, contract.UsageProviderReported
+	if err := applyUsage(completion.Usage, &outcome); err != nil {
+		return outcome, err
 	}
 	if err := ctx.Err(); err != nil {
 		return outcome, err
@@ -571,34 +508,63 @@ func (a *Adapter) readChatCompletion(ctx context.Context, body io.Reader, call *
 		return outcome, err
 	}
 	for _, choice := range completion.Choices {
-		if err := emitText(out, choice.Index, choice.Message.Content, choice.Message.Refusal); err != nil {
+		if err := emitChoice(ctx, audio, choice.Index, choice.Message, choice.FinishReason, &outcome); err != nil {
 			return outcome, err
-		}
-		if spoken := choice.Message.Audio; spoken != nil {
-			if spoken.Transcript != nil && *spoken.Transcript != "" {
-				if err := out.Delta(choice.Index, contract.ChannelOutputAudioTranscript, *spoken.Transcript); err != nil {
-					return outcome, err
-				}
-			}
-			if spoken.Data != nil {
-				if err := audio.write(ctx, choice.Index, *spoken.Data); err != nil {
-					return outcome, err
-				}
-			}
-		}
-		if choice.FinishReason != nil {
-			outcome.FinishReason = finishReason(*choice.FinishReason)
 		}
 	}
+	return outcome, finishAnswer(out, &outcome)
+}
+
+// applyUsage records a reported usage block on the outcome, refusing one whose
+// parts do not add up rather than clamping it.
+func applyUsage(usage *chatUsage, outcome *provider.Outcome) error {
+	if usage == nil {
+		return nil
+	}
+	units, consistent := usage.units()
+	if !consistent {
+		return invalidChatResponse("an inconsistent usage report")
+	}
+	outcome.Units, outcome.UsageSource = units, contract.UsageProviderReported
+	return nil
+}
+
+// emitChoice forwards one choice's text, spoken words and audio, and records
+// its finish reason.
+func emitChoice(ctx context.Context, audio *audioWriter, index int, body chatChoiceBody, finish *string, outcome *provider.Outcome) error {
+	if err := emitText(audio.out, index, body.Content, body.Refusal); err != nil {
+		return err
+	}
+	if spoken := body.Audio; spoken != nil {
+		if spoken.Transcript != nil && *spoken.Transcript != "" {
+			if err := audio.out.Delta(index, contract.ChannelOutputAudioTranscript, *spoken.Transcript); err != nil {
+				return err
+			}
+		}
+		if spoken.Data != nil {
+			if err := audio.write(ctx, index, *spoken.Data); err != nil {
+				return err
+			}
+		}
+	}
+	if finish != nil {
+		outcome.FinishReason = finishReason(*finish)
+	}
+	return nil
+}
+
+// finishAnswer emits reported usage and settles the finish reason an answer
+// that named none ended with.
+func finishAnswer(out provider.Emitter, outcome *provider.Outcome) error {
 	if outcome.UsageSource == contract.UsageProviderReported {
 		if err := out.Usage(outcome.Units, outcome.UsageSource); err != nil {
-			return outcome, err
+			return err
 		}
 	}
 	if outcome.FinishReason == "" {
 		outcome.FinishReason = contract.FinishStop
 	}
-	return outcome, nil
+	return nil
 }
 
 // emitText forwards text the model wrote rather than spoke, and a refusal, on

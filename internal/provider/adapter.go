@@ -112,6 +112,9 @@ type Call struct {
 	// providers express it in the body and Kaana has to know without re-reading
 	// it.
 	Stream bool
+	// AudioMediaType is the media type of the audio this call asks the upstream
+	// to produce, for a response that does not name it. It is never sent.
+	AudioMediaType string
 }
 
 // Outcome is what an adapter measured, and it is returned even when Stream
@@ -400,6 +403,25 @@ func Executes(adapter Adapter, format contract.APIFormat) bool {
 		}
 	}
 	return false
+}
+
+// MaxAudioChunkBytes is the most raw audio one contract audio event carries.
+const MaxAudioChunkBytes = 49152
+
+// EmitAudio sends raw audio as bounded audio events, stopping between chunks
+// once ctx is done.
+func EmitAudio(ctx context.Context, out AudioEmitter, outputIndex int, mediaType string, data []byte) error {
+	for len(data) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		size := min(len(data), MaxAudioChunkBytes)
+		if err := out.Audio(outputIndex, mediaType, data[:size]); err != nil {
+			return err
+		}
+		data = data[size:]
+	}
+	return nil
 }
 
 // AudioEmitter extends semantic output for providers producing binary audio.

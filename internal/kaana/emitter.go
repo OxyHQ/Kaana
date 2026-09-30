@@ -341,7 +341,7 @@ func (e *emitter) Audio(outputIndex int, mediaType string, data []byte) error {
 	if err := e.requireStarted(contract.EventAudio); err != nil {
 		return err
 	}
-	if outputIndex < 0 || len(data) == 0 || len(data) > 49152 {
+	if outputIndex < 0 || len(data) == 0 || len(data) > provider.MaxAudioChunkBytes {
 		return fmt.Errorf("kaana: invalid audio index or chunk size")
 	}
 	switch mediaType {

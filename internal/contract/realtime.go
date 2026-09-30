@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 	"unicode/utf16"
 )
 
@@ -28,6 +30,8 @@ const (
 	// MaxRealtimeResumeWindowMs is the longest a dropped connection may be
 	// resumed after.
 	MaxRealtimeResumeWindowMs = 60_000
+
+	maxRealtimeInstructions = 32_768
 )
 
 // RealtimeCommandID is a client-chosen command identity, unique within one
@@ -209,10 +213,10 @@ type RealtimeInputTranscription struct {
 }
 
 func (t RealtimeInputTranscription) validate() error {
-	if t.Language != nil && (utf16Length(*t.Language) < 2 || utf16Length(*t.Language) > 35) {
+	if !boundedText(t.Language, 2, 35) {
 		return fmt.Errorf("inputAudioTranscription.language is a BCP 47 tag")
 	}
-	if t.Prompt != nil && utf16Length(*t.Prompt) > 4_096 {
+	if !boundedText(t.Prompt, 0, 4_096) {
 		return fmt.Errorf("inputAudioTranscription.prompt is at most 4096 characters")
 	}
 	return nil
@@ -425,7 +429,7 @@ func ValidateRealtimeAudioFrame(data string) error {
 	if len(data) < 4 || len(data) > MaxRealtimeAudioFrameBase64Length || len(data)%4 != 0 {
 		return fmt.Errorf("an audio frame is 4 to %d characters of padded base64", MaxRealtimeAudioFrameBase64Length)
 	}
-	if _, err := base64.StdEncoding.DecodeString(data); err != nil {
+	if _, err := io.Copy(io.Discard, base64.NewDecoder(base64.StdEncoding, strings.NewReader(data))); err != nil {
 		return fmt.Errorf("an audio frame is padded base64")
 	}
 	return nil
@@ -434,17 +438,17 @@ func ValidateRealtimeAudioFrame(data string) error {
 // DecodedRealtimeAudioBytes is the number of audio bytes a valid frame holds,
 // which is what a session's audio ceilings are counted in.
 func DecodedRealtimeAudioBytes(data string) int {
-	return base64.StdEncoding.DecodedLen(len(data)) - bytes.Count([]byte(data[max(0, len(data)-2):]), []byte("="))
+	return base64.StdEncoding.DecodedLen(len(data)) - strings.Count(data[max(0, len(data)-2):], "=")
 }
 
 func (c RealtimeSessionConfig) validate() error {
-	if c.Instructions != nil && utf16Length(*c.Instructions) > 32_768 {
+	if !boundedText(c.Instructions, 0, maxRealtimeInstructions) {
 		return fmt.Errorf("config.instructions is at most 32768 characters")
 	}
 	if err := validateOutputModalities(c.OutputModalities); err != nil {
 		return err
 	}
-	if c.Voice != nil && (utf16Length(*c.Voice) < 1 || utf16Length(*c.Voice) > 64) {
+	if !boundedText(c.Voice, 1, 64) {
 		return fmt.Errorf("config.voice is 1 to 64 characters")
 	}
 	if !isMember(c.InputAudioFormat, realtimeAudioFormatValues) ||
@@ -459,7 +463,7 @@ func (c RealtimeSessionConfig) validate() error {
 			return fmt.Errorf("config: %w", err)
 		}
 	}
-	if c.Translation != nil && (utf16Length(c.Translation.TargetLanguage) < 2 || utf16Length(c.Translation.TargetLanguage) > 35) {
+	if c.Translation != nil && !boundedText(&c.Translation.TargetLanguage, 2, 35) {
 		return fmt.Errorf("config.translation.targetLanguage is a BCP 47 tag")
 	}
 	return validateSharedConfig(c.Tools, c.ToolChoice, c.Temperature, c.MaxOutputTokens)
@@ -483,18 +487,17 @@ func validateOutputModalities(modalities []RealtimeOutputModality) error {
 }
 
 func validateSharedConfig(tools []ToolDefinition, choice *ToolChoice, temperature *float64, maxOutputTokens *int) error {
+	if err := validateTuning(tools, temperature, maxOutputTokens); err != nil {
+		return err
+	}
+	return validateToolDeclarations(tools, choice, "session")
+}
+
+// validateTuning holds the ranges a session configuration and a session update
+// share. The update schema has no tool-declaration refinement, so it stops here.
+func validateTuning(tools []ToolDefinition, temperature *float64, maxOutputTokens *int) error {
 	if len(tools) > 128 {
 		return fmt.Errorf("config.tools holds at most 128 tools")
-	}
-	if choice != nil && len(tools) == 0 {
-		return fmt.Errorf("config.toolChoice requires at least one tool definition")
-	}
-	names := make(map[string]bool, len(tools))
-	for _, tool := range tools {
-		if names[tool.Name] {
-			return fmt.Errorf("tool names must be unique within one session (%q repeats)", tool.Name)
-		}
-		names[tool.Name] = true
 	}
 	if temperature != nil && (*temperature < 0 || *temperature > 2) {
 		return fmt.Errorf("config.temperature is between 0 and 2")
@@ -558,7 +561,7 @@ func (r *RealtimeSessionRequest) Validate() error {
 		case config.OutputModalities != nil || config.Voice != nil || config.OutputAudioFormat != nil ||
 			config.Translation != nil || config.Tools != nil || config.ToolChoice != nil || config.MaxOutputTokens != nil:
 			return fmt.Errorf("contract: a transcription session never responds")
-		case config.TurnDetection.Type != TurnDetectionNone && config.TurnDetection.createsOrInterrupts():
+		case config.TurnDetection.createsOrInterrupts():
 			return fmt.Errorf("contract: a transcription session has no response to create or interrupt")
 		}
 	case RealtimeTranslation:
@@ -570,26 +573,17 @@ func (r *RealtimeSessionRequest) Validate() error {
 		}
 	}
 
-	if len(r.AuthorizedRoutes) == 0 {
-		return fmt.Errorf("contract: authorizedRoutes must contain at least one route")
+	if err := validateRouteList(r.AuthorizedRoutes); err != nil {
+		return err
 	}
 	line := r.ModelReference.ModelID()
-	deployments := make(map[DeploymentID]bool, len(r.AuthorizedRoutes))
-	for index := range r.AuthorizedRoutes {
-		route := r.AuthorizedRoutes[index]
-		if err := route.validate(); err != nil {
-			return fmt.Errorf("contract: authorizedRoutes[%d]: %w", index, err)
-		}
+	for index, route := range r.AuthorizedRoutes {
 		if route.Substitution != SubstitutionSameModel || route.ModelReference.ModelID() != line {
 			return fmt.Errorf("contract: authorizedRoutes[%d]: every route of a session serves the model it named", index)
 		}
 		if r.ModelReference.Pinned() && route.ModelReference != r.ModelReference {
 			return fmt.Errorf("contract: authorizedRoutes[%d].modelReference: a pinned session is served on exactly the revision it pinned", index)
 		}
-		if deployments[route.DeploymentID] {
-			return fmt.Errorf("contract: each deployment appears at most once in the authorized route list")
-		}
-		deployments[route.DeploymentID] = true
 	}
 	return nil
 }
@@ -597,6 +591,22 @@ func (r *RealtimeSessionRequest) Validate() error {
 /* -------------------------------------------------------------------------- */
 /*  Decoding client commands                                                  */
 /* -------------------------------------------------------------------------- */
+
+// realtimeCommandConstructors maps each command discriminator to the type it
+// decodes into.
+var realtimeCommandConstructors = map[RealtimeCommandType]func() RealtimeCommand{
+	RealtimeCommandSessionUpdateType:    func() RealtimeCommand { return &RealtimeSessionUpdateCommand{} },
+	RealtimeCommandItemCreateType:       func() RealtimeCommand { return &RealtimeItemCreateCommand{} },
+	RealtimeCommandItemDeleteType:       func() RealtimeCommand { return &RealtimeItemDeleteCommand{} },
+	RealtimeCommandItemTruncateType:     func() RealtimeCommand { return &RealtimeItemTruncateCommand{} },
+	RealtimeCommandInputAudioAppendType: func() RealtimeCommand { return &RealtimeInputAudioAppendCommand{} },
+	RealtimeCommandInputAudioCommitType: func() RealtimeCommand { return &RealtimeInputAudioCommitCommand{} },
+	RealtimeCommandInputAudioClearType:  func() RealtimeCommand { return &RealtimeInputAudioClearCommand{} },
+	RealtimeCommandResponseCreateType:   func() RealtimeCommand { return &RealtimeResponseCreateCommand{} },
+	RealtimeCommandResponseCancelType:   func() RealtimeCommand { return &RealtimeResponseCancelCommand{} },
+	RealtimeCommandSessionResumeType:    func() RealtimeCommand { return &RealtimeSessionResumeCommand{} },
+	RealtimeCommandSessionCloseType:     func() RealtimeCommand { return &RealtimeSessionCloseCommand{} },
+}
 
 // DecodeRealtimeCommand decodes and validates one client text frame. Unknown
 // fields are refused, as the published strict shapes refuse them, and every
@@ -608,33 +618,11 @@ func DecodeRealtimeCommand(frame []byte, session RequestID) (RealtimeCommand, er
 	if err := json.Unmarshal(frame, &probe); err != nil {
 		return nil, fmt.Errorf("contract: a realtime frame is one JSON command")
 	}
-	var command RealtimeCommand
-	switch probe.Type {
-	case RealtimeCommandSessionUpdateType:
-		command = &RealtimeSessionUpdateCommand{}
-	case RealtimeCommandItemCreateType:
-		command = &RealtimeItemCreateCommand{}
-	case RealtimeCommandItemDeleteType:
-		command = &RealtimeItemDeleteCommand{}
-	case RealtimeCommandItemTruncateType:
-		command = &RealtimeItemTruncateCommand{}
-	case RealtimeCommandInputAudioAppendType:
-		command = &RealtimeInputAudioAppendCommand{}
-	case RealtimeCommandInputAudioCommitType:
-		command = &RealtimeInputAudioCommitCommand{}
-	case RealtimeCommandInputAudioClearType:
-		command = &RealtimeInputAudioClearCommand{}
-	case RealtimeCommandResponseCreateType:
-		command = &RealtimeResponseCreateCommand{}
-	case RealtimeCommandResponseCancelType:
-		command = &RealtimeResponseCancelCommand{}
-	case RealtimeCommandSessionResumeType:
-		command = &RealtimeSessionResumeCommand{}
-	case RealtimeCommandSessionCloseType:
-		command = &RealtimeSessionCloseCommand{}
-	default:
+	construct, known := realtimeCommandConstructors[probe.Type]
+	if !known {
 		return nil, fmt.Errorf("contract: %q is not a realtime command", probe.Type)
 	}
+	command := construct()
 	decoder := json.NewDecoder(bytes.NewReader(frame))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(command); err != nil {
@@ -667,7 +655,7 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 			update.Temperature == nil && update.MaxOutputTokens == nil {
 			return fmt.Errorf("contract: a session update changes at least one field")
 		}
-		if update.Instructions != nil && utf16Length(*update.Instructions) > 32_768 {
+		if !boundedText(update.Instructions, 0, maxRealtimeInstructions) {
 			return fmt.Errorf("contract: config.instructions is at most 32768 characters")
 		}
 		if err := validateOutputModalities(update.OutputModalities); err != nil {
@@ -683,9 +671,8 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 				return fmt.Errorf("contract: %w", err)
 			}
 		}
-		if len(update.Tools) > 128 || (update.Temperature != nil && (*update.Temperature < 0 || *update.Temperature > 2)) ||
-			(update.MaxOutputTokens != nil && *update.MaxOutputTokens <= 0) {
-			return fmt.Errorf("contract: the session update is out of range")
+		if err := validateTuning(update.Tools, update.Temperature, update.MaxOutputTokens); err != nil {
+			return fmt.Errorf("contract: %w", err)
 		}
 	case *RealtimeItemCreateCommand:
 		schemaVersion = c.SchemaVersion
@@ -717,7 +704,7 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 	case *RealtimeResponseCreateCommand:
 		schemaVersion = c.SchemaVersion
 		if response := c.Response; response != nil {
-			if response.Instructions != nil && utf16Length(*response.Instructions) > 32_768 {
+			if !boundedText(response.Instructions, 0, maxRealtimeInstructions) {
 				return fmt.Errorf("contract: response.instructions is at most 32768 characters")
 			}
 			if err := validateOutputModalities(response.OutputModalities); err != nil {
@@ -748,4 +735,21 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 
 func boundedID(value string) bool { return value != "" && utf16Length(value) <= 128 }
 
-func utf16Length(value string) int { return len(utf16.Encode([]rune(value))) }
+// utf16Length is a string's length as the published schemas measure it, in
+// UTF-16 code units, counted without allocating.
+func utf16Length(value string) int {
+	length := 0
+	for _, r := range value {
+		length += utf16.RuneLen(r)
+	}
+	return length
+}
+
+// boundedText reports whether an optional string is within a UTF-16 length.
+func boundedText(value *string, minimum, maximum int) bool {
+	if value == nil {
+		return true
+	}
+	length := utf16Length(*value)
+	return length >= minimum && length <= maximum
+}

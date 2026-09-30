@@ -287,7 +287,6 @@ type RealtimeEventHeader struct {
 type RealtimeServerEvent interface {
 	EventType() RealtimeEventType
 	Stamp(header RealtimeEventHeader)
-	Header() RealtimeEventHeader
 }
 
 type RealtimeSessionCreatedEvent struct {
@@ -313,9 +312,6 @@ func (*RealtimeSessionCreatedEvent) EventType() RealtimeEventType {
 func (e *RealtimeSessionCreatedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventSessionCreatedType)
 }
-func (e *RealtimeSessionCreatedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeSessionUpdatedEvent struct {
 	SchemaVersion int                   `json:"schemaVersion"`
@@ -332,9 +328,6 @@ func (*RealtimeSessionUpdatedEvent) EventType() RealtimeEventType {
 func (e *RealtimeSessionUpdatedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventSessionUpdatedType)
 }
-func (e *RealtimeSessionUpdatedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeSessionResumedEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -350,9 +343,6 @@ func (*RealtimeSessionResumedEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeSessionResumedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventSessionResumedType)
-}
-func (e *RealtimeSessionResumedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeCommandAcceptedEvent struct {
@@ -373,10 +363,6 @@ func (e *RealtimeCommandAcceptedEvent) Stamp(h RealtimeEventHeader) {
 		e.CommandID = *h.CommandID
 	}
 }
-func (e *RealtimeCommandAcceptedEvent) Header() RealtimeEventHeader {
-	commandID := e.CommandID
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: &commandID}
-}
 
 type RealtimeItemAddedEvent struct {
 	SchemaVersion  int                      `json:"schemaVersion"`
@@ -393,9 +379,6 @@ func (*RealtimeItemAddedEvent) EventType() RealtimeEventType { return RealtimeEv
 func (e *RealtimeItemAddedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventItemAddedType)
 }
-func (e *RealtimeItemAddedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeItemDoneEvent struct {
 	SchemaVersion int                      `json:"schemaVersion"`
@@ -411,9 +394,6 @@ func (*RealtimeItemDoneEvent) EventType() RealtimeEventType { return RealtimeEve
 func (e *RealtimeItemDoneEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventItemDoneType)
 }
-func (e *RealtimeItemDoneEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeItemDeletedEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -427,9 +407,6 @@ type RealtimeItemDeletedEvent struct {
 func (*RealtimeItemDeletedEvent) EventType() RealtimeEventType { return RealtimeEventItemDeletedType }
 func (e *RealtimeItemDeletedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventItemDeletedType)
-}
-func (e *RealtimeItemDeletedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeItemTruncatedEvent struct {
@@ -449,9 +426,6 @@ func (*RealtimeItemTruncatedEvent) EventType() RealtimeEventType {
 func (e *RealtimeItemTruncatedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventItemTruncatedType)
 }
-func (e *RealtimeItemTruncatedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeSpeechStartedEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -468,9 +442,6 @@ func (*RealtimeSpeechStartedEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeSpeechStartedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventSpeechStartedType)
-}
-func (e *RealtimeSpeechStartedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeSpeechStoppedEvent struct {
@@ -489,9 +460,6 @@ func (*RealtimeSpeechStoppedEvent) EventType() RealtimeEventType {
 func (e *RealtimeSpeechStoppedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventSpeechStoppedType)
 }
-func (e *RealtimeSpeechStoppedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeInputAudioCommittedEvent struct {
 	SchemaVersion  int                `json:"schemaVersion"`
@@ -509,9 +477,6 @@ func (*RealtimeInputAudioCommittedEvent) EventType() RealtimeEventType {
 func (e *RealtimeInputAudioCommittedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventInputAudioCommittedType)
 }
-func (e *RealtimeInputAudioCommittedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeInputAudioClearedEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -526,9 +491,6 @@ func (*RealtimeInputAudioClearedEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeInputAudioClearedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventInputAudioClearedType)
-}
-func (e *RealtimeInputAudioClearedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeResponseCreatedEvent struct {
@@ -545,9 +507,6 @@ func (*RealtimeResponseCreatedEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeResponseCreatedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventResponseCreatedType)
-}
-func (e *RealtimeResponseCreatedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeOutputAudioDeltaEvent struct {
@@ -569,9 +528,6 @@ func (*RealtimeOutputAudioDeltaEvent) EventType() RealtimeEventType {
 func (e *RealtimeOutputAudioDeltaEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventOutputAudioDeltaType)
 }
-func (e *RealtimeOutputAudioDeltaEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeOutputAudioDoneEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -589,9 +545,6 @@ func (*RealtimeOutputAudioDoneEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeOutputAudioDoneEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventOutputAudioDoneType)
-}
-func (e *RealtimeOutputAudioDoneEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeTranscriptDeltaEvent struct {
@@ -613,9 +566,6 @@ func (*RealtimeTranscriptDeltaEvent) EventType() RealtimeEventType {
 func (e *RealtimeTranscriptDeltaEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventTranscriptDeltaType)
 }
-func (e *RealtimeTranscriptDeltaEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeTranscriptDoneEvent struct {
 	SchemaVersion int                      `json:"schemaVersion"`
@@ -636,9 +586,6 @@ func (*RealtimeTranscriptDoneEvent) EventType() RealtimeEventType {
 func (e *RealtimeTranscriptDoneEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventTranscriptDoneType)
 }
-func (e *RealtimeTranscriptDoneEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeTextDeltaEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -655,9 +602,6 @@ type RealtimeTextDeltaEvent struct {
 func (*RealtimeTextDeltaEvent) EventType() RealtimeEventType { return RealtimeEventTextDeltaType }
 func (e *RealtimeTextDeltaEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventTextDeltaType)
-}
-func (e *RealtimeTextDeltaEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeToolCallEvent struct {
@@ -678,9 +622,6 @@ func (*RealtimeToolCallEvent) EventType() RealtimeEventType { return RealtimeEve
 func (e *RealtimeToolCallEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventToolCallType)
 }
-func (e *RealtimeToolCallEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeResponseDoneEvent struct {
 	SchemaVersion int                    `json:"schemaVersion"`
@@ -700,9 +641,6 @@ func (*RealtimeResponseDoneEvent) EventType() RealtimeEventType { return Realtim
 func (e *RealtimeResponseDoneEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventResponseDoneType)
 }
-func (e *RealtimeResponseDoneEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
-}
 
 type RealtimeErrorEvent struct {
 	SchemaVersion int                `json:"schemaVersion"`
@@ -717,9 +655,6 @@ type RealtimeErrorEvent struct {
 func (*RealtimeErrorEvent) EventType() RealtimeEventType { return RealtimeEventErrorType }
 func (e *RealtimeErrorEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventErrorType)
-}
-func (e *RealtimeErrorEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }
 
 type RealtimeSessionClosedEvent struct {
@@ -740,7 +675,4 @@ func (*RealtimeSessionClosedEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeSessionClosedEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventSessionClosedType)
-}
-func (e *RealtimeSessionClosedEvent) Header() RealtimeEventHeader {
-	return RealtimeEventHeader{SchemaVersion: e.SchemaVersion, RequestID: e.RequestID, Sequence: e.Sequence, CommandID: e.CommandID}
 }

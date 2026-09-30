@@ -115,15 +115,5 @@ func (a *Adapter) streamSpeech(ctx context.Context, call *provider.Call, out pro
 	if err := audio.Usage(outcome.Units, outcome.UsageSource); err != nil {
 		return outcome, err
 	}
-	for len(data) > 0 {
-		if err := ctx.Err(); err != nil {
-			return outcome, err
-		}
-		size := min(len(data), 49152)
-		if err := audio.Audio(0, mediaType, data[:size]); err != nil {
-			return outcome, err
-		}
-		data = data[size:]
-	}
-	return outcome, nil
+	return outcome, provider.EmitAudio(ctx, audio, 0, mediaType, data)
 }

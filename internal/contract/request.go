@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"unicode/utf16"
 )
 
 // The discriminated unions below are flattened: one Go struct per union,
@@ -404,7 +403,7 @@ func (r *Request) Validate() error {
 			return fmt.Errorf("contract: audioOutput: spoken output from a conversational model requires the chat_completions API format")
 		case r.Modality != ModalityAudio || r.Input.Format != InputMessages:
 			return fmt.Errorf("contract: audioOutput: spoken output requires audio modality and a messages input")
-		case len(r.AudioOutput.Voice) == 0 || len(utf16.Encode([]rune(r.AudioOutput.Voice))) > 64:
+		case len(r.AudioOutput.Voice) == 0 || utf16Length(r.AudioOutput.Voice) > 64:
 			return fmt.Errorf("contract: audioOutput.voice must be 1 to 64 characters")
 		case !r.AudioOutput.Format.Valid():
 			return fmt.Errorf("contract: audioOutput.format %q is not an audio output format", r.AudioOutput.Format)
@@ -416,7 +415,7 @@ func (r *Request) Validate() error {
 		if r.Client.APIFormat != APIFormatAudioSpeech || r.Modality != ModalityAudio || r.Input.Format != InputText || r.Stream {
 			return fmt.Errorf("contract: speech requires non-streaming audio_speech with text input")
 		}
-		if len(r.Speech.Voice) == 0 || len(utf16.Encode([]rune(r.Speech.Voice))) > 64 || !r.Speech.ResponseFormat.Valid() {
+		if len(r.Speech.Voice) == 0 || utf16Length(r.Speech.Voice) > 64 || !r.Speech.ResponseFormat.Valid() {
 			return fmt.Errorf("contract: invalid speech voice or response format")
 		}
 		if r.Speech.Speed != nil && (*r.Speech.Speed < 0.25 || *r.Speech.Speed > 4) {
@@ -454,15 +453,8 @@ func (r *Request) Validate() error {
 	if r.MaxOutputTokens != nil && *r.MaxOutputTokens <= 0 {
 		return fmt.Errorf("contract: maxOutputTokens must be positive")
 	}
-	if r.ToolChoice != nil && len(r.Tools) == 0 {
-		return fmt.Errorf("contract: a tool choice requires at least one tool definition")
-	}
-	seenTools := make(map[string]struct{}, len(r.Tools))
-	for _, tool := range r.Tools {
-		if _, duplicate := seenTools[tool.Name]; duplicate {
-			return fmt.Errorf("contract: tool names must be unique within one request (%q repeats)", tool.Name)
-		}
-		seenTools[tool.Name] = struct{}{}
+	if err := validateToolDeclarations(r.Tools, r.ToolChoice, "request"); err != nil {
+		return fmt.Errorf("contract: %w", err)
 	}
 	if err := r.validateAuthorizedRoutes(); err != nil {
 		return err
@@ -470,14 +462,45 @@ func (r *Request) Validate() error {
 	return nil
 }
 
-func (r *Request) validateAuthorizedRoutes() error {
-	if len(r.AuthorizedRoutes) == 0 {
+// validateToolDeclarations holds the tool rules every envelope shares: a tool
+// choice needs a tool, and tool names are unique within the request or session
+// that declares them.
+func validateToolDeclarations(tools []ToolDefinition, choice *ToolChoice, scope string) error {
+	if choice != nil && len(tools) == 0 {
+		return fmt.Errorf("a tool choice requires at least one tool definition")
+	}
+	seen := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		if _, duplicate := seen[tool.Name]; duplicate {
+			return fmt.Errorf("tool names must be unique within one %s (%q repeats)", scope, tool.Name)
+		}
+		seen[tool.Name] = struct{}{}
+	}
+	return nil
+}
+
+// validateRouteList holds the route rules every envelope shares: at least one
+// route, each well formed, and no deployment named twice.
+func validateRouteList(routes []AuthorizedRoute) error {
+	if len(routes) == 0 {
 		return fmt.Errorf("contract: authorizedRoutes must contain at least one route")
 	}
-	for index := range r.AuthorizedRoutes {
-		if err := r.AuthorizedRoutes[index].validate(); err != nil {
+	seen := make(map[DeploymentID]struct{}, len(routes))
+	for index := range routes {
+		if err := routes[index].validate(); err != nil {
 			return fmt.Errorf("contract: authorizedRoutes[%d]: %w", index, err)
 		}
+		if _, duplicate := seen[routes[index].DeploymentID]; duplicate {
+			return fmt.Errorf("contract: authorizedRoutes: each deployment appears at most once in the authorized route list (%q repeats)", routes[index].DeploymentID)
+		}
+		seen[routes[index].DeploymentID] = struct{}{}
+	}
+	return nil
+}
+
+func (r *Request) validateAuthorizedRoutes() error {
+	if err := validateRouteList(r.AuthorizedRoutes); err != nil {
+		return err
 	}
 
 	primary := r.AuthorizedRoutes[0]
@@ -503,7 +526,6 @@ func (r *Request) validateAuthorizedRoutes() error {
 		}
 	}
 
-	seenDeployments := make(map[DeploymentID]struct{}, len(r.AuthorizedRoutes))
 	for index, route := range r.AuthorizedRoutes {
 		line := route.ModelReference.ModelID()
 		if route.Substitution == SubstitutionSameModel && line != primaryLine {
@@ -512,10 +534,6 @@ func (r *Request) validateAuthorizedRoutes() error {
 		if route.Substitution == SubstitutionCrossModel && line == primaryLine {
 			return fmt.Errorf("contract: authorizedRoutes[%d].substitution: route serves %s, so it is same-model failover", index, primaryLine)
 		}
-		if _, duplicate := seenDeployments[route.DeploymentID]; duplicate {
-			return fmt.Errorf("contract: authorizedRoutes: each deployment appears at most once in the authorized route list (%q repeats)", route.DeploymentID)
-		}
-		seenDeployments[route.DeploymentID] = struct{}{}
 	}
 	return nil
 }
