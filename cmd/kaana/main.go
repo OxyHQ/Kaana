@@ -36,6 +36,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
@@ -283,8 +284,16 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// Realtime sessions are held in this task's memory and authenticated by
+	// the same inference signature, over each connection's first frame.
+	sessions, err := realtime.NewManager(realtime.Config{Opener: executor, Verifier: verifier, Logger: logger})
+	if err != nil {
+		return err
+	}
+
 	server, err := httpapi.New(httpapi.Config{
 		Executor:            executor,
+		Realtime:            sessions,
 		Verifier:            verifier,
 		ValidationVerifier:  validationVerifier,
 		CredentialValidator: credentialValidator,
@@ -377,7 +386,17 @@ func run(logger *slog.Logger) error {
 		// drain would cut streams a customer is already being charged for.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		// A realtime session is a hijacked connection the HTTP server no
+		// longer tracks, and it would outlive any drain on its own: each is
+		// closed with server_shutdown and settled, concurrently with the
+		// HTTP drain.
+		drained := make(chan error, 1)
+		go func() { drained <- sessions.Shutdown(shutdownCtx) }()
+		serverErr := httpServer.Shutdown(shutdownCtx)
+		if sessionErr := <-drained; sessionErr != nil {
+			logger.Error("realtime sessions did not settle within the drain", "error", sessionErr)
+		}
+		return serverErr
 	}
 }
 
