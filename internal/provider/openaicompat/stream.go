@@ -48,6 +48,11 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	if credentials == nil {
 		credentials = a.credentials
 	}
+	var watch *provider.StreamWatch
+	if call.Stream {
+		ctx, watch = provider.WatchStream(ctx, a.config.StreamIdleTimeout)
+		defer watch.Stop()
+	}
 	response, key, err := provider.Walk(ctx, credentials, call, a)
 	outcome.KeyID, outcome.KeyClass = key.ID, key.Class
 	if err != nil {
@@ -63,7 +68,17 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	// Stamped here, once, on whichever path ran: the key is chosen by the walk
 	// above and every return below is an attempt that spent it.
 	if call.Stream {
-		outcome, err = a.readStream(ctx, response.Body, call, out, key)
+		watch.Arm()
+		outcome, err = a.readStream(ctx, response.Body, call, out, key, watch)
+		if err != nil && watch.Stalled() {
+			// The upstream answered its headers and then went quiet. Report the
+			// timeout it is, so the request can be retried, rather than the
+			// cancelled read it looks like from here.
+			err = provider.ErrUpstream{
+				Code: contract.CodeProviderTimeout, Category: contract.UpstreamTimeout,
+				Detail: fmt.Sprintf("%s sent nothing for %s", a.config.Provider, watch.Idle()),
+			}
+		}
 	} else {
 		outcome, err = a.readComplete(response.Body, call, out, key)
 	}
@@ -91,7 +106,7 @@ func (a *Adapter) readEmbedding(body io.Reader, key provider.Key) (provider.Outc
 }
 
 // readStream consumes the provider's SSE stream.
-func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider.Call, out provider.Emitter, key provider.Key) (provider.Outcome, error) {
+func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider.Call, out provider.Emitter, key provider.Key, watch *provider.StreamWatch) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 
 	if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
@@ -107,6 +122,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 		if !more {
 			break
 		}
+		watch.Progress()
 		if frame.Data == "" {
 			continue
 		}

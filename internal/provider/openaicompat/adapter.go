@@ -61,6 +61,10 @@ type Config struct {
 	// is never legitimately unbounded. A nil client answers nothing at all and
 	// waits forever, so it is for tests only — see provider.BoundResponseHeaders.
 	HTTPClient *http.Client
+	// StreamIdleTimeout bounds how long a streamed response may go without a
+	// real frame once its headers are in. Zero takes
+	// provider.DefaultStreamIdleTimeout.
+	StreamIdleTimeout time.Duration
 }
 
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
