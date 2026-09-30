@@ -78,6 +78,10 @@ const (
 	// replayed as normal inference even when both surfaces trust the same Oxy
 	// signing key.
 	credentialValidationDomainSeparator = "oxy-kaana-credential-validation:v1"
+	// providerTelemetryDomainSeparator scopes the operator-only telemetry read:
+	// an inference signature cannot read upstream costs, and a telemetry read
+	// signature cannot run inference.
+	providerTelemetryDomainSeparator = "oxy-kaana-provider-telemetry:v1"
 )
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
@@ -131,6 +135,12 @@ func NewPlatformCredentialControlVerifier(keys map[string]ed25519.PublicKey, max
 // assigning that key a distinct signed purpose.
 func NewCredentialValidationVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
 	return newVerifier(keys, maxSkew, credentialValidationDomainSeparator)
+}
+
+// NewProviderTelemetryVerifier builds the verifier for Oxy's read of Kaana's
+// operator telemetry: attempt costs and credential economics.
+func NewProviderTelemetryVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, providerTelemetryDomainSeparator)
 }
 
 func newVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration, domain string) (*Verifier, error) {
@@ -212,6 +222,12 @@ func PlatformCredentialControlSigningInput(keyID string, timestampMillis int64, 
 // bootstrap operation.
 func CredentialValidationSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	return signingInput(credentialValidationDomainSeparator, keyID, timestampMillis, body)
+}
+
+// ProviderTelemetrySigningInput is the exact input Oxy signs to read operator
+// telemetry.
+func ProviderTelemetrySigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(providerTelemetryDomainSeparator, keyID, timestampMillis, body)
 }
 
 func signingInput(domain, keyID string, timestampMillis int64, body []byte) []byte {

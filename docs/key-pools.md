@@ -198,6 +198,33 @@ It is never a provider/product name and never comes from the secret. `Position`
 is only the explicit pool order copied with the row; it is not identity and no
 admin operation resolves a credential through it.
 
+## Protected credential metadata
+
+A key's identity is its opaque `(provider, keyId)` and nothing else. What an
+operator knows about it lives beside the secret row, never in it (migration
+`0017`), and only `kaana_credential_admin` can read or write it:
+
+- **Funding account** — an opaque `kfa_` id and a protected label such as the
+  account's email. Keys naming the same account are the operator stating they
+  share capacity; Kaana never infers two keys are independent. An account's
+  label never changes under its id.
+- **Description** — title, capacity category (`trial`, `promotional`,
+  `prepaid`, `paid`), environment, commercial-use eligibility with the
+  evidence it rests on **for that exact key** (never inferred from the
+  category: a trial key can carry an explicit grant), and optional
+  model/capability restrictions. Every put is kept whole under its `kcm_`
+  operation id; a replay is idempotent and a reused id with another document
+  fails closed.
+- **Capacity evidence** — append-only quota, balance or expiry observations,
+  each with its source and `freshUntil`. Evidence without `freshUntil` is never
+  fresh, so a stale balance is never read as a current one.
+
+`kaana-credentials put-credential-metadata` and `record-capacity-evidence` read
+their JSON document from stdin (never argv, where an email would sit in shell
+history); `list-credential-metadata` shows descriptions with the keys that share
+each funding account and the latest evidence of each kind. The label-free part
+is what Oxy reads on the operator feed (`cost.md`).
+
 ## Where the credentials come from
 
 PostgreSQL is the only durable store. Each key is one row carrying its provider,
@@ -271,14 +298,19 @@ change to.
   selector. Neither is the secret or a hash of it, since a fingerprint confirms
   a guess.
 - **Class is stated, never inferred**, and **unstated is not paid** — the
-  measurement behind both is in "Key class" above. An unclassified pool keeps
-  the order it was declared in, so classifying one key moves that key and
-  disturbs no other.
+  measurement behind both is in "Key class" above. A pool is walked `free`,
+  then unstated in declared order, then `paid`; an unclassified pool keeps the
+  order it was declared in, so classifying one key moves that key and disturbs
+  no other.
 - **A 402 is the platform's account refusing to be billed**, and it must retire
   the key. It reached the default branch once and became `invalid_request`,
   which told the customer their request was at fault and kept spending an
   account that cannot pay. The contract code is `provider_billing_refused`
   (`architecture.md`, finding 6).
+
+- **Operator metadata is admin-only and never an identity.** A label, email or
+  commercial-use evidence text is readable by `kaana_credential_admin` alone;
+  no runtime path, feed or response carries it.
 
 ### Rotation
 

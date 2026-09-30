@@ -200,6 +200,13 @@ func walkRepositoryIdentity(root string, legacyFiles map[string]bool) []string {
 			if relative == "build" || relative == "dist" {
 				return filepath.SkipDir
 			}
+			// A nested checkout (a git worktree under .worktrees/ or an agent's
+			// worktree) is another copy of the repository, not this tree's content.
+			if relative != "." {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 

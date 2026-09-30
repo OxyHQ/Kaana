@@ -36,6 +36,10 @@ type emitter struct {
 	terminated    bool
 	sinkFailed    bool
 	firstOutputAt time.Time
+	// attemptOutputAt is when the attempt currently being served produced its
+	// first output. serving resets it, so a failover measures its own attempt
+	// rather than inheriting the one it replaced.
+	attemptOutputAt time.Time
 	// admittedAt is when Kaana began executing, NOT when the upstream started
 	// answering. Time to first token measured from the upstream's response
 	// headers would exclude connection and queueing time, which is most of what
@@ -58,6 +62,18 @@ func newEmitter(sink Sink, request *contract.Request, generationID *contract.Gen
 func (e *emitter) serving(slug contract.ProviderSlug, deployment contract.DeploymentID) {
 	e.provider = slug
 	e.deployment = deployment
+	e.attemptOutputAt = time.Time{}
+}
+
+// markOutput records the first output of the request and of the attempt.
+func (e *emitter) markOutput() {
+	now := time.Now()
+	if e.firstOutputAt.IsZero() {
+		e.firstOutputAt = now
+	}
+	if e.attemptOutputAt.IsZero() {
+		e.attemptOutputAt = now
+	}
 }
 
 func (e *emitter) next() int {
@@ -110,8 +126,8 @@ func (e *emitter) Delta(outputIndex int, channel contract.DeltaChannel, text str
 	if outputIndex < 0 {
 		return fmt.Errorf("kaana: output index %d is negative", outputIndex)
 	}
-	if e.firstOutputAt.IsZero() && text != "" {
-		e.firstOutputAt = time.Now()
+	if text != "" {
+		e.markOutput()
 	}
 	err := e.send(&contract.StreamDeltaEvent{
 		SchemaVersion: contract.SchemaVersion,
@@ -338,9 +354,7 @@ func (e *emitter) Audio(outputIndex int, mediaType string, data []byte) error {
 		MediaType: contract.AudioMediaType(mediaType), Data: base64.StdEncoding.EncodeToString(data)})
 	if err == nil {
 		e.estimate.outputDelivered = true
-		if e.firstOutputAt.IsZero() {
-			e.firstOutputAt = time.Now()
-		}
+		e.markOutput()
 	}
 	return err
 }

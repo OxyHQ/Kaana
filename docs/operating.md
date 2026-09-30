@@ -369,6 +369,17 @@ a migration. Run `migrate`, including for migration `0011`. Terraform may create
 the service only after the required migration succeeds; until the service is
 `ACTIVE`, image deployment skips it rather than inventing infrastructure.
 
+Migrations `0015`–`0018` (#72) are additive and must be applied before a
+binary that uses them is deployed: the runtime registers its rate-card version
+through `0015` at startup, records attempts through `0016`'s function, and
+serves the operator feed through `0018`'s. They follow the same gate as `0011`:
+pin the release, run `migrate`, then deploy. The previous cost-recording
+function stays granted, so tasks built before `0016` keep recording during the
+rollout. `0018` builds an index on `provider_cost_events` inside the migration
+transaction; it blocks cost writes for as long as the build takes, which is
+why the lock timeout is five seconds and a busy table fails the migration
+rather than stalling serving.
+
 ### Add or rotate a key
 
 Plaintext is accepted only on standard input:

@@ -577,7 +577,8 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 	seenSecret := make(map[string]int, len(declarations))
 	seenID := make(map[string]int, len(declarations))
 	free := make([]*pooledKey, 0, len(declarations))
-	rest := make([]*pooledKey, 0, len(declarations))
+	unstated := make([]*pooledKey, 0, len(declarations))
+	paid := make([]*pooledKey, 0, len(declarations))
 
 	for index, declaration := range declarations {
 		position := index + 1
@@ -630,19 +631,23 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: secret,
 			reason: declaration.State.Reason, retiredUntil: retiredUntil, runtime: declaration.Runtime,
 			evidence: declaration.State.Evidence, observedAt: declaration.State.ObservedAt}
-		if declaration.Class == KeyClassFree {
+		switch declaration.Class {
+		case KeyClassFree:
 			free = append(free, key)
-			continue
+		case KeyClassPaid:
+			paid = append(paid, key)
+		default:
+			unstated = append(unstated, key)
 		}
-		rest = append(rest, key)
 	}
 
-	// FREE FIRST, AND ONLY WHAT WAS STATED FREE. Everything else keeps the order
-	// it was declared in, which is what every deployment predating KeyClass
-	// relies on: a pool of unstated keys comes out exactly as it went in. The
-	// alternative — treating unstated as paid — would reorder a live pool the
-	// first time somebody classified one key.
-	pool.keys = append(free, rest...)
+	// FREE FIRST, PAID LAST, AND ONLY WHAT WAS STATED. Unstated keys sit between
+	// the two in the order they were declared, which is what every deployment
+	// predating KeyClass relies on: a pool of unstated keys comes out exactly as
+	// it went in. Treating unstated as paid instead would reorder a live pool
+	// the first time somebody classified one key; treating it as free would
+	// spend a funded key ahead of one the operator said costs nothing.
+	pool.keys = append(append(free, unstated...), paid...)
 	return pool, nil
 }
 

@@ -75,3 +75,86 @@ func TestProviderCostBatchMigrationIsOneAtomicRuntimeCall(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderAttemptTelemetryMigrationReplaysEveryMeasuredFact(t *testing.T) {
+	for _, required := range []string{
+		"ADD COLUMN usage_units JSONB",
+		"ADD COLUMN latency_ms INTEGER",
+		"ADD COLUMN time_to_first_output_ms INTEGER",
+		"attempt_outcome IN ('succeeded', 'failed', 'cancelled')",
+		"time_to_first_output_ms BETWEEN 0 AND latency_ms",
+		"CREATE FUNCTION kaana_record_provider_attempt_events(",
+		"provider attempt event lacks its telemetry",
+		"existing.usage_units IS DISTINCT FROM event->'usage_units'",
+		"existing.latency_ms IS DISTINCT FROM (event->>'latency_ms')::INTEGER",
+		"existing.failure_code IS DISTINCT FROM event->>'failure_code'",
+		"provider cost event identity conflict",
+		"SECURITY DEFINER",
+		"REVOKE ALL ON FUNCTION kaana_record_provider_attempt_events(JSONB) FROM PUBLIC",
+		"GRANT EXECUTE ON FUNCTION kaana_record_provider_attempt_events(JSONB) TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0016, required) {
+			t.Errorf("provider attempt telemetry migration lost %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"GRANT INSERT", "GRANT UPDATE", "GRANT DELETE", "GRANT SELECT",
+		"balance", "reservation", "account_label", "COMMIT",
+	} {
+		if strings.Contains(strings.ToUpper(migration0016), strings.ToUpper(forbidden)) {
+			t.Errorf("provider attempt telemetry migration contains forbidden %q", forbidden)
+		}
+	}
+}
+
+func TestRateCardVersionMigrationIsAppendOnly(t *testing.T) {
+	for _, required := range []string{
+		"CREATE TABLE provider_rate_card_versions",
+		"version_id TEXT PRIMARY KEY",
+		"source IN ('provider_api', 'provider_documentation', 'operator')",
+		"BEFORE UPDATE OR DELETE ON provider_rate_card_versions",
+		"BEFORE TRUNCATE ON provider_rate_card_versions",
+		"provider rate card versions are append-only",
+		"provider rate card version conflict",
+		"REVOKE ALL ON provider_rate_card_versions FROM PUBLIC",
+		"GRANT SELECT ON provider_rate_card_versions TO kaana_credential_admin",
+		"TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0015, required) {
+			t.Errorf("rate card version migration lost %q", required)
+		}
+	}
+	for _, forbidden := range []string{"GRANT INSERT", "GRANT UPDATE", "GRANT DELETE", "COMMIT"} {
+		if strings.Contains(strings.ToUpper(migration0015), forbidden) {
+			t.Errorf("rate card version migration contains forbidden %q", forbidden)
+		}
+	}
+	if !strings.Contains(migration0016, "provider rate card version is not registered") {
+		t.Error("attempt events no longer require the rate card version they name to be registered")
+	}
+}
+
+func TestTelemetryFeedMigrationReadsOnlyThroughLabelFreeFunctions(t *testing.T) {
+	for _, required := range []string{
+		"CREATE FUNCTION kaana_read_provider_attempt_feed(",
+		"clock_timestamp() - INTERVAL '15 seconds'",
+		"(e.created_at, e.request_id, e.attempt_index) >",
+		"p_limit NOT BETWEEN 1 AND 500",
+		"CREATE FUNCTION kaana_read_provider_credential_economics()",
+		"WHERE c.enabled",
+		"TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0018, required) {
+			t.Errorf("telemetry feed migration lost %q", required)
+		}
+	}
+	// The feed may never project a protected or secret column.
+	for _, forbidden := range []string{
+		"account_label", "commercial_use_evidence", "encrypted_secret", "kms_key_arn", "note",
+		"GRANT SELECT", "GRANT INSERT", "GRANT UPDATE", "GRANT DELETE",
+	} {
+		if strings.Contains(migration0018, forbidden) {
+			t.Errorf("telemetry feed migration contains %q", forbidden)
+		}
+	}
+}

@@ -341,6 +341,63 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(policies)
 
+	case "put-credential-metadata", "record-capacity-evidence":
+		flags := flag.NewFlagSet(arguments[0], flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return fmt.Errorf("usage: kaana-credentials %s < document.json", arguments[0])
+		}
+		document, err := readDocument(stdin)
+		if err != nil {
+			return err
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		var outcome, subject string
+		if arguments[0] == "put-credential-metadata" {
+			metadata, err := credentialstore.ParseCredentialMetadata(document)
+			if err != nil {
+				return err
+			}
+			if outcome, err = repository.PutCredentialMetadata(ctx, metadata, mutationActor); err != nil {
+				return err
+			}
+			subject = metadata.OperationID
+		} else {
+			evidence, err := credentialstore.ParseCapacityEvidence(document)
+			if err != nil {
+				return err
+			}
+			if outcome, err = repository.RecordCapacityEvidence(ctx, evidence, mutationActor); err != nil {
+				return err
+			}
+			subject = evidence.EvidenceID
+		}
+		_, err = fmt.Fprintf(stdout, "%s %s\n", subject, outcome)
+		return err
+
+	case "list-credential-metadata":
+		flags := flag.NewFlagSet("list-credential-metadata", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return errors.New("usage: kaana-credentials list-credential-metadata")
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		metadata, err := repository.ListCredentialMetadata(ctx, time.Now())
+		if err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(metadata)
+
 	case "list-deployment-bindings":
 		flags := flag.NewFlagSet("list-deployment-bindings", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -463,5 +520,25 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies|put-credential-metadata|record-capacity-evidence|list-credential-metadata>")
+}
+
+// maxDocumentBytes bounds a metadata or evidence document read from stdin.
+const maxDocumentBytes = 64 << 10
+
+// readDocument reads one operator document from stdin. Metadata is protected
+// rather than secret, but it still arrives the same way as a key: never in
+// argv, where an account email would sit in shell history.
+func readDocument(input io.Reader) ([]byte, error) {
+	document, err := io.ReadAll(io.LimitReader(input, maxDocumentBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading document from stdin: %w", err)
+	}
+	if len(document) > maxDocumentBytes {
+		return nil, fmt.Errorf("document exceeds %d bytes", maxDocumentBytes)
+	}
+	if len(bytes.TrimSpace(document)) == 0 {
+		return nil, errors.New("no document on stdin")
+	}
+	return document, nil
 }
