@@ -52,13 +52,26 @@ type dialect struct {
 	// modalities are sent on every response.create the client does not
 	// override — which, under push-to-talk, is every response the session
 	// has. Under server_vad xAI creates the responses itself, with modalities
-	// no client field sets, so such a session must at least speak
-	// (wireTurnDetection).
+	// no client field sets.
 	sessionModalities bool
 	// responseModalitiesField is the response.create field that carries them.
 	responseModalitiesField string
 	// oneModality is OpenAI GA's "one output modality per response".
 	oneModality bool
+	// alwaysSpeaks is a provider that answers aloud whatever output
+	// modalities it is sent, and bills that audio. Measured on xAI on
+	// 2026-09-30: a session set to `modalities: ["text"]` (which xAI echoed
+	// back on session.updated) still answered with an `audio` part, output
+	// audio deltas and their transcript, and reported the audio as billable.
+	// A text-only session there would receive, and pay for, audio it has no
+	// format for and the meter no rate for, so any modality set without
+	// audio is refused (wireModalities).
+	alwaysSpeaks bool
+	// statusDetailsText is a provider whose `response.status_details` may be
+	// a string (xAI: "unimplemented", measured on response.created and
+	// response.done) rather than OpenAI's object or null. Such a string
+	// carries no reason (statusReason).
+	statusDetailsText bool
 	// maxOutputTokens is the documented ceiling; 0 means the provider has no
 	// such field.
 	maxOutputTokens int
@@ -152,8 +165,8 @@ var xAIDialect = &dialect{
 	// session.turn_detection: threshold 0.1-0.9, silence_duration_ms and
 	// prefix_padding_ms 0-10000; no create_response or interrupt_response.
 	vad:                     vadDialect{minThreshold: 0.1, maxThreshold: 0.9, maxDurationMs: 10_000},
-	responseModalitiesField: "modalities",
-	outputTextPart:          "text", outputAudioPart: "audio",
+	responseModalitiesField: "modalities", alwaysSpeaks: true, statusDetailsText: true,
+	outputTextPart: "text", outputAudioPart: "audio",
 	aliases: map[string]string{
 		// "Functionally identical ... Clients should handle both."
 		"response.text.delta": "response.output_text.delta",

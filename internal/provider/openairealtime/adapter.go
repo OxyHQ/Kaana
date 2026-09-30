@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -213,21 +214,21 @@ func (d *dialect) configure(ctx context.Context, conn *websocket.Conn, update []
 			return transportFailure{d.transport(openContext, err)}
 		}
 		if kind != websocket.MessageText {
-			return transportFailure{d.invalidEvent()}
+			return transportFailure{d.invalidEvent("", "a binary frame")}
 		}
-		var event serverEvent
-		if json.Unmarshal(data, &event) != nil {
-			return transportFailure{d.invalidEvent()}
+		event, err := d.decode(data)
+		if err != nil {
+			return transportFailure{err}
 		}
 		switch event.Type {
 		case "error":
 			if event.Error == nil {
-				return transportFailure{d.invalidEvent()}
+				return transportFailure{d.invalidEvent(event.Type, "error is absent")}
 			}
 			return d.classifyEvent(d, *event.Error, key)
 		case "session.created":
 			if created {
-				return transportFailure{d.invalidEvent()}
+				return transportFailure{d.invalidEvent(event.Type, "a second session.created")}
 			}
 			created = true
 			if err := conn.Write(openContext, websocket.MessageText, update); err != nil {
@@ -243,9 +244,64 @@ func (d *dialect) configure(ctx context.Context, conn *websocket.Conn, update []
 	}
 }
 
-func (d *dialect) invalidEvent() error {
+// decode reads one server event. An event this adapter cannot read is refused
+// naming its type and the field that did not fit (invalidEvent).
+func (d *dialect) decode(data []byte) (serverEvent, error) {
+	var event serverEvent
+	err := json.Unmarshal(data, &event)
+	if err == nil {
+		return event, nil
+	}
+	var typeError *json.UnmarshalTypeError
+	if !errors.As(err, &typeError) {
+		return event, d.invalidEvent("", "not a JSON object")
+	}
+	var named struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(data, &named)
+	return event, d.invalidEvent(named.Type, typeError.Field+unreadableKind(err))
+}
+
+// unreadableKind is " is a JSON <kind>" for a value of the wrong JSON type:
+// the kind only ("string", "number", "object"...), never the value itself.
+func unreadableKind(err error) string {
+	var typeError *json.UnmarshalTypeError
+	if !errors.As(err, &typeError) {
+		return " is not JSON"
+	}
+	kind, _, _ := strings.Cut(typeError.Value, " ")
+	return " is a JSON " + kind
+}
+
+// maxLoggedEventType bounds an event type named in an error.
+const maxLoggedEventType = 64
+
+// invalidEvent is a server event this adapter cannot read. Its detail names
+// the event's type and what did not fit — the field path in this adapter's
+// own wire vocabulary and the JSON kind found there, never a value the
+// provider sent — so the next mismatch is diagnosable from the error alone,
+// which reaches the session's log line and the customer. The type is the
+// provider's, so it is kept only if it looks like one.
+func (d *dialect) invalidEvent(eventType, problem string) error {
+	detail := d.name + " sent a Realtime event this adapter cannot read"
+	switch {
+	case eventType == "":
+	case len(eventType) > maxLoggedEventType || strings.IndexFunc(eventType, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '.' && r != '_'
+	}) >= 0:
+		eventType = "an unrecognisable type"
+	}
+	switch {
+	case eventType != "" && problem != "":
+		detail += " (" + eventType + ": " + problem + ")"
+	case eventType != "":
+		detail += " (" + eventType + ")"
+	case problem != "":
+		detail += " (" + problem + ")"
+	}
 	return provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
-		Detail: d.name + " sent a Realtime event this adapter cannot read", Passthrough: &contract.ProviderErrorPassthrough{Provider: d.slug}}
+		Detail: detail, Passthrough: &contract.ProviderErrorPassthrough{Provider: d.slug}}
 }
 
 func (d *dialect) transport(ctx context.Context, err error) error {

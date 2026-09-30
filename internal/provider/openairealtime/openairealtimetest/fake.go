@@ -59,6 +59,12 @@ type Upstream struct {
 	// Configure answers the configuring session.update. Nil confirms it with
 	// session.updated; a non-nil event (an `error`) refuses it.
 	Configure func(update Event) Event
+	// Greeting, when set, replaces the session.created and
+	// conversation.created the fake opens with, and Confirmation the
+	// session.updated it confirms the configuration with: a test replaying a
+	// captured session sends the provider's own events, verbatim.
+	Greeting     []Event
+	Confirmation Event
 	// Script runs once the session is configured.
 	Script func(conn *Conn)
 
@@ -169,8 +175,16 @@ func (u *Upstream) serve(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(32 << 20)
 	ctx := r.Context()
 	conn := &Conn{ctx: ctx, ws: ws, upstream: u}
-	conn.send(ctx, Event{"type": "session.created", "event_id": "event_created", "session": Event{"type": "realtime", "object": "realtime.session", "id": "sess_fake"}})
-	conn.send(ctx, Event{"type": "conversation.created", "event_id": "event_conversation", "conversation": Event{"id": "conv_fake", "object": "realtime.conversation"}})
+	greeting := u.Greeting
+	if greeting == nil {
+		greeting = []Event{
+			{"type": "session.created", "event_id": "event_created", "session": Event{"type": "realtime", "object": "realtime.session", "id": "sess_fake"}},
+			{"type": "conversation.created", "event_id": "event_conversation", "conversation": Event{"id": "conv_fake", "object": "realtime.conversation"}},
+		}
+	}
+	for _, event := range greeting {
+		conn.send(ctx, event)
+	}
 	update, err := conn.read(ctx)
 	if err != nil {
 		return
@@ -186,7 +200,11 @@ func (u *Upstream) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	conn.send(ctx, Event{"type": "session.updated", "event_id": "event_updated", "session": update["session"]})
+	confirmation := u.Confirmation
+	if confirmation == nil {
+		confirmation = Event{"type": "session.updated", "event_id": "event_updated", "session": update["session"]}
+	}
+	conn.send(ctx, confirmation)
 	if u.Script != nil {
 		u.Script(conn)
 	}
@@ -250,6 +268,14 @@ func (c *Conn) send(parent context.Context, event Event) {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	_ = c.ws.Write(ctx, websocket.MessageText, data)
+}
+
+// SendRaw writes one text frame exactly as given, for a server event that is
+// not (or not quite) what the provider documents.
+func (c *Conn) SendRaw(frame []byte) {
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+	_ = c.ws.Write(ctx, websocket.MessageText, frame)
 }
 
 // Close ends the session from OpenAI's side.

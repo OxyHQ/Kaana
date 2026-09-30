@@ -127,13 +127,13 @@ type usage struct {
 }
 
 type response struct {
-	ID            string `json:"id"`
-	Status        string `json:"status"`
-	StatusDetails *struct {
-		Reason *string `json:"reason"`
-	} `json:"status_details"`
-	Output []item `json:"output"`
-	Usage  *usage `json:"usage"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	// StatusDetails is raw because its shape is the dialect's: OpenAI's is an
+	// object or null, xAI's the string "unimplemented" (statusReason).
+	StatusDetails json.RawMessage `json:"status_details"`
+	Output        []item          `json:"output"`
+	Usage         *usage          `json:"usage"`
 }
 
 // serverEvent is the union of every server event field this adapter reads.
@@ -239,30 +239,22 @@ func (d *dialect) wireFixedServerVAD(detection contract.RealtimeTurnDetection) (
 	}{"server_vad", detection.Threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs})
 }
 
-// checkServerCreatedModalities refuses a server_vad session that could not
-// speak on a provider with no session-level modalities field: under server_vad
-// the provider creates the responses itself, so the session's modalities
-// never reach it, and a voice agent answers aloud. It is checked against the
-// EFFECTIVE configuration, at open and on every update.
-func (d *dialect) checkServerCreatedModalities(turnDetection contract.RealtimeTurnDetectionType, modalities []contract.RealtimeOutputModality) error {
-	if d.sessionModalities || turnDetection != contract.TurnDetectionServerVAD || modalities == nil ||
-		slices.Contains(modalities, contract.RealtimeOutputAudio) {
-		return nil
-	}
-	return refused("config.outputModalities", d.name+" creates server_vad responses itself and has no session field to make them text-only; a server_vad session must include audio")
-}
-
 // wireModalities maps the contract's output modalities. OpenAI's GA schema
 // takes exactly one: ["audio"] (speech with its transcript) or ["text"]. The
 // contract's ["text","audio"] asks for written output AND speech, which OpenAI
 // cannot produce in one response, so it is refused rather than narrowed. xAI's
-// response.create takes any of `text` and `audio`.
+// response.create takes any of `text` and `audio`, but xAI answers aloud
+// whatever it is sent (dialect.alwaysSpeaks), so there a set without audio is
+// refused: at open, on a session.update and on a response.create alike.
 func (d *dialect) wireModalities(param string, modalities []contract.RealtimeOutputModality) ([]string, error) {
 	if modalities == nil {
 		return nil, nil
 	}
 	if d.oneModality && len(modalities) != 1 {
 		return nil, refused(param, d.name+"'s Realtime API produces either text or audio in one response, never both")
+	}
+	if d.alwaysSpeaks && !slices.Contains(modalities, contract.RealtimeOutputAudio) {
+		return nil, refused(param, d.name+" answers every response aloud whatever modalities it is sent, and bills that audio; a text-only response cannot be served, so include audio (the spoken answer's transcript is relayed beside it)")
 	}
 	wire := make([]string, 0, len(modalities))
 	for _, modality := range modalities {
@@ -387,9 +379,6 @@ func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) {
 	if config.Translation != nil {
 		return nil, refused("config.translation", "a conversation does not translate")
-	}
-	if err := d.checkServerCreatedModalities(config.TurnDetection.Type, config.OutputModalities); err != nil {
-		return nil, err
 	}
 	turnDetection := config.TurnDetection
 	session, err := sessionFields{
@@ -629,12 +618,37 @@ func responseStatus(status string) (contract.RealtimeResponseStatus, bool) {
 	return "", false
 }
 
+// statusReason reads a response's status_details.reason. OpenAI documents
+// status_details as an object or null. xAI sends the string "unimplemented"
+// on both response.created and response.done (measured 2026-09-30), which
+// carries no reason, so on xAI a string is read as no details. Anything else
+// is an event this adapter cannot read.
+func (d *dialect) statusReason(eventType string, value response) (*string, error) {
+	raw := value.StatusDetails
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	if d.statusDetailsText {
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			return nil, nil
+		}
+	}
+	var details struct {
+		Reason *string `json:"reason"`
+	}
+	if err := json.Unmarshal(raw, &details); err != nil {
+		return nil, d.invalidEvent(eventType, "response.status_details"+unreadableKind(err))
+	}
+	return details.Reason, nil
+}
+
 // finishReason reads status_details.reason, and the output, for why a
-// response stopped. A reason OpenAI did not give is left absent.
-func finishReason(value response, status contract.RealtimeResponseStatus) *contract.FinishReason {
+// response stopped. A reason the provider did not give is left absent.
+func finishReason(value response, status contract.RealtimeResponseStatus, given *string) *contract.FinishReason {
 	reason := ""
-	if value.StatusDetails != nil && value.StatusDetails.Reason != nil {
-		reason = *value.StatusDetails.Reason
+	if given != nil {
+		reason = *given
 	}
 	var finish contract.FinishReason
 	switch {

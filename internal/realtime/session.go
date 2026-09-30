@@ -515,7 +515,7 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 		end.Outcome = providercost.AttemptCancelled
 	}
 	settlement := s.manager.opener.SettleSession(ctx, s.opening, end)
-	s.log(reason, settlement)
+	s.log(reason, failure, settlement)
 
 	if s.attached != nil {
 		if settlement.Report != nil {
@@ -551,11 +551,17 @@ func reportOutcome(reason contract.RealtimeSessionCloseReason, measured, opened 
 }
 
 // log names ids, a route, an outcome, units and a duration — never a command,
-// a transcript or audio.
-func (s *session) log(reason contract.RealtimeSessionCloseReason, settlement kaana.SessionSettlement) {
+// a transcript or audio. A session the upstream ended in failure also names
+// that failure's code and Kaana's own message for it (for an event the adapter
+// could not read, the event type and field: openairealtime's invalidEvent) —
+// never the provider's passthrough text.
+func (s *session) log(reason contract.RealtimeSessionCloseReason, failure *contract.Error, settlement kaana.SessionSettlement) {
 	attributes := []any{"requestId", s.requestID, "reason", reason, "events", s.sequence,
 		"durationMs", s.manager.now().Sub(s.opening.StartedAt()).Milliseconds(),
 		"provider", s.opening.Route.Provider, "deploymentId", s.opening.Route.DeploymentID}
+	if reason == contract.RealtimeUpstreamError && failure != nil {
+		attributes = append(attributes, "errorCode", failure.Code, "error", failure.Message)
+	}
 	if settlement.Report != nil {
 		attributes = append(attributes, "outcome", settlement.Report.Outcome, "units", settlement.Report.Units)
 	}
