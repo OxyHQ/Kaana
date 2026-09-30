@@ -42,6 +42,7 @@ const (
 	DiscoverySiliconModels = "siliconflow_models"
 	DiscoveryNebiusModels  = "nebius_models"
 	DiscoveryAlibabaModels = "alibaba_models"
+	DiscoveryCohereModels  = "cohere_models"
 	DiscoveryNotAvailable  = "not_available"
 )
 
@@ -74,7 +75,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"ai21":             {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.ai21.com/studio/v1", Discovery: DiscoveryNotAvailable},
 	"google":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", Discovery: DiscoveryNotAvailable},
 	"together":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.together.ai/v1", Discovery: DiscoveryOpenAIModels},
-	"cohere":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cohere.ai/compatibility/v1", Discovery: DiscoveryNotAvailable},
+	"cohere":           {Protocol: ProtocolOpenAICompatible, BaseURL: CohereCompatibilityBaseURL, Discovery: DiscoveryCohereModels},
 	"fireworks":        {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.fireworks.ai/inference/v1", Discovery: DiscoveryNotAvailable},
 	"hyperbolic":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.hyperbolic.xyz/v1", Discovery: DiscoveryNotAvailable},
 	"digitalocean":     {Protocol: ProtocolOpenAICompatible, BaseURL: "https://inference.do-ai.run/v1", Discovery: DiscoveryOpenAIModels},
@@ -88,6 +89,13 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"alibaba":          {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryAlibabaModels},
 	"cloudflare":       {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryNotAvailable},
 }
+
+// CohereCompatibilityBaseURL is Cohere's OpenAI-compatible Chat Completions
+// root (https://docs.cohere.com/docs/compatibility-api). The compatibility
+// surface documents no model list, so discovery reads Cohere's native
+// authenticated `GET /v1/models` on the same host
+// (https://docs.cohere.com/reference/list-models): the `cohere_models` profile.
+const CohereCompatibilityBaseURL = "https://api.cohere.ai/compatibility/v1"
 
 // OpenAIAudioBaseURL is the only origin the `openai-audio` slug may reach.
 //

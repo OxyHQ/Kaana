@@ -710,7 +710,10 @@ list. Nebius requests verbose model metadata and drops `-fast` delivery
 flavours; every other id still needs an exact attribution. Alibaba uses its
 native authenticated `/api/v1/models` catalogue, paginates the declared total,
 asks only for `TG` inference rows and retains only exact text-output ids; only
-four separately attributed dated snapshots may publish. Cloudflare remains
+four separately attributed dated snapshots may publish. Cohere's
+compatibility root has no model list, so it reads the native authenticated
+`/v1/models?endpoint=chat` on the same host, follows `next_page_token` and
+drops fine-tunes. Cloudflare remains
 absent from `KAANA_DISCOVERY_PROVIDERS` because its current official
 model-search schema leaves result rows untyped. Nscale documents an
 organization-scoped OpenAI list.

@@ -95,7 +95,7 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	if providerconfig.Known["ai21"].Discovery != providerconfig.DiscoveryNotAvailable {
 		t.Fatal("AI21 was assigned a model-list endpoint its official API does not publish")
 	}
-	for _, slug := range []contract.ProviderSlug{"google", "cohere", "fireworks", "hyperbolic", "nvidia", "modelscope", "zai", "chutes", "ovhcloud"} {
+	for _, slug := range []contract.ProviderSlug{"google", "fireworks", "hyperbolic", "nvidia", "modelscope", "zai", "chutes", "ovhcloud"} {
 		if providerconfig.Known[slug].Discovery != providerconfig.DiscoveryNotAvailable {
 			t.Errorf("%s was assigned generic discovery without a documented OpenAI-shaped account list at its compatibility base", slug)
 		}
@@ -105,6 +105,9 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	}
 	if providerconfig.Known["nscale"].Discovery != providerconfig.DiscoveryOpenAIModels {
 		t.Error("Nscale lost its documented authenticated OpenAI model-list contract")
+	}
+	if endpoint := providerconfig.Known["cohere"]; endpoint.Discovery != providerconfig.DiscoveryCohereModels || endpoint.BaseURL != providerconfig.CohereCompatibilityBaseURL {
+		t.Errorf("Cohere must discover through its native authenticated model list, not a guessed compatibility /models: %+v", endpoint)
 	}
 	if endpoint := providerconfig.Known["alibaba"]; endpoint.Protocol != providerconfig.ProtocolOpenAICompatible || endpoint.BaseURL != "" || endpoint.Discovery != providerconfig.DiscoveryAlibabaModels {
 		t.Errorf("Alibaba dynamic endpoint = %+v", endpoint)
