@@ -167,8 +167,9 @@ OpenAI's own namespace (`openai`, `openai-audio`) by its documented request
 family and, for `chat_completions`, whether the answer is spoken. It drops, with
 a warning, any attributed id whose family the slug's adapter cannot execute: an
 audio chat id under `openai`, a text chat id under `openai-audio`
-(`providerconfig.SpokenChatCompletions`). Realtime and Live ids are not
-expressible by any family and are dropped under every slug.
+(`providerconfig.SpokenChatCompletions`). Realtime ids are session models:
+conversation models are published only under `openai-realtime`
+(docs/realtime.md) and dropped here; GPT-Live ids are dropped under every slug.
 `TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter` fails if a checked-in OpenAI
 row would be dropped by that gate.
 

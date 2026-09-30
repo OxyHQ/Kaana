@@ -193,6 +193,20 @@ are required for that boundary to remain protocol-independent:
   credential*. `provider.RedactSecret` removes the adapter's own key by exact
   match first. Item 18.
 
+### Realtime sessions are not `provider.Adapter`
+
+A realtime session is a conversation, not a request: commands in and events
+out for up to an hour, with its state upstream. It is served by a separate
+interface, `provider.RealtimeAdapter` (`Open` a session on the exact credential
+view; `Send` a command at most once; `Next` a normalized event with the units
+it reported; `Close`), and never by a branch in a request adapter. A slug is
+exactly one of the two: the registry refuses a type that is both, one that is
+neither, and a session adapter that declares no session kind. The one
+implementation today is `openai-realtime`. Opening walks the key through
+`provider.WalkAttempts`, the same verdicts, retirement and attempt evidence as
+`provider.Walk`. `realtime.md` has the whole design, the OpenAI mapping and the
+edge wire.
+
 ## The conformance harness
 
 `internal/provider/conformance` is the suite an adapter must pass. An author
@@ -243,6 +257,9 @@ changes, and the distinction matters:
 
 ## Rules a reviewer applies
 
+- **A realtime session is a `provider.RealtimeAdapter` with its own real-wire
+  fake, never a branch in a request adapter**, and a slug is exactly one kind
+  of adapter (`realtime.md`, "Rules a reviewer applies").
 - **One implementation of `provider.Adapter` and one fake upstream per
   provider.** If a change to add a provider touches the executor, the stream
   framing or the receipt shape, the abstraction is wrong — fix that instead.

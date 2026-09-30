@@ -57,6 +57,17 @@ func (e ErrUpstream) Error() string {
 	return fmt.Sprintf("%s (%s): %s", e.Code, e.Category, e.Detail)
 }
 
+// ContractError is the error body a customer sees for this failure: the
+// adapter's code and category, its retry hint where the code allows one, and
+// the upstream's own diagnostic.
+func (e ErrUpstream) ContractError(requestID contract.RequestID) *contract.Error {
+	failure := contract.NewError(requestID, e.Code, e.Detail)
+	if e.RetryAfterMs > 0 {
+		failure = failure.WithRetryAfter(e.RetryAfterMs)
+	}
+	return failure.WithUpstream(e.Category, e.Passthrough)
+}
+
 // ErrCustomerCredential is the deliberately non-attributable failure for a
 // BYOK credential that could not be resolved or that the upstream refused.
 // It is not ErrUpstream: the shared deployment and its platform pool are still

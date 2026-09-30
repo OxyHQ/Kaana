@@ -25,6 +25,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
@@ -265,8 +266,13 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 	if err != nil {
 		t.Fatalf("building the executor: %v", err)
 	}
+	sessions, err := realtime.NewManager(realtime.Config{Opener: executor, Verifier: verifier, Logger: logger})
+	if err != nil {
+		t.Fatalf("building the realtime manager: %v", err)
+	}
 	api, err := httpapi.New(httpapi.Config{
 		Executor:            executor,
+		Realtime:            sessions,
 		Verifier:            verifier,
 		ValidationVerifier:  validationVerifier,
 		CredentialValidator: stubCredentialValidator{},

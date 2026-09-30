@@ -5,6 +5,7 @@
 // authorizes and reserves, then forwards a signed envelope here.
 //
 //	POST /internal/v1/inference     signed envelope in, normalized event stream out
+//	GET  /internal/v1/realtime      WebSocket; signed first frame opens or resumes a session
 //	GET  /internal/v1/health        signed, the customer-safe provider projection
 //	GET  /internal/v1/models        signed, the model catalogue Oxy may publish
 //	POST /internal/v1/deployments/query signed, exact operator-safe route identities
@@ -88,6 +89,7 @@ type Server struct {
 	registry            *provider.Registry
 	inventory           *inventory.Store
 	rotation            *rotation.Registry
+	realtime            http.Handler
 	logger              *slog.Logger
 	maxEnvelopeBytes    int64
 }
@@ -117,6 +119,9 @@ type Config struct {
 	Registry            *provider.Registry
 	Inventory           *inventory.Store
 	Rotation            *rotation.Registry
+	// Realtime serves GET /internal/v1/realtime (internal/realtime). It
+	// authenticates its own first frame, under the inference signature.
+	Realtime http.Handler
 	// Logger is optional; nil uses the default logger.
 	Logger           *slog.Logger
 	MaxEnvelopeBytes int64
@@ -143,6 +148,8 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("httpapi: no inventory store")
 	case config.Rotation == nil:
 		return nil, fmt.Errorf("httpapi: no rotation registry")
+	case config.Realtime == nil:
+		return nil, fmt.Errorf("httpapi: no realtime session handler")
 	}
 	logger := config.Logger
 	if logger == nil {
@@ -162,6 +169,7 @@ func New(config Config) (*Server, error) {
 		registry:            config.Registry,
 		inventory:           config.Inventory,
 		rotation:            config.Rotation,
+		realtime:            config.Realtime,
 		logger:              logger,
 		maxEnvelopeBytes:    limit,
 	}, nil
@@ -171,6 +179,7 @@ func New(config Config) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/inference", s.handleInference)
+	mux.Handle("GET /internal/v1/realtime", s.realtime)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)

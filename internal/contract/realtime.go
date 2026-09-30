@@ -17,6 +17,10 @@ import (
 // request for attribution, metering and settlement; it is never substituted,
 // and once it has opened on a deployment it stays there.
 
+// RealtimeSchemaVersion is the version every realtime session request,
+// command and event declares.
+const RealtimeSchemaVersion = 1
+
 // Published bounds.
 const (
 	// MaxRealtimeAudioFrameBase64Length bounds one audio frame: 48 KiB of
@@ -54,6 +58,9 @@ const (
 )
 
 var realtimeSessionKindValues = []RealtimeSessionKind{RealtimeConversation, RealtimeTranscription, RealtimeTranslation}
+
+// Valid reports whether the kind is one the contract declares.
+func (k RealtimeSessionKind) Valid() bool { return isMember(k, realtimeSessionKindValues) }
 
 // RealtimeSessionTransport is how a session is carried.
 type RealtimeSessionTransport string

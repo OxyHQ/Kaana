@@ -935,6 +935,48 @@ type CredentialedSender interface {
 // one, and it emits no route switch because nothing about the customer's route
 // changed.
 func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSender) (*http.Response, Key, error) {
+	return WalkAttempts(ctx, pool, call, func(ctx context.Context, key Key) (*http.Response, CredentialedAttempt) {
+		response, err := sender.Send(ctx, call, key)
+		if err != nil {
+			return nil, CredentialedAttempt{Failure: sender.TransportFailure(ctx, err), Transport: true}
+		}
+		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			return response, CredentialedAttempt{Header: response.Header, Accepted: true, Release: func() { _ = response.Body.Close() }}
+		}
+		header := response.Header
+		return nil, CredentialedAttempt{Header: header, Failure: sender.Refuse(response, key)}
+	})
+}
+
+// CredentialedAttempt is what one upstream exchange with one leased credential
+// said, reduced to what the credential rules read.
+type CredentialedAttempt struct {
+	// Header is what the upstream answered with, for the provider's declared
+	// quota signals. Nil when nothing answered.
+	Header http.Header
+	// Accepted means the upstream took the call on this credential.
+	Accepted bool
+	// Failure is the adapter's classification of a refusal, or of a transport
+	// failure when Transport is set.
+	Failure   error
+	Transport bool
+	// Release gives back an accepted exchange the walk has to abandon — the
+	// attempt could not be recorded — so it never outlives the refusal.
+	Release func()
+}
+
+// WalkAttempts applies Walk's credential rules to any upstream exchange: a
+// request answered by one HTTP response, or a realtime session that is open
+// only once its handshake AND its configuration were accepted. The rules are
+// one implementation either way: which failure retires a key, which one moves
+// the call to the next key, and which one is retried nowhere.
+//
+// try returns what an accepted exchange produced (the response to read, the
+// session to run) with the attempt; it is called at most once per key, and its
+// value is returned only when its attempt was accepted and recorded. The key
+// returned is the one used by the last exchange, including when it failed.
+func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try func(context.Context, Key) (T, CredentialedAttempt)) (T, Key, error) {
+	var none T
 	attempt := pool.Begin()
 	// refused is the last classified failure this request received. When the
 	// pool runs out, THAT is what the customer is told — the provider's own
@@ -949,17 +991,17 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 		key, leased := attempt.Next(now)
 		if !leased {
 			if refused != nil {
-				return nil, refusedKey, refused
+				return none, refusedKey, refused
 			}
 			// Not one key could be leased, so no provider ever saw this
 			// request: either nothing is configured, or every credential was
 			// retired by an earlier one.
-			return nil, Key{}, pool.NoUsableCredential(now)
+			return none, Key{}, pool.NoUsableCredential(now)
 		}
 		if key.recovery && key.runtime != nil {
 			decision, err := key.runtime.ClaimCredentialRecovery(ctx, pool.provider, key.ID, now, now.Add(time.Minute))
 			if err != nil {
-				return nil, key, fmt.Errorf("provider: claiming credential recovery: %w", err)
+				return none, key, fmt.Errorf("provider: claiming credential recovery: %w", err)
 			}
 			switch decision {
 			case CredentialRecoveryClaimed:
@@ -969,31 +1011,30 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			case CredentialRecoveryBusy:
 				continue
 			default:
-				return nil, key, fmt.Errorf("provider: credential recovery returned %q", decision)
+				return none, key, fmt.Errorf("provider: credential recovery returned %q", decision)
 			}
 		}
 
 		attemptIndex := attempt.index
 		attempt.index++
-		response, err := sender.Send(ctx, call, key)
+		value, result := try(ctx, key)
 		observedAt := time.Now()
-		if err != nil {
+		if result.Transport {
 			// A transport failure says nothing about the credential: delivery is
 			// uncertain and nobody returned a credential verdict. The key still
 			// names the attempted upstream expense for operator reconciliation.
-			failure := sender.TransportFailure(ctx, err)
 			if recordErr := recordCredentialAttempt(ctx, call, key, attemptIndex, "transport_failure", "transport", observedAt, time.Time{}); recordErr != nil {
-				return nil, key, recordErr
+				return none, key, recordErr
 			}
-			return nil, key, failure
+			return none, key, result.Failure
 		}
 
-		// Applied to every response, successful ones included: a proactive
+		// Applied to every answer, successful ones included: a proactive
 		// quota signal earns its place by skipping a key that is about to
 		// refuse, not by explaining a refusal that already happened.
-		headerExhausted, headerRetiredUntil := pool.observe(key, response.Header, observedAt)
+		headerExhausted, headerRetiredUntil := pool.observe(key, result.Header, observedAt)
 
-		if response.StatusCode >= 200 && response.StatusCode < 300 {
+		if result.Accepted {
 			outcome, retiredUntil := "accepted", time.Time{}
 			if headerExhausted {
 				outcome, retiredUntil = "exhausted", headerRetiredUntil
@@ -1003,16 +1044,18 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 				evidence = "quota_header"
 			}
 			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
-				_ = response.Body.Close()
-				return nil, key, err
+				if result.Release != nil {
+					result.Release()
+				}
+				return none, key, err
 			}
 			if !headerExhausted {
 				pool.markUsable(key, evidence, observedAt)
 			}
-			return response, key, nil
+			return value, key, nil
 		}
 
-		failure := sender.Refuse(response, key)
+		failure := result.Failure
 
 		switch CredentialVerdictFor(failure) {
 		case CredentialExhausted:
@@ -1021,7 +1064,7 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// customer never learns this happened.
 			pool.Retire(key, KeyExhausted, observedAt, time.Time{})
 			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, "exhausted", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement)); err != nil {
-				return nil, key, err
+				return none, key, err
 			}
 			refused = failure
 			refusedKey = key
@@ -1033,7 +1076,7 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			// request-scoped attempt set still bounds this to one call per key.
 			pool.Retire(key, KeyRejected, observedAt, time.Time{})
 			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, "rejected", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement)); err != nil {
-				return nil, key, err
+				return none, key, err
 			}
 			refused = failure
 			refusedKey = key
@@ -1047,9 +1090,9 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 				evidence = "quota_header"
 			}
 			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
-				return nil, key, err
+				return none, key, err
 			}
-			return nil, key, failure
+			return none, key, failure
 
 		case CredentialHealthy:
 			outcome, retiredUntil := attemptOutcome("healthy_failure", headerExhausted, headerRetiredUntil)
@@ -1058,7 +1101,7 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 				evidence = "quota_header"
 			}
 			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
-				return nil, key, err
+				return none, key, err
 			}
 			// The failure says nothing about this key, so nothing is retired.
 			// A throttle is the one case another key could survive, and only
@@ -1070,10 +1113,10 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 				refusedKey = key
 				continue
 			}
-			return nil, key, failure
+			return none, key, failure
 
 		default:
-			return nil, key, failure
+			return none, key, failure
 		}
 	}
 }
