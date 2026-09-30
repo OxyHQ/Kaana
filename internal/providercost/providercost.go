@@ -152,6 +152,32 @@ type Cards struct {
 	versionID    string
 	effectiveAt  time.Time
 	expiresAt    *time.Time
+	observation  RateCardObservation
+}
+
+// RateCardObservation is the immutable identity and content of one loaded
+// rate-card version, as it is registered in the append-only version history.
+// Every rate-card cost names its VersionID, so this is what that cost was
+// calculated from.
+type RateCardObservation struct {
+	VersionID     string
+	Source        RateCardSource
+	SourceVersion string
+	ObservedAt    time.Time
+	EffectiveAt   time.Time
+	ExpiresAt     *time.Time
+	// RateCards is the priced deployments, re-encoded from the parsed cards so
+	// two files that differ only in whitespace or comments register as one.
+	RateCards []byte
+}
+
+// Observation is the version a non-nil table was loaded from. A nil table
+// measures nothing and has no version to register.
+func (c *Cards) Observation() (RateCardObservation, bool) {
+	if c == nil {
+		return RateCardObservation{}, false
+	}
+	return c.observation, true
 }
 
 type cardFile struct {
@@ -227,6 +253,15 @@ func Parse(raw []byte) (*Cards, error) {
 			seen[rate.Unit] = struct{}{}
 		}
 		cards.byDeployment[card.DeploymentID] = card
+	}
+	encoded, err := json.Marshal(parsed.RateCards)
+	if err != nil {
+		return nil, fmt.Errorf("providercost: encoding rate cards: %w", err)
+	}
+	cards.observation = RateCardObservation{
+		VersionID: parsed.VersionID, Source: parsed.Source, SourceVersion: parsed.SourceVersion,
+		ObservedAt: parsed.ObservedAt, EffectiveAt: parsed.EffectiveAt, ExpiresAt: parsed.ExpiresAt,
+		RateCards: encoded,
 	}
 	return cards, nil
 }

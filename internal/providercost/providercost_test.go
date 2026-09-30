@@ -510,3 +510,32 @@ func TestMoneyRendersForAnOperator(t *testing.T) {
 		t.Errorf("an unmeasured amount renders as %q", got)
 	}
 }
+
+func TestTheExampleRateCardFileParses(t *testing.T) {
+	cards, err := providercost.Load("../../configs/provider-rates.example.json")
+	if err != nil {
+		t.Fatalf("the shipped example is not a loadable rate card: %v", err)
+	}
+	if observation, loaded := cards.Observation(); !loaded || observation.VersionID == "" {
+		t.Fatalf("example observation = %+v", observation)
+	}
+}
+
+func TestARateCardObservationIgnoresFormattingButNotPrices(t *testing.T) {
+	var nothing *providercost.Cards
+	if _, loaded := nothing.Observation(); loaded {
+		t.Fatal("an absent rate table claims a version to register")
+	}
+	compact, _ := parse(t, twoCards).Observation()
+	spaced, _ := parse(t, strings.ReplaceAll(twoCards, ",", " ,\n ")).Observation()
+	if string(compact.RateCards) != string(spaced.RateCards) {
+		t.Fatalf("whitespace changed the registered content:\n%s\n%s", compact.RateCards, spaced.RateCards)
+	}
+	repriced, _ := parse(t, strings.Replace(twoCards, `"amountPerUnit":1000`, `"amountPerUnit":1001`, 1)).Observation()
+	if string(compact.RateCards) == string(repriced.RateCards) {
+		t.Fatal("a price change did not change the registered content")
+	}
+	if compact.VersionID != "rc_test_v1" || compact.Source != providercost.RateCardOperator || compact.SourceVersion != "test-fixture-v1" {
+		t.Fatalf("observation identity = %+v", compact)
+	}
+}

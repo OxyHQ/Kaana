@@ -42,6 +42,37 @@ func TestProviderCostEventsAreExactlyIdempotentInPostgres(t *testing.T) {
 	}
 
 	at := time.Date(2026, time.September, 11, 12, 0, 0, 123_000, time.UTC)
+	unregistered := providercost.Event{
+		RequestID: "req_cost_unregistered", Provider: "groq", KeyID: "key-cost-test", DeploymentID: "dep_cost_test",
+		ModelReference: "openai/gpt-oss-120b@2026-08-01", Cost: providercost.Money{Currency: "USD", Amount: 1},
+		Source: providercost.SourceRateCard, RateCardVersionID: "rc_integration_v1", Complete: true, OccurredAt: at,
+		Units:     []contract.UsageQuantity{},
+		Telemetry: providercost.AttemptTelemetry{StartedAt: at, Outcome: providercost.AttemptSucceeded},
+	}
+	if err := repository.WriteProviderCostEvent(ctx, unregistered); err == nil {
+		t.Fatal("a rate-card cost naming an unregistered version was recorded")
+	}
+	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_integration_v1","source":"provider_documentation",
+		"sourceVersion":"groq-pricing-2026-09-01","observedAt":"2026-09-01T00:00:00Z","effectiveAt":"2026-09-01T00:00:00Z",
+		"rateCards":[{"deploymentId":"dep_cost_test","currency":"USD","rates":[{"unit":"output_tokens","amountPerUnit":10}]}]}`))
+	if err != nil {
+		t.Fatalf("parsing rate card: %v", err)
+	}
+	observation, _ := cards.Observation()
+	for range 2 {
+		if err := repository.RegisterRateCardVersion(ctx, observation); err != nil {
+			t.Fatalf("registering (and replaying) the loaded rate card version: %v", err)
+		}
+	}
+	repriced := observation
+	repriced.RateCards = []byte(`[{"deploymentId":"dep_cost_test","currency":"USD","rates":[{"unit":"output_tokens","amountPerUnit":11}]}]`)
+	if err := repository.RegisterRateCardVersion(ctx, repriced); err == nil {
+		t.Fatal("a different price was accepted under an existing rate card version")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE provider_rate_card_versions SET source_version = 'rewritten' WHERE version_id = 'rc_integration_v1'`); err == nil {
+		t.Fatal("a registered rate card version was rewritten in place")
+	}
+
 	event := providercost.Event{
 		RequestID: "req_cost_integration", AttemptIndex: 0,
 		Provider: "groq", KeyID: "key-cost-test", DeploymentID: "dep_cost_test",

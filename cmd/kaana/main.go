@@ -119,6 +119,15 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer credentialDatabase.Close()
+	if observation, loaded := costs.Observation(); loaded {
+		registerContext, cancelRegister := context.WithTimeout(context.Background(), 15*time.Second)
+		err := credentialDatabase.RegisterRateCardVersion(registerContext, observation)
+		cancelRegister()
+		if err != nil {
+			return err
+		}
+		logger.Info("provider rate card version registered", "rateCardVersionId", observation.VersionID, "source", observation.Source)
+	}
 	costRecorder, err := providercost.NewRecorder(credentialDatabase)
 	if err != nil {
 		return err

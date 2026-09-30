@@ -93,7 +93,7 @@ func TestProviderAttemptTelemetryMigrationReplaysEveryMeasuredFact(t *testing.T)
 		"REVOKE ALL ON FUNCTION kaana_record_provider_attempt_events(JSONB) FROM PUBLIC",
 		"GRANT EXECUTE ON FUNCTION kaana_record_provider_attempt_events(JSONB) TO kaana_runtime",
 	} {
-		if !strings.Contains(migration0015, required) {
+		if !strings.Contains(migration0016, required) {
 			t.Errorf("provider attempt telemetry migration lost %q", required)
 		}
 	}
@@ -101,8 +101,35 @@ func TestProviderAttemptTelemetryMigrationReplaysEveryMeasuredFact(t *testing.T)
 		"GRANT INSERT", "GRANT UPDATE", "GRANT DELETE", "GRANT SELECT",
 		"balance", "reservation", "account_label", "COMMIT",
 	} {
-		if strings.Contains(strings.ToUpper(migration0015), strings.ToUpper(forbidden)) {
+		if strings.Contains(strings.ToUpper(migration0016), strings.ToUpper(forbidden)) {
 			t.Errorf("provider attempt telemetry migration contains forbidden %q", forbidden)
 		}
+	}
+}
+
+func TestRateCardVersionMigrationIsAppendOnly(t *testing.T) {
+	for _, required := range []string{
+		"CREATE TABLE provider_rate_card_versions",
+		"version_id TEXT PRIMARY KEY",
+		"source IN ('provider_api', 'provider_documentation', 'operator')",
+		"BEFORE UPDATE OR DELETE ON provider_rate_card_versions",
+		"BEFORE TRUNCATE ON provider_rate_card_versions",
+		"provider rate card versions are append-only",
+		"provider rate card version conflict",
+		"REVOKE ALL ON provider_rate_card_versions FROM PUBLIC",
+		"GRANT SELECT ON provider_rate_card_versions TO kaana_credential_admin",
+		"TO kaana_runtime",
+	} {
+		if !strings.Contains(migration0015, required) {
+			t.Errorf("rate card version migration lost %q", required)
+		}
+	}
+	for _, forbidden := range []string{"GRANT INSERT", "GRANT UPDATE", "GRANT DELETE", "COMMIT"} {
+		if strings.Contains(strings.ToUpper(migration0015), forbidden) {
+			t.Errorf("rate card version migration contains forbidden %q", forbidden)
+		}
+	}
+	if !strings.Contains(migration0016, "provider rate card version is not registered") {
+		t.Error("attempt events no longer require the rate card version they name to be registered")
 	}
 }

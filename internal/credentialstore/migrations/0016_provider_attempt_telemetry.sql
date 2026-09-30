@@ -94,6 +94,14 @@ BEGIN
            OR event->>'latency_ms' IS NULL THEN
             RAISE EXCEPTION 'provider attempt event lacks its telemetry';
         END IF;
+        -- A rate-card cost names a version this database holds, so what it was
+        -- calculated from can always be read back.
+        IF event->>'source' = 'rate_card' AND NOT EXISTS (
+            SELECT 1 FROM public.provider_rate_card_versions
+             WHERE version_id = event->>'rate_card_version_id'
+        ) THEN
+            RAISE EXCEPTION 'provider rate card version is not registered';
+        END IF;
 
         INSERT INTO public.provider_cost_events (
             request_id, attempt_index, provider_slug, key_id, deployment_id,

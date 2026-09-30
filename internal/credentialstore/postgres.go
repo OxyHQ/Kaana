@@ -61,8 +61,11 @@ var migration0014 string
 //go:embed migrations/0010_provider_cost_event_batches.sql
 var migration0010 string
 
-//go:embed migrations/0015_provider_attempt_telemetry.sql
+//go:embed migrations/0015_provider_rate_card_versions.sql
 var migration0015 string
+
+//go:embed migrations/0016_provider_attempt_telemetry.sql
+var migration0016 string
 
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
@@ -185,6 +188,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0013", body: migration0013},
 		{version: "0014", body: migration0014},
 		{version: "0015", body: migration0015},
+		{version: "0016", body: migration0016},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err
@@ -222,6 +226,25 @@ type providerCostEventJSON struct {
 	TimeToFirstOutputMs *int64                      `json:"time_to_first_output_ms"`
 	AttemptOutcome      providercost.AttemptOutcome `json:"attempt_outcome"`
 	FailureCode         *contract.ErrorCode         `json:"failure_code"`
+}
+
+// RegisterRateCardVersion records the rate-card version this process loaded in
+// the append-only history before any cost is calculated from it. Registering
+// the same version again is a replay; the same version id with any different
+// fact is refused, so a price change can only ever arrive as a new version.
+func (p *Postgres) RegisterRateCardVersion(ctx context.Context, observation providercost.RateCardObservation) error {
+	var outcome string
+	if err := p.pool.QueryRow(ctx,
+		`SELECT kaana_register_provider_rate_card_version($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+		observation.VersionID, string(observation.Source), observation.SourceVersion,
+		observation.ObservedAt, observation.EffectiveAt, observation.ExpiresAt, observation.RateCards,
+	).Scan(&outcome); err != nil {
+		return fmt.Errorf("credential store: registering rate card version %s: %w", observation.VersionID, err)
+	}
+	if outcome != "recorded" && outcome != "replayed" {
+		return fmt.Errorf("credential store: rate card version %s registration returned %q", observation.VersionID, outcome)
+	}
+	return nil
 }
 
 // WriteProviderCostEvents persists every platform-funded attempt for one
