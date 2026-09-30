@@ -35,6 +35,10 @@ type Provider struct {
 	Regions []contract.Region
 	// Discovery is the documented shape of this provider's model list.
 	Discovery string
+	// Protocol is the wire protocol the serving process speaks to this
+	// provider. It decides which request families a published deployment can
+	// be executed as; empty means the slug's built-in protocol.
+	Protocol string
 	// APIKey is ONE credential, not the pool. Listing models is one authenticated
 	// catalogue question even when the provider paginates it, so rotating a
 	// pool here would spend the operator's keys against a request whose failure

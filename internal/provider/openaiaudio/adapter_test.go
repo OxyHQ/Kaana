@@ -276,15 +276,29 @@ func TestContainerAndSizeBoundsAreEnforcedBeforeSending(t *testing.T) {
 func TestUnexpressibleRequestsAreRefusedBeforeSending(t *testing.T) {
 	a := adapter(t, func(http.ResponseWriter, *http.Request) { t.Error("a refused request reached the upstream") })
 	for name, mutate := range map[string]func(*contract.Request, *provider.Route){
-		"streaming":      func(r *contract.Request, _ *provider.Route) { r.Stream = true },
-		"chat format":    func(r *contract.Request, _ *provider.Route) { r.Client.APIFormat = contract.APIFormatChatCompletions },
-		"text modality":  func(r *contract.Request, _ *provider.Route) { r.Modality = contract.ModalityText },
-		"sampling":       func(r *contract.Request, _ *provider.Route) { temperature := 0.2; r.Sampling.Temperature = &temperature },
-		"speech":         func(r *contract.Request, _ *provider.Route) { r.Speech = &contract.SpeechParameters{Voice: "alloy", ResponseFormat: "mp3"} },
-		"remote audio":   func(r *contract.Request, _ *provider.Route) { url := "https://example.com/a.wav"; r.Input.Messages[0].Content[0].Source.URL = &url },
-		"two parts":      func(r *contract.Request, _ *provider.Route) { m := &r.Input.Messages[0]; m.Content = append(m.Content, m.Content[0]) },
+		"streaming":     func(r *contract.Request, _ *provider.Route) { r.Stream = true },
+		"chat format":   func(r *contract.Request, _ *provider.Route) { r.Client.APIFormat = contract.APIFormatChatCompletions },
+		"text modality": func(r *contract.Request, _ *provider.Route) { r.Modality = contract.ModalityText },
+		"sampling": func(r *contract.Request, _ *provider.Route) {
+			temperature := 0.2
+			r.Sampling.Temperature = &temperature
+		},
+		"speech": func(r *contract.Request, _ *provider.Route) {
+			r.Speech = &contract.SpeechParameters{Voice: "alloy", ResponseFormat: "mp3"}
+		},
+		"remote audio": func(r *contract.Request, _ *provider.Route) {
+			url := "https://example.com/a.wav"
+			r.Input.Messages[0].Content[0].Source.URL = &url
+		},
+		"two parts": func(r *contract.Request, _ *provider.Route) {
+			m := &r.Input.Messages[0]
+			m.Content = append(m.Content, m.Content[0])
+		},
 		"assistant role": func(r *contract.Request, _ *provider.Route) { r.Input.Messages[0].Role = contract.RoleAssistant },
-		"bad base64":     func(r *contract.Request, _ *provider.Route) { bad := "not base64!"; r.Input.Messages[0].Content[0].Source.Data = &bad },
+		"bad base64": func(r *contract.Request, _ *provider.Route) {
+			bad := "not base64!"
+			r.Input.Messages[0].Content[0].Source.Data = &bad
+		},
 		"other provider": func(_ *contract.Request, route *provider.Route) { route.Provider = "openai" },
 		"no model":       func(_ *contract.Request, route *provider.Route) { route.UpstreamModelID = "" },
 	} {

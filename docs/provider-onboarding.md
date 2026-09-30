@@ -87,14 +87,23 @@ Kaana status:
 - The existing `openai_models` discovery profile reads only this credential's
   authenticated catalogue. Attribution is therefore an allow-list, not a claim
   that an uncharged or lower-tier account can invoke every reviewed model.
-- Only the four exact flagship ids above are attributed. The shorter `gpt-5.6`
-  alias, ChatGPT-only models and specialized media models remain absent.
+- Only the four exact flagship ids above are attributed to `openai`. The shorter
+  `gpt-5.6` alias, ChatGPT-only models and specialized media models remain
+  absent from it.
+- File transcription models are attributed to `openai-audio`, OpenAI's own
+  origin under a second slug served by the dedicated transcription adapter
+  (docs/openai-audio.md). The publisher classifies every id in OpenAI's own
+  namespace by the request family its documentation names and refuses to attach
+  it to an adapter that cannot execute that family, so a transcription id under
+  `openai` or a chat id under `openai-audio` is dropped and named.
 - Realtime, Live, translation and live-transcription models use sessionful
-  WebRTC/WebSocket/SIP or specialized realtime endpoints and events. Audio
-  Chat Completions additionally produces audio output. Kaana's current
-  request/stream contract exposes neither a realtime session nor an audio-output
-  event, so publishing those rows would advertise routes the adapter cannot
-  faithfully execute.[^openai-realtime][^openai-audio]
+  WebRTC/WebSocket/SIP or specialized realtime endpoints and events, and no
+  request family in the contract expresses a session. Audio Chat Completions
+  (`gpt-audio-1.5`) produces audio output: the stream has an `audio` event, but
+  the envelope cannot request text and audio output together, carries no voice
+  or audio format outside `audio_speech`, and has no audio-token unit. Both stay
+  unattributed under every slug; publishing them would advertise routes no
+  adapter can faithfully execute.[^openai-realtime][^openai-audio]
 - A successful catalogue read is not a paid-account balance check. The new
   OpenAI credential remains unavailable to economic routing until Oxy records
   verified usable balance.

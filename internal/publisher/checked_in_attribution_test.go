@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // A model nobody attributed is DROPPED and named — never guessed. That is the
@@ -130,6 +131,52 @@ func TestOpenAIAttributionPublishesOnlyReviewedChatModels(t *testing.T) {
 	} {
 		if _, ok := table.ModelLine("openai", excluded); ok {
 			t.Errorf("OpenAI specialized or moving model %q is published through the chat-only contract", excluded)
+		}
+		if _, ok := table.ModelLine("openai-audio", excluded); ok && excluded != "gpt-5.6" {
+			t.Errorf("OpenAI session or audio-output model %q is attributed to the transcription adapter", excluded)
+		}
+	}
+}
+
+// TestOpenAITranscriptionIsAttributedOnlyToTheTranscriptionAdapter pins the
+// reviewed transcription ids to `openai-audio`, and proves every OpenAI row in
+// the checked-in table is one the publisher would actually publish: a row the
+// request-family gate drops would be an attribution that silently does nothing.
+func TestOpenAITranscriptionIsAttributedOnlyToTheTranscriptionAdapter(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	want := map[string]contract.ModelID{
+		"gpt-transcribe":                    "openai/gpt-transcribe",
+		"gpt-4o-transcribe":                 "openai/gpt-4o-transcribe",
+		"gpt-4o-mini-transcribe-2025-03-20": "openai/gpt-4o-mini-transcribe-2025-03-20",
+		"gpt-4o-mini-transcribe-2025-12-15": "openai/gpt-4o-mini-transcribe-2025-12-15",
+		"whisper-1":                         "openai/whisper-1",
+	}
+	if got := len(table.byProvider["openai-audio"]); got != len(want) {
+		t.Fatalf("openai-audio has %d attributions, want exactly the %d reviewed transcription models", got, len(want))
+	}
+	for upstreamModelID, modelLine := range want {
+		if got, ok := table.ModelLine("openai-audio", upstreamModelID); !ok || got != modelLine {
+			t.Errorf("openai-audio/%s = %q, %t; want %q", upstreamModelID, got, ok, modelLine)
+		}
+		if _, ok := table.ModelLine("openai", upstreamModelID); ok {
+			t.Errorf("transcription model %q is attributed to the chat adapter", upstreamModelID)
+		}
+	}
+	for _, excluded := range []string{"gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize"} {
+		if _, ok := table.ModelLine("openai-audio", excluded); ok {
+			t.Errorf("%q is attributed; it is a moving alias or has no contract representation", excluded)
+		}
+	}
+
+	for slug := range openAINamespaces {
+		target := Provider{Slug: slug, Protocol: providerconfig.Known[slug].Protocol}
+		for upstreamModelID := range table.byProvider[slug] {
+			if !executable(target, upstreamModelID) {
+				t.Errorf("%s/%s is attributed, and its adapter cannot execute its request family", slug, upstreamModelID)
+			}
 		}
 	}
 }
