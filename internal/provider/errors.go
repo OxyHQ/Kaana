@@ -51,6 +51,13 @@ type ErrUpstream struct {
 	// a customer can act on. Its free text is redacted when the error body is
 	// built, so an upstream that echoes a credential cannot leak one here.
 	Passthrough *contract.ProviderErrorPassthrough
+	// RecursOnThisRoute marks a failure the SAME deployment would repeat for
+	// the identical request however long Kaana waited, even though its code is
+	// one another deployment could survive. The executor never retries such a
+	// failure on its own route; failover to the next authorized route is
+	// unaffected. Groq's 413 for a request larger than the account's whole
+	// per-minute token capacity is the case it exists for.
+	RecursOnThisRoute bool
 }
 
 func (e ErrUpstream) Error() string {

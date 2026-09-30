@@ -192,7 +192,17 @@ type harness struct {
 	unbound map[contract.DeploymentID]bool
 	// sessions are realtime session adapters registered beside adapters.
 	sessions []provider.RealtimeAdapter
+	// retry replaces fastRetries, the production retry shape with its waits
+	// shrunk so a test does not sleep.
+	retry *kaana.RetryPolicy
 }
+
+// fastRetries is DefaultRetryPolicy's attempt cap with millisecond waits.
+var fastRetries = kaana.RetryPolicy{MaxRetriesPerRoute: 2, Backoff: time.Millisecond, Budget: time.Second}
+
+// noRetries isolates a failover test from same-route retries: its subject is
+// which route serves, and a retry of the primary would only add attempts.
+var noRetries = kaana.RetryPolicy{}
 
 func (h harness) build(t *testing.T) *kaana.Executor {
 	t.Helper()
@@ -246,6 +256,10 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 	if rotationRegistry == nil {
 		rotationRegistry = rotation.NewRegistry(rotation.Policy{}, h.now)
 	}
+	retry := &fastRetries
+	if h.retry != nil {
+		retry = h.retry
+	}
 	executor, err := kaana.NewExecutor(kaana.Config{
 		Inventory:           store,
 		Providers:           registry,
@@ -255,6 +269,7 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		CustomerCredentials: h.customerCredentials,
 		ValidationReporter:  h.validationReporter,
 		CustomerLimits:      h.customerLimits,
+		Retry:               retry,
 		Now:                 h.now,
 	})
 	if err != nil {
@@ -793,6 +808,7 @@ func TestRoutingProfileFailsOverOnlyWithinItsAuthorizedRouteList(t *testing.T) {
 	events, result := harness{
 		deployments: routingProfileDeployments,
 		adapters:    []provider.Adapter{primary, secondary, unlisted},
+		retry:       &noRetries,
 	}.run(t, routingProfileRequest())
 
 	if result.Failure != nil {
@@ -1368,8 +1384,15 @@ func TestPreOutputFailureDoesNotEstimateFromInputAlone(t *testing.T) {
 	if len(result.Report.Units) != 0 {
 		t.Fatalf("pre-output failure was estimated from input alone: %v", result.Report.Units)
 	}
-	if len(result.UpstreamCost.Attempts) != 1 || len(result.UpstreamCost.Attempts[0].Units) != 0 {
-		t.Fatalf("pre-output failure reached cost units: %+v", result.UpstreamCost)
+	// The rate limit is retried on its only route, so each of the three
+	// attempts is its own cost row — and none of them is estimated either.
+	if len(result.UpstreamCost.Attempts) != 1+fastRetries.MaxRetriesPerRoute {
+		t.Fatalf("pre-output failure recorded %d attempts: %+v", len(result.UpstreamCost.Attempts), result.UpstreamCost)
+	}
+	for index, attempt := range result.UpstreamCost.Attempts {
+		if len(attempt.Units) != 0 || attempt.Served {
+			t.Fatalf("pre-output attempt %d reached cost units or was served: %+v", index, attempt)
+		}
 	}
 }
 

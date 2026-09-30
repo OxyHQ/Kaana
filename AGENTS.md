@@ -40,6 +40,8 @@ Routing — docs/routing.md#rules-a-reviewer-applies
 - Attempt only the signed `authorizedRoutes`, in order; inventory authorizes none.
 - A `RouteSet` is one model reference; build `provider.Route` only in `Candidates()`.
 - Only `provider.AttributableCategory` trips a breaker; half-open admits one request.
+- A request moves (same-route retry, then failover) only before output is delivered;
+  a retry is a full attempt through `Admit`, bounded by `RetryPolicy`.
 
 Inventory — docs/inventory.md#rules-a-reviewer-applies
 - Re-issue inside the horizon; staleness is the snapshot's own `issuedAt`.

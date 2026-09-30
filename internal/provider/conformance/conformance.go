@@ -875,6 +875,11 @@ func execute(t *testing.T, subject Subject, scenario Scenario, request *contract
 		Inventory: store,
 		Providers: registry,
 		Rotation:  rotation.NewRegistry(rotation.Policy{}, nil),
+		// The suite judges one adapter's classification of one upstream
+		// exchange. Same-route retries are executor policy, proven against
+		// scripted adapters in internal/kaana; here they would only repeat
+		// the exchange under test and sleep between repetitions.
+		Retry: &kaana.RetryPolicy{},
 	})
 	if err != nil {
 		t.Fatalf("building the executor: %v", err)

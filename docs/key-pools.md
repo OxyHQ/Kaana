@@ -150,9 +150,17 @@ provider default applies only when a deployment has NO exact binding and its
 provider holds exactly one enabled key. It fills an absent binding; it never
 overrides or replaces an existing one, including one whose key is retired.
 
-**A route switch can only happen before anything has been streamed.** Once a
-body is being read the request is committed to the exact deployment/key that
-opened it; a mid-stream failure never moves to another credential.
+**A route switch can only happen before anything has been delivered.** Once a
+body is being read, that ATTEMPT is committed to the exact deployment/key that
+opened it; a mid-stream failure never moves to another credential inside the
+walk. What the executor may still do, while no output has reached the
+customer, is start a new attempt (`routing.md`, "Same-route retry"). A retry is
+a fresh `Stream` and so a fresh walk over the same exact binding: a rate limit
+retires nothing, so a single-key pool — every production platform deployment —
+reuses that key, which is correct because a throttle is not exhaustion. Where
+an operator declared `KeyPolicy.OnSeparateAccounts`, each attempt's walk may
+still spend its one throttle rotation before any body is read; the executor's
+attempt cap bounds how many walks one request can make.
 
 **A request makes at most as many upstream calls as the pool has keys**, because
 a key is never leased twice for one request. Nobody configured that ceiling; it

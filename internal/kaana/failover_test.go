@@ -191,6 +191,7 @@ func TestAFailedDeploymentFailsOverToAnotherServingTheSameRevision(t *testing.T)
 	events, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
 		adapters:    []provider.Adapter{primary, secondary},
+		retry:       &noRetries,
 	}.run(t, authorizedRequest())
 
 	if result.Failure != nil {
@@ -635,6 +636,7 @@ func TestAFailedAttemptIsOffTheCustomersReceiptAndOnKaanasCost(t *testing.T) {
 			succeedingAdapter("backup", 4),
 		},
 		costs: cards,
+		retry: &noRetries,
 	}.run(t, authorizedRequest())
 
 	if result.Failure != nil {
@@ -848,6 +850,7 @@ func TestFailoverResolvesCustomerCredentialOnlyAfterAnnouncingTheSwitch(t *testi
 	events, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
 		adapters:    []provider.Adapter{primary, backup}, costs: cards, customerCredentials: resolver,
+		retry: &noRetries,
 	}.run(t, request)
 	if result.Failure == nil || result.Failure.Code != contract.CodeBYOKCredentialInvalid {
 		t.Fatalf("the stale fallback binding produced %+v", result.Failure)
@@ -892,6 +895,7 @@ func TestFailoverSettlesThePrimaryWhenCustomerCredentialCooldownBlocksTheFallbac
 		deployments: twoDeploymentsOfOneRevision,
 		adapters:    []provider.Adapter{primary, backup}, costs: cards,
 		customerCredentials: resolver, validationReporter: reporter, customerLimits: limits,
+		retry: &noRetries,
 	}.run(t, request)
 	if result.Failure == nil || result.Failure.Code != contract.CodeRateLimited || result.Failure.RetryAfterMs == nil || *result.Failure.RetryAfterMs <= 0 {
 		t.Fatalf("the customer cooldown produced %+v", result.Failure)
