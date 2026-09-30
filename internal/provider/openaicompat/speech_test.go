@@ -72,7 +72,7 @@ func TestSpeechRealWirePreservesParametersAudioAndCharacterUnits(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.Method != "POST" || r.URL.Path != "/v1/tts" || r.Header.Get("Authorization") != "Bearer "+fakeAPIKey {
+		if r.Method != "POST" || r.URL.Path != "/v1/tts" || r.Header.Get("Authorization") != "Bearer "+fakeAPIKey || r.Header.Get("Content-Type") != "application/json" {
 			t.Error("wrong speech transport")
 		}
 		var body map[string]any
