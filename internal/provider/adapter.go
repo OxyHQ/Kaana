@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
@@ -510,6 +511,26 @@ func Executes(adapter Adapter, format contract.APIFormat) bool {
 		}
 	}
 	return false
+}
+
+// ChatOutputDeclarer is a request adapter that states, for one deployment,
+// what its chat_completions path produces: written text, spoken output, or
+// both. The answer is per deployment because it depends on the model as well
+// as on the adapter (providerconfig.SpeaksAloud).
+type ChatOutputDeclarer interface {
+	ChatOutputs(route Route) providerconfig.ChatOutput
+}
+
+// ChatOutputsOf is what an adapter's chat_completions path produces on one
+// deployment. An adapter that declares nothing writes text and never speaks.
+// The executor asks before Translate, as it asks Executes, so a spoken request
+// never reaches an adapter or a model that cannot answer aloud and a text chat
+// never reaches one that only speaks.
+func ChatOutputsOf(adapter Adapter, route Route) providerconfig.ChatOutput {
+	if declarer, ok := adapter.(ChatOutputDeclarer); ok {
+		return declarer.ChatOutputs(route)
+	}
+	return providerconfig.ChatOutput{Text: true}
 }
 
 // MaxAudioChunkBytes is the most raw audio one contract audio event carries.

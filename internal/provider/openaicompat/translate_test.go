@@ -10,7 +10,6 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
-	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // Translation is the half of an adapter with no schema to check it: the
@@ -463,39 +462,3 @@ func TestFinishReasonsMapToTheContractsClosedSet(t *testing.T) {
 }
 
 func pointer[T any](value T) *T { return &value }
-
-// TestSpokenOutputIsNeverExecutedByTheTextAdapter covers the gateway route to
-// an audio chat model: OpenRouter lists `openai/gpt-audio` and it is published
-// under this adapter, which emits text only. The request is refused naming
-// `audioOutput` — also when the rest of the envelope looks like a text chat,
-// so the refusal does not rest on the modality check that follows it.
-func TestSpokenOutputIsNeverExecutedByTheTextAdapter(t *testing.T) {
-	gateway, err := New(Config{Provider: "openrouter", BaseURL: providerconfig.Known["openrouter"].BaseURL, Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	route := provider.Route{DeploymentID: "dep_or_audio", Provider: "openrouter", ModelReference: "openai/gpt-audio@observed-2026-09-30", UpstreamModelID: "openai/gpt-audio"}
-	spoken := func(modality contract.Modality) *contract.Request {
-		request := requestWith([]contract.Message{{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("Say hello")}}})
-		request.Client.APIFormat = contract.APIFormatChatCompletions
-		request.Modality = modality
-		request.AudioOutput = &contract.AudioOutputParameters{Voice: "alloy", Format: contract.AudioOutputPCM}
-		return request
-	}
-	for _, adapter := range []*Adapter{gateway, testAdapter(t)} {
-		for _, modality := range []contract.Modality{contract.ModalityAudio, contract.ModalityText} {
-			_, err := adapter.Translate(spoken(modality), route)
-			var unsupported provider.ErrUnsupported
-			if !errors.As(err, &unsupported) || unsupported.Param != "audioOutput" || unsupported.Code != contract.CodeUnsupportedModality {
-				t.Errorf("%s with %s modality: err = %v; spoken output must be refused by name", adapter.Provider(), modality, err)
-			}
-		}
-	}
-	// Positive control: the same request without audioOutput is an ordinary
-	// text chat this adapter executes.
-	request := spoken(contract.ModalityText)
-	request.AudioOutput = nil
-	if _, err := gateway.Translate(request, route); err != nil {
-		t.Fatalf("a text chat through the gateway was refused: %v", err)
-	}
-}

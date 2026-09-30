@@ -10,6 +10,10 @@ native `openai_audio` protocol:
 
 Not speech synthesis, and not Realtime or Live sessions.
 
+The same spoken-chat wire also serves OpenRouter's `openai/gpt-audio` and
+`openai/gpt-audio-mini` rows through the `openaicompat` adapter ("OpenRouter's
+audio chat rows" below); OpenAI-direct stays the paid fallback behind them.
+
 ## Why a second slug for one origin
 
 A provider slug resolves to exactly one adapter. A transcription is a multipart
@@ -163,25 +167,97 @@ the contract's redaction runs.
 
 `configs/model-attribution.json` attributes the reviewed transcription ids and
 `gpt-audio-1.5` to `openai-audio` only. The publisher classifies every id in
-OpenAI's own namespace (`openai`, `openai-audio`) by its documented request
-family and, for `chat_completions`, whether the answer is spoken. It drops, with
-a warning, any attributed id whose family the slug's adapter cannot execute: an
-audio chat id under `openai`, a text chat id under `openai-audio`
-(`providerconfig.SpokenChatCompletions`). Realtime ids are session models:
-conversation models are published only under `openai-realtime`
-(docs/realtime.md) and dropped here; GPT-Live ids are dropped under every slug.
-`TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter` fails if a checked-in OpenAI
-row would be dropped by that gate.
+OpenAI's own namespace (`openai`, `openai-audio`, and OpenRouter's `openai/`
+rows) by its documented request family and, for `chat_completions`, whether the
+answer is spoken (`providerconfig.ClassifyModel`). It drops, with a warning, any
+attributed id whose family the slug's adapter cannot execute: an audio chat id
+under `openai`, a text chat id under `openai-audio`
+(`providerconfig.ChatOutputs`). Realtime ids are session models: conversation
+models are published only under `openai-realtime` (docs/realtime.md) and
+dropped here; GPT-Live ids are dropped under every slug.
+`TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter` fails if any checked-in row
+would be dropped by that gate.
 
 `gpt-audio-1.5` is attributed by its only snapshot id. `gpt-audio`,
 `gpt-audio-mini` and `gpt-4o-audio-preview` are not: OpenAI has retired them or
 scheduled them for shutdown with `gpt-audio-1.5` as the replacement.
 
-OpenRouter lists `openai/gpt-audio`, and a gateway row is published under the
-text adapter, which the family gate does not classify. The text adapter
-therefore refuses `audioOutput` itself, first thing in `Translate`
-(`TestSpokenOutputIsNeverExecutedByTheTextAdapter`), so spoken output is only
-ever executed here.
+## Speaking is per deployment
+
+Whether a chat is answered aloud is decided per slug AND model, once, in
+`providerconfig`, and read by both commands:
+
+- `ChatOutputs(slug, protocol)` is what an adapter's chat_completions path can
+  produce: `openai-audio` speaks only, `openrouter` writes and speaks, every
+  other chat adapter writes only.
+- `SpeaksAloud(slug, protocol, upstreamModelID)` adds the model: the adapter
+  must speak AND the model must be one OpenAI documents as answering aloud.
+- The publisher attaches a spoken model only where its slug speaks.
+- The executor asks the adapter (`provider.ChatOutputDeclarer`) before
+  `Translate`, exactly as it asks `provider.Executes`: a spoken request to a
+  deployment that cannot answer aloud is refused `unsupported_modality`
+  (`audioOutput`), and a text chat to a speak-only deployment `invalid_request`,
+  with nothing sent upstream (`TestTheExecutorDecidesSpeechPerDeployment`).
+  Each adapter refuses the same thing in `Translate` as a second line.
+
+The wire itself — request mapping, the stream and whole-answer readers, the
+audio chunking and ceiling, and the audio-token partition — is one package,
+`internal/provider/spokenchat`, shared by this adapter and OpenRouter's.
+
+## OpenRouter's audio chat rows
+
+OpenRouter serves OpenAI's audio chat models under its own namespace,
+`openai/gpt-audio` and `openai/gpt-audio-mini`, both already attributed and
+published under `openrouter`. They answer aloud through the `openaicompat`
+adapter on the shared spoken wire; a text chat to the same deployment still
+runs on the text path. What is OpenRouter's own:
+
+- **Streaming only.** "Audio output requires streaming (`stream: true`)." The
+  upstream is always streamed. A customer who asked for the whole answer (any
+  format) receives the same normalized events, which the edge folds; a
+  streamed customer request is `pcm` as the contract requires.
+- **The provider policy** (`zdr`, `data_collection: deny`,
+  `require_parameters: true`) rides on the body exactly as on a text request.
+- **Usage is always included** in the last SSE chunk ("`stream_options:
+  {include_usage: true}` ... deprecated and have no effect"); it is still sent,
+  harmlessly, because the shared wire sends it. `prompt_tokens_details.audio_tokens`
+  and `completion_tokens_details.audio_tokens` nest exactly as OpenAI's, so the
+  partition above applies unchanged; OpenRouter's `cost` field is not read.
+- In-stream `error` objects are classified by the `openaicompat` vocabulary.
+- Voices and formats are sent as the caller named them; OpenRouter lists
+  `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer` and `wav`, `mp3`,
+  `flac`, `opus`, `pcm16` as examples that "vary by model".
+
+List prices from `GET https://openrouter.ai/api/v1/models` on 2026-09-30 (USD
+per token; `audio` is audio input, `audio_output` audio output):
+
+| | prompt | completion | audio | audio_output |
+|---|---|---|---|---|
+| `openai/gpt-audio` | 0.0000025 | 0.00001 | 0.000032 | 0.000064 |
+| `openai/gpt-audio-mini` | 0.0000006 | 0.0000024 | 0.0000006 | 0.0000024 |
+
+A rate card for these deployments prices `audio_input_tokens` at `audio` and
+`audio_output_tokens` at `audio_output`, the text units at `prompt` and
+`completion`.
+
+Not verified from OpenRouter's documentation, and so what the first signed
+canary must confirm: whether `require_parameters: true` counts `modalities` and
+`audio` (neither is in either model's `supported_parameters`, and OpenRouter's
+parameter enum has no audio entry — if it counts them, OpenRouter answers 404
+for "no endpoints" and the route fails as `model_not_found`); whether a
+non-`pcm16` format streams through OpenRouter (its own example streams `wav`;
+OpenAI documents streaming as `pcm16` only); and whether a stream chunk carries
+`id` and `expires_at`, which this reader ignores. Both OpenRouter models are
+OpenAI's `gpt-audio` and `gpt-audio-mini`, which OpenAI has scheduled for
+shutdown; OpenRouter's catalogue will withdraw them then and the publisher will
+stop publishing them.
+
+Sources: https://openrouter.ai/docs/guides/overview/multimodal/audio ,
+https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion ,
+https://openrouter.ai/docs/cookbook/administration/usage-accounting ,
+https://openrouter.ai/docs/guides/routing/provider-selection ,
+https://openrouter.ai/api/v1/models ,
+https://openrouter.ai/openai/gpt-audio , https://openrouter.ai/openai/gpt-audio-mini
 
 ## Operator configuration and enablement
 
@@ -190,6 +266,16 @@ a `KAANA_PROVIDER_OPENAI_AUDIO_DISCOVERY_KEY_ID` to publish its deployments).
 Health never uploads audio or asks for speech, and stays degraded until a signed
 canary with an explicitly funded credential has been validated; a catalogue
 entry is not evidence that the account can transcribe or speak.
+
+OpenRouter's spoken rows need no new slug, key or discovery: `openrouter` is
+already served and discovered, and `openai/gpt-audio` and
+`openai/gpt-audio-mini` are already published. What enabling them needs is a
+rate card for each of those deployments pricing `audio_input_tokens` and
+`audio_output_tokens` (in 10⁻¹² USD per token: `32000000` / `64000000` for
+`gpt-audio`, `600000` / `2400000` for `gpt-audio-mini`, beside `input_tokens`
+and `output_tokens` at `2500000` / `10000000` and `600000` / `2400000`), and
+Oxy signing `audioOutput` requests to them, which it may do once its catalogue
+advertises those deployments as speaking.
 
 ## Validation and sources
 

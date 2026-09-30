@@ -34,6 +34,7 @@ const (
 	ProtocolDeepgramVoice     = "deepgram_voice"
 	ProtocolOpenAIAudio       = "openai_audio"
 	ProtocolOpenAIRealtime    = "openai_realtime"
+	ProtocolXAIRealtime       = "xai_realtime"
 
 	DiscoveryOpenAIModels  = "openai_models"
 	DiscoveryXAIModels     = "xai_models_and_speech"
@@ -59,6 +60,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
+	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
@@ -110,6 +112,20 @@ const (
 	OpenAIRealtimeSessionURL = "wss://api.openai.com/v1/realtime"
 )
 
+// XAIRealtimeBaseURL is the only API root the `xai-realtime` slug may name,
+// and XAIRealtimeSessionURL the only WebSocket endpoint its adapter dials:
+// xAI's Voice Agent (speech-to-speech) API
+// (https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech).
+//
+// It is xAI's own origin under a second slug for the reason `openai-realtime`
+// is one: `xai` is already the OpenAI-compatible request adapter, and a slug
+// resolves to exactly one adapter. The root is the HTTPS API root the
+// publisher lists the account's models at; the session endpoint is fixed.
+const (
+	XAIRealtimeBaseURL    = "https://api.x.ai/v1"
+	XAIRealtimeSessionURL = "wss://api.x.ai/v1/realtime"
+)
+
 // RealtimeSessionKinds is the realtime session kinds a slug's adapter opens
 // under a protocol: the session-family counterpart of ExecutableAPIFormats,
 // read by the adapter's own declaration (which the registry enforces) and by
@@ -122,6 +138,10 @@ func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.R
 		// endpoint and event protocol with no items, responses or usage, and
 		// its transcription sessions document no WebSocket endpoint; both are
 		// refused rather than approximated (docs/realtime.md).
+		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+	case ProtocolXAIRealtime:
+		// xAI's Voice Agent API holds conversations only; it documents no
+		// transcription or translation session.
 		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
 	}
 	return nil
@@ -156,16 +176,6 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 	}
 	return nil
 }
-
-// SpokenChatCompletions reports whether a protocol's chat_completions path is
-// spoken output (a request carrying `audioOutput`) and nothing else. The two
-// readings are exclusive per protocol, not per request: the `openai_audio`
-// adapter executes Chat Completions ONLY to answer aloud and refuses a text
-// chat, and every other protocol that executes chat_completions produces text
-// and refuses `audioOutput`. The publisher reads this beside
-// ExecutableAPIFormats, so an audio chat model is attached only to an adapter
-// that can speak and a text model never to one that can only speak.
-func SpokenChatCompletions(protocol string) bool { return protocol == ProtocolOpenAIAudio }
 
 // ValidateBaseURL limits provider credentials to a verified HTTPS origin.
 func ValidateBaseURL(raw string) error {
@@ -207,6 +217,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 	if slug == "openai-realtime" {
 		if raw != OpenAIRealtimeBaseURL {
 			return fmt.Errorf("openai-realtime requires OpenAI's canonical HTTPS API base")
+		}
+		return nil
+	}
+	if slug == "xai-realtime" {
+		if raw != XAIRealtimeBaseURL {
+			return fmt.Errorf("xai-realtime requires xAI's canonical HTTPS API base")
 		}
 		return nil
 	}

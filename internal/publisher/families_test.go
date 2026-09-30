@@ -69,58 +69,23 @@ func TestAnAttributedModelIsPublishedOnlyUnderAnAdapterThatCanExecuteIt(t *testi
 	}
 }
 
-func TestOpenAIFamilies(t *testing.T) {
-	requests := map[string]family{
-		"gpt-6-astra":            {format: contract.APIFormatChatCompletions},
-		"gpt-5.6-sol":            {format: contract.APIFormatChatCompletions},
-		"gpt-audio-1.5":          {format: contract.APIFormatChatCompletions, spoken: true},
-		"gpt-audio-2025-08-28":   {format: contract.APIFormatChatCompletions, spoken: true},
-		"gpt-audio-mini":         {format: contract.APIFormatChatCompletions, spoken: true},
-		"gpt-4o-audio-preview":   {format: contract.APIFormatChatCompletions, spoken: true},
-		"gpt-transcribe":         {format: contract.APIFormatAudioTranscriptions},
-		"gpt-4o-transcribe":      {format: contract.APIFormatAudioTranscriptions},
-		"gpt-4o-mini-transcribe": {format: contract.APIFormatAudioTranscriptions},
-		"whisper-1":              {format: contract.APIFormatAudioTranscriptions},
-		"gpt-4o-mini-tts":        {format: contract.APIFormatAudioSpeech},
-		"tts-1-hd":               {format: contract.APIFormatAudioSpeech},
-		"gpt-image-1":            {format: contract.APIFormatImagesGenerations},
-		"text-embedding-3-large": {format: contract.APIFormatEmbeddings},
-	}
-	sessions := map[string]contract.RealtimeSessionKind{
-		"gpt-realtime-2.1":             contract.RealtimeConversation,
-		"gpt-realtime-2.1-mini":        contract.RealtimeConversation,
-		"gpt-realtime-2":               contract.RealtimeConversation,
-		"gpt-realtime-1.5":             contract.RealtimeConversation,
-		"gpt-realtime-2025-08-28":      contract.RealtimeConversation,
-		"gpt-4o-realtime-preview":      contract.RealtimeConversation,
-		"gpt-4o-mini-realtime-preview": contract.RealtimeConversation,
-		"gpt-realtime-translate":       contract.RealtimeTranslation,
-		"gpt-live-transcribe":          contract.RealtimeTranscription,
-		"gpt-realtime-whisper":         contract.RealtimeTranscription,
-	}
-	for id, session := range sessions {
-		requests[id] = family{session: session}
-	}
-	for id, want := range requests {
-		if got, ok := openAIFamily(id); !ok || got != want {
-			t.Errorf("%s = %+v, %t; want %+v", id, got, ok, want)
-		}
-	}
-	for _, inexpressible := range []string{"gpt-live-1", "omni-moderation-latest"} {
-		if got, ok := openAIFamily(inexpressible); ok {
-			t.Errorf("%s classified as %+v; nothing the contract names can execute it", inexpressible, got)
-		}
-	}
-}
+// openAINamespaces are the slugs that list OpenAI's own model ids.
+var openAINamespaces = map[contract.ProviderSlug]bool{"openai": true, "openai-audio": true, "openai-realtime": true}
 
-// TestSpokenChatIsExecutableOnlyByTheAudioAdapter is the exclusive-or the
-// request-family gate adds for chat_completions: both OpenAI request slugs
-// execute the family, and exactly one of them can speak. The realtime slug
-// executes neither.
-func TestSpokenChatIsExecutableOnlyByTheAudioAdapter(t *testing.T) {
+// TestSpokenChatIsExecutableOnlyWhereTheDeploymentSpeaks is the gate the
+// request family adds for chat_completions, decided per slug and model: both
+// OpenAI request slugs execute the family and exactly one of them can speak;
+// OpenRouter's adapter writes AND speaks, so its `openai/gpt-audio*` rows
+// publish there while a session model under it does not. The realtime slugs
+// execute no request, and xAI's voice model publishes only under its session
+// slug.
+func TestSpokenChatIsExecutableOnlyWhereTheDeploymentSpeaks(t *testing.T) {
 	text := Provider{Slug: "openai", Protocol: providerconfig.ProtocolOpenAICompatible}
 	audio := Provider{Slug: "openai-audio", Protocol: providerconfig.ProtocolOpenAIAudio}
 	realtime := Provider{Slug: "openai-realtime", Protocol: providerconfig.ProtocolOpenAIRealtime}
+	gateway := Provider{Slug: "openrouter", Protocol: providerconfig.ProtocolOpenAICompatible}
+	xai := Provider{Slug: "xai", Protocol: providerconfig.ProtocolOpenAICompatible}
+	xaiRealtime := Provider{Slug: "xai-realtime", Protocol: providerconfig.ProtocolXAIRealtime}
 	cases := []struct {
 		target Provider
 		id     string
@@ -142,6 +107,19 @@ func TestSpokenChatIsExecutableOnlyByTheAudioAdapter(t *testing.T) {
 		{Provider{Slug: "openai-audio"}, "gpt-audio-1.5", true},
 		{Provider{Slug: "openai"}, "gpt-audio-1.5", false},
 		{Provider{Slug: "openai-realtime"}, "gpt-realtime-2.1", true},
+		{gateway, "openai/gpt-audio", true},
+		{gateway, "openai/gpt-audio-mini", true},
+		{gateway, "openai/gpt-6-astra", true},
+		{gateway, "openai/gpt-realtime-2", false},
+		{gateway, "openai/gpt-image-2", false},
+		{gateway, "google/gemini-3.8-flash", true}, // unclassified: attribution decides
+		{xaiRealtime, "grok-voice-think-fast-2.0", true},
+		{xai, "grok-voice-think-fast-2.0", false},
+		{xaiRealtime, "grok-4.7", false},
+		{xaiRealtime, "tts", false},
+		{xai, "grok-4.7", true},
+		{xai, "tts", true},
+		{Provider{Slug: "xai-realtime"}, "grok-voice-think-fast-2.0", true},
 	}
 	for _, c := range cases {
 		if got := executable(c.target, c.id); got != c.want {
