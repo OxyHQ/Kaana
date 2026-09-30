@@ -263,13 +263,28 @@ func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
 		{"xai", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatAudioSpeech}},
 		{"anthropic", providerconfig.ProtocolAnthropicMessages, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}},
 		{"deepgram", providerconfig.ProtocolDeepgramVoice, []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}},
-		{"openai-audio", providerconfig.ProtocolOpenAIAudio, []contract.APIFormat{contract.APIFormatAudioTranscriptions}},
+		{"openai-audio", providerconfig.ProtocolOpenAIAudio, []contract.APIFormat{contract.APIFormatAudioTranscriptions, contract.APIFormatChatCompletions}},
 		{"openai", "not_a_protocol", nil},
 	}
 	for _, c := range cases {
 		got := providerconfig.ExecutableAPIFormats(c.slug, c.protocol)
 		if fmt.Sprint(got) != fmt.Sprint(c.want) {
 			t.Errorf("%s/%s executes %v, want %v", c.slug, c.protocol, got, c.want)
+		}
+	}
+}
+
+func TestOnlyTheOpenAIAudioProtocolSpeaksChatCompletions(t *testing.T) {
+	speaking := map[string]bool{
+		providerconfig.ProtocolOpenAIAudio:       true,
+		providerconfig.ProtocolOpenAICompatible:  false,
+		providerconfig.ProtocolAnthropicMessages: false,
+		providerconfig.ProtocolDeepgramVoice:     false,
+		"not_a_protocol":                         false,
+	}
+	for protocol, want := range speaking {
+		if got := providerconfig.SpokenChatCompletions(protocol); got != want {
+			t.Errorf("%s speaks chat completions: %t, want %t", protocol, got, want)
 		}
 	}
 }
