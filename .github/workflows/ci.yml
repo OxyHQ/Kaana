@@ -8,9 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request supersedes its previous run. A push to `main`
+# never does: each `main` commit gets its own group (its sha), so no merge's run
+# is cancelled, running or pending, by the merge after it.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: "1.26.7"
@@ -49,10 +52,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # This job is the ONLY writer of the Go module + build cache. setup-go
+      # saves once per key and never overwrites, so whichever job saves first
+      # owns the key until go.mod/go.sum change. When `contract drift` also
+      # cached, it finished first and saved a 13 MB cache holding one small
+      # package's build output; this job then restored it on every run and
+      # rebuilt the dependency graph (with and without -race) from scratch.
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: |
+            go.mod
+            go.sum
 
       - name: provision the credential database roles
         env:
@@ -105,10 +117,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No cache here, deliberately: see `build, vet, lint, test`. This job
+      # compiles one stdlib-only package, and a save from it would shadow the
+      # full build cache.
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - uses: oven-sh/setup-bun@v2
         with:
