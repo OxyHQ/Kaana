@@ -108,6 +108,13 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # `--cache-from/--cache-to type=gha` below need the Actions runtime token
+      # and cache URL, which GitHub hands to JavaScript actions and NOT to `run:`
+      # steps; without them buildx skips the cache silently. Only this job, which
+      # runs on main, writes the `kaana` scope; no pull_request workflow does.
+      - name: Expose the Actions cache to buildx
+        uses: crazy-max/ghaction-github-runtime@v4
+
       - name: Build and push (linux/arm64)
         id: image
         run: |
@@ -118,6 +125,8 @@ jobs:
           # silently ship the wrong architecture.
           docker buildx build \
             --platform linux/arm64 \
+            --cache-from type=gha,scope=$APP \
+            --cache-to type=gha,scope=$APP,mode=max,ignore-error=true \
             -t "$IMG:${{ github.sha }}" \
             -t "$IMG:latest" \
             --push \
