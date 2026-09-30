@@ -1,17 +1,16 @@
 {
-  "lockfileVersion": 1,
+  "lockfileVersion": 2,
   "configVersion": 1,
   "workspaces": {
     "": {
       "name": "@oxy.so/kaana-contract-tools",
       "dependencies": {
-        "@oxy.so/contracts": "/tmp/claude-1000/-home-nate-Oxy-Kaana/b7077c1d-25c5-4f1a-9535-1a02af302ffb/scratchpad/oxy.so-contracts-4.5.0.tgz",
-        "@oxy.so/contracts": "4.4.0",
+        "@oxy.so/contracts": "4.5.0",
       },
     },
   },
   "packages": {
-    "@oxy.so/contracts": ["@oxy.so/contracts@/tmp/claude-1000/-home-nate-Oxy-Kaana/b7077c1d-25c5-4f1a-9535-1a02af302ffb/scratchpad/oxy.so-contracts-4.5.0.tgz", { "dependencies": { "zod": "^3.25.64" } }, "sha512-tdiJaRbaFrV2uMSk1sG1oRzUgiYdjV0DrxAANNqF25P68wI1T4sEdQOrVQPOM/0SZk50H1PyejYVu5QzYU+VXQ=="],
+    "@oxy.so/contracts": ["@oxy.so/contracts@4.5.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-fVhJM9vIJx6j52aN8Z6NO4lkEouKVfN2+DIxEUJRZlxy0IC1q1HCoQnS840b8oLYxgRj0Tk9RCCT1lmb8+pXKA=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
   }
