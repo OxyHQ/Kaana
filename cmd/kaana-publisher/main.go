@@ -325,12 +325,12 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 		if err := providerconfig.ValidateEndpointIdentity(slug, baseURL); err != nil {
 			return nil, fmt.Errorf("%s_BASE_URL for provider %q: %w", prefix, slug, err)
 		}
-		if protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio {
+		if protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime {
 			// Every discovery profile currently registered here belongs to a
 			// provider served through the OpenAI-compatible adapter, or to
-			// OpenAI's own audio slug, which reads the same account list. The list
-			// itself may be native (Alibaba) or OpenAI-shaped; neither fact is
-			// inferred from protocol compatibility.
+			// OpenAI's own audio and realtime slugs, which read the same account
+			// list. The list itself may be native (Alibaba) or OpenAI-shaped;
+			// neither fact is inferred from protocol compatibility.
 			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from %s, or its models have to be declared by something that measured them", slug, protocol, providerSetVariable)
 		}
 		if known.Discovery == providerconfig.DiscoveryNotAvailable {

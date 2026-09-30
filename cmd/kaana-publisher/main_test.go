@@ -157,8 +157,8 @@ func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 // refuse to attach a chat model to it.
 func TestOpenAIAudioIsDiscoveredWithItsOwnProtocol(t *testing.T) {
 	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS":           "openai,openai-audio",
-		"KAANA_DISCOVERY_PROVIDERS": "openai,openai-audio",
+		"KAANA_PROVIDERS":           "openai,openai-audio,openai-realtime",
+		"KAANA_DISCOVERY_PROVIDERS": "openai,openai-audio,openai-realtime",
 	}))
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
@@ -166,6 +166,11 @@ func TestOpenAIAudioIsDiscoveredWithItsOwnProtocol(t *testing.T) {
 	if providers[0].Protocol != "openai_compatible" || providers[1].Protocol != "openai_audio" ||
 		providers[1].Discovery != "openai_models" || providers[1].BaseURL != "https://api.openai.com/v1" {
 		t.Fatalf("providers = %+v, %+v", providers[0], providers[1])
+	}
+	// The realtime slug lists the same account over HTTPS; its sessions are
+	// dialled elsewhere, by the adapter, never at a configured address.
+	if providers[2].Protocol != "openai_realtime" || providers[2].Discovery != "openai_models" || providers[2].BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("realtime provider = %+v", providers[2])
 	}
 }
 

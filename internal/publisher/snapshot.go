@@ -94,10 +94,11 @@ type BuildResult struct {
 	// an unattributed model is invisible in the output by construction.
 	Unattributed []string
 	// Inexecutable names attributed (provider, upstream id) pairs whose
-	// request family the provider's adapter cannot execute: a transcription
-	// model under the chat adapter, or a Realtime session model anywhere. They
-	// are omitted so no reference can route a request to an adapter that
-	// cannot faithfully serve it.
+	// request family or session kind the provider's adapter cannot execute: a
+	// transcription model under the chat adapter, a Realtime model under
+	// anything but the realtime adapter, a Realtime translation model anywhere.
+	// They are omitted so no reference can route a request or a session to an
+	// adapter that cannot faithfully serve it.
 	Inexecutable []string
 }
 
