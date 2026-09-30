@@ -271,9 +271,10 @@ change to.
   selector. Neither is the secret or a hash of it, since a fingerprint confirms
   a guess.
 - **Class is stated, never inferred**, and **unstated is not paid** — the
-  measurement behind both is in "Key class" above. An unclassified pool keeps
-  the order it was declared in, so classifying one key moves that key and
-  disturbs no other.
+  measurement behind both is in "Key class" above. A pool is walked `free`,
+  then unstated in declared order, then `paid`; an unclassified pool keeps the
+  order it was declared in, so classifying one key moves that key and disturbs
+  no other.
 - **A 402 is the platform's account refusing to be billed**, and it must retire
   the key. It reached the default branch once and became `invalid_request`,
   which told the customer their request was at fault and kept spending an

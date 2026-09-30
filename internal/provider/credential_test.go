@@ -809,6 +809,26 @@ func TestStatedFreeKeysAreTriedFirst(t *testing.T) {
 	}
 }
 
+// Free, then unstated in declared order, then paid: a key the operator said
+// costs money is never spent ahead of one they did not classify.
+func TestPaidKeysAreTriedAfterUnstatedOnes(t *testing.T) {
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "paid-a", Secret: "secret-1", Class: KeyClassPaid},
+		{KeyID: "unstated-a", Secret: "secret-2"},
+		{KeyID: "free-a", Secret: "secret-3", Class: KeyClassFree},
+		{KeyID: "paid-b", Secret: "secret-4", Class: KeyClassPaid},
+		{KeyID: "unstated-b", Secret: "secret-5"},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatalf("NewKeyPool: %v", err)
+	}
+	got := poolOrder(t, pool)
+	want := []string{"free-a", "unstated-a", "unstated-b", "paid-a", "paid-b"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
 // The one that must not change. An unclassified pool is not a paid pool.
 func TestAnUnstatedPoolKeepsTheOrderItWasDeclaredIn(t *testing.T) {
 	pool, err := NewKeyPool("test-provider", DeclareKeys([]string{"secret-1", "secret-2", "secret-3"}), KeyPolicy{}, nil)
