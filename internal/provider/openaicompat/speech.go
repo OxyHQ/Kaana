@@ -73,6 +73,9 @@ func (a *Adapter) translateSpeech(request *contract.Request, route provider.Rout
 	for name, value := range a.config.Headers {
 		headers.Set(name, value)
 	}
+	// The body is JSON and xAI says so or refuses it: without this header its
+	// /tts endpoint answers 415, which is how every speech request failed.
+	headers.Set("Content-Type", "application/json")
 	return &provider.Call{Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/tts", Body: body, Header: headers}, nil
 }
 
