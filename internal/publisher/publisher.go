@@ -75,6 +75,11 @@ type Config struct {
 	// sleeping through the cadence.
 	Now    func() time.Time
 	Logger *slog.Logger
+	// Evidence is where the publisher reads what Kaana already knows about
+	// serving each deployment (withholding.go). Nil withholds nothing.
+	Evidence EvidenceSource
+	// Withholding is the rule's policy. Zero takes DefaultWithholdPolicy.
+	Withholding WithholdPolicy
 }
 
 // Publisher re-issues the inventory snapshot.
@@ -87,6 +92,8 @@ type Publisher struct {
 	client      *http.Client
 	now         func() time.Time
 	logger      *slog.Logger
+	evidence    EvidenceSource
+	withholding WithholdPolicy
 }
 
 // New validates the wiring and refuses anything that would publish silently
@@ -126,6 +133,13 @@ func New(config Config) (*Publisher, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	withholding := config.Withholding
+	if withholding == (WithholdPolicy{}) {
+		withholding = DefaultWithholdPolicy()
+	}
+	if err := withholding.Validate(); err != nil {
+		return nil, err
+	}
 
 	return &Publisher{
 		providers:   config.Providers,
@@ -135,6 +149,8 @@ func New(config Config) (*Publisher, error) {
 		client:      client,
 		now:         now,
 		logger:      logger,
+		evidence:    config.Evidence,
+		withholding: withholding,
 	}, nil
 }
 
@@ -240,9 +256,19 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 		return errors.New("no provider could be asked what it serves, so this cycle has nothing to publish; the previously published snapshot is left in place")
 	}
 
-	built, err := BuildSnapshot(discoveries, p.attribution, observations, p.now())
+	now := p.now()
+	withhold := p.withholdFor(ctx, discoveries, previousBody, published, now)
+	built, err := BuildSnapshotWithholding(discoveries, p.attribution, observations, now, withhold, p.withholding.ReportOnly)
 	if err != nil {
 		return err
+	}
+	for _, decision := range built.Withheld {
+		p.logger.Warn("a deployment its provider lists is withheld from the snapshot: Kaana's evidence says it cannot be served now",
+			withholdingAttributes(decision)...)
+	}
+	for _, decision := range built.WouldWithhold {
+		p.logger.Warn("a deployment would be withheld from the snapshot; publishing it because withholding is report-only",
+			withholdingAttributes(decision)...)
 	}
 	for _, dropped := range built.Inexecutable {
 		p.logger.Warn("an attributed model needs a request family its provider's adapter cannot execute; it is absent from the snapshot",
@@ -266,8 +292,10 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 	// signal an operator needs before the horizon turns it into refusals.
 	p.logger.Info("inventory snapshot published",
 		"snapshotId", built.SnapshotID,
-		"issuedAt", contract.NewTimestamp(p.now()),
+		"issuedAt", contract.NewTimestamp(now),
 		"deployments", built.Deployments,
+		"withheld", len(built.Withheld),
+		"wouldWithhold", len(built.WouldWithhold),
 		"unchanged", published && built.SnapshotID == snapshotIDOf(previousBody),
 		"destination", p.store.Describe())
 	return nil
@@ -284,4 +312,70 @@ func snapshotIDOf(body []byte) string {
 		return ""
 	}
 	return parsed.SnapshotID
+}
+
+// withholdFor reads this cycle's evidence and returns its decision function.
+//
+// An unreadable read withholds nothing NEW and keeps every decision the
+// previous snapshot recorded whose `until` has not passed. Publishing
+// everything instead would flap each withheld deployment back into routing
+// for one cycle per database blip; refusing the cycle would let the snapshot
+// age toward the horizon over a question about publication, not identity.
+func (p *Publisher) withholdFor(ctx context.Context, discoveries []Discovery, previousBody []byte, published bool, now time.Time) Withhold {
+	if p.evidence == nil {
+		return nil
+	}
+	slugs := make([]contract.ProviderSlug, 0, len(discoveries))
+	for _, discovery := range discoveries {
+		slugs = append(slugs, discovery.Provider.Slug)
+	}
+	evidence, err := p.evidence.PublicationEvidence(ctx, slugs, now.Add(-p.withholding.Lookback))
+	if err == nil {
+		return NewDecider(evidence, p.withholding, now).Decide
+	}
+	carried := map[contract.DeploymentID]Withholding{}
+	if published {
+		carried = withholdingsFrom(previousBody, now)
+	}
+	p.logger.Error("publication evidence could not be read; keeping the previous snapshot's unexpired withholdings and withholding nothing new",
+		"error", err, "carried", len(carried))
+	return func(id contract.DeploymentID, _ contract.ProviderSlug) (Withholding, bool) {
+		decision, withheld := carried[id]
+		return decision, withheld
+	}
+}
+
+// withholdingsFrom reads the previous snapshot's unexpired withholdings. An
+// unreadable body carries nothing; ObservationsFrom has already refused it.
+func withholdingsFrom(body []byte, now time.Time) map[contract.DeploymentID]Withholding {
+	var parsed snapshotFile
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return map[contract.DeploymentID]Withholding{}
+	}
+	carried := make(map[contract.DeploymentID]Withholding, len(parsed.Withheld))
+	for _, withheld := range parsed.Withheld {
+		until, err := withheld.Until.Time()
+		if err != nil || !now.Before(until) {
+			continue
+		}
+		carried[withheld.DeploymentID] = Withholding{Reason: withheld.Reason, Until: until, Failures: withheld.Failures}
+	}
+	return carried
+}
+
+func withholdingAttributes(decision WithheldDeployment) []any {
+	attributes := []any{
+		"deploymentId", decision.DeploymentID,
+		"provider", decision.Provider,
+		"upstreamModelId", decision.UpstreamModelID,
+		"reason", decision.Reason,
+		"until", contract.NewTimestamp(decision.Until),
+	}
+	if decision.KeyID != "" {
+		attributes = append(attributes, "keyId", decision.KeyID)
+	}
+	if decision.Failures > 0 {
+		attributes = append(attributes, "failures", decision.Failures)
+	}
+	return attributes
 }

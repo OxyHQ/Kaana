@@ -48,6 +48,8 @@ Inventory — docs/inventory.md#rules-a-reviewer-applies
 - The revision label is carried forward per model line, never re-dated.
 - An upstream id must name the same weights tomorrow: no routers, aliases, `:batch`.
 - Validate with `inventory.Parse` before writing; never default the bucket.
+- Withhold what cannot be served now, on persisted evidence, with a return time;
+  never on a throttle, never by probing, never hashed into `snapshotId`.
 
 Credentials — docs/key-pools.md#rules-a-reviewer-applies
 - PostgreSQL KMS ciphertext is the only key store; plaintext only on stdin.

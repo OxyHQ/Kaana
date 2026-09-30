@@ -73,6 +73,9 @@ var migration0018 string
 //go:embed migrations/0016_provider_attempt_telemetry.sql
 var migration0016 string
 
+//go:embed migrations/0019_deployment_publication_evidence.sql
+var migration0019 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool             *pgxpool.Pool
@@ -197,6 +200,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0016", body: migration0016},
 		{version: "0017", body: migration0017},
 		{version: "0018", body: migration0018},
+		{version: "0019", body: migration0019},
 	} {
 		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
 			return err

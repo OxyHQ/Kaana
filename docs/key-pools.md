@@ -132,7 +132,10 @@ inference every time:
 4. **Unknown**, the default, which disables nothing.
 
 Not implemented, and named rather than stubbed: **an official quota API or an
-authenticated usage endpoint**, which would sit above the header mapping. Every
+authenticated usage endpoint**, which would sit above the header mapping. The
+inventory publisher does not probe one either (`inventory.md`, "Withheld from
+publication", says which providers were checked); an operator who reads a
+balance records it as capacity evidence, which publication reads. Every
 provider spells one differently, none of them can be exercised from a repository
 with no credentials and no live call, and a poller written against documentation
 alone would be the same guess in a more expensive form.
@@ -232,6 +235,31 @@ their JSON document from stdin (never argv, where an email would sit in shell
 history); `list-credential-metadata` shows descriptions with the keys that share
 each funding account and the latest evidence of each kind. The label-free part
 is what Oxy reads on the operator feed (`cost.md`).
+
+## What publication reads from a key
+
+The inventory publisher withholds a discovered deployment while the exact key
+it executes on cannot serve it (`inventory.md`, "Withheld from publication").
+It resolves that key by the same three rules as execution, and reads, without
+decrypting anything or taking any lease:
+
+- the key's runtime state: retired until `retired_until` withholds until then;
+  an expired retirement does not, because the first real request after it is
+  the only thing that can prove recovery;
+- the key's latest fresh capacity evidence (`0017`): zero balance, zero
+  day/month/lifetime quota, or a passed expiry withholds until it stops being
+  fresh; zero over a minute or an hour is a throttle and does not;
+- the deployment's attempts on that key since its last success (`0019`): one
+  billing or credential refusal withholds for a quarantine, unless capacity
+  evidence reading more than zero was recorded after it.
+
+So an exhausted key comes back on its own: its retirement expires, the
+quarantine after its last refusal ends, the deployment is published for a
+trial, and the first real success writes the `usable` watermark and ends the
+streak. Rotating the ciphertext clears the runtime state and discards the
+older attempts as evidence (they describe the previous secret). Recording
+fresh positive capacity evidence ends a refusal's quarantine early; it does not
+shorten a retirement, which serving enforces on its own clock.
 
 ## Where the credentials come from
 
@@ -349,6 +377,9 @@ change to.
   opened the stream.
 - **A retirement is a flat window, never permanent and never a backoff.** The
   provider's own reset time wins over the window.
+- **Publication reads key state; it never writes it.** The publisher takes no
+  recovery lease and records no attempt: a key proves recovery only through a
+  real request, and a withheld deployment is re-published for exactly that.
 - **A quota header mapping is per provider, lives in the ADAPTER package, and
   maps a header to a MEANING** — never a generic name. The shipped mapping is
   empty under an exact-count assertion; an entry needs a verified source.

@@ -393,6 +393,13 @@ transaction; it blocks cost writes for as long as the build takes, which is
 why the lock timeout is five seconds and a busy table fails the migration
 rather than stalling serving.
 
+Migration `0019` adds one `SECURITY DEFINER` read,
+`kaana_read_deployment_failure_streaks`, granted to `kaana_runtime`, which the
+publisher uses to withhold deployments that cannot be served
+(`inventory.md`, "Withheld from publication"). Apply it before deploying a
+publisher that reads it. A publisher deployed first logs an ERROR each cycle,
+withholds nothing new and otherwise publishes normally; it does not stop.
+
 ### Add or rotate a key
 
 Plaintext is accepted only on standard input:
@@ -690,6 +697,8 @@ catalogue traversal; serving resolves each deployment's exact database binding.
 | `AWS_REGION` | yes | AWS region |
 | `KAANA_PUBLISH_INTERVAL` | no | default `15m` |
 | `KAANA_PUBLISHER_ATTRIBUTION_PATH` | no | checked-in attribution table |
+| `KAANA_PUBLISHER_WITHHOLDING` | no | `enforce` (default) or `report`; roll out with `report` first |
+| `KAANA_PUBLISHER_WITHHOLD_FAILURES` / `_FAILURE_SPAN` / `_MIN` / `_MAX` / `_LOOKBACK` | no | `5` / `10m` / `30m` / `6h` / `24h`; see `inventory.md` |
 
 A provider declared in either process's provider set but missing an active
 database key is a hard startup refusal for that process. A green task must not
