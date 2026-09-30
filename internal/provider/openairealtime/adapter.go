@@ -54,12 +54,16 @@ type Config struct {
 	Declarations []provider.KeyDeclaration
 	Keys         provider.KeyPolicy
 	HTTPClient   *http.Client
+	// Now is the clock a session billed by its duration is measured with;
+	// nil is time.Now, whose readings carry the monotonic clock.
+	Now func() time.Time
 }
 
 type Adapter struct {
 	dialect     *dialect
 	client      *http.Client
 	credentials *provider.KeyPool
+	now         func() time.Time
 }
 
 // New builds the OpenAI Realtime adapter. Its origin is not configurable: the
@@ -79,7 +83,11 @@ func buildAdapter(d *dialect, config Config) (*Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{dialect: d, client: provider.RefuseRedirects(config.HTTPClient), credentials: pool}, nil
+	now := config.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &Adapter{dialect: d, client: provider.RefuseRedirects(config.HTTPClient), credentials: pool, now: now}, nil
 }
 
 func (a *Adapter) Provider() contract.ProviderSlug        { return a.dialect.slug }
@@ -124,11 +132,15 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 	endpoint := d.sessionURL + "?model=" + url.QueryEscape(request.Route.UpstreamModelID)
 	call := &provider.Call{RequestID: request.RequestID, Route: request.Route, Method: http.MethodGet, URL: endpoint}
 
+	// handshakeAt is when the provider accepted the handshake of the attempt
+	// that opened: a provider billing session time starts its clock there.
+	var handshakeAt time.Time
 	conn, key, err := provider.WalkAttempts(ctx, credentials, call, func(ctx context.Context, key provider.Key) (*websocket.Conn, provider.CredentialedAttempt) {
 		attempt, dialled := a.dial(ctx, endpoint, key)
 		if dialled == nil {
 			return nil, attempt
 		}
+		handshakeAt = a.now()
 		if failure := d.configure(ctx, dialled, update, key); failure != nil {
 			_ = dialled.CloseNow()
 			attempt.Failure = failure
@@ -151,8 +163,10 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 		return upstream, opened, nil
 	}
 	// A provider that bills by what Kaana can measure, not by the tokens it
-	// reports, is metered (meter.go).
-	upstream.meter = newMeter(request.Config)
+	// reports, is metered (meter.go): by its wall clock when the session's turn
+	// detection is the one the provider bills by duration, else by its audio.
+	clock := d.sessionClock != "" && request.Config.TurnDetection.Type == d.sessionClock
+	upstream.meter = newMeter(request.Config, clock, handshakeAt, a.now)
 	return meteredSession{upstream}, opened, nil
 }
 

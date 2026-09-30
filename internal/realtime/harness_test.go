@@ -114,6 +114,9 @@ type options struct {
 	resumeWindow time.Duration
 	replayEvents int
 	pingInterval time.Duration
+	// now is the adapter's clock, which a session billed by its duration is
+	// measured with; nil is the real one.
+	now func() time.Time
 }
 
 func newHarness(t *testing.T, opts options) *harness {
@@ -124,7 +127,7 @@ func newHarness(t *testing.T, opts options) *harness {
 	if opts.xai {
 		upstream, slug, upstreamModel = fake.NewXAI(t), openairealtime.XAISlug, "grok-voice-think-fast-2.0"
 		build, keys = openairealtime.NewXAI, []string{fake.XAIKey, fake.XAISecondKey}
-		rates = `{"unit":"audio_input_milliseconds","amountPerUnit":2},{"unit":"audio_output_milliseconds","amountPerUnit":3},{"unit":"requests","amountPerUnit":5}`
+		rates = `{"unit":"audio_input_milliseconds","amountPerUnit":2},{"unit":"audio_output_milliseconds","amountPerUnit":3},{"unit":"requests","amountPerUnit":5},{"unit":"session_milliseconds","amountPerUnit":7}`
 	}
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -156,6 +159,7 @@ func newHarness(t *testing.T, opts options) *harness {
 	adapter, err := build(openairealtime.Config{
 		Declarations: []provider.KeyDeclaration{{KeyID: "key_a", Secret: keys[0]}, {KeyID: "key_b", Secret: keys[1]}},
 		HTTPClient:   upstream.Client(),
+		Now:          opts.now,
 	})
 	if err != nil {
 		t.Fatal(err)

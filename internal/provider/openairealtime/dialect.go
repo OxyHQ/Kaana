@@ -38,12 +38,22 @@ type dialect struct {
 	// refusedTurnDetection names the turn detection types this provider cannot
 	// serve faithfully, with why.
 	refusedTurnDetection map[contract.RealtimeTurnDetectionType]string
+	// sessionClock is the turn detection under which the provider bills a
+	// session for its wall-clock duration rather than for the audio it
+	// carries (xAI: server_vad). Such a session is metered in
+	// `session_milliseconds` (meter.go), and a session never changes billing
+	// mode once open. Empty: no turn detection is billed by the clock.
+	sessionClock contract.RealtimeTurnDetectionType
+	// vad is the provider's server_vad parameter vocabulary and bounds.
+	vad vadDialect
 	// sessionModalities is a session-level output-modality field (OpenAI's
 	// `output_modalities`). xAI documents modalities only per response
 	// (`response.create.response.modalities`), so there the session's
 	// modalities are sent on every response.create the client does not
-	// override — which, push-to-talk being the only mode served, is every
-	// response the session has.
+	// override — which, under push-to-talk, is every response the session
+	// has. Under server_vad xAI creates the responses itself, with modalities
+	// no client field sets, so such a session must at least speak
+	// (wireTurnDetection).
 	sessionModalities bool
 	// responseModalitiesField is the response.create field that carries them.
 	responseModalitiesField string
@@ -68,6 +78,20 @@ type dialect struct {
 	classifyEvent func(d *dialect, value wireError, key provider.Key) error
 	// refusalBody reads a refused handshake's body into the shared error shape.
 	refusalBody func(body []byte) wireError
+}
+
+// vadDialect is how a provider spells server_vad. OpenAI documents
+// `create_response` and `interrupt_response`; xAI documents neither — its
+// server_vad always answers a turn it detected, and a caller's speech
+// interrupts playback by default — and bounds the other three parameters more
+// tightly than the contract does.
+type vadDialect struct {
+	responseFields bool
+	minThreshold   float64
+	maxThreshold   float64
+	// maxDurationMs bounds prefix_padding_ms and silence_duration_ms; 0 is
+	// the contract's own bound.
+	maxDurationMs int
 }
 
 // contractPartType maps a provider's content part type to the contract's. xAI
@@ -99,6 +123,7 @@ var openAIDialect = &dialect{
 	sessionModalities: true, responseModalitiesField: "output_modalities", oneModality: true,
 	maxOutputTokens: 4096, toolChoice: true,
 	outputTextPart: "output_text", outputAudioPart: "output_audio",
+	vad:        vadDialect{responseFields: true, maxThreshold: 1},
 	tokenUsage: true, classifyEvent: classifyOpenAIEvent, refusalBody: openAIRefusalBody,
 }
 
@@ -114,14 +139,19 @@ var xAIDialect = &dialect{
 	baseURL: providerconfig.XAIRealtimeBaseURL, sessionURL: providerconfig.XAIRealtimeSessionURL,
 	flatSession: true, turnDetectionNone: json.RawMessage(`{"type":null}`),
 	refusedTurnDetection: map[contract.RealtimeTurnDetectionType]string{
-		// xAI: "Sessions using the default server_vad turn detection are billed
-		// for session duration. Push-to-talk sessions are billed only for audio
-		// sent and received." The contract has no unit for a session's wall
-		// clock, so a server_vad session's charge cannot be reported faithfully;
-		// it is refused rather than metered as audio it is not (docs/realtime.md).
-		contract.TurnDetectionServerVAD:   "xAI bills a server_vad session for its whole duration, which no contract usage unit can carry; open the session with turnDetection none (push-to-talk)",
+		// xAI's session schema names `"server_vad"` or null and nothing else
+		// (https://docs.x.ai/voice-realtime.ws.json, session.turn_detection.type).
 		contract.TurnDetectionSemanticVAD: "xAI's Voice Agent API has no semantic_vad",
 	},
+	// xAI: "Sessions using the default server_vad turn detection are billed
+	// for session duration. Push-to-talk sessions are billed only for audio
+	// sent and received." (https://docs.x.ai/developers/pricing). A server_vad
+	// session is therefore metered by its wall clock, `session_milliseconds`
+	// (contract set 3.3.0), and never by the audio it carried (meter.go).
+	sessionClock: contract.TurnDetectionServerVAD,
+	// session.turn_detection: threshold 0.1-0.9, silence_duration_ms and
+	// prefix_padding_ms 0-10000; no create_response or interrupt_response.
+	vad:                     vadDialect{minThreshold: 0.1, maxThreshold: 0.9, maxDurationMs: 10_000},
 	responseModalitiesField: "modalities",
 	outputTextPart:          "text", outputAudioPart: "audio",
 	aliases: map[string]string{

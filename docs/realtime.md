@@ -4,7 +4,8 @@ A realtime session is the one inference family that is not a request: a signed
 session request opens a long-lived WebSocket conversation, the client keeps
 sending commands, and Kaana keeps sending events, for up to an hour. It is one
 request for attribution, metering and settlement, and it settles exactly once.
-Contract: `@oxy.so/contracts` 4.4.0 (inference set 3.2.0), `inference/realtime.ts`;
+Contract: `@oxy.so/contracts` 4.5.0 (inference set 3.3.0: 3.2.0's session
+family plus the `session_milliseconds` unit), `inference/realtime.ts`;
 Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 
 | Piece | Where |
@@ -393,7 +394,7 @@ shared code, and every documented difference is a dialect field.
 | Authentication | `Authorization: Bearer <key>` on the handshake |
 | Session kinds | `conversation` only (xAI documents no other) |
 | Model | `grok-voice-think-fast-2.0`, the pinned flagship; `grok-voice-latest` is xAI's alias for it and is not attributed |
-| Turn detection | `none` (push-to-talk) only — see "Metering" |
+| Turn detection | `none` (push-to-talk, billed by audio) or `server_vad` (billed by session wall clock) — see "Metering" |
 | Session limit | xAI's own: 120 minutes, 10 concurrent sessions per team at tier 0 |
 
 ### What differs from OpenAI's dialect
@@ -403,8 +404,9 @@ shared code, and every documented difference is a dialect field.
 | `session.type` | `"realtime"` | absent from xAI's schema; not sent |
 | Voice | `audio.output.voice` | `session.voice` |
 | Turn detection | `audio.input.turn_detection`; none is `null` | `session.turn_detection`; none is `{"type": null}` |
-| `server_vad` / `semantic_vad` | served | refused (below) / xAI has none |
-| Output modalities | `session.output_modalities`, one per response | no session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one), and `["text","audio"]` together is accepted |
+| `server_vad` | `create_response`, `interrupt_response` sent | only `threshold` (0.1–0.9), `prefix_padding_ms` and `silence_duration_ms` (0–10000); `createResponse` and `interruptResponse` must be `true` (xAI's VAD always answers and is interruptible; it has neither field); a text-only session is refused (xAI creates the responses, with no session modalities field) |
+| `semantic_vad` | served | refused: xAI's schema names only `server_vad` or null |
+| Output modalities | `session.output_modalities`, one per response | no session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one), and `["text","audio"]` together is accepted; a `server_vad` response xAI creates itself carries xAI's own modalities |
 | `tool_choice`, `max_output_tokens`, `temperature` | the first two served | none documented: refused naming the field |
 | Function tools | flat `{type, name, description, parameters}` | the guide's examples are flat; the machine-readable schema nests under `function` (UNVERIFIED which xAI enforces; flat is sent) |
 | Assistant content parts | `output_text` / `output_audio` | `text` / `audio` (read back as the contract's output parts for the assistant, input parts otherwise) |
@@ -438,13 +440,24 @@ https://docs.x.ai/developers/pricing, read 2026-09-30):
 
 `response.done.usage` carries only `input_tokens`/`output_tokens`/`total_tokens`,
 which xAI does not bill for voice, and no duration. So the adapter meters the
-session itself (`meter.go`, `provider.RealtimeMeter`):
+session itself (`meter.go`, `provider.RealtimeMeter`), in one of two modes fixed
+by the turn detection the session opened with:
 
-| xAI charge | Contract unit | Measured as |
-|---|---|---|
-| audio sent | `audio_input_milliseconds` | decoded bytes of every `input_audio_buffer.append` and `input_audio` item part Kaana wrote upstream, at the input format's rate (PCM16 24 kHz = 48 bytes/ms, G.711 = 8 bytes/ms) |
-| audio received | `audio_output_milliseconds` | decoded bytes of every output audio delta xAI sent, at the output format's rate, whether or not the customer received it |
-| text input event | `requests` | each written `conversation.item.create` that is not a `function_call_output` and carries no audio |
+| xAI charge | Mode | Contract unit | Measured as |
+|---|---|---|---|
+| audio sent | push-to-talk | `audio_input_milliseconds` | decoded bytes of every `input_audio_buffer.append` and `input_audio` item part Kaana wrote upstream, at the input format's rate (PCM16 24 kHz = 48 bytes/ms, G.711 = 8 bytes/ms) |
+| audio received | push-to-talk | `audio_output_milliseconds` | decoded bytes of every output audio delta xAI sent, at the output format's rate, whether or not the customer received it |
+| session duration | `server_vad` | `session_milliseconds` | wall clock (monotonic) from the accepted handshake of the attempt that opened to the first of: xAI ending the connection, or Kaana closing it at settlement |
+| text input event | both | `requests` | each written `conversation.item.create` that is not a `function_call_output` and carries no audio |
+
+A `server_vad` session reports **no** audio units: its clock already bills that
+span (xAI: "Items whose content is input_audio or audio are billed by the audio
+meter instead", and under `server_vad` the audio meter is the session clock),
+and the contract forbids a per-audio reading beside `session_milliseconds` for
+the same span. A push-to-talk session reports no clock. A `session.update`
+that would switch between the two modes is refused before anything is written
+(`config.turnDetection`): xAI documents each mode's billing, not a session that
+changes mode, so open a new session. Retuning `server_vad` itself is served.
 
 Milliseconds are rounded up once over the session total. The units are read
 once when the session settles, added to its totals and labelled `oxy_measured`
@@ -453,23 +466,26 @@ on `session.closed`, the usage report and the operator record;
 is refused (`item.content`): xAI does not say which meter bills it. A command
 that is refused or never written is not measured.
 
-**`server_vad` is refused, and the contract addition it needs.** A `server_vad`
-session is billed for its whole duration — wall clock, not audio — and no
-contract unit carries a session's duration: `audio_input_milliseconds` is
-audio the client sent, which under VAD is not what xAI bills, and reporting the
-session clock under it would misdescribe the charge (and invite pricing the
-same audio twice if a provider ever reported both). Serving it faithfully needs
-a new usage unit in `@oxy.so/contracts`, e.g. `session_milliseconds`
-("wall-clock milliseconds a realtime session was open upstream, for providers
-that bill a session's duration"), measured by Kaana from the accepted handshake
-to the upstream close. Until then `turnDetection` must be `none`, at open and in
-`session.update` (`config.turnDetection`, refused before anything is dialled or
-written).
+**Why `session_milliseconds` and not the audio units.** A `server_vad` session
+is billed for its whole duration — wall clock, speech or silence — which is
+neither audio sent nor audio received. Reporting that clock under
+`audio_input_milliseconds` would misdescribe the charge, and reporting both
+would bill the same span twice, so contract set 3.3.0 added
+`session_milliseconds`: "wall-clock milliseconds a realtime session was open with
+the upstream provider; reported only by a provider that bills session time, and
+never together with a per-audio reading of the same span." The clock starts at
+the accepted handshake because that is when xAI's session exists; Kaana's open
+is bounded at 20 s per stage, which is why Oxy holds `maxDurationMs + 60 s` of
+it (UNVERIFIED: the exact instant xAI starts and stops its own billing clock; the
+first signed canary should compare a session's `session_milliseconds` with xAI's
+usage for it).
 
-A rate card prices the three units per deployment in 10⁻¹² USD
-(`providercost.Scale`): `audio_input_milliseconds` and
-`audio_output_milliseconds` at `1333333` each ($0.08 / 60 000 ms, truncated —
-$0.07999998/min), `requests` at `4000000000` ($0.004).
+A rate card prices the four units per deployment in 10⁻¹² USD
+(`providercost.Scale`): `audio_input_milliseconds`, `audio_output_milliseconds`
+and `session_milliseconds` at `1333333` each ($0.08 / 60 000 ms, truncated —
+$0.07999998/min), `requests` at `4000000000` ($0.004). A deployment's card must
+carry all four: which of the audio pair or the clock a session reports depends
+on the turn detection the customer chose, not on the deployment.
 
 ### Errors and credentials
 
@@ -501,7 +517,11 @@ field; client events document no `event_id`); whether `usage` is always on
 `response.done`; the relative order of `session.created` and
 `conversation.created` (the open waits for `session.created` either way);
 whether `GET /v1/models` lists `grok-voice-think-fast-2.0` for the account (if
-it does not, the publisher publishes no xAI voice deployment and says so).
+it does not, the publisher publishes no xAI voice deployment and says so); under `server_vad`, whether xAI's
+self-created responses also stream text (relayed if they do) and that a
+caller's speech interrupts them without an `interrupt_response` field; and how
+closely `session_milliseconds` (handshake to close, measured by Kaana) matches
+the duration xAI bills.
 
 ## Publishing
 
@@ -544,6 +564,8 @@ pins the set and proves each row publishable there and nowhere else.
 - Rate cards price the audio-token units per deployment
   (`audio_input_tokens`, `cached_audio_input_tokens`, `audio_output_tokens`
   beside the text units); without one, every attempt says its cost is unknown.
+  OpenAI Realtime never reports `session_milliseconds`, so its card needs no
+  rate for it (Oxy's price version still prices it, at zero).
 - Sessions live in the memory of the task that opened them. A resume that the
   load balancer sends to another task is refused, by design (wire rule 7); the
   edge then recovers the report by `requestId` once the original task settles.
@@ -588,14 +610,18 @@ pins the set and proves each row publishable there and nowhere else.
   them back; a key id for a slug the publisher does not discover is ignored,
   so the map may name `xai-realtime` before the switch is applied.
 - Price it: a rate card for each published `xai-realtime` deployment with
-  `audio_input_milliseconds`, `audio_output_milliseconds` and `requests`
-  (above); without one every session's operator cost is unknown. A rate card is
-  keyed by deployment id, and a deployment id carries the date the publisher
-  first observed the line (`dep_xai_realtime_grok_voice_think_fast_2_0_observed_<date>`),
-  so the card is written after the first snapshot names it, never guessed.
-- Oxy must sign `turnDetection: none` for xAI routes; a `server_vad` session is
-  refused before anything is dialled. Health stays `degraded` until a signed
-  canary session has been validated.
+  `audio_input_milliseconds`, `audio_output_milliseconds`,
+  `session_milliseconds` and `requests` (above); without one every session's
+  operator cost is unknown. A rate card is keyed by deployment id, and a
+  deployment id carries the date the publisher first observed the line
+  (`dep_xai_realtime_grok_voice_think_fast_2_0_observed_<date>`), so the card
+  is written after the first snapshot names it, never guessed. Oxy's price
+  version for the route must price `session_milliseconds` too (Oxy holds it for
+  every realtime session and refuses a route that leaves it unpriced).
+- A `server_vad` session needs `createResponse: true` and
+  `interruptResponse: true`, audio among its output modalities, and xAI's
+  bounds on the tunables; anything else is refused before anything is dialled.
+  Health stays `degraded` until a signed canary session has been validated.
 
 ## Findings, refusals and what is not verified
 
@@ -663,9 +689,10 @@ pins the set and proves each row publishable there and nowhere else.
 - **A session settles what its provider BILLS.** Units a provider reports but
   does not bill (xAI's voice tokens) are never settled; a provider billed by
   what Kaana can measure is metered through `provider.RealtimeMeter` and
-  reported `oxy_measured`; a charge no contract unit expresses (xAI's
-  `server_vad` session duration) is refused, never approximated under another
-  unit.
+  reported `oxy_measured`; a charge no contract unit expresses is refused,
+  never approximated under another unit. A session billed by its wall clock
+  (xAI `server_vad`) reports `session_milliseconds` and never an audio unit for
+  the same span, and never changes billing mode once open.
 - **A provider speaking the OpenAI Realtime shape is a dialect of
   `internal/provider/openairealtime`, not a copy**: its differences are
   `dialect` fields, each from the provider's documentation, and it gets its own

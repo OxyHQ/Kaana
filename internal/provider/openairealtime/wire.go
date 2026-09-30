@@ -3,6 +3,7 @@ package openairealtime
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -184,6 +185,9 @@ func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (j
 	case contract.TurnDetectionNone:
 		return d.turnDetectionNone, nil
 	case contract.TurnDetectionServerVAD:
+		if !d.vad.responseFields {
+			return d.wireFixedServerVAD(detection)
+		}
 		return json.Marshal(struct {
 			Type              string   `json:"type"`
 			Threshold         *float64 `json:"threshold,omitempty"`
@@ -201,6 +205,51 @@ func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (j
 		}{"semantic_vad", string(*detection.Eagerness), *detection.CreateResponse, *detection.InterruptResponse})
 	}
 	return nil, refused("config.turnDetection", "the turn detection is not one "+d.name+"'s Realtime API names")
+}
+
+// wireFixedServerVAD is server_vad on a provider whose VAD always answers the
+// turn it detected and lets the caller's speech interrupt the answer (xAI:
+// no create_response or interrupt_response in its session schema; a spoken
+// item is `interruptible`, "Default: true"). The contract's two booleans must
+// state exactly that behaviour, and the three tunables must be inside the
+// provider's own bounds; anything else is refused, never clamped.
+func (d *dialect) wireFixedServerVAD(detection contract.RealtimeTurnDetection) (json.RawMessage, error) {
+	if detection.CreateResponse == nil || !*detection.CreateResponse {
+		return nil, refused("config.turnDetection.createResponse", d.name+"'s server_vad always creates the response to a turn it detected; it documents no create_response")
+	}
+	if detection.InterruptResponse == nil || !*detection.InterruptResponse {
+		return nil, refused("config.turnDetection.interruptResponse", d.name+"'s server_vad lets the caller's speech interrupt a response; it documents no interrupt_response")
+	}
+	if detection.Threshold != nil && (*detection.Threshold < d.vad.minThreshold || *detection.Threshold > d.vad.maxThreshold) {
+		return nil, refused("config.turnDetection.threshold", fmt.Sprintf("%s's server_vad threshold is %.1f to %.1f", d.name, d.vad.minThreshold, d.vad.maxThreshold))
+	}
+	for _, bound := range []struct {
+		param string
+		value *int
+	}{{"prefixPaddingMs", detection.PrefixPaddingMs}, {"silenceDurationMs", detection.SilenceDurationMs}} {
+		if bound.value != nil && d.vad.maxDurationMs > 0 && *bound.value > d.vad.maxDurationMs {
+			return nil, refused("config.turnDetection."+bound.param, fmt.Sprintf("%s's server_vad takes at most %d ms", d.name, d.vad.maxDurationMs))
+		}
+	}
+	return json.Marshal(struct {
+		Type              string   `json:"type"`
+		Threshold         *float64 `json:"threshold,omitempty"`
+		PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
+		SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
+	}{"server_vad", detection.Threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs})
+}
+
+// checkServerCreatedModalities refuses a server_vad session that could not
+// speak on a provider with no session-level modalities field: under server_vad
+// the provider creates the responses itself, so the session's modalities
+// never reach it, and a voice agent answers aloud. It is checked against the
+// EFFECTIVE configuration, at open and on every update.
+func (d *dialect) checkServerCreatedModalities(turnDetection contract.RealtimeTurnDetectionType, modalities []contract.RealtimeOutputModality) error {
+	if d.sessionModalities || turnDetection != contract.TurnDetectionServerVAD || modalities == nil ||
+		slices.Contains(modalities, contract.RealtimeOutputAudio) {
+		return nil
+	}
+	return refused("config.outputModalities", d.name+" creates server_vad responses itself and has no session field to make them text-only; a server_vad session must include audio")
 }
 
 // wireModalities maps the contract's output modalities. OpenAI's GA schema
@@ -338,6 +387,9 @@ func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionConfig, error) {
 	if config.Translation != nil {
 		return nil, refused("config.translation", "a conversation does not translate")
+	}
+	if err := d.checkServerCreatedModalities(config.TurnDetection.Type, config.OutputModalities); err != nil {
+		return nil, err
 	}
 	turnDetection := config.TurnDetection
 	session, err := sessionFields{
