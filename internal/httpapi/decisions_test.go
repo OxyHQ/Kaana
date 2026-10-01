@@ -166,3 +166,65 @@ func TestDecisionsFailureAfterDispatch(t *testing.T) {
 		})
 	}
 }
+
+func TestSignedDecisionsUnicodeIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, replacement    string
+		root, options, valid bool
+	}{
+		{name: "state-high", replacement: "\\ud800"},
+		{name: "state-low", replacement: "\\udc00"},
+		{name: "root-key", replacement: "\\ud800", root: true},
+		{name: "options", replacement: "\\ud800", options: true},
+		{name: "invalid-utf8", replacement: string([]byte{0xff})},
+		{name: "pair", replacement: "\\ud83d\\ude00", valid: true},
+		{name: "replacement", replacement: "�", valid: true},
+		{name: "escaped-replacement", replacement: "\\ufffd", valid: true},
+		{name: "unicode", replacement: "😀 español 中文", valid: true},
+		{name: "literal-pattern", replacement: "\\\\ud800", valid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := &stubAdapter{}
+			h := newHarness(t, adapter)
+			body := decisionEnvelope(t)
+			if tc.root {
+				body = append([]byte("{\""+tc.replacement+"\":0,"), body[1:]...)
+			} else if tc.options {
+				body = bytes.Replace(body, []byte("\"kind\":\"noul\""), []byte("\"kind\":\"choice\",\"options\":[\"safe\",\""+tc.replacement+"\"]"), 1)
+			} else {
+				body = bytes.Replace(body, []byte("synthetic private state"), []byte(tc.replacement), 1)
+			}
+			request, err := http.NewRequest(http.MethodPost, h.server.URL+"/internal/v1/decisions", bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.sign(request, body)
+			response, err := h.server.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = response.Body.Close() }()
+			raw, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, calls := adapter.snapshot()
+			if tc.valid {
+				if response.StatusCode != http.StatusOK || calls != 1 {
+					t.Fatalf("valid Unicode rejected: status=%d calls=%d body=%s", response.StatusCode, calls, raw)
+				}
+			} else {
+				if response.StatusCode != http.StatusBadRequest || calls != 0 {
+					t.Fatalf("invalid signed Unicode executed: status=%d calls=%d body=%s", response.StatusCode, calls, raw)
+				}
+				var failure contract.Error
+				if err := json.Unmarshal(raw, &failure); err != nil || failure.Code != contract.CodeInvalidRequest {
+					t.Fatalf("untyped refusal: %s", raw)
+				}
+			}
+			if response.Header.Get("Cache-Control") != "no-store" {
+				t.Fatal("decisions refusal can be cached")
+			}
+		})
+	}
+}
