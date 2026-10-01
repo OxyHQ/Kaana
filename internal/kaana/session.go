@@ -103,6 +103,9 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 	var (
 		skipped []contract.DeploymentID
 		lastErr error
+		// credentialAttempts numbers every credential attempt this session
+		// request makes, across all the routes it tries.
+		credentialAttempts = &provider.CredentialAttemptSequence{}
 	)
 	for _, authorized := range candidates {
 		route := authorized.route
@@ -135,7 +138,7 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 		opening.Route = route
 		attemptStartedAt, attemptClock := e.now(), time.Now()
 		upstream, opened, err := adapter.Open(ctx, provider.RealtimeOpenRequest{
-			RequestID: requestID, Route: route, Kind: request.Kind, Config: request.Config,
+			RequestID: requestID, Route: route, CredentialAttempts: credentialAttempts, Kind: request.Kind, Config: request.Config,
 		}, credentials)
 		if err == nil {
 			permit.Succeeded()

@@ -233,6 +233,10 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		retrySame    bool
 		routeRetries int
 		waited       time.Duration
+		// credentialAttempts numbers every credential attempt this request
+		// makes. A same-route retry is a fresh walk on the SAME deployment, so
+		// a per-walk index would give it the first attempt's durable identity.
+		credentialAttempts = &provider.CredentialAttemptSequence{}
 	)
 
 	for index := 0; index < len(candidates); index++ {
@@ -322,6 +326,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			return Result{Failure: failure}
 		}
 		call.RequestID = requestID
+		call.CredentialAttempts = credentialAttempts
 
 		if abandoned != nil && !retrying {
 			err := emit.routeSwitch(

@@ -22,6 +22,8 @@ type credentialRuntimeFake struct {
 	decision CredentialRecoveryDecision
 	claims   int
 	attempts []CredentialAttempt
+	// recordErr, when set, refuses every write as an unreachable store would.
+	recordErr error
 }
 
 func (r *credentialRuntimeFake) ClaimCredentialRecovery(context.Context, contract.ProviderSlug, string, time.Time, time.Time) (CredentialRecoveryDecision, error) {
@@ -30,6 +32,9 @@ func (r *credentialRuntimeFake) ClaimCredentialRecovery(context.Context, contrac
 }
 
 func (r *credentialRuntimeFake) RecordCredentialAttempt(_ context.Context, attempt CredentialAttempt) error {
+	if r.recordErr != nil {
+		return r.recordErr
+	}
 	r.attempts = append(r.attempts, attempt)
 	return nil
 }
@@ -380,6 +385,57 @@ func TestWalkPersistsEveryExactCredentialAttempt(t *testing.T) {
 	if len(runtime.attempts) != 2 || runtime.attempts[0].KeyID != "invalid-key" || runtime.attempts[0].Outcome != "rejected" ||
 		runtime.attempts[1].KeyID != "working-key" || runtime.attempts[1].Outcome != "accepted" {
 		t.Fatalf("credential attempts = %+v", runtime.attempts)
+	}
+}
+
+// TestWalksOfOneRequestShareItsCredentialAttemptSequence pins the durable
+// identity across walks: a same-route retry is a second walk on the SAME
+// deployment, and (request, deployment, index) must not repeat between them.
+func TestWalksOfOneRequestShareItsCredentialAttemptSequence(t *testing.T) {
+	runtime := &credentialRuntimeFake{}
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{{KeyID: "only-key", Secret: firstCredential, Runtime: runtime}}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence := &CredentialAttemptSequence{}
+	for range 2 {
+		call := &Call{RequestID: "req-retry", Route: Route{Provider: "test-provider", DeploymentID: "dep-retry"}, CredentialAttempts: sequence}
+		response, _, err := Walk(context.Background(), pool, call, &credentialWalkSender{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+	}
+	if len(runtime.attempts) != 2 || runtime.attempts[0].Index != 0 || runtime.attempts[1].Index != 1 {
+		t.Fatalf("credential attempts = %+v; the retry reused an identity", runtime.attempts)
+	}
+}
+
+// TestALostCredentialAttemptRecordLeavesTheWalkToItsVerdicts pins that the
+// durable record is bookkeeping after the fact: with every write refused, a
+// rejected key still rotates to the next one and the accepted answer is
+// returned rather than replaced by the store's error.
+func TestALostCredentialAttemptRecordLeavesTheWalkToItsVerdicts(t *testing.T) {
+	runtime := &credentialRuntimeFake{recordErr: errors.New("credential store unavailable")}
+	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
+		{KeyID: "invalid-key", Secret: firstCredential, Runtime: runtime},
+		{KeyID: "working-key", Secret: secondCredential, Runtime: runtime},
+	}, KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &credentialWalkSender{rejected: map[string]bool{"invalid-key": true}}
+	call := &Call{RequestID: "req-lost-record", Route: Route{Provider: "test-provider", DeploymentID: "dep-lost-record"}}
+	response, key, err := Walk(context.Background(), pool, call, sender)
+	if err != nil {
+		t.Fatalf("a refused bookkeeping write became the walk's error: %v", err)
+	}
+	_ = response.Body.Close()
+	if key.ID != "working-key" || !slices.Equal(sender.sent, []string{"invalid-key", "working-key"}) {
+		t.Fatalf("served by %q after %v", key.ID, sender.sent)
+	}
+	if projection := pool.Projection(time.Now()); projection.Usable != 1 {
+		t.Fatalf("the rejection was not applied in memory: %+v", projection)
 	}
 }
 

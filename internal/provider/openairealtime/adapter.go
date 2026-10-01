@@ -131,7 +131,7 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 	}
 	d := a.dialect
 	endpoint := d.sessionURL + "?model=" + url.QueryEscape(request.Route.UpstreamModelID)
-	call := &provider.Call{RequestID: request.RequestID, Route: request.Route, Method: http.MethodGet, URL: endpoint}
+	call := &provider.Call{RequestID: request.RequestID, Route: request.Route, CredentialAttempts: request.CredentialAttempts, Method: http.MethodGet, URL: endpoint}
 
 	// handshakeAt is when the provider accepted the handshake of the attempt
 	// that opened: a provider billing session time starts its clock there.
@@ -152,7 +152,6 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 			return nil, attempt
 		}
 		attempt.Accepted = true
-		attempt.Release = func() { _ = dialled.CloseNow() }
 		return dialled, attempt
 	})
 	opened.KeyID, opened.KeyClass = key.ID, key.Class

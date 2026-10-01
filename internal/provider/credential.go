@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -388,6 +389,23 @@ type CredentialAttempt struct {
 	Evidence     string
 	OccurredAt   time.Time
 	RetiredUntil time.Time
+}
+
+// CredentialAttemptSequence hands out one request's credential attempt
+// indexes. It is request-scoped and monotonic, so no two upstream exchanges of
+// one request share an index, whichever walk, retry or deployment made them.
+type CredentialAttemptSequence struct {
+	mu   sync.Mutex
+	next int
+}
+
+// Take returns the next unused index.
+func (s *CredentialAttemptSequence) Take() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.next
+	s.next++
+	return index
 }
 
 // DeclareKeys turns a bare secret list into declarations, which is what the
@@ -818,7 +836,6 @@ type KeyAttempt struct {
 	// throttleRotations counts the rotations spent on a transient throttle,
 	// which retires nothing and would otherwise repeat on every request.
 	throttleRotations int
-	index             int
 }
 
 // Next leases the next usable credential this request has not already used.
@@ -941,7 +958,7 @@ func Walk(ctx context.Context, pool *KeyPool, call *Call, sender CredentialedSen
 			return nil, CredentialedAttempt{Failure: sender.TransportFailure(ctx, err), Transport: true}
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			return response, CredentialedAttempt{Header: response.Header, Accepted: true, Release: func() { _ = response.Body.Close() }}
+			return response, CredentialedAttempt{Header: response.Header, Accepted: true}
 		}
 		header := response.Header
 		return nil, CredentialedAttempt{Header: header, Failure: sender.Refuse(response, key)}
@@ -960,9 +977,6 @@ type CredentialedAttempt struct {
 	// failure when Transport is set.
 	Failure   error
 	Transport bool
-	// Release gives back an accepted exchange the walk has to abandon — the
-	// attempt could not be recorded — so it never outlives the refusal.
-	Release func()
 }
 
 // WalkAttempts applies Walk's credential rules to any upstream exchange: a
@@ -978,6 +992,10 @@ type CredentialedAttempt struct {
 func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try func(context.Context, Key) (T, CredentialedAttempt)) (T, Key, error) {
 	var none T
 	attempt := pool.Begin()
+	sequence := call.CredentialAttempts
+	if sequence == nil {
+		sequence = &CredentialAttemptSequence{}
+	}
 	// refused is the last classified failure this request received. When the
 	// pool runs out, THAT is what the customer is told — the provider's own
 	// answer about the last credential tried, with its passthrough — rather
@@ -1015,17 +1033,14 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			}
 		}
 
-		attemptIndex := attempt.index
-		attempt.index++
+		attemptIndex := sequence.Take()
 		value, result := try(ctx, key)
 		observedAt := time.Now()
 		if result.Transport {
 			// A transport failure says nothing about the credential: delivery is
 			// uncertain and nobody returned a credential verdict. The key still
 			// names the attempted upstream expense for operator reconciliation.
-			if recordErr := recordCredentialAttempt(ctx, call, key, attemptIndex, "transport_failure", "transport", observedAt, time.Time{}); recordErr != nil {
-				return none, key, recordErr
-			}
+			recordCredentialAttempt(ctx, call, key, attemptIndex, "transport_failure", "transport", observedAt, time.Time{})
 			return none, key, result.Failure
 		}
 
@@ -1043,12 +1058,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			if headerExhausted {
 				evidence = "quota_header"
 			}
-			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
-				if result.Release != nil {
-					result.Release()
-				}
-				return none, key, err
-			}
+			recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil)
 			if !headerExhausted {
 				pool.markUsable(key, evidence, observedAt)
 			}
@@ -1063,9 +1073,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			// The next key is a different account, so the request moves and the
 			// customer never learns this happened.
 			pool.Retire(key, KeyExhausted, observedAt, time.Time{})
-			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, "exhausted", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement)); err != nil {
-				return none, key, err
-			}
+			recordCredentialAttempt(ctx, call, key, attemptIndex, "exhausted", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement))
 			refused = failure
 			refusedKey = key
 
@@ -1075,9 +1083,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			// of the key that was sent, not evidence about its neighbours. The
 			// request-scoped attempt set still bounds this to one call per key.
 			pool.Retire(key, KeyRejected, observedAt, time.Time{})
-			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, "rejected", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement)); err != nil {
-				return none, key, err
-			}
+			recordCredentialAttempt(ctx, call, key, attemptIndex, "rejected", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement))
 			refused = failure
 			refusedKey = key
 
@@ -1089,9 +1095,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			if headerExhausted {
 				evidence = "quota_header"
 			}
-			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
-				return none, key, err
-			}
+			recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil)
 			return none, key, failure
 
 		case CredentialHealthy:
@@ -1100,9 +1104,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			if headerExhausted {
 				evidence = "quota_header"
 			}
-			if err := recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil); err != nil {
-				return none, key, err
-			}
+			recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil)
 			// The failure says nothing about this key, so nothing is retired.
 			// A throttle is the one case another key could survive, and only
 			// where the operator has stated the pool's keys sit on separate
@@ -1128,16 +1130,42 @@ func attemptOutcome(fallback string, headerExhausted bool, retiredUntil time.Tim
 	return fallback, time.Time{}
 }
 
-func recordCredentialAttempt(ctx context.Context, call *Call, key Key, index int, outcome, evidence string, at, retiredUntil time.Time) error {
+// recordCredentialAttempt persists what one exchange said about its key. It
+// runs only after the upstream has answered (or failed to), so the provider
+// work it describes has already happened: a failure to WRITE the evidence is
+// operator bookkeeping, never the customer's answer. Turning it into the
+// request's error would discard an accepted response (and a retry would spend
+// twice), or replace the provider's own classified verdict with an opaque one.
+// The in-memory pool has already applied the verdict either way; what a lost
+// record costs is only cross-replica knowledge, which the next real attempt on
+// that key re-establishes. So it is logged with the request's identity and the
+// walk proceeds exactly as the verdict says.
+func recordCredentialAttempt(ctx context.Context, call *Call, key Key, index int, outcome, evidence string, at, retiredUntil time.Time) {
 	if key.runtime == nil || call.RequestID == "" {
-		return nil
+		return
 	}
-	if err := key.runtime.RecordCredentialAttempt(ctx, CredentialAttempt{RequestID: call.RequestID, DeploymentID: call.Route.DeploymentID,
-		Index: index, Provider: call.Route.Provider, KeyID: key.ID, Outcome: outcome, Evidence: evidence, OccurredAt: at, RetiredUntil: retiredUntil}); err != nil {
-		return fmt.Errorf("provider: recording credential attempt: %w", err)
+	attempt := CredentialAttempt{RequestID: call.RequestID, DeploymentID: call.Route.DeploymentID,
+		Index: index, Provider: call.Route.Provider, KeyID: key.ID, Outcome: outcome, Evidence: evidence, OccurredAt: at, RetiredUntil: retiredUntil}
+	// The upstream exchange is over; a customer withdrawing now must not also
+	// drop the evidence of what it cost.
+	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), credentialAttemptRecordTimeout)
+	defer cancel()
+	if err := key.runtime.RecordCredentialAttempt(recordContext, attempt); err != nil {
+		slog.Default().LogAttrs(ctx, slog.LevelError, "credential attempt not recorded",
+			slog.String("requestId", string(attempt.RequestID)),
+			slog.String("deploymentId", string(attempt.DeploymentID)),
+			slog.Int("credentialAttemptIndex", attempt.Index),
+			slog.String("provider", string(attempt.Provider)),
+			slog.String("keyId", attempt.KeyID),
+			slog.String("outcome", attempt.Outcome),
+			slog.String("error", err.Error()),
+		)
 	}
-	return nil
 }
+
+// credentialAttemptRecordTimeout bounds the one database write an attempt
+// makes, so an unreachable store delays an answer by at most this long.
+const credentialAttemptRecordTimeout = 5 * time.Second
 
 /* -------------------------------------------------------------------------- */
 /*  Health projection                                                         */
