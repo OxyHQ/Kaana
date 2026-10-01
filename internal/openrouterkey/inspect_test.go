@@ -2,11 +2,20 @@ package openrouterkey
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -146,5 +155,61 @@ func TestCancelledContextAndBodyDeadline(t *testing.T) {
 	_, err = inspector.Inspect(ctx, []byte("synthetic-key"), Expectation{OrganizationID: "org_fixture"})
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatal("body deadline not respected", err)
+	}
+}
+
+func TestProductionTransportNegotiatesOnlyHTTP1(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"openrouter.ai"}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	observed := make(chan string, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "openrouter.ai" || r.URL.RequestURI() != "/api/v1/key" || r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer synthetic-key" || r.TLS.ServerName != "openrouter.ai" {
+			t.Error("real URL, host, SNI, method or credential boundary changed")
+		}
+		requests.Add(1)
+		select {
+		case observed <- r.Proto + "/" + r.TLS.NegotiatedProtocol:
+		default:
+			t.Error("unexpected additional request")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, fixture)
+	}))
+	server.EnableHTTP2 = true
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, NextProtos: []string{"h2", "http/1.1"}}
+	server.StartTLS()
+	defer server.Close()
+	inspector := NewProduction()
+	transport := inspector.client.Transport.(*http.Transport)
+	roots := x509.NewCertPool()
+	roots.AddCert(certificate)
+	transport.TLSClientConfig.RootCAs = roots
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != "openrouter.ai:443" {
+			t.Error("real dial authority changed")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	report, err := inspector.Inspect(context.Background(), []byte("synthetic-key"), Expectation{OrganizationID: "org_fixture", WorkspaceID: "workspace_fixture"})
+	if err != nil || report.Verdict() != nil {
+		t.Fatalf("production Inspect failed local TLS exchange: %v", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatal("production inspection attempted more than one request")
+	}
+	if got := <-observed; got != "HTTP/1.1/http/1.1" {
+		t.Fatalf("unexpected protocol %s", got)
 	}
 }
