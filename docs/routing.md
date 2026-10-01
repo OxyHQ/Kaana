@@ -131,7 +131,14 @@ route switch: nothing is announced and `routeSwitches` does not count it.
 
 Key pools: each attempt is a fresh walk over the same exact binding
 (`key-pools.md`). A rate limit retires nothing, so a single-key pool reuses its
-key — a throttle is not exhaustion.
+key — a throttle is not exhaustion. Every walk of one request draws its
+credential attempt indexes from the request's one `CredentialAttemptSequence`
+(`Call.CredentialAttempts`), so a retry on the same deployment is its own
+durable credential attempt. Until 2026-10-01 each walk restarted at index 0:
+OpenRouter's 200-then-rate-limit recorded `(request, deployment, 0)` as
+`accepted`, the retry claimed the same identity at another time, PostgreSQL
+raised `provider credential attempt identity conflict`, and that bookkeeping
+error replaced the retry's good answer.
 
 **A switch is announced at the attempt that replaces the failed one**, not at
 the moment of failure — the replacement's own breaker may refuse it, and

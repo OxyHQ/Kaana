@@ -48,8 +48,11 @@ type RealtimeOpenRequest struct {
 	// upstream reports; it carries no credential.
 	RequestID contract.RequestID
 	Route     Route
-	Kind      contract.RealtimeSessionKind
-	Config    contract.RealtimeSessionConfig
+	// CredentialAttempts is the session request's credential attempt sequence,
+	// shared by every open attempt it makes (see Call.CredentialAttempts).
+	CredentialAttempts *CredentialAttemptSequence
+	Kind               contract.RealtimeSessionKind
+	Config             contract.RealtimeSessionConfig
 }
 
 // RealtimeOpened is what one open attempt spent.

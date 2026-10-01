@@ -106,6 +106,14 @@ type Call struct {
 	// credential material.
 	RequestID contract.RequestID
 	Route     Route
+	// CredentialAttempts numbers this request's credential attempts across
+	// EVERY walk it makes. The durable record is keyed by (request,
+	// deployment, index), and a same-route retry is a fresh walk on the same
+	// deployment: a walk-local index would restart at zero and name the retry
+	// with the first attempt's identity. A caller that walks more than once per
+	// request shares one sequence across its calls; nil numbers this walk
+	// alone, which is correct only for a single walk per request.
+	CredentialAttempts *CredentialAttemptSequence
 	// Method and URL are recorded so a failure can name the endpoint that
 	// failed without reconstructing it from adapter internals.
 	Method string

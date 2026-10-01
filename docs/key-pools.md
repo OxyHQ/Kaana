@@ -299,6 +299,16 @@ health and catalogue probes never consume it. A successful request writes a
 retirement; another exhaustion or rejection renews it. Rotating the ciphertext
 under the same key ID clears the old generation's state atomically.
 
+An attempt's durable identity is `(request, deployment, index)`, and the index
+is request-scoped across every walk the request makes (`routing.md`,
+"Same-route retry"): the same identity with any other fact is refused by the
+database. The record is written after the upstream has answered, so it is
+bookkeeping, never the customer's answer: a write that fails is logged
+(`credential attempt not recorded`, with request, deployment, index, key and
+outcome) and the walk proceeds exactly as the verdict says. The in-memory pool
+has already applied that verdict; what a lost record costs is cross-replica
+knowledge, which the next real attempt on the key re-establishes.
+
 The durable record is written from the exact view a deployment executes on, so
 the view carries its pool's provider and policy. `kaana_record_provider_credential_attempt`
 refuses an `exhausted` or `rejected` attempt whose `retired_until` is not after
