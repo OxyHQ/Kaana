@@ -26,7 +26,7 @@ func TestScopedAudienceStrictParityAndCeiling(t *testing.T) {
 		strings.Replace(raw, `"maxCostUsd":"0.01"`, `"maxCostUsd":"0.010000000001"`, 1),
 		strings.Replace(raw, `"maxCostUsd":"0.01"`, `"maxCostUsd":"0"`, 1),
 		strings.Replace(raw, `"maxCostUsd":"0.01"`, `"maxCostUsd":0.001`, 1),
-		strings.Replace(raw, `"production"`, `"staging"`, 1),
+		strings.Replace(raw, `"production"`, `"unregistered"`, 1),
 	} {
 		var audience ScopedExecutionAudience
 		if err := json.Unmarshal([]byte(bad), &audience); err == nil {
@@ -55,11 +55,34 @@ func TestScopedExecutionRetainsEnvelopeFieldsAndExactRawFixture(t *testing.T) {
 	}
 	for _, version := range []int{1, 2} {
 		request.SchemaVersion = version
-		if request.validateScopedExecution() == nil {
+		if request.ValidateScopedExecution() == nil {
 			t.Fatal("legacy envelope accepted restriction")
 		}
 	}
-	if (&Request{SchemaVersion: ScopedRequestEnvelopeVersion}).validateScopedExecution() == nil {
+	if (&Request{SchemaVersion: ScopedRequestEnvelopeVersion}).ValidateScopedExecution() == nil {
 		t.Fatal("v3 without restriction accepted")
+	}
+}
+
+func TestScopedIdentityUnicodeBoundsMatchUTF16Contract(t *testing.T) {
+	for _, valid := range []string{
+		strings.Replace(scopedAudienceFixture(), `"permit-fixture"`, `"`+strings.Repeat("界", 256)+`"`, 1),
+		strings.Replace(scopedAudienceFixture(), `"permit-fixture"`, `"`+strings.Repeat("😀", 128)+`"`, 1),
+		strings.Replace(scopedAudienceFixture(), `"production"`, `"staging"`, 1),
+	} {
+		var a ScopedExecutionAudience
+		if err := json.Unmarshal([]byte(valid), &a); err != nil {
+			t.Fatal("valid contract rejected", err)
+		}
+	}
+	for _, bad := range []string{
+		strings.Replace(scopedAudienceFixture(), `"permit-fixture"`, `"`+strings.Repeat("😀", 129)+`"`, 1),
+		strings.Replace(scopedAudienceFixture(), `"idem-fixture"`, `"`+strings.Repeat("界", 256)+`"`, 1),
+		strings.Replace(scopedAudienceFixture(), `"dep-fixture"`, `"`+strings.Repeat("界", 129)+`"`, 1),
+	} {
+		var a ScopedExecutionAudience
+		if err := json.Unmarshal([]byte(bad), &a); err == nil {
+			t.Fatal("oversized contract accepted")
+		}
 	}
 }

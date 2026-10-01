@@ -60,7 +60,10 @@ func (a *ScopedExecutionAudience) Validate() error {
 			return errors.New("contract: invalid scoped identity")
 		}
 	}
-	if !a.Provider.Valid() || !a.ModelReference.Valid() || !a.ModelReference.Pinned() || (a.Principal.Environment != EnvironmentProduction && a.Principal.Environment != EnvironmentDevelopment) || a.Policy.RoutingPolicyID == "" || utf16Length(a.Policy.RoutingPolicyID) > 128 || a.Policy.PolicyVersion < 1 || a.Policy.PolicyVersion > 9007199254740991 || !scopedDigestPattern.MatchString(a.FixtureSHA256) {
+	if utf16Length(string(a.IdempotencyKey)) > 255 || utf16Length(string(a.DeploymentID)) > 128 {
+		return errors.New("contract: invalid scoped identity bound")
+	}
+	if !a.Provider.Valid() || !a.ModelReference.Valid() || !a.ModelReference.Pinned() || (a.Principal.Environment != EnvironmentProduction && a.Principal.Environment != EnvironmentDevelopment && a.Principal.Environment != EnvironmentStaging) || a.Policy.RoutingPolicyID == "" || utf16Length(a.Policy.RoutingPolicyID) > 128 || a.Policy.PolicyVersion < 1 || a.Policy.PolicyVersion > 9007199254740991 || !scopedDigestPattern.MatchString(a.FixtureSHA256) {
 		return errors.New("contract: invalid scoped audience")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, a.ExpiresAt); err != nil || !strings.HasSuffix(a.ExpiresAt, "Z") {
@@ -198,7 +201,7 @@ func (s *ScopedExecution) Validate() error {
 	if err := s.ScopedExecutionAudience.Validate(); err != nil {
 		return err
 	}
-	if utf16Length(string(s.RequestID)) < 1 || utf16Length(string(s.RequestID)) > 256 || utf16Length(s.SnapshotID) < 1 || utf16Length(s.SnapshotID) > 256 || !scopedDigestPattern.MatchString(s.CatalogueEvidenceHash) {
+	if utf16Length(string(s.RequestID)) < 1 || utf16Length(string(s.RequestID)) > 128 || utf16Length(s.SnapshotID) < 1 || utf16Length(s.SnapshotID) > 256 || !scopedDigestPattern.MatchString(s.CatalogueEvidenceHash) {
 		return errors.New("contract: invalid scoped execution binding")
 	}
 	return nil
@@ -255,7 +258,7 @@ func (r *Request) ValidateScopedInputBytes(raw []byte) error {
 	}
 	return nil
 }
-func (r *Request) validateScopedExecution() error {
+func (r *Request) ValidateScopedExecution() error {
 	s := r.ScopedExecution
 	if s == nil {
 		if r.SchemaVersion == ScopedRequestEnvelopeVersion {
@@ -278,4 +281,17 @@ func (r *Request) validateScopedExecution() error {
 		return errors.New("contract: scoped execution requires one exact platform route")
 	}
 	return nil
+}
+
+// ScopedRequest is the explicitly negotiated version-3 wire shape. Its scoped
+// field is required; Request remains the legacy version-2 optional-field shape.
+type ScopedRequest struct {
+	Request
+	ScopedExecution ScopedExecution `json:"scopedExecution"`
+}
+
+func (s *ScopedRequest) InferenceRequest() Request {
+	request := s.Request
+	request.ScopedExecution = &s.ScopedExecution
+	return request
 }

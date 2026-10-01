@@ -318,6 +318,22 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := request.ValidateScopedExecution(); err != nil {
+		failure := contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error())
+		if request.SchemaVersion == contract.ScopedRequestEnvelopeVersion && request.ScopedExecution == nil {
+			failure = failure.WithParam("schemaVersion")
+		}
+		s.writeRejection(w, http.StatusBadRequest, failure)
+		return
+	}
+	if request.SchemaVersion == contract.ScopedRequestEnvelopeVersion {
+		var scoped contract.ScopedRequest
+		if err := json.Unmarshal(body, &scoped); err != nil {
+			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "invalid scoped request"))
+			return
+		}
+		request = scoped.InferenceRequest()
+	}
 	if err := request.ValidateScopedInputBytes(body); err != nil {
 		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
 		return

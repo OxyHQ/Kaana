@@ -400,7 +400,7 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
-	if err := r.validateScopedExecution(); err != nil {
+	if err := r.ValidateScopedExecution(); err != nil {
 		return err
 	}
 	if r.Input.Format == InputDecisions || r.Client.APIFormat == APIFormatDecisions {
