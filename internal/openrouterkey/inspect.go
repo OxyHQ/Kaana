@@ -17,6 +17,7 @@ package openrouterkey
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,6 +160,13 @@ func NewProduction() *Inspector {
 	transport.Protocols.SetHTTP1(true) // HTTP/2 may implicitly retry a fresh GET.
 	transport.Protocols.SetHTTP2(false)
 	transport.ForceAttemptHTTP2 = false
+	// Clone initializes the default transport and copies its h2 ALPN offer.
+	// Protocols alone does not remove that offer when HTTP/2 is disabled.
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	inspector, _ := New(transport)
 	return inspector
 }
