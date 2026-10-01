@@ -59,6 +59,8 @@ type stubAdapter struct {
 	// shape of a provider that rejects the call outright, such as a 402 from an
 	// account with no balance.
 	fail error
+	// failUnits are what the provider measured before fail.
+	failUnits []contract.UsageQuantity
 
 	mutex     sync.Mutex
 	written   int
@@ -88,6 +90,9 @@ func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provi
 	if s.fail != nil {
 		// Nothing started and nothing was measured, so the outcome is its zero
 		// value — including a nil unit slice, which is the point.
+		if s.failUnits != nil {
+			return provider.Outcome{Units: s.failUnits, UsageSource: contract.UsageProviderReported}, s.fail
+		}
 		return provider.Outcome{}, s.fail
 	}
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}

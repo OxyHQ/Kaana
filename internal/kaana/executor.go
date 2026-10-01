@@ -422,6 +422,15 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			// the customer — both of which are decided at the top of the next
 			// iteration.
 			permit.Failed()
+			if request.Client.APIFormat == contract.APIFormatDecisions {
+				// A decisions body may have been accepted and billed before this
+				// failure: a cut connection or a deadline cannot say otherwise,
+				// and nothing upstream retains the request to deduplicate a
+				// second one. It never moves — not to this route again and not
+				// to the next. (A key walk inside the attempt re-sends only after
+				// a definitive credential refusal, which accepted nothing.)
+				break
+			}
 			abandoned = last
 			last = nil
 			if emit.started {
@@ -828,7 +837,7 @@ func (e *Executor) settle(
 		if err := report.Validate(); err != nil {
 			return Result{Failure: contract.NewError(requestID, contract.CodeInternalError, "invalid decisions usage report"), UpstreamCost: cost}
 		}
-		return Result{Report: report, Decisions: &contract.DecisionResult{SchemaVersion: 1, RequestID: requestID, Model: last.route.ModelReference, Data: last.outcome.Decisions, Usage: *report}, UpstreamCost: cost}
+		return Result{Report: report, Decisions: &contract.DecisionResult{SchemaVersion: contract.DecisionSchemaVersion, RequestID: requestID, Model: last.route.ModelReference, Data: last.outcome.Decisions, Usage: *report}, UpstreamCost: cost}
 	}
 	if last.err == nil && last.outcome.Embedding != nil {
 		value := last.outcome.Embedding

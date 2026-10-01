@@ -43,7 +43,7 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 			return outcome, decisionsUnavailable()
 		}
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, a.decisionDeadline())
 		defer cancel()
 	}
 	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/tts") {
@@ -70,8 +70,15 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	if call.Decisions != nil {
 		outcome, err = a.readDecisions(response.Body, call)
 		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
-		if ctx.Err() != nil {
-			return outcome, ctx.Err()
+		if err == nil {
+			// A complete, validated answer was read before the deadline or a
+			// cancellation landed. It was paid for and settles as completed.
+			return outcome, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The body was cut by the deadline or the caller: classify it as
+			// the transport failure it is, keeping whatever was measured.
+			return outcome, a.TransportFailure(ctx, ctxErr)
 		}
 		return outcome, err
 	}

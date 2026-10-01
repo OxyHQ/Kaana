@@ -2,7 +2,9 @@ package providercost
 
 import (
 	"encoding/json"
-	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 // DecisionUsage owns the provider's optional usage.cost alongside its counters.
@@ -13,15 +15,53 @@ type DecisionUsage struct {
 	Cost         json.RawMessage `json:"cost"`
 }
 
-func (u DecisionUsage) ReportedCost() (*Money, error) {
-	if len(u.Cost) == 0 {
-		return nil, nil
+// jsonNumber is the JSON number grammar, captured as sign, whole, fraction and
+// exponent so the amount is scaled exactly rather than through a float.
+var jsonNumber = regexp.MustCompile(`^(-?)(0|[1-9][0-9]*)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$`)
+
+// ReportedCost returns the exact amount the provider billed, or nil when that
+// amount is unknown. Unknown covers an absent or null cost, a non-number, a
+// negative amount, and a value that cannot be held exactly at Scale: such a
+// value is neither rounded nor replaced with zero. An unknown amount never
+// fails the answer it accompanies; the provider has already been paid for it.
+func (u DecisionUsage) ReportedCost() *Money {
+	match := jsonNumber.FindStringSubmatch(string(u.Cost))
+	if match == nil || match[1] == "-" {
+		return nil
 	}
-	amount, err := ParseDecimal("USD", string(u.Cost))
+	digits := strings.TrimLeft(match[2]+match[3], "0")
+	if digits == "" {
+		return &Money{Currency: "USD"}
+	}
+	exponent := 0
+	if match[4] != "" {
+		parsed, err := strconv.Atoi(match[4])
+		if err != nil {
+			return nil
+		}
+		exponent = parsed
+	}
+	// value = digits × 10^shift, in units of 10^-Scale.
+	shift := exponent - len(match[3]) + Scale
+	if shift < 0 {
+		if -shift > len(digits) || strings.Trim(digits[len(digits)+shift:], "0") != "" {
+			return nil
+		}
+		digits = digits[:len(digits)+shift]
+	} else {
+		if len(digits)+shift > 19 {
+			return nil
+		}
+		digits += strings.Repeat("0", shift)
+	}
+	if digits == "" {
+		return nil
+	}
+	amount, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("providercost: invalid decisions billed cost")
+		return nil
 	}
-	return &amount, nil
+	return &Money{Currency: "USD", Amount: amount}
 }
 
 // DecisionPriceLimit defaults to zero spend. No reviewed price authorization

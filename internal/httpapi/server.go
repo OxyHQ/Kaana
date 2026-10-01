@@ -322,13 +322,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		}
 		startedAt := time.Now()
 		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })
-		if result.Failure != nil {
-			s.writeRejection(w, http.StatusBadGateway, result.Failure)
-		} else if result.Decisions == nil {
-			s.writeRejection(w, http.StatusInternalServerError, contract.NewError(requestID, contract.CodeInternalError, "the adapter returned no decisions"))
-		} else {
-			writeJSON(w, http.StatusOK, result.Decisions)
-		}
+		s.writeDecisions(w, requestID, result)
 		s.logResult(requestID, result, time.Since(startedAt))
 		return
 	}
@@ -387,6 +381,65 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logResult(requestID, result, time.Since(startedAt))
+}
+
+// writeDecisions answers a decisions request in the three ways Oxy tells apart.
+//
+// A refusal before any provider attempt is a 4xx (or, for capacity, a typed 503
+// with no usage): nothing executed. Once an attempt reached an adapter, the
+// body may have been accepted and billed, so the answer is a typed
+// DecisionFailure with HTTP 502 and retryable false, carrying the usage report
+// only when the provider measured something. Absent usage means unmeasured.
+func (s *Server) writeDecisions(w http.ResponseWriter, requestID contract.RequestID, result kaana.Result) {
+	if result.Failure == nil && result.Decisions != nil {
+		writeJSON(w, http.StatusOK, result.Decisions)
+		return
+	}
+	failure := result.Failure
+	if failure == nil {
+		failure = contract.NewError(requestID, contract.CodeInternalError, "the adapter returned no decisions")
+	}
+	failure = new(*failure)
+	if len(result.UpstreamCost.Attempts) == 0 {
+		if status, refused := decisionRefusalStatus(failure.Code); refused {
+			s.writeRejection(w, status, failure)
+			return
+		}
+		w.Header().Set(HeaderRequestID, string(requestID))
+		writeJSON(w, http.StatusServiceUnavailable, contract.DecisionFailure{SchemaVersion: contract.DecisionSchemaVersion, RequestID: requestID, Error: *failure})
+		return
+	}
+	body := contract.DecisionFailure{SchemaVersion: contract.DecisionSchemaVersion, RequestID: requestID, Error: *failure.WithoutRetry()}
+	if report := result.Report; report != nil && len(report.Units) > 0 {
+		body.Usage = report
+		if err := body.Validate(); err != nil {
+			// Usage Oxy would refuse would cost the typed code as well; an
+			// unmeasured failure is the truthful fallback, and the operator
+			// record still holds what the provider reported.
+			s.logger.Error("decisions failure usage is not settleable", "requestId", requestID, "error", err)
+			body.Usage = nil
+		}
+	}
+	w.Header().Set(HeaderRequestID, string(requestID))
+	writeJSON(w, http.StatusBadGateway, body)
+}
+
+// decisionRefusalStatus maps a refusal made before any provider attempt to the
+// 4xx Oxy reads as "rejected before execution".
+func decisionRefusalStatus(code contract.ErrorCode) (int, bool) {
+	switch code {
+	case contract.CodeInvalidRequest, contract.CodeUnsupportedModality, contract.CodeContextLengthExceeded, contract.CodeOutputLimitExceeded:
+		return http.StatusBadRequest, true
+	case contract.CodeRequestTooLarge:
+		return http.StatusRequestEntityTooLarge, true
+	case contract.CodePermissionDenied, contract.CodeInsufficientScope, contract.CodeCommercialPermissionDenied, contract.CodePolicyViolation, contract.CodeBYOKCredentialInvalid:
+		return http.StatusForbidden, true
+	case contract.CodeModelNotFound:
+		return http.StatusNotFound, true
+	case contract.CodeRateLimited:
+		return http.StatusTooManyRequests, true
+	}
+	return 0, false
 }
 
 // logResult records what happened. It names ids, a route and an outcome, and

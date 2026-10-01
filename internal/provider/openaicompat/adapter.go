@@ -70,6 +70,8 @@ type Config struct {
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
 type Adapter struct {
 	decisions decisionReview
+	// decisionTimeout overrides defaultDecisionDeadline; only tests set it.
+	decisionTimeout time.Duration
 
 	config      Config
 	client      *http.Client

@@ -3,10 +3,14 @@ package openaicompat
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
+	"unicode"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -24,6 +28,16 @@ func (r decisionReview) approved() bool {
 	return r.resale && r.internalEligibility && r.privacy && r.zdr && r.immutableRoute
 }
 
+// defaultDecisionDeadline bounds one decisions request upstream.
+const defaultDecisionDeadline = 30 * time.Second
+
+func (a *Adapter) decisionDeadline() time.Duration {
+	if a.decisionTimeout > 0 {
+		return a.decisionTimeout
+	}
+	return defaultDecisionDeadline
+}
+
 func decisionsUnavailable() error {
 	return provider.ErrUnsupported{Code: contract.CodePermissionDenied, Param: "client.apiFormat", Detail: "decisions are dormant pending independent rights, eligibility, privacy, ZDR and immutable route review"}
 }
@@ -39,17 +53,11 @@ type decisionProviderPolicy struct {
 	ZDR               bool                            `json:"zdr"`
 }
 
-type systemOneQuestion struct {
-	Type         contract.DecisionKind `json:"type"`
-	Instructions any                   `json:"instructions"`
-	Criteria     any                   `json:"criteria,omitempty"`
-}
-
 type systemOneRequest struct {
-	Model     string                       `json:"model"`
-	State     string                       `json:"state"`
-	Questions map[string]systemOneQuestion `json:"questions"`
-	Provider  *decisionProviderPolicy      `json:"provider,omitempty"`
+	Model     string                                   `json:"model"`
+	State     string                                   `json:"state"`
+	Questions map[string]contract.DecisionWireQuestion `json:"questions"`
+	Provider  *decisionProviderPolicy                  `json:"provider,omitempty"`
 }
 
 func (a *Adapter) translateDecisions(request *contract.Request, route provider.Route) (*provider.Call, error) {
@@ -80,48 +88,51 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 	if input.Effort != nil {
 		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input.decisions.effort", Detail: "the systemone API has no verified effort field"}
 	}
-	body := systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: make(map[string]systemOneQuestion, len(input.Questions))}
-	translatedBytes := len(input.State)
-	for _, q := range input.Questions {
-		// The provider documents structured instructions. Keep common instructions,
-		// the question and its rubric distinct, without inventing prompt delimiters.
-		translatedBytes += len(q.ID) + len(q.Question)
-		for _, label := range append(append([]string{}, q.Options...), q.Levels...) {
-			translatedBytes += len(label)
-		}
-		instructions := map[string]string{"question": q.Question}
-		if input.Instructions != nil {
-			instructions["instructions"] = *input.Instructions
-			translatedBytes += len(*input.Instructions)
-		}
-		if q.Criteria != nil {
-			instructions["criteria"] = *q.Criteria
-			translatedBytes += len(*q.Criteria)
-		}
-		wire := systemOneQuestion{Type: q.Kind, Instructions: instructions}
-		switch q.Kind {
-		case "choice":
-			labels := make(map[string]any, len(q.Options))
-			for _, label := range q.Options {
-				labels[label] = nil
-			}
-			wire.Criteria = labels
-		case "score":
-			wire.Criteria = q.Levels
-		}
-		body.Questions[q.ID] = wire
-	}
-	if translatedBytes > 65536 {
-		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input.decisions.instructions", Detail: "per-question instructions exceed the systemone total input budget"}
-	}
-	if a.Provider() == "openrouter" {
-		body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true}
-	}
+	// The body is built from the contract's own wire representation, so what is
+	// measured below is byte for byte what is sent.
+	body := systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(input.Questions)}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("systemone: encode request: %w", err)
 	}
+	tooLarge := provider.ErrUnsupported{Code: contract.CodeRequestTooLarge, Param: "input.decisions", Detail: "the serialized systemone body exceeds its input budget"}
+	if len(encoded) > contract.DecisionTotalBudget {
+		return nil, tooLarge
+	}
+	for i := range input.Questions {
+		single, err := json.Marshal(systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(input.Questions[i : i+1])})
+		if err != nil {
+			return nil, fmt.Errorf("systemone: encode request: %w", err)
+		}
+		if len(single) > contract.DecisionContextBudget {
+			return nil, tooLarge
+		}
+	}
+	if a.Provider() == "openrouter" {
+		// A gateway's limit is on its whole body. The policy must fit inside the
+		// allowance Oxy reserved for it, and the questions with that allowance
+		// must fit inside the gateway's total.
+		core := len(encoded)
+		body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true}
+		if encoded, err = json.Marshal(body); err != nil {
+			return nil, fmt.Errorf("systemone: encode request: %w", err)
+		}
+		// Oxy's helper bounds the input with a 255-byte model allowance; the
+		// final body is bounded again as sent, so neither can stand in for the
+		// other if the wire shape or the policy grows.
+		if !input.FitsGateway() || !gatewayBodyFits(core, len(encoded)) {
+			return nil, tooLarge
+		}
+	}
 	return &provider.Call{RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/systemone", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
+}
+
+// gatewayBodyFits bounds a gateway body as sent: the questions plus the
+// reserved allowance fit the gateway's total, and the policy fits inside that
+// allowance.
+func gatewayBodyFits(core, final int) bool {
+	return core+contract.DecisionGatewayAllowance <= contract.DecisionGatewayBudget &&
+		final <= core+contract.DecisionGatewayAllowance
 }
 
 type systemOneAnswer struct {
@@ -155,20 +166,22 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 	if err := decoder.Decode(&response); err != nil {
 		return fail()
 	}
-	// Account for reported work even when answer identity or money is malformed.
-	if response.Usage.InputTokens != nil && *response.Usage.InputTokens >= 0 {
-		outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitInputTokens, Quantity: *response.Usage.InputTokens})
-	}
-	if response.Usage.OutputTokens != nil && *response.Usage.OutputTokens >= 0 {
-		outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitOutputTokens, Quantity: *response.Usage.OutputTokens})
+	ambiguity := unambiguousDecisionJSON(json.NewDecoder(bytes.NewReader(raw)), systemOneResponseShape)
+	// Account for reported work even when answer identity or money is malformed,
+	// but never from a usage object the decoder could have read two ways.
+	if !errors.Is(ambiguity, errAmbiguousUsage) {
+		if response.Usage.InputTokens != nil && *response.Usage.InputTokens >= 0 {
+			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitInputTokens, Quantity: *response.Usage.InputTokens})
+		}
+		if response.Usage.OutputTokens != nil && *response.Usage.OutputTokens >= 0 {
+			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitOutputTokens, Quantity: *response.Usage.OutputTokens})
+		}
+		// Unknown (nil) when absent or not exactly representable: never zero,
+		// never rounded, and never a reason to discard a paid answer.
+		outcome.ProviderReportedCost = response.Usage.ReportedCost()
 	}
 	outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: 1})
-	cost, err := response.Usage.ReportedCost()
-	if err != nil {
-		return fail()
-	}
-	outcome.ProviderReportedCost = cost
-	if err := uniqueDecisionJSON(json.NewDecoder(bytes.NewReader(raw))); err != nil {
+	if ambiguity != nil {
 		return fail()
 	}
 	var extra any
@@ -233,9 +246,35 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 	return outcome, nil
 }
 
-// Duplicate JSON members make answer identity and probability cardinality
-// ambiguous. Reject them, including nested maps, before accepting any answer.
-func uniqueDecisionJSON(decoder *json.Decoder) error {
+// jsonShape says how Go's decoder reads one JSON object. A struct matches
+// member names case-insensitively (Unicode simple folding), so "model" and
+// "MODEL" are one field and the later silently wins; a map keeps exact keys.
+type jsonShape struct {
+	fields map[string]*jsonShape // a struct: its exact member names
+	values *jsonShape            // a map: the shape of every value
+	usage  bool                  // ambiguity here makes measured units unreliable
+}
+
+var systemOneResponseShape = &jsonShape{fields: map[string]*jsonShape{
+	"model": nil, "id": nil, "provider": nil,
+	"usage": {usage: true, fields: map[string]*jsonShape{"input_tokens": nil, "output_tokens": nil, "cost": nil}},
+	"answers": {values: &jsonShape{fields: map[string]*jsonShape{
+		"type": nil, "choice": nil, "confidence": nil, "score": nil, "noul": nil,
+		"probabilities": {values: nil},
+	}}},
+}}
+
+var (
+	errAmbiguousJSON  = errors.New("ambiguous systemone member")
+	errAmbiguousUsage = fmt.Errorf("%w in usage", errAmbiguousJSON)
+)
+
+// unambiguousDecisionJSON rejects any object the decoder could read two ways:
+// an exact duplicate anywhere, and in a struct-decoded object a member spelled
+// other than exactly, or two members that fold to one name. Duplicates make
+// answer identity and probability cardinality ambiguous. An ambiguity inside
+// usage is reported as errAmbiguousUsage, because then no counter is reliable.
+func unambiguousDecisionJSON(decoder *json.Decoder, shape *jsonShape) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -244,23 +283,58 @@ func uniqueDecisionJSON(decoder *json.Decoder) error {
 	if !container {
 		return nil
 	}
+	inUsage := shape != nil && shape.usage
 	seen := map[string]bool{}
 	for decoder.More() {
+		var child *jsonShape
 		if delimiter == '{' {
 			key, err := decoder.Token()
 			if err != nil {
 				return err
 			}
-			name, ok := key.(string)
-			if !ok || seen[name] {
-				return fmt.Errorf("duplicate systemone member")
+			name, _ := key.(string)
+			identity, exact := name, true
+			switch {
+			case shape != nil && shape.fields != nil:
+				identity = foldJSONName(name)
+				for field, fieldShape := range shape.fields {
+					if foldJSONName(field) == identity {
+						child, exact = fieldShape, field == name
+					}
+				}
+			case shape != nil:
+				child = shape.values
 			}
-			seen[name] = true
+			if !exact || seen[identity] {
+				if inUsage || (child != nil && child.usage) {
+					return errAmbiguousUsage
+				}
+				return errAmbiguousJSON
+			}
+			seen[identity] = true
 		}
-		if err := uniqueDecisionJSON(decoder); err != nil {
+		if err := unambiguousDecisionJSON(decoder, child); err != nil {
 			return err
 		}
 	}
 	_, err = decoder.Token()
 	return err
+}
+
+// foldJSONName is encoding/json's foldName: names are one field exactly when
+// bytes.EqualFold says so.
+func foldJSONName(name string) string {
+	var folded strings.Builder
+	for _, r := range name {
+		for {
+			next := unicode.SimpleFold(r)
+			if next <= r {
+				r = next
+				break
+			}
+			r = next
+		}
+		folded.WriteRune(r)
+	}
+	return folded.String()
 }

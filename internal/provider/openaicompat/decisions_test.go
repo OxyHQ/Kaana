@@ -149,7 +149,11 @@ func TestDecisionsMalformedAnswersPreserveMeasuredWork(t *testing.T) {
 		{`"choice":"b"`, `"choice":"a"`},
 		{`"a":0.25`, `"a":0.25,"a":0.25`},
 		{`"b":0.75`, `"c":0.75`},
-		{`"cost":0.000000000123`, `"cost":-1`},
+		// Go's struct decoding folds member names, so these are duplicates too.
+		{`"model":`, `"MODEL":"typesafe/jev-latest","model":`},
+		{`"confidence":0.5,"probabilities":{"b"`, `"Confidence":0.9,"confidence":0.5,"probabilities":{"b"`},
+		{`"score":0.75`, `"\u017fcore":0.25,"score":0.75`},
+		{`"model":`, `"Model":`},
 	} {
 		out, err := a.readDecisions(strings.NewReader(strings.Replace(good, pair[0], pair[1], 1)), call)
 		if err == nil || out.Decisions != nil || len(out.Units) != 3 {
