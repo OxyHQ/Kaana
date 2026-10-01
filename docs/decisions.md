@@ -66,8 +66,14 @@ decoder could read two ways is refused: an exact duplicate anywhere, and in a
 struct-decoded object (the response, `usage`, each answer) a member not spelled
 exactly or two members equal under Unicode simple folding, which is how
 `encoding/json` matches fields. Map keys (question ids, choice labels) stay
-exact, so ids `A` and `a` remain two answers. Token counters survive an invalid
-answer, unless `usage` itself is ambiguous; then nothing is measured.
+exact, so ids `A` and `a` remain two answers.
+
+What a failed response measures depends on how far it parsed. A body whose
+leading JSON object cannot be decoded (cut, truncated, malformed) measures no
+units. Once that object decodes, it records `requests: 1`, its non-negative
+token counters and its cost, even when an answer is invalid or trailing bytes
+follow it. If `usage` itself is ambiguous, its token counters
+and cost are withheld, and only `requests: 1` is recorded.
 
 `usage.cost` is parsed only by `providercost`, attached only to the operator
 attempt, and never enters the decision response. It is either the exact amount
@@ -93,8 +99,9 @@ Oxy reads three answers, and Kaana gives exactly one of them:
   by `Error.WithoutRetry`; never widened): the body may have run and nothing
   retains it. `usage` is the incomplete report, present only when the provider
   measured units; absent means unmeasured, never zero. A cut connection, a
-  deadline and a truncated body are unmeasured; a parsed body with an invalid
-  answer is measured.
+  deadline and a malformed or truncated body are unmeasured. A parsed body
+  with an invalid answer carries `requests: 1` and whatever unambiguous
+  counters it reported.
 - **200, `DecisionResult`**.
 
 A decisions attempt is never retried on its route nor failed over (see
@@ -103,6 +110,17 @@ definitive 401/402/429 refusal, which accepted nothing; a transport failure
 returns at once.
 
 ## Closed gates and release dependencies
+
+**Unpaired UTF-16 surrogates are an open activation gate.** Go decodes a lone
+surrogate escape such as `"\ud800"` in the signed envelope to U+FFFD. The
+provider would therefore receive different text from what Oxy accepted, and
+Oxy's measurement of the escape (6 bytes) differs from Kaana's (3). The size
+difference cannot let Kaana accept anything Oxy refused, and the budgets stay
+as they are. The silent substitution is still unacceptable for a decision.
+Before any gate opens, text containing unpaired surrogates must be refused as
+unsupported, before spend: by Oxy's schema, and by Kaana on the raw signed
+body, because after decoding it cannot be told apart from a genuine U+FFFD.
+This change does not implement that refusal.
 
 All production constructors leave five independent reviews unapproved: resale
 rights, internal eligibility, privacy, ZDR, and immutable route identity. Both
@@ -120,7 +138,9 @@ independent review before opening any gate, including affirmative Oxy catalogue
 
 The descriptor is generated from an unpublished local build of the exact Oxy
 commit named in its `source` field (package 4.7.0, contract set 3.5.0); see
-`contract.md`. **This is not a published contract upgrade**, and the 4.5.0
+`contract.md`. The contracts source of every later Oxy commit reviewed, through
+`54335fa1c9ccc69f8ce776fa3a1d27a42959a33b`, is identical to it (`decisions.ts`
+SHA-256 `2019f904c6f418b05b1925447b56cf2bfe5b577f45b404c354d630bdcd7e5083`). **This is not a published contract upgrade**, and the 4.5.0
 tooling pin is deliberately unchanged until Oxy releases 4.7.0. Health reports
 3.5.0, so the deployed Oxy handshake must require 3.5.0; envelope version alone
 is not negotiation. Do not merge or deploy while this publication gate is open.
