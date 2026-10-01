@@ -3,6 +3,8 @@ package inventory
 import (
 	"encoding/json"
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/providercost"
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,5 +79,55 @@ func TestScopedRoutesAreNeverPublicAndMatchAllAudienceFields(t *testing.T) {
 	raw, _ = json.Marshal(map[string]any{"snapshotId": "private", "issuedAt": "2026-10-02T00:00:00Z", "deployments": []Deployment{deployment}})
 	if _, err := Parse(raw, time.Hour); err == nil {
 		t.Fatal("scoped deployment marked current")
+	}
+}
+
+func TestScopedCatalogueAggregatesMixedEndpointsWithoutModelAudience(t *testing.T) {
+	var audience contract.ScopedExecutionAudience
+	if err := json.Unmarshal([]byte(privateAudienceFixture), &audience); err != nil {
+		t.Fatal(err)
+	}
+	first := audience
+	second := audience
+	second.DeploymentID = "dep-private-two"
+	second.PermitID = "second-permit"
+	second.Principal.ApplicationID = "second-app"
+	price := providercost.ListPrice{Currency: "USD", Input: "0.042", Output: "0"}
+	rows := []Deployment{{DeploymentID: "dep-public", Provider: first.Provider, ModelReference: first.ModelReference, UpstreamModelID: first.UpstreamModelID, Current: true, Observed: &Observed{ListPrice: &price}}, {ScopedExecution: &first, DeploymentID: first.DeploymentID, Provider: first.Provider, ModelReference: first.ModelReference, UpstreamModelID: first.UpstreamModelID, Observed: &Observed{ListPrice: &price}}, {ScopedExecution: &second, DeploymentID: second.DeploymentID, Provider: second.Provider, ModelReference: second.ModelReference, UpstreamModelID: second.UpstreamModelID, Observed: &Observed{ListPrice: &price}}}
+	raw, err := json.Marshal(map[string]any{"snapshotId": "mixed", "issuedAt": "2026-10-02T00:00:00Z", "deployments": rows})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv, err := Parse(raw, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	legacy := inv.Catalogue()
+	if len(legacy) != 1 || len(legacy[0].ListPrices) != 1 || legacy[0].ListPrices[0].DeploymentID != "dep-public" {
+		t.Fatal("private price entered legacy aggregation")
+	}
+	entries := inv.CatalogueScoped(at)
+	if len(entries) != 1 || len(entries[0].ListPrices) != 3 {
+		t.Fatal("duplicate model/reference rows or unattributed prices")
+	}
+	wire, err := json.Marshal(entries)
+	if err != nil || strings.Contains(string(wire), "scopedExecution") {
+		t.Fatal("aggregate model carries audience authority")
+	}
+	descriptors := inv.DeploymentDescriptorsScopedAt(at)
+	if len(descriptors) != 3 {
+		t.Fatal("missing exact descriptors")
+	}
+	scopes := map[contract.DeploymentID]*contract.ScopedExecutionAudience{}
+	for _, descriptor := range descriptors {
+		scopes[descriptor.DeploymentID] = descriptor.ScopedExecution
+	}
+	if scopes["dep-public"] != nil || !scopes[first.DeploymentID].Equal(&first) || !scopes[second.DeploymentID].Equal(&second) {
+		t.Fatal("scope widened across deployment join")
+	}
+	public, err := inv.Resolve(first.ModelReference, at)
+	if err != nil || public.Len() != 1 || public.Candidates()[0].DeploymentID != "dep-public" {
+		t.Fatal("ordinary route resolution included private endpoints")
 	}
 }

@@ -93,3 +93,23 @@ func TestPrivatePublicationIsExcludedFromEveryLegacyProjection(t *testing.T) {
 		t.Fatal("legacy exact lookup exposed private deployment")
 	}
 }
+
+func TestScopedCatalogueDifferentRevisionsFailClosed(t *testing.T) {
+	scope := map[string]any{"permitId": "private-permit", "idempotencyKey": "idem-fixture", "fixtureSha256": strings.Repeat("a", 64), "expiresAt": "2099-01-01T00:00:00Z", "principal": map[string]any{"accountId": "account", "applicationId": "app", "credentialId": "credential", "environment": "production"}, "policy": map[string]any{"routingPolicyId": "policy", "policyVersion": 1}, "deploymentId": "dep_private", "provider": "stub", "keyId": "exact-key", "modelReference": "stub/private@2026-10-02", "upstreamModelId": "private-upstream", "priceVersionId": "oxy-price", "providerRateCardVersionId": "provider-card", "providerSourceVersion": "source", "maxCostUsd": "0.01"}
+	h := newHarnessWithDeployments(t, &stubAdapter{}, []map[string]any{{"deploymentId": "dep_public", "provider": "stub", "modelReference": "stub/private@2026-10-01", "upstreamModelId": "public-upstream", "current": true}, {"deploymentId": "dep_private", "provider": "stub", "modelReference": "stub/private@2026-10-02", "upstreamModelId": "private-upstream", "current": false, "scopedExecution": scope}})
+	body := []byte(`{"scopedExecutionContractVersion":"3.6.0"}`)
+	req, err := http.NewRequest(http.MethodPost, h.server.URL+"/internal/v1/models/query", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.sign(req, body)
+	response, err := h.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	raw, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusServiceUnavailable || strings.Contains(string(raw), "private-permit") {
+		t.Fatal("ambiguous full catalogue was projected", string(raw))
+	}
+}

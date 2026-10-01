@@ -901,9 +901,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type modelsResponse struct {
-	ScopedExecutionContractVersion string             `json:"scopedExecutionContractVersion,omitempty"`
-	ContractVersion                string             `json:"contractVersion"`
-	CheckedAt                      contract.Timestamp `json:"checkedAt"`
+	Deployments                    []inventory.DeploymentDescriptor `json:"deployments,omitempty"`
+	ScopedExecutionContractVersion string                           `json:"scopedExecutionContractVersion,omitempty"`
+	ContractVersion                string                           `json:"contractVersion"`
+	CheckedAt                      contract.Timestamp               `json:"checkedAt"`
 	// Configuration is the same snapshot identity the health surface reports, so
 	// a catalogue read and a health read can be compared without guessing
 	// whether they saw the same file.
@@ -1019,5 +1020,14 @@ func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.inventory.Current()
 	now := time.Now()
-	writeJSON(w, http.StatusOK, modelsResponse{ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: current.CatalogueScoped(now), PinnedOnlyReferences: current.PinnedOnlyReferences()})
+	entries := current.CatalogueScoped(now)
+	seenModels := map[contract.ModelID]contract.ModelReference{}
+	for _, entry := range entries {
+		if existing, duplicate := seenModels[entry.Model]; duplicate && existing != entry.Reference {
+			s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(newLocalRequestID(), contract.CodeServiceUnavailable, "scoped catalogue revision identity is ambiguous"))
+			return
+		}
+		seenModels[entry.Model] = entry.Reference
+	}
+	writeJSON(w, http.StatusOK, modelsResponse{ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: entries, Deployments: current.DeploymentDescriptorsScopedAt(now), PinnedOnlyReferences: current.PinnedOnlyReferences()})
 }

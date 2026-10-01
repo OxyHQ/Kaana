@@ -9,7 +9,9 @@ Returned audience pointers do not alias the inventory.
 Only a signed JSON body with scopedExecutionContractVersion: "3.6.0" enables
 extended deployment descriptors. The response echoes that exact version. A
 signed POST /internal/v1/models/query with only that version returns the observed
-private catalogue for the normal Oxy importer. Legacy GET models remains byte
+private catalogue for the normal Oxy importer. Model rows aggregate each pinned
+reference once. Audience restrictions live only on the additional exact
+deployment descriptors, joined by deployment ID, never on aggregated model rows. Legacy GET models remains byte
 compatible. The version identifies a protocol, never catalogue evidence or a
 price version. Oxy must still qualify actual rights, eligibility and prices;
 none is supplied by the scope restriction itself.

@@ -650,9 +650,8 @@ func (i *Inventory) deploymentDescriptors(includeScoped bool) []DeploymentDescri
 // provider said nothing abstains, and a deployment that did say something can
 // only narrow a capability, never widen it.
 type CatalogueEntry struct {
-	ScopedExecution *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
-	Model           contract.ModelID                  `json:"model"`
-	Reference       contract.ModelReference           `json:"modelReference"`
+	Model     contract.ModelID        `json:"model"`
+	Reference contract.ModelReference `json:"modelReference"`
 	// Providers that can serve it, sorted. Which one DOES serve a given request
 	// is a routing decision this list does not predict.
 	Providers []contract.ProviderSlug `json:"providers"`
@@ -965,17 +964,37 @@ func (i *Inventory) PublicDeployments() []Endpoint {
 // CatalogueScoped includes private observed catalogue entries only for explicit
 // signed 3.6 negotiation. They never become current/unpinned or ordinary routes.
 func (i *Inventory) CatalogueScoped(at time.Time) []CatalogueEntry {
-	entries := i.Catalogue()
-	for _, set := range i.byReference {
+	references := map[contract.ModelReference]bool{}
+	for _, set := range i.currentOf {
+		references[set.reference] = true
+	}
+	for reference, set := range i.byReference {
 		for _, endpoint := range set.endpoints {
-			scope := endpoint.ScopedExecution
-			if scope == nil || !scope.NotExpired(at) {
+			if endpoint.ScopedExecution != nil && endpoint.ScopedExecution.NotExpired(at) {
+				references[reference] = true
+			}
+		}
+	}
+	entries := make([]CatalogueEntry, 0, len(references))
+	for reference := range references {
+		set := i.byReference[reference]
+		endpoints := []Endpoint{}
+		seen := map[contract.ProviderSlug]bool{}
+		providers := []contract.ProviderSlug{}
+		for _, endpoint := range set.endpoints {
+			if endpoint.ScopedExecution != nil && !endpoint.ScopedExecution.NotExpired(at) {
 				continue
 			}
-			entry := CatalogueEntry{ScopedExecution: cloneAudience(scope), Model: set.reference.ModelID(), Reference: set.reference, Providers: []contract.ProviderSlug{endpoint.Provider}}
-			aggregateObservations(&entry, []Endpoint{endpoint})
-			entries = append(entries, entry)
+			endpoints = append(endpoints, endpoint)
+			if !seen[endpoint.Provider] {
+				seen[endpoint.Provider] = true
+				providers = append(providers, endpoint.Provider)
+			}
 		}
+		sort.Slice(providers, func(a, b int) bool { return providers[a] < providers[b] })
+		entry := CatalogueEntry{Model: reference.ModelID(), Reference: reference, Providers: providers}
+		aggregateObservations(&entry, endpoints)
+		entries = append(entries, entry)
 	}
 	sort.Slice(entries, func(a, b int) bool {
 		if entries[a].Model == entries[b].Model {
@@ -984,4 +1003,16 @@ func (i *Inventory) CatalogueScoped(at time.Time) []CatalogueEntry {
 		return entries[a].Model < entries[b].Model
 	})
 	return entries
+}
+
+// DeploymentDescriptorsScopedAt excludes expired private publications from the
+// negotiated full catalogue. Audience authority remains per exact deployment.
+func (i *Inventory) DeploymentDescriptorsScopedAt(at time.Time) []DeploymentDescriptor {
+	out := []DeploymentDescriptor{}
+	for _, descriptor := range i.DeploymentDescriptorsScoped() {
+		if descriptor.ScopedExecution == nil || descriptor.ScopedExecution.NotExpired(at) {
+			out = append(out, descriptor)
+		}
+	}
+	return out
 }
