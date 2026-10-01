@@ -2,6 +2,7 @@ package providercost
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,6 +69,49 @@ func (u DecisionUsage) ReportedCost() *Money {
 // exists for these dormant routes; enabling them requires a separately reviewed
 // immutable ceiling, held here rather than in an inference contract.
 type DecisionPriceLimit struct {
-	Prompt     int `json:"prompt"`
-	Completion int `json:"completion"`
+	Prompt     DecisionTokenPrice `json:"prompt"`
+	Completion DecisionTokenPrice `json:"completion"`
+}
+
+// DecisionTokenPrice is an exact USD-per-million-token ceiling. Its zero value
+// is zero spend. Values are constructed from plain decimal strings, never floats.
+// Scientific notation is deliberately refused to keep the ceiling inspectable.
+type DecisionTokenPrice struct{ decimal string }
+
+var decisionDecimal = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)
+
+// ParseDecisionTokenPrice refuses negative, non-finite and malformed prices.
+// The original decimal is retained exactly; it is neither rounded nor scaled.
+func ParseDecisionTokenPrice(value string) (DecisionTokenPrice, error) {
+	if len(value) > 256 || !decisionDecimal.MatchString(value) {
+		return DecisionTokenPrice{}, errors.New("decision token price: expected a nonnegative plain decimal of at most 256 bytes")
+	}
+	return DecisionTokenPrice{decimal: value}, nil
+}
+
+// MarshalJSON emits a JSON number, not a string. No output is possible from an
+// invalid internal value; the uninitialized value preserves zero-spend policy.
+func (p DecisionTokenPrice) MarshalJSON() ([]byte, error) {
+	if p.decimal == "" {
+		return []byte("0"), nil
+	}
+	if _, err := ParseDecisionTokenPrice(p.decimal); err != nil {
+		return nil, err
+	}
+	return []byte(p.decimal), nil
+}
+
+// UnmarshalJSON accepts only an exact nonnegative numeric decimal.
+func (p *DecisionTokenPrice) UnmarshalJSON(data []byte) error {
+	parsed, err := ParseDecisionTokenPrice(string(data))
+	if err != nil {
+		return err
+	}
+	*p = parsed
+	return nil
+}
+
+// IsZero reports whether the exact ceiling allows no spend.
+func (p DecisionTokenPrice) IsZero() bool {
+	return strings.Trim(p.decimal, "0.") == ""
 }

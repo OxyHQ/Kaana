@@ -2,6 +2,7 @@ package providercost
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -27,5 +28,65 @@ func TestDecisionReportedCost(t *testing.T) {
 		if m := (DecisionUsage{Cost: json.RawMessage(raw)}).ReportedCost(); m != nil {
 			t.Errorf("%q became a known amount %v", raw, m)
 		}
+	}
+}
+
+func TestDecisionPriceLimitExactDecimal(t *testing.T) {
+	for _, value := range []string{"0", "0.042", "0.042000000000000000000000001", "1", "12.500"} {
+		price, err := ParseDecisionTokenPrice(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(DecisionPriceLimit{Prompt: price})
+		if err != nil || string(encoded) != `{"prompt":`+value+`,"completion":0}` {
+			t.Fatalf("%s: %s %v", value, encoded, err)
+		}
+	}
+	encoded, err := json.Marshal(DecisionPriceLimit{})
+	if err != nil || string(encoded) != `{"prompt":0,"completion":0}` {
+		t.Fatalf("zero ceiling: %s %v", encoded, err)
+	}
+	for _, value := range []string{"", "-0", "-0.042", "NaN", "Infinity", "+Inf", "1e999", "0.042e0", ".042", "01", "1.", " 0.042", `"0.042"`, strings.Repeat("1", 257)} {
+		if _, err := ParseDecisionTokenPrice(value); err == nil {
+			t.Errorf("accepted %q", value)
+		}
+	}
+	if _, err := json.Marshal(DecisionTokenPrice{decimal: "NaN"}); err == nil {
+		t.Fatal("invalid internal value serialized")
+	}
+}
+
+func TestDecisionTokenPriceRoundTripAndInvalidReceiver(t *testing.T) {
+	price, err := ParseDecisionTokenPrice("0.042000000000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(price)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded DecisionTokenPrice
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded != price {
+		t.Fatal("round trip changed exact decimal")
+	}
+	for _, invalid := range []string{`null`, `"0.042"`, `-0.042`, `1e999`, `true`, `{}`} {
+		if err := json.Unmarshal([]byte(invalid), &decoded); err == nil {
+			t.Errorf("decoded invalid %s", invalid)
+		}
+		if decoded != price {
+			t.Fatal("invalid input changed prior ceiling")
+		}
+	}
+	for _, value := range []string{"0", "0.000"} {
+		zero, err := ParseDecisionTokenPrice(value)
+		if err != nil || !zero.IsZero() {
+			t.Fatal("exact zero not recognized")
+		}
+	}
+	if (DecisionTokenPrice{}).IsZero() != true || price.IsZero() {
+		t.Fatal("zero ceiling predicate incorrect")
 	}
 }
