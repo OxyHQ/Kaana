@@ -4,13 +4,17 @@
 
 ## Decisions foundation pending release
 
-This branch consumes the authoritative Oxy decisions foundation, contract set
-3.5.0 / envelope 2, built as `4.7.0-dev.20261001.1`. The descriptor is generated
-from that local foundation, not edited. The published tooling pin remains 4.5.0
-(set 3.3.0); `make check` must fail contract negotiation until the foundation is
-published and the pin/lock regenerated. See [decisions.md](decisions.md). No
-production Jev route is enabled. The historical rollout notes below predate this
-foundation and are not the current negotiated version.
+This branch consumes Oxy contract set **3.5.0** / envelope 2 from
+`@oxy.so/contracts` **4.7.0, which is not published**. `descriptor.json` was
+generated, not edited, from a local build of the exact Oxy commit it names in
+its `source` field; `generate.mjs` refuses a local build unless
+`OXY_CONTRACTS_LOCAL_SOURCE=<owner/repo>@<commit>` records that origin, and never
+labels it published. The tooling pin and lock stay at published 4.5.0 (set
+3.3.0) until 4.7.0 is actually released, so `make contract-generate` fails on
+this branch by design. Releasing means: pin and lock the published version,
+regenerate with no `source` field and zero other drift, and pass `make check`.
+See [decisions.md](decisions.md). No production Jev route is enabled. The
+historical rollout notes below predate this foundation.
 
 ## The contract is not re-invented here
 

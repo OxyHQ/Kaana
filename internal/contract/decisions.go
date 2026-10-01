@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 )
 
 // DecisionEffort is independent of generation reasoning effort.
@@ -78,30 +79,141 @@ type DecisionResult struct {
 	Usage         UsageReport      `json:"usage"`
 }
 
+// DecisionSchemaVersion versions DecisionResult and DecisionFailure.
+const DecisionSchemaVersion = 1
+
+// DecisionFailure answers a decisions request that may have reached a
+// provider. Usage is present only when the provider measured something; its
+// absence means nothing was measured, never that the work cost zero.
+type DecisionFailure struct {
+	SchemaVersion int          `json:"schemaVersion"`
+	RequestID     RequestID    `json:"requestId"`
+	Error         Error        `json:"error"`
+	Usage         *UsageReport `json:"usage,omitempty"`
+}
+
+func (f DecisionFailure) Validate() error {
+	if f.SchemaVersion != DecisionSchemaVersion || f.RequestID == "" || f.Error.RequestID != f.RequestID {
+		return fmt.Errorf("contract: a decisions failure must answer its own request")
+	}
+	if f.Usage == nil {
+		return nil
+	}
+	if f.Usage.RequestID != f.RequestID || f.Usage.Outcome == OutcomeCompleted {
+		return fmt.Errorf("contract: decisions failure usage must describe this incomplete request")
+	}
+	return f.Usage.Validate()
+}
+
+// The serialized input budgets restate Oxy's decisionInputBudget exactly. Go's
+// encoder already escapes <, >, &, U+2028 and U+2029 as Oxy's measurement does,
+// so these are the same byte counts, not an approximation of them.
+const (
+	DecisionTotalBudget   = 64000
+	DecisionContextBudget = 32000
+	// DecisionGatewayBudget bounds a gateway's whole body; the allowance is
+	// reserved for the gateway policy object within it.
+	DecisionGatewayBudget    = 32000
+	DecisionGatewayAllowance = 4096
+	decisionModelAllowance   = 255
+)
+
+// DecisionWireQuestion is the provider's structured question. Common
+// instructions repeat in every question, which is why the budget measures this
+// representation as well as the normalized one, and why an adapter must build
+// its body from it rather than from its own copy.
+type DecisionWireQuestion struct {
+	Type         DecisionKind      `json:"type"`
+	Instructions map[string]string `json:"instructions"`
+	Criteria     any               `json:"criteria,omitempty"`
+}
+
+// DecisionWireQuestions keys each question by its exact id.
+func (d DecisionInput) DecisionWireQuestions(questions []DecisionQuestion) map[string]DecisionWireQuestion {
+	wire := make(map[string]DecisionWireQuestion, len(questions))
+	for _, q := range questions {
+		instructions := map[string]string{"question": q.Question}
+		if d.Instructions != nil {
+			instructions["instructions"] = *d.Instructions
+		}
+		if q.Criteria != nil {
+			instructions["criteria"] = *q.Criteria
+		}
+		question := DecisionWireQuestion{Type: q.Kind, Instructions: instructions}
+		switch q.Kind {
+		case "choice":
+			labels := make(map[string]any, len(q.Options))
+			for _, label := range q.Options {
+				labels[label] = nil
+			}
+			question.Criteria = labels
+		case "score":
+			question.Criteria = q.Levels
+		}
+		wire[q.ID] = question
+	}
+	return wire
+}
+
+// DecisionBudget is Oxy's serialized measurement: Total over every question,
+// Context over the largest single question with the shared state, and Gateway
+// as Total plus the reserved gateway-policy allowance.
+type DecisionBudget struct{ Total, Context, Gateway int }
+
+func (d DecisionInput) Budget() DecisionBudget {
+	total := d.measure(d.Questions)
+	context := 0
+	for i := range d.Questions {
+		context = max(context, d.measure(d.Questions[i:i+1]))
+	}
+	return DecisionBudget{Total: total, Context: context, Gateway: total + DecisionGatewayAllowance}
+}
+
+// FitsGateway is Oxy's decisionFitsGateway: a gateway's TOTAL limit, separate
+// from a direct provider's per-question context.
+func (d DecisionInput) FitsGateway() bool {
+	return d.Budget().Gateway <= DecisionGatewayBudget
+}
+
+func (d DecisionInput) measure(questions []DecisionQuestion) int {
+	model := strings.Repeat("x", decisionModelAllowance)
+	normalized, err := json.Marshal(struct {
+		State        string             `json:"state"`
+		Instructions *string            `json:"instructions,omitempty"`
+		Questions    []DecisionQuestion `json:"questions"`
+		Effort       *DecisionEffort    `json:"effort,omitempty"`
+		Model        string             `json:"model"`
+	}{d.State, d.Instructions, questions, d.Effort, model})
+	if err != nil {
+		return math.MaxInt
+	}
+	wire, err := json.Marshal(struct {
+		Model     string                          `json:"model"`
+		State     string                          `json:"state"`
+		Questions map[string]DecisionWireQuestion `json:"questions"`
+		Effort    *DecisionEffort                 `json:"effort,omitempty"`
+	}{model, d.State, d.DecisionWireQuestions(questions), d.Effort})
+	if err != nil {
+		return math.MaxInt
+	}
+	return max(len(normalized), len(wire))
+}
+
 func (d DecisionInput) Validate() error {
 	if len(d.Questions) < 1 || len(d.Questions) > 255 || utf16Length(d.State) > 65536 || (d.Effort != nil && !isMember(*d.Effort, decisionEffortValues)) {
 		return fmt.Errorf("contract: invalid decisions state, questions or effort")
 	}
-	base := len(d.State)
-	if d.Instructions != nil {
-		if !decisionText(*d.Instructions) {
-			return fmt.Errorf("contract: invalid decisions instructions")
-		}
-		base += len(*d.Instructions)
+	if d.Instructions != nil && !decisionText(*d.Instructions) {
+		return fmt.Errorf("contract: invalid decisions instructions")
 	}
-	total, longest := base, 0
 	seen := map[string]bool{}
 	for _, q := range d.Questions {
 		if q.ID == "" || utf16Length(q.ID) > 128 || seen[q.ID] || !decisionText(q.Question) {
 			return fmt.Errorf("contract: invalid or repeated decision question")
 		}
 		seen[q.ID] = true
-		size := len(q.ID) + len(q.Question)
-		if q.Criteria != nil {
-			if !decisionText(*q.Criteria) {
-				return fmt.Errorf("contract: invalid decision criteria")
-			}
-			size += len(*q.Criteria)
+		if q.Criteria != nil && !decisionText(*q.Criteria) {
+			return fmt.Errorf("contract: invalid decision criteria")
 		}
 		var labels []string
 		switch q.Kind {
@@ -128,13 +240,10 @@ func (d DecisionInput) Validate() error {
 				return fmt.Errorf("contract: invalid or repeated decision label")
 			}
 			unique[label] = true
-			size += len(label)
 		}
-		total += size
-		longest = max(longest, size)
 	}
-	if total > 65536 || base+longest > 32768 {
-		return fmt.Errorf("contract: decisions exceed UTF-8 byte budget")
+	if budget := d.Budget(); budget.Total > DecisionTotalBudget || budget.Context > DecisionContextBudget {
+		return fmt.Errorf("contract: decisions exceed the serialized %d-byte total or %d-byte per-question context budget", DecisionTotalBudget, DecisionContextBudget)
 	}
 	return nil
 }

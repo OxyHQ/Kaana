@@ -51,11 +51,11 @@ func TestWriteWireFixtures(t *testing.T) {
 	// for contract set 3.3.0 (session_milliseconds on a usage report and on
 	// session.closed); 12 controls plus the 6 it must REJECT, plus 5 realtime
 	// controls, plus the near-miss session unit.
-	if len(valid) != 78 {
-		t.Fatalf("expected 78 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 80 {
+		t.Fatalf("expected 80 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 28 {
-		t.Fatalf("expected 28 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 29 {
+		t.Fatalf("expected 29 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
