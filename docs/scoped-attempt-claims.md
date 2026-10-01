@@ -11,7 +11,7 @@ as provider outcome or cost evidence.
 for one stable permit ID (independent of HTTP request IDs). Duplicates, changed bindings, expired claims, database
 errors and cancellation must prevent sending. A claim is never released; an
 uncertain send or process restart cannot authorize a second attempt. The claim
-checks the current active exact deployment/key binding and permits at most a
+locks and checks the active exact deployment/key binding for the claim statement and permits at most a
 five-minute operation window. It is not request authorization or eligibility.
 
 This change does not attach claims to execution, publish a deployment, approve
@@ -25,3 +25,8 @@ replay, wrong binding, expiration, absence of fabricated telemetry, runtime
 SELECT/INSERT denial, before/after function owner/ACL/definer/search_path equality,
 and existing same-route outcome recording compatibility. No real key or prompt
 is used. Execution integration and independent review remain release gates.
+
+Binding eligibility is a claim-time observation. The claim does not lock a
+credential for the entire network exchange or grant immunity from later
+revocation. Signed audience and ordinary eligibility must be checked before
+claiming; claim success is only the single-use condition.

@@ -318,6 +318,10 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := request.ValidateScopedInputBytes(body); err != nil {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
+		return
+	}
 	requestID := request.Attribution.RequestID
 	if requestID == "" {
 		s.writeRejection(w, http.StatusBadRequest,

@@ -36,12 +36,12 @@ BEGIN
            OR p_retired_until > p_occurred_at + interval '5 minutes' THEN
             RAISE EXCEPTION 'scoped attempt claim is invalid';
         END IF;
-        IF NOT EXISTS (
-            SELECT 1 FROM public.provider_deployment_credential_bindings b
+        PERFORM 1 FROM public.provider_deployment_credential_bindings b
             JOIN public.provider_credentials c USING (provider_slug,key_id)
             WHERE b.deployment_id = p_deployment_id AND b.provider_slug = p_provider_slug
               AND b.key_id = p_key_id AND c.enabled
-        ) THEN
+            FOR SHARE OF b,c;
+        IF NOT FOUND THEN
             RAISE EXCEPTION 'scoped attempt credential binding is unavailable';
         END IF;
         INSERT INTO public.scoped_provider_attempt_claims

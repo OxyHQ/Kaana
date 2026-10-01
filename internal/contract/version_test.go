@@ -8,7 +8,7 @@ func TestRequestEnvelopeVersionTransitionIsExact(t *testing.T) {
 	}
 
 	for version := -1; version <= RequestEnvelopeVersion+3; version++ {
-		want := version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion
+		want := version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion || version == ScopedRequestEnvelopeVersion
 		if got := SupportsRequestEnvelopeVersion(version); got != want {
 			t.Errorf("SupportsRequestEnvelopeVersion(%d) = %t, want %t", version, got, want)
 		}

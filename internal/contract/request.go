@@ -372,6 +372,7 @@ var audioOutputFormatValues = []AudioOutputFormat{"wav", "mp3", "flac", "opus", 
 func (f AudioOutputFormat) Valid() bool { return isMember(f, audioOutputFormatValues) }
 
 type Request struct {
+	ScopedExecution  *ScopedExecution       `json:"scopedExecution,omitempty"`
 	Speech           *SpeechParameters      `json:"speech,omitempty"`
 	AudioOutput      *AudioOutputParameters `json:"audioOutput,omitempty"`
 	SchemaVersion    int                    `json:"schemaVersion"`
@@ -399,6 +400,9 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
+	if err := r.validateScopedExecution(); err != nil {
+		return err
+	}
 	if r.Input.Format == InputDecisions || r.Client.APIFormat == APIFormatDecisions {
 		if err := r.ValidateDecisionsEnvelope(); err != nil {
 			return err

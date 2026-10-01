@@ -518,6 +518,15 @@ func (a *Adapter) Send(ctx context.Context, call *provider.Call, key provider.Ke
 	}
 	request.Header = call.Header.Clone()
 	a.authorize(request, key)
+	if call.ScopedAttempt != nil {
+		request.GetBody = nil
+		request.Header.Del("Idempotency-Key")
+		request.Header.Del("X-Idempotency-Key")
+		request.Close = true
+		client := provider.NewSingleAttemptHTTPClient()
+		defer client.CloseIdleConnections()
+		return client.Do(request)
+	}
 	return a.client.Do(request)
 }
 
