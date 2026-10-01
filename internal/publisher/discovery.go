@@ -56,6 +56,7 @@ type Provider struct {
 
 // DiscoveredModel is one model a provider reports serving.
 type DiscoveredModel struct {
+	CanonicalSlug string
 	// UpstreamModelID is the id the provider's own API answers to. It is
 	// carried through to the inventory verbatim: an id this package normalised
 	// would be an id the provider 404s on.
@@ -137,7 +138,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 			return nil, fmt.Errorf("publisher: %s's model list names %q twice", target.Slug, id)
 		}
 		seen[id] = struct{}{}
-		models = append(models, DiscoveredModel{UpstreamModelID: id, Observed: observeModelListEntry(raw, publishesUSDPerTokenPrices)})
+		models = append(models, DiscoveredModel{UpstreamModelID: id, CanonicalSlug: entry.CanonicalSlug, Observed: observeModelListEntry(raw, publishesUSDPerTokenPrices)})
 	}
 	if len(models) == 0 {
 		return nil, fmt.Errorf("publisher: %s reports serving no models at all", target.Slug)
@@ -411,7 +412,8 @@ type modelListResponse struct {
 }
 
 type modelListEntry struct {
-	ID string `json:"id"`
+	CanonicalSlug string `json:"canonical_slug"`
+	ID            string `json:"id"`
 
 	Capabilities struct {
 		CompletionChat bool `json:"completion_chat"`

@@ -183,6 +183,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /internal/v1/realtime", s.realtime)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
+	mux.HandleFunc("POST /internal/v1/models/query", s.handleScopedModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
 	mux.HandleFunc("POST /internal/v1/customer-provider-credentials/validations", s.handleCredentialValidation)
 	mux.HandleFunc("POST /internal/v1/provider-telemetry/attempts", s.handleAttemptFeed)
@@ -318,6 +319,26 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := request.ValidateScopedExecution(); err != nil {
+		failure := contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error())
+		if request.SchemaVersion == contract.ScopedRequestEnvelopeVersion && request.ScopedExecution == nil {
+			failure = failure.WithParam("schemaVersion")
+		}
+		s.writeRejection(w, http.StatusBadRequest, failure)
+		return
+	}
+	if request.SchemaVersion == contract.ScopedRequestEnvelopeVersion {
+		var scoped contract.ScopedRequest
+		if err := json.Unmarshal(body, &scoped); err != nil {
+			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "invalid scoped request"))
+			return
+		}
+		request = scoped.InferenceRequest()
+	}
+	if err := request.ValidateScopedInputBytes(body); err != nil {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
+		return
+	}
 	requestID := request.Attribution.RequestID
 	if requestID == "" {
 		s.writeRejection(w, http.StatusBadRequest,
@@ -538,7 +559,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		response.Providers = append(response.Providers, adapter.Health(r.Context()))
 	}
 
-	endpoints := s.inventory.Current().Deployments()
+	endpoints := s.inventory.Current().PublicDeployments()
 	ids := make([]contract.DeploymentID, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		ids = append(ids, endpoint.DeploymentID)
@@ -557,8 +578,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 /* -------------------------------------------------------------------------- */
 
 type deploymentDescriptorsResponse struct {
-	SnapshotID  string                           `json:"snapshotId"`
-	Deployments []inventory.DeploymentDescriptor `json:"deployments"`
+	ScopedExecutionContractVersion string                           `json:"scopedExecutionContractVersion,omitempty"`
+	SnapshotID                     string                           `json:"snapshotId"`
+	Deployments                    []inventory.DeploymentDescriptor `json:"deployments"`
 }
 
 var (
@@ -598,6 +620,9 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 
 	current := s.inventory.Current()
 	descriptors := current.DeploymentDescriptors()
+	if query.ScopedExecutionContractVersion != "" {
+		descriptors = current.DeploymentDescriptorsScoped()
+	}
 	if err := validateUniqueDeploymentDescriptors(descriptors); err != nil {
 		// Inventory loading already refuses duplicate ids. Keep the read surface's
 		// own gate so a future loader regression cannot publish an ambiguous list.
@@ -640,12 +665,14 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, deploymentDescriptorsResponse{
-		SnapshotID:  current.SnapshotID(),
-		Deployments: descriptors,
+		SnapshotID:                     current.SnapshotID(),
+		ScopedExecutionContractVersion: query.ScopedExecutionContractVersion,
+		Deployments:                    descriptors,
 	})
 }
 
 type deploymentDescriptorQuery struct {
+	ScopedExecutionContractVersion string
 	// nil means the explicit {} operator list. A non-nil slice is one exact
 	// selector or a bounded batch; the parser refuses an empty batch.
 	DeploymentIDs []contract.DeploymentID
@@ -673,13 +700,14 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 	query := deploymentDescriptorQuery{}
 	seenDeploymentID := false
 	seenDeploymentIDs := false
+	seenScopedVersion := false
 	for decoder.More() {
 		keyToken, err := decoder.Token()
 		if err != nil {
 			return deploymentDescriptorQuery{}, fmt.Errorf("reading field name: %w", err)
 		}
 		key, ok := keyToken.(string)
-		if !ok || (key != "deploymentId" && key != "deploymentIds") {
+		if !ok || (key != "deploymentId" && key != "deploymentIds" && key != "scopedExecutionContractVersion") {
 			return deploymentDescriptorQuery{}, errors.New("the query contains an unknown field")
 		}
 
@@ -692,6 +720,14 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 		}
 
 		switch key {
+		case "scopedExecutionContractVersion":
+			if seenScopedVersion {
+				return deploymentDescriptorQuery{}, errors.New("duplicate scoped version")
+			}
+			seenScopedVersion = true
+			if json.Unmarshal(raw, &query.ScopedExecutionContractVersion) != nil || query.ScopedExecutionContractVersion != "3.6.0" {
+				return deploymentDescriptorQuery{}, errors.New("unsupported scoped version")
+			}
 		case "deploymentId":
 			if seenDeploymentID {
 				return deploymentDescriptorQuery{}, errors.New("deploymentId appears more than once")
@@ -865,8 +901,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type modelsResponse struct {
-	ContractVersion string             `json:"contractVersion"`
-	CheckedAt       contract.Timestamp `json:"checkedAt"`
+	Deployments                    []inventory.DeploymentDescriptor `json:"deployments,omitempty"`
+	ScopedExecutionContractVersion string                           `json:"scopedExecutionContractVersion,omitempty"`
+	ContractVersion                string                           `json:"contractVersion"`
+	CheckedAt                      contract.Timestamp               `json:"checkedAt"`
 	// Configuration is the same snapshot identity the health surface reports, so
 	// a catalogue read and a health read can be compared without guessing
 	// whether they saw the same file.
@@ -964,4 +1002,32 @@ func newLocalRequestID() contract.RequestID {
 		return "req_kaana_local"
 	}
 	return contract.RequestID("req_kaana_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(entropy[:])))
+}
+
+// handleScopedModels negotiates with a signed body; a URL/query flag cannot
+// activate private projection because the signature authenticates body bytes.
+func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	body, failure := s.readSignedBody(w, r)
+	if failure != nil {
+		s.writeRejection(w, http.StatusUnauthorized, failure)
+		return
+	}
+	query, err := parseDeploymentDescriptorQuery(body)
+	if err != nil || r.URL.RawQuery != "" || query.ScopedExecutionContractVersion != "3.6.0" || query.DeploymentIDs != nil {
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "explicit scoped catalogue negotiation required"))
+		return
+	}
+	current := s.inventory.Current()
+	now := time.Now()
+	entries := current.CatalogueScoped(now)
+	seenModels := map[contract.ModelID]contract.ModelReference{}
+	for _, entry := range entries {
+		if existing, duplicate := seenModels[entry.Model]; duplicate && existing != entry.Reference {
+			s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(newLocalRequestID(), contract.CodeServiceUnavailable, "scoped catalogue revision identity is ambiguous"))
+			return
+		}
+		seenModels[entry.Model] = entry.Reference
+	}
+	writeJSON(w, http.StatusOK, modelsResponse{ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: entries, Deployments: current.DeploymentDescriptorsScopedAt(now), PinnedOnlyReferences: current.PinnedOnlyReferences()})
 }

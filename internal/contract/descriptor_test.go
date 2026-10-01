@@ -97,23 +97,26 @@ var goShapes = map[string]reflect.Type{
 	"embeddingSuccessSchema":               reflect.TypeOf(EmbeddingSuccess{}),
 	"embeddingFailureSchema":               reflect.TypeOf(EmbeddingFailure{}),
 	// The request envelope and everything it embeds.
-	"inferenceRequestSchema":       reflect.TypeOf(Request{}),
-	"inferenceAttributionSchema":   reflect.TypeOf(Attribution{}),
-	"authenticatedPrincipalSchema": reflect.TypeOf(AuthenticatedPrincipal{}),
-	"billingPrincipalSchema":       reflect.TypeOf(BillingPrincipal{}),
-	"clientRequestMetadataSchema":  reflect.TypeOf(ClientRequestMetadata{}),
-	"inferenceInputSchema":         reflect.TypeOf(Input{}),
-	"inferenceMessageSchema":       reflect.TypeOf(Message{}),
-	"inferenceContentPartSchema":   reflect.TypeOf(ContentPart{}),
-	"inferenceContentSourceSchema": reflect.TypeOf(ContentSource{}),
-	"inferenceToolCallSchema":      reflect.TypeOf(ToolCall{}),
-	"samplingParametersSchema":     reflect.TypeOf(SamplingParameters{}),
-	"inferenceReasoningSchema":     reflect.TypeOf(ReasoningParameters{}),
-	"toolDefinitionSchema":         reflect.TypeOf(ToolDefinition{}),
-	"responseFormatSchema":         reflect.TypeOf(ResponseFormat{}),
-	"routingTargetSchema":          reflect.TypeOf(RoutingTarget{}),
-	"routingPolicyReferenceSchema": reflect.TypeOf(RoutingPolicyReference{}),
-	"authorizedRouteSchema":        reflect.TypeOf(AuthorizedRoute{}),
+	"inferenceRequestSchema":        reflect.TypeOf(Request{}),
+	"scopedInferenceRequestSchema":  reflect.TypeOf(ScopedRequest{}),
+	"scopedExecutionAudienceSchema": reflect.TypeOf(ScopedExecutionAudience{}),
+	"scopedExecutionSchema":         reflect.TypeOf(ScopedExecution{}),
+	"inferenceAttributionSchema":    reflect.TypeOf(Attribution{}),
+	"authenticatedPrincipalSchema":  reflect.TypeOf(AuthenticatedPrincipal{}),
+	"billingPrincipalSchema":        reflect.TypeOf(BillingPrincipal{}),
+	"clientRequestMetadataSchema":   reflect.TypeOf(ClientRequestMetadata{}),
+	"inferenceInputSchema":          reflect.TypeOf(Input{}),
+	"inferenceMessageSchema":        reflect.TypeOf(Message{}),
+	"inferenceContentPartSchema":    reflect.TypeOf(ContentPart{}),
+	"inferenceContentSourceSchema":  reflect.TypeOf(ContentSource{}),
+	"inferenceToolCallSchema":       reflect.TypeOf(ToolCall{}),
+	"samplingParametersSchema":      reflect.TypeOf(SamplingParameters{}),
+	"inferenceReasoningSchema":      reflect.TypeOf(ReasoningParameters{}),
+	"toolDefinitionSchema":          reflect.TypeOf(ToolDefinition{}),
+	"responseFormatSchema":          reflect.TypeOf(ResponseFormat{}),
+	"routingTargetSchema":           reflect.TypeOf(RoutingTarget{}),
+	"routingPolicyReferenceSchema":  reflect.TypeOf(RoutingPolicyReference{}),
+	"authorizedRouteSchema":         reflect.TypeOf(AuthorizedRoute{}),
 
 	// Signed customer-provider credential control. The mutation/outcome wire
 	// schemas remain version 1 even though the contract set is 2.0.0.
@@ -1132,6 +1135,11 @@ func jsonFieldsOf(goType reflect.Type) map[string]goField {
 		}
 		tag, tagged := field.Tag.Lookup("json")
 		if !tagged {
+			if field.Anonymous && field.Type.Kind() == reflect.Struct {
+				for name, nested := range jsonFieldsOf(field.Type) {
+					fields[name] = nested
+				}
+			}
 			continue
 		}
 		parts := strings.Split(tag, ",")

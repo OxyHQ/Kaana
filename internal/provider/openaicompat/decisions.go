@@ -15,6 +15,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 // These independent reviews have no production configuration switch. Only
@@ -64,7 +65,15 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 	if err := request.ValidateDecisionsEnvelope(); err != nil {
 		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input", Detail: "invalid typed decisions envelope"}
 	}
-	if !a.decisions.approved() {
+	if request.ScopedExecution != nil {
+		if err := request.ValidateScopedExecution(); err != nil {
+			return nil, decisionsUnavailable()
+		}
+		scope := &request.ScopedExecution.ScopedExecutionAudience
+		if a.scopedSource == nil || !scopedpermit.Matches(scope, a.scopedSource(), time.Now()) || !scope.Equal(route.ScopedExecution) || route.ScopedDecisionPriceLimit == nil || route.ScopedDecisionPriceLimit.Prompt.IsZero() || !route.ScopedDecisionPriceLimit.Completion.IsZero() {
+			return nil, decisionsUnavailable()
+		}
+	} else if !a.decisions.approved() || route.ScopedExecution != nil {
 		return nil, decisionsUnavailable()
 	}
 	if route.Provider != a.Provider() || !route.ModelReference.Valid() || !route.ModelReference.Pinned() || *request.Target.ModelReference != route.ModelReference {
@@ -114,6 +123,9 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 		// must fit inside the gateway's total.
 		core := len(encoded)
 		body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true}
+		if request.ScopedExecution != nil {
+			body.Provider.MaxPrice = *route.ScopedDecisionPriceLimit
+		}
 		if encoded, err = json.Marshal(body); err != nil {
 			return nil, fmt.Errorf("systemone: encode request: %w", err)
 		}

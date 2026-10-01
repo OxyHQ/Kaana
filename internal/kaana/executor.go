@@ -36,12 +36,15 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 const providerCostPersistenceTimeout = 5 * time.Second
 
 // Executor turns an envelope into a stream and a usage report.
 type Executor struct {
+	scopedSource        func() *contract.ScopedExecutionAudience
+	scopedClaims        ScopedAttemptClaimer
 	inventory           *inventory.Store
 	registry            *provider.Registry
 	rotation            *rotation.Registry
@@ -54,6 +57,11 @@ type Executor struct {
 	now                 func() time.Time
 }
 
+// ScopedAttemptClaimer retains only the existing runtime mutation authority.
+type ScopedAttemptClaimer interface {
+	ClaimScopedAttempt(context.Context, credentialstore.ScopedAttemptClaim) (bool, error)
+}
+
 // CustomerCredentialResolver is the inference-only authority to resolve the
 // exact non-secret binding Oxy signed into a route. Production supplies
 // credentialstore.CustomerResolver; the interface keeps tests free of AWS.
@@ -63,6 +71,7 @@ type CustomerCredentialResolver interface {
 
 // Config wires an Executor.
 type Config struct {
+	ScopedAttemptClaims ScopedAttemptClaimer
 	// Inventory is the configuration snapshot store. It is a store rather than
 	// an inventory because the snapshot is reloaded under a running process and
 	// a request must read the one that is current when it arrives.
@@ -124,11 +133,12 @@ func NewExecutor(config Config) (*Executor, error) {
 		return nil, fmt.Errorf("kaana: a retry policy cannot be negative: %+v", retry)
 	}
 	return &Executor{
-		inventory:           config.Inventory,
-		registry:            config.Providers,
-		rotation:            config.Rotation,
-		costs:               config.Costs,
-		costRecorder:        config.CostRecorder,
+		inventory:    config.Inventory,
+		registry:     config.Providers,
+		rotation:     config.Rotation,
+		costs:        config.Costs,
+		costRecorder: config.CostRecorder,
+		scopedSource: scopedpermit.SourceReviewedAudience, scopedClaims: config.ScopedAttemptClaims,
 		customerCredentials: config.CustomerCredentials,
 		validationReporter:  config.ValidationReporter,
 		customerLimits:      customerLimits,
@@ -326,6 +336,40 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			}
 			_ = emit.finishWithError(failure)
 			return Result{Failure: failure}
+		}
+		if request.ScopedExecution != nil {
+			scope := request.ScopedExecution
+			if platformCredentials == nil {
+				permit.NotAttributable()
+				customerPermit.NotAttributable()
+				failure := contract.NewError(requestID, contract.CodePermissionDenied, "scoped exact credential unavailable")
+				_ = emit.finishWithError(failure)
+				return Result{Failure: failure}
+			}
+			keyID, exact := platformCredentials.ExactBinding()
+			if !exact || keyID != scope.KeyID {
+				permit.NotAttributable()
+				customerPermit.NotAttributable()
+				failure := contract.NewError(requestID, contract.CodePermissionDenied, "scoped exact credential unavailable")
+				_ = emit.finishWithError(failure)
+				return Result{Failure: failure}
+			}
+
+			call.ScopedAttempt = &provider.ScopedCredentialAttempt{KeyID: scope.KeyID, Claim: func(ctx context.Context) error {
+				at := e.now()
+				if !scopedpermit.Matches(&scope.ScopedExecutionAudience, e.scopedSource(), at) {
+					return errors.New("scoped approval unavailable")
+				}
+				expires, err := time.Parse(time.RFC3339Nano, scope.ExpiresAt)
+				if err != nil {
+					return err
+				}
+				won, err := e.scopedClaims.ClaimScopedAttempt(ctx, credentialstore.ScopedAttemptClaim{PermitID: scope.PermitID, DeploymentID: scope.DeploymentID, Scope: credentialstore.Scope{Provider: scope.Provider, KeyID: scope.KeyID}, ClaimedAt: at, ExpiresAt: expires})
+				if err != nil || !won {
+					return errors.New("scoped attempt unavailable")
+				}
+				return nil
+			}}
 		}
 		call.RequestID = requestID
 		call.CredentialAttempts = credentialAttempts
@@ -986,6 +1030,30 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 			}
 		}
 	}
+	if request.ScopedExecution != nil {
+		scope := request.ScopedExecution
+		snapshot := e.inventory.Current()
+		if e.scopedSource == nil || !scopedpermit.Matches(&scope.ScopedExecutionAudience, e.scopedSource(), at) || e.scopedClaims == nil || scope.SnapshotID != snapshot.SnapshotID() {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped source approval unavailable")
+		}
+		observation, ok := e.costs.Observation()
+		if !ok || observation.VersionID != scope.ProviderRateCardVersionID || observation.SourceVersion != scope.ProviderSourceVersion {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped actual price identity unavailable")
+		}
+		limit, ok := e.costs.ScopedDecisionPriceLimit(scope.DeploymentID, at)
+		if !ok {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped actual price ceiling unavailable")
+		}
+		candidates, failure := resolveAuthorizedRoutesScoped(snapshot, requestID, request.AuthorizedRoutes, at, &scope.ScopedExecutionAudience)
+		if failure != nil {
+			return nil, failure
+		}
+		if len(candidates) != 1 {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped execution requires one route")
+		}
+		candidates[0].route.ScopedDecisionPriceLimit = &limit
+		return candidates, nil
+	}
 	return resolveAuthorizedRoutes(e.inventory.Current(), requestID, request.AuthorizedRoutes, at)
 }
 
@@ -996,11 +1064,17 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 // A realtime session resolves its signed list through the same function, so a
 // session and a request cannot disagree about what a route means.
 func resolveAuthorizedRoutes(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time) ([]candidate, *contract.Error) {
+	return resolveAuthorizedRoutesScoped(snapshot, requestID, routes, at, nil)
+}
+func resolveAuthorizedRoutesScoped(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time, scope *contract.ScopedExecutionAudience) ([]candidate, *contract.Error) {
 	candidates := make([]candidate, 0, len(routes))
 	resolvedRevisions := make(map[contract.ModelID]contract.ModelReference)
 
 	for index, authorized := range routes {
 		set, err := snapshot.Resolve(authorized.ModelReference, at)
+		if scope != nil {
+			set, err = snapshot.ResolveScoped(authorized.ModelReference, at, scope)
+		}
 		if err != nil {
 			return nil, invalidAuthorizedRoute(requestID, index,
 				fmt.Sprintf("modelReference %q is not present in Kaana's inventory", authorized.ModelReference))

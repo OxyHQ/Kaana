@@ -50,12 +50,13 @@ type snapshotWithheld struct {
 }
 
 type snapshotDeployment struct {
-	DeploymentID    contract.DeploymentID   `json:"deploymentId"`
-	Provider        contract.ProviderSlug   `json:"provider"`
-	ModelReference  contract.ModelReference `json:"modelReference"`
-	UpstreamModelID string                  `json:"upstreamModelId"`
-	Regions         []contract.Region       `json:"regions,omitempty"`
-	Current         bool                    `json:"current"`
+	ScopedExecution *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
+	DeploymentID    contract.DeploymentID             `json:"deploymentId"`
+	Provider        contract.ProviderSlug             `json:"provider"`
+	ModelReference  contract.ModelReference           `json:"modelReference"`
+	UpstreamModelID string                            `json:"upstreamModelId"`
+	Regions         []contract.Region                 `json:"regions,omitempty"`
+	Current         bool                              `json:"current"`
 	// Observed is copied verbatim from discovery. It deliberately reuses the
 	// reader's type: it is a leaf block with no routing meaning, and
 	// inventory.Parse validates it on the round trip before anything is written.
@@ -239,6 +240,13 @@ func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 		}
 	}
 
+	candidate, err := scopedCandidate(discoveries, sourceReviewedPrivatePermit(), at, withhold, reportOnly)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	if candidate != nil {
+		deployments = append(deployments, *candidate)
+	}
 	if len(deployments) == 0 {
 		if len(withheld) > 0 {
 			return BuildResult{}, fmt.Errorf("publisher: every servable deployment is withheld (%d), so the snapshot would be empty; the published one is left in place", len(withheld))
@@ -314,7 +322,9 @@ func ObservationsFrom(body []byte) (Observations, error) {
 	// returns, which is the silent re-pointing this state exists to prevent.
 	references := make([]contract.ModelReference, 0, len(parsed.Deployments)+len(parsed.Withheld))
 	for _, deployment := range parsed.Deployments {
-		references = append(references, deployment.ModelReference)
+		if deployment.ScopedExecution == nil {
+			references = append(references, deployment.ModelReference)
+		}
 	}
 	for _, withheld := range parsed.Withheld {
 		references = append(references, withheld.ModelReference)
@@ -377,6 +387,15 @@ func contentID(deployments []snapshotDeployment) string {
 		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%s\x00%v\x00%t\n",
 			deployment.DeploymentID, deployment.Provider, deployment.ModelReference,
 			deployment.UpstreamModelID, deployment.Regions, deployment.Current)
+		if deployment.ScopedExecution != nil {
+			scoped, _ := json.Marshal(struct {
+				Audience *contract.ScopedExecutionAudience `json:"audience"`
+				Observed *inventory.Observed               `json:"observed"`
+			}{deployment.ScopedExecution, deployment.Observed})
+			_, _ = digest.Write([]byte("scoped-v3\x00"))
+			_, _ = digest.Write(scoped)
+			_, _ = digest.Write([]byte("\n"))
+		}
 	}
 	return "snap_" + hex.EncodeToString(digest.Sum(nil))[:16]
 }

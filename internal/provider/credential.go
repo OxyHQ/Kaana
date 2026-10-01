@@ -491,6 +491,15 @@ func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
 	return nil, fmt.Errorf("provider: credential key id %q is not configured for %s", keyID, base.provider)
 }
 
+// ExactBinding returns the non-secret key identity of an existing bound view.
+// It never turns a provider-default pool into a different binding.
+func (p *KeyPool) ExactBinding() (string, bool) {
+	if p == nil || p.onlyKeyID == "" {
+		return "", false
+	}
+	return p.onlyKeyID, true
+}
+
 // SoleKeyID returns the id of the pool's only platform credential, and how
 // many the pool holds. It is the provider-default half of deployment
 // resolution: a deployment with no exact binding may use its provider's key
@@ -991,6 +1000,11 @@ type CredentialedAttempt struct {
 // returned is the one used by the last exchange, including when it failed.
 func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try func(context.Context, Key) (T, CredentialedAttempt)) (T, Key, error) {
 	var none T
+	if call.ScopedAttempt != nil {
+		if pool == nil || pool.onlyKeyID != call.ScopedAttempt.KeyID || pool.onlyKeyID == "" || call.ScopedAttempt.Claim == nil || pool.customerOwned {
+			return none, Key{}, errors.New("provider: scoped attempt requires an exact platform credential binding")
+		}
+	}
 	attempt := pool.Begin()
 	sequence := call.CredentialAttempts
 	if sequence == nil {
@@ -1033,6 +1047,17 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			}
 		}
 
+		if call.ScopedAttempt != nil {
+			if key.ID != call.ScopedAttempt.KeyID {
+				return none, key, errors.New("provider: scoped credential mismatch")
+			}
+			if err := ctx.Err(); err != nil {
+				return none, key, err
+			}
+			if err := call.ScopedAttempt.Claim(ctx); err != nil {
+				return none, key, errors.New("provider: scoped attempt claim unavailable")
+			}
+		}
 		attemptIndex := sequence.Take()
 		value, result := try(ctx, key)
 		observedAt := time.Now()
@@ -1074,6 +1099,9 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			// customer never learns this happened.
 			pool.Retire(key, KeyExhausted, observedAt, time.Time{})
 			recordCredentialAttempt(ctx, call, key, attemptIndex, "exhausted", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement))
+			if call.ScopedAttempt != nil {
+				return none, key, failure
+			}
 			refused = failure
 			refusedKey = key
 
@@ -1084,6 +1112,9 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			// request-scoped attempt set still bounds this to one call per key.
 			pool.Retire(key, KeyRejected, observedAt, time.Time{})
 			recordCredentialAttempt(ctx, call, key, attemptIndex, "rejected", "provider_error", observedAt, observedAt.Add(pool.policy.Retirement))
+			if call.ScopedAttempt != nil {
+				return none, key, failure
+			}
 			refused = failure
 			refusedKey = key
 
@@ -1110,7 +1141,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			// where the operator has stated the pool's keys sit on separate
 			// provider accounts — otherwise the next key shares the limit that
 			// has just been reached.
-			if Throttled(failure) && attempt.AllowThrottleRotation() {
+			if call.ScopedAttempt == nil && Throttled(failure) && attempt.AllowThrottleRotation() {
 				refused = failure
 				refusedKey = key
 				continue

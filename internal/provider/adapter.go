@@ -80,11 +80,13 @@ type PlatformCredentialSource interface {
 // inventory rather than inside each adapter so two adapters for one provider
 // cannot disagree about it.
 type Route struct {
-	DeploymentID    contract.DeploymentID
-	Provider        contract.ProviderSlug
-	ModelReference  contract.ModelReference
-	UpstreamModelID string
-	Regions         []contract.Region
+	ScopedExecution          *contract.ScopedExecutionAudience
+	ScopedDecisionPriceLimit *providercost.DecisionPriceLimit `json:"-"`
+	DeploymentID             contract.DeploymentID
+	Provider                 contract.ProviderSlug
+	ModelReference           contract.ModelReference
+	UpstreamModelID          string
+	Regions                  []contract.Region
 	// AcceptedParameters is the deployment's published statement of which
 	// caller controls its upstream accepts (inventory `observed`). Nil is
 	// UNKNOWN and refuses nothing; a present set lets Translate refuse a
@@ -101,7 +103,17 @@ type Route struct {
 // It carries no credential. The adapter holds its own, applies it when it
 // builds the HTTP request, and nothing that could be logged, echoed into an
 // error or written to a usage record ever holds one.
+// ScopedCredentialAttempt narrows an already-authorized call to one exact key
+// and a durable claim immediately before the exchange. It is not authorization.
+// Only the executor's verified scoped-envelope path may populate this field.
+type ScopedCredentialAttempt struct {
+	KeyID string
+	Claim func(context.Context) error `json:"-"`
+}
+
 type Call struct {
+	ScopedAttempt *ScopedCredentialAttempt `json:"-"`
+
 	Decisions *contract.DecisionInput
 
 	// RequestID and Route identify credential-attempt telemetry. Neither contains

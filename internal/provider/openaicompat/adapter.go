@@ -28,6 +28,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 // Config describes one provider that speaks this protocol.
@@ -69,7 +70,9 @@ type Config struct {
 
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
 type Adapter struct {
-	decisions decisionReview
+	scopedSource     func() *contract.ScopedExecutionAudience
+	scopedHTTPClient func() *http.Client
+	decisions        decisionReview
 	// decisionTimeout overrides defaultDecisionDeadline; only tests set it.
 	decisionTimeout time.Duration
 
@@ -102,7 +105,7 @@ func New(config Config) (*Adapter, error) {
 	}
 	client := provider.RefuseRedirects(config.HTTPClient)
 	config.BaseURL = strings.TrimSuffix(config.BaseURL, "/")
-	return &Adapter{config: config, client: client, credentials: credentials}, nil
+	return &Adapter{config: config, client: client, credentials: credentials, scopedSource: scopedpermit.SourceReviewedAudience, scopedHTTPClient: provider.NewSingleAttemptHTTPClient}, nil
 }
 
 // quotaHeadersFor is what each provider speaking this protocol declares about
@@ -518,6 +521,18 @@ func (a *Adapter) Send(ctx context.Context, call *provider.Call, key provider.Ke
 	}
 	request.Header = call.Header.Clone()
 	a.authorize(request, key)
+	if call.ScopedAttempt != nil {
+		request.GetBody = nil
+		request.Header.Del("Idempotency-Key")
+		request.Header.Del("X-Idempotency-Key")
+		request.Close = true
+		if a.scopedHTTPClient == nil {
+			return nil, errors.New("scoped HTTP transport unavailable")
+		}
+		client := a.scopedHTTPClient()
+		defer client.CloseIdleConnections()
+		return client.Do(request)
+	}
 	return a.client.Do(request)
 }
 

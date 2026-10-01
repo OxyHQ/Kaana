@@ -60,8 +60,9 @@ const DefaultMaxSnapshotAge = time.Hour
 
 // Deployment is one declared row of the inventory file.
 type Deployment struct {
-	DeploymentID contract.DeploymentID `json:"deploymentId"`
-	Provider     contract.ProviderSlug `json:"provider"`
+	ScopedExecution *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
+	DeploymentID    contract.DeploymentID             `json:"deploymentId"`
+	Provider        contract.ProviderSlug             `json:"provider"`
 	// ModelReference is always revision-pinned: a deployment serves specific
 	// weights.
 	ModelReference contract.ModelReference `json:"modelReference"`
@@ -226,6 +227,7 @@ func ValidModality(modality string) bool {
 // `TestAnEndpointCannotCarryItsOwnModelReference` gates that by inspecting this
 // type, because the field is what a future change would add first.
 type Endpoint struct {
+	ScopedExecution *contract.ScopedExecutionAudience
 	DeploymentID    contract.DeploymentID
 	Provider        contract.ProviderSlug
 	UpstreamModelID string
@@ -246,10 +248,15 @@ type Endpoint struct {
 // is attested; it must never be rewritten to the AWS region Kaana happens to run
 // in.
 type DeploymentDescriptor struct {
-	DeploymentID   contract.DeploymentID   `json:"deploymentId"`
-	ModelReference contract.ModelReference `json:"modelReference"`
-	Provider       contract.ProviderSlug   `json:"provider"`
-	Regions        []contract.Region       `json:"regions"`
+	ScopedExecution           *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
+	KeyID                     string                            `json:"keyId,omitempty"`
+	UpstreamModelID           string                            `json:"upstreamModelId,omitempty"`
+	ProviderRateCardVersionID string                            `json:"providerRateCardVersionId,omitempty"`
+	ProviderSourceVersion     string                            `json:"providerSourceVersion,omitempty"`
+	DeploymentID              contract.DeploymentID             `json:"deploymentId"`
+	ModelReference            contract.ModelReference           `json:"modelReference"`
+	Provider                  contract.ProviderSlug             `json:"provider"`
+	Regions                   []contract.Region                 `json:"regions"`
 	// AcceptedParameters is this deployment's own accepted-parameter set
 	// (Observed.AcceptedParameters): the caller controls its upstream takes.
 	// Absent is unknown, `[]` is "takes none of these". It is not part of the
@@ -281,6 +288,7 @@ func (s RouteSet) Candidates() []provider.Route {
 	routes := make([]provider.Route, 0, len(s.endpoints))
 	for _, endpoint := range s.endpoints {
 		routes = append(routes, provider.Route{
+			ScopedExecution: cloneAudience(endpoint.ScopedExecution),
 			DeploymentID:    endpoint.DeploymentID,
 			Provider:        endpoint.Provider,
 			ModelReference:  s.reference,
@@ -423,6 +431,15 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 	currentReference := make(map[contract.ModelID]contract.ModelReference)
 
 	for _, deployment := range parsed.Deployments {
+		if scope := deployment.ScopedExecution; scope != nil {
+			if err := scope.Validate(); err != nil {
+				return nil, fmt.Errorf("inventory: invalid scoped audience: %w", err)
+			}
+			if deployment.Current || scope.DeploymentID != deployment.DeploymentID || scope.Provider != deployment.Provider || scope.ModelReference != deployment.ModelReference || scope.UpstreamModelID != deployment.UpstreamModelID {
+				return nil, fmt.Errorf("inventory: scoped deployment identity differs or claims current")
+			}
+		}
+
 		switch {
 		case len(deployment.DeploymentID) == 0 || len(deployment.DeploymentID) > 128:
 			return nil, fmt.Errorf("inventory: deploymentId must contain between 1 and 128 characters")
@@ -462,6 +479,7 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 		set := inventory.byReference[deployment.ModelReference]
 		set.reference = deployment.ModelReference
 		set.endpoints = append(set.endpoints, Endpoint{
+			ScopedExecution: cloneAudience(deployment.ScopedExecution),
 			DeploymentID:    deployment.DeploymentID,
 			Provider:        deployment.Provider,
 			UpstreamModelID: deployment.UpstreamModelID,
@@ -484,7 +502,7 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 	}
 
 	for line, reference := range currentReference {
-		inventory.currentOf[line] = inventory.byReference[reference]
+		inventory.currentOf[line] = publicSet(inventory.byReference[reference])
 	}
 	return inventory, nil
 }
@@ -502,6 +520,10 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 // Past the staleness horizon it is refused rather than guessed.
 func (i *Inventory) Resolve(reference contract.ModelReference, at time.Time) (RouteSet, error) {
 	if set, found := i.byReference[reference]; found {
+		set = publicSet(set)
+		if set.Len() == 0 {
+			return RouteSet{}, ErrNoRoute{Reference: reference}
+		}
 		return set, nil
 	}
 	if reference.Pinned() {
@@ -547,7 +569,7 @@ func (i *Inventory) Deployment(id contract.DeploymentID) (provider.Route, error)
 	var matched *provider.Route
 	for _, set := range i.byReference {
 		for _, route := range set.Candidates() {
-			if route.DeploymentID != id {
+			if route.ScopedExecution != nil || route.DeploymentID != id {
 				continue
 			}
 			if matched != nil {
@@ -570,12 +592,24 @@ func (i *Inventory) Deployment(id contract.DeploymentID) (provider.Route, error)
 // refuses duplicate deployment ids, but retaining every entry here lets the
 // HTTP lookup independently fail closed if that invariant ever regresses.
 func (i *Inventory) DeploymentDescriptors() []DeploymentDescriptor {
+	return i.deploymentDescriptors(false)
+}
+
+// DeploymentDescriptorsScoped is exposed only after explicit signed extension negotiation.
+func (i *Inventory) DeploymentDescriptorsScoped() []DeploymentDescriptor {
+	return i.deploymentDescriptors(true)
+}
+
+func (i *Inventory) deploymentDescriptors(includeScoped bool) []DeploymentDescriptor {
 	descriptors := make([]DeploymentDescriptor, 0)
 	for _, set := range i.byReference {
 		for _, endpoint := range set.endpoints {
+			if endpoint.ScopedExecution != nil && !includeScoped {
+				continue
+			}
 			regions := make([]contract.Region, len(endpoint.Regions))
 			copy(regions, endpoint.Regions)
-			descriptors = append(descriptors, DeploymentDescriptor{
+			descriptor := DeploymentDescriptor{
 				DeploymentID:   endpoint.DeploymentID,
 				ModelReference: set.reference,
 				Provider:       endpoint.Provider,
@@ -583,7 +617,15 @@ func (i *Inventory) DeploymentDescriptors() []DeploymentDescriptor {
 				// The same copy Candidates() makes, so a descriptor states
 				// exactly the set Translate will check.
 				AcceptedParameters: acceptedParametersOf(endpoint.Observed),
-			})
+			}
+			if scope := endpoint.ScopedExecution; scope != nil {
+				descriptor.ScopedExecution = cloneAudience(scope)
+				descriptor.KeyID = scope.KeyID
+				descriptor.UpstreamModelID = endpoint.UpstreamModelID
+				descriptor.ProviderRateCardVersionID = scope.ProviderRateCardVersionID
+				descriptor.ProviderSourceVersion = scope.ProviderSourceVersion
+			}
+			descriptors = append(descriptors, descriptor)
 		}
 	}
 	sort.Slice(descriptors, func(a, b int) bool {
@@ -820,7 +862,10 @@ func (i *Inventory) PinnedOnlyReferences() []contract.ModelReference {
 		current[set.Reference()] = struct{}{}
 	}
 	references := make([]contract.ModelReference, 0)
-	for reference := range i.byReference {
+	for reference, set := range i.byReference {
+		if publicSet(set).Len() == 0 {
+			continue
+		}
 		if _, isCurrent := current[reference]; isCurrent {
 			continue
 		}
@@ -844,4 +889,130 @@ func (i *Inventory) Providers() []contract.ProviderSlug {
 	}
 	sort.Slice(slugs, func(a, b int) bool { return slugs[a] < slugs[b] })
 	return slugs
+}
+
+func cloneAudience(a *contract.ScopedExecutionAudience) *contract.ScopedExecutionAudience {
+	if a == nil {
+		return nil
+	}
+	copy := *a
+	return &copy
+}
+
+func publicSet(set RouteSet) RouteSet {
+	out := RouteSet{reference: set.reference}
+	for _, endpoint := range set.endpoints {
+		if endpoint.ScopedExecution == nil {
+			out.endpoints = append(out.endpoints, endpoint)
+		}
+	}
+	return out
+}
+
+// ResolveScoped only narrows an exact pinned reference to one matching audience.
+// It grants no authority; the signed envelope and source-reviewed permit remain required.
+func (i *Inventory) ResolveScoped(reference contract.ModelReference, at time.Time, audience *contract.ScopedExecutionAudience) (RouteSet, error) {
+	out := RouteSet{reference: reference}
+	if audience == nil || audience.Validate() != nil || !reference.Pinned() {
+		return out, ErrNoRoute{Reference: reference}
+	}
+	if !audience.NotExpired(at) {
+		return out, ErrNoRoute{Reference: reference}
+	}
+	set, found := i.byReference[reference]
+	if !found {
+		return out, ErrNoRoute{Reference: reference}
+	}
+	for _, endpoint := range set.endpoints {
+		if endpoint.ScopedExecution != nil && endpoint.ScopedExecution.Equal(audience) {
+			out.endpoints = append(out.endpoints, endpoint)
+		}
+	}
+	if out.Len() != 1 {
+		return RouteSet{}, ErrNoRoute{Reference: reference}
+	}
+	return out, nil
+}
+
+// DeploymentScoped resolves exactly the deployment bound by an unexpired audience.
+func (i *Inventory) DeploymentScoped(id contract.DeploymentID, at time.Time, audience *contract.ScopedExecutionAudience) (provider.Route, error) {
+	if audience == nil || audience.DeploymentID != id {
+		return provider.Route{}, fmt.Errorf("inventory: scoped deployment unavailable")
+	}
+	set, err := i.ResolveScoped(audience.ModelReference, at, audience)
+	if err != nil {
+		return provider.Route{}, err
+	}
+	routes := set.Candidates()
+	if len(routes) != 1 || routes[0].DeploymentID != id {
+		return provider.Route{}, fmt.Errorf("inventory: scoped deployment unavailable")
+	}
+	return routes[0], nil
+}
+
+// PublicDeployments omits restrictions from ordinary health/catalogue projections.
+func (i *Inventory) PublicDeployments() []Endpoint {
+	out := []Endpoint{}
+	for _, endpoint := range i.Deployments() {
+		if endpoint.ScopedExecution == nil {
+			out = append(out, endpoint)
+		}
+	}
+	return out
+}
+
+// CatalogueScoped includes private observed catalogue entries only for explicit
+// signed 3.6 negotiation. They never become current/unpinned or ordinary routes.
+func (i *Inventory) CatalogueScoped(at time.Time) []CatalogueEntry {
+	references := map[contract.ModelReference]bool{}
+	for _, set := range i.currentOf {
+		references[set.reference] = true
+	}
+	for reference, set := range i.byReference {
+		for _, endpoint := range set.endpoints {
+			if endpoint.ScopedExecution != nil && endpoint.ScopedExecution.NotExpired(at) {
+				references[reference] = true
+			}
+		}
+	}
+	entries := make([]CatalogueEntry, 0, len(references))
+	for reference := range references {
+		set := i.byReference[reference]
+		endpoints := []Endpoint{}
+		seen := map[contract.ProviderSlug]bool{}
+		providers := []contract.ProviderSlug{}
+		for _, endpoint := range set.endpoints {
+			if endpoint.ScopedExecution != nil && !endpoint.ScopedExecution.NotExpired(at) {
+				continue
+			}
+			endpoints = append(endpoints, endpoint)
+			if !seen[endpoint.Provider] {
+				seen[endpoint.Provider] = true
+				providers = append(providers, endpoint.Provider)
+			}
+		}
+		sort.Slice(providers, func(a, b int) bool { return providers[a] < providers[b] })
+		entry := CatalogueEntry{Model: reference.ModelID(), Reference: reference, Providers: providers}
+		aggregateObservations(&entry, endpoints)
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(a, b int) bool {
+		if entries[a].Model == entries[b].Model {
+			return entries[a].Reference < entries[b].Reference
+		}
+		return entries[a].Model < entries[b].Model
+	})
+	return entries
+}
+
+// DeploymentDescriptorsScopedAt excludes expired private publications from the
+// negotiated full catalogue. Audience authority remains per exact deployment.
+func (i *Inventory) DeploymentDescriptorsScopedAt(at time.Time) []DeploymentDescriptor {
+	out := []DeploymentDescriptor{}
+	for _, descriptor := range i.DeploymentDescriptorsScoped() {
+		if descriptor.ScopedExecution == nil || descriptor.ScopedExecution.NotExpired(at) {
+			out = append(out, descriptor)
+		}
+	}
+	return out
 }
