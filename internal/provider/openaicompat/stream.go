@@ -38,6 +38,14 @@ const doneSentinel = "[DONE]"
 // differently.
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
+	if call.Decisions != nil {
+		if !a.decisions.approved() {
+			return outcome, decisionsUnavailable()
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.decisionDeadline())
+		defer cancel()
+	}
 	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/tts") {
 		return a.streamSpeech(ctx, call, out, credentials)
 	}
@@ -59,6 +67,21 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return outcome, err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if call.Decisions != nil {
+		outcome, err = a.readDecisions(response.Body, call)
+		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+		if err == nil {
+			// A complete, validated answer was read before the deadline or a
+			// cancellation landed. It was paid for and settles as completed.
+			return outcome, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The body was cut by the deadline or the caller: classify it as
+			// the transport failure it is, keeping whatever was measured.
+			return outcome, a.TransportFailure(ctx, ctxErr)
+		}
+		return outcome, err
+	}
 	if call.Route.Provider == "siliconflow" && !call.Stream && strings.HasSuffix(call.URL, "/embeddings") {
 		outcome, err = a.readEmbedding(response.Body, key)
 		outcome.KeyID, outcome.KeyClass = key.ID, key.Class

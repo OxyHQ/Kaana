@@ -77,10 +77,15 @@ type ModelFamily struct {
 // nothing the contract names can execute the model at all.
 func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family ModelFamily, classified, expressible bool) {
 	switch slug {
+	case "typesafe":
+		return ModelFamily{Format: contract.APIFormatDecisions}, true, false
 	case "openai", "openai-audio", "openai-realtime":
 		family, expressible = openAIFamily(upstreamModelID)
 		return family, true, expressible
 	case "openrouter":
+		if strings.HasPrefix(strings.TrimPrefix(strings.ToLower(upstreamModelID), "~"), "typesafe/") {
+			return ModelFamily{Format: contract.APIFormatDecisions}, true, false
+		}
 		if id, found := strings.CutPrefix(upstreamModelID, "openai/"); found {
 			family, expressible = openAIFamily(id)
 			return family, true, expressible

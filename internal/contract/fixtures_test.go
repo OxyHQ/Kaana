@@ -34,9 +34,12 @@ type fixture struct {
 }
 
 func TestWriteWireFixtures(t *testing.T) {
+	decisionsValid, decisionsInvalid := decisionWireFixtures(t)
 	valid := append(validFixtures(t), credentialTextFixtures(false)...)
+	valid = append(valid, decisionsValid...)
 	valid = append(valid, realtimeValidFixtures(t)...)
 	invalid := append(invalidFixtures(), credentialTextFixtures(true)...)
+	invalid = append(invalid, decisionsInvalid...)
 	invalid = append(invalid, realtimeInvalidFixtures(t)...)
 
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
@@ -48,11 +51,11 @@ func TestWriteWireFixtures(t *testing.T) {
 	// for contract set 3.3.0 (session_milliseconds on a usage report and on
 	// session.closed); 12 controls plus the 6 it must REJECT, plus 5 realtime
 	// controls, plus the near-miss session unit.
-	if len(valid) != 69 {
-		t.Fatalf("expected 69 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 80 {
+		t.Fatalf("expected 80 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 25 {
-		t.Fatalf("expected 25 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 29 {
+		t.Fatalf("expected 29 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)

@@ -129,3 +129,23 @@ func TestXAIFamilies(t *testing.T) {
 		t.Error("an id is classified outside the namespace that names it")
 	}
 }
+
+func TestJevFamiliesRemainUnpublishable(t *testing.T) {
+	for _, item := range []struct {
+		slug  contract.ProviderSlug
+		model string
+	}{
+		{"typesafe", "jev-1.13.0"}, {"typesafe", "jev-latest"},
+		{"openrouter", "typesafe/jev-1.13"}, {"openrouter", "typesafe/jev-1.13-20260917"},
+		{"openrouter", "~typesafe/jev-latest"}, {"openrouter", "typesafe/jev-router"},
+	} {
+		family, classified, expressible := ClassifyModel(item.slug, item.model)
+		if !classified || expressible || family.Format != contract.APIFormatDecisions {
+			t.Fatalf("Jev row can publish: %s/%s", item.slug, item.model)
+		}
+	}
+	family, classified, expressible := ClassifyModel("openrouter", "openai/gpt-6-sol")
+	if !classified || !expressible || family.Format != contract.APIFormatChatCompletions {
+		t.Fatal("ordinary chat positive control blocked")
+	}
+}

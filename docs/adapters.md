@@ -66,7 +66,7 @@ boundary independent of either provider's wire format.
 Kaana's OpenAI Chat Completions implementation is protocol-shaped rather than
 provider-shaped. Every compatible provider is a `Config` and a conformance
 registration, while provider-specific request policy remains explicit. Every
-OpenRouter inference request carries exactly
+OpenRouter chat request carries exactly
 `provider: {zdr: true, data_collection: "deny", require_parameters: true}` as
 documented by [OpenRouter's provider-routing API][openrouter-routing]. Kaana
 constructs that typed object internally; it is neither an Oxy contract field nor
@@ -391,3 +391,14 @@ A real Spanish probe on 2026-09-13 returned a decodable MP3. Full production
 rollout is pending published contract 1.2.0, a reviewed catalogue binding and
 an exact-artifact product canary; the local descriptor currently reflects that
 candidate, while the registry dependency pin is deliberately still unchanged.
+
+
+### Dormant System One decisions
+
+The same provider-configured adapter implements the typed `decisions` family
+for direct `typesafe` and the existing `openrouter` slug, using `/systemone`.
+Their production rights/privacy/ZDR/eligibility gates remain closed. Decisions
+have an explicit stricter routing object, actual reply/confidence signals,
+nonstreaming JSON output, and separate synthetic real-wire tests; see
+[decisions.md](decisions.md) for wire mapping, refused efforts, failure
+semantics, and the pending contracts publication. Existing chat conformance still runs unchanged.

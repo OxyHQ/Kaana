@@ -144,6 +144,8 @@ func NewExecutor(config Config) (*Executor, error) {
 // the absence of a report is what makes a refund impossible rather than
 // approximate.
 type Result struct {
+	Decisions *contract.DecisionResult
+
 	Embedding *contract.EmbeddingSuccess
 	Report    *contract.UsageReport
 	// Failure is the terminal error, if the request ended in one. It has been
@@ -420,6 +422,15 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			// the customer — both of which are decided at the top of the next
 			// iteration.
 			permit.Failed()
+			if request.Client.APIFormat == contract.APIFormatDecisions {
+				// A decisions body may have been accepted and billed before this
+				// failure: a cut connection or a deadline cannot say otherwise,
+				// and nothing upstream retains the request to deduplicate a
+				// second one. It never moves — not to this route again and not
+				// to the next. (A key walk inside the attempt re-sends only after
+				// a definitive credential refusal, which accepted nothing.)
+				break
+			}
 			abandoned = last
 			last = nil
 			if emit.started {
@@ -793,7 +804,7 @@ func (e *Executor) settle(
 	}
 	if len(usage) > 0 {
 		usage[len(usage)-1].Served = emit.hasDeliveredOutput() ||
-			(last.err == nil && (emit.attemptStarted || last.outcome.Embedding != nil))
+			(last.err == nil && (emit.attemptStarted || last.outcome.Embedding != nil || last.outcome.Decisions != nil))
 	}
 	cost := e.costs.MeasureRequest(requestID, usage)
 
@@ -814,6 +825,19 @@ func (e *Executor) settle(
 		RouteSwitches:          switches,
 		StartedAt:              contract.NewTimestamp(startedAt),
 		CompletedAt:            contract.NewTimestamp(completedAt),
+	}
+
+	if completed && request.Client.APIFormat == contract.APIFormatDecisions {
+		if err := contract.ValidateDecisionAnswers(*request.Input.Decisions, last.outcome.Decisions); err != nil {
+			report.Outcome = contract.OutcomeFailed
+			failure := contract.NewError(requestID, contract.CodeProviderError, "the adapter returned invalid decisions")
+			return e.finalize(report, failure, nil, cost)
+		}
+		report.Outcome = contract.OutcomeCompleted
+		if err := report.Validate(); err != nil {
+			return Result{Failure: contract.NewError(requestID, contract.CodeInternalError, "invalid decisions usage report"), UpstreamCost: cost}
+		}
+		return Result{Report: report, Decisions: &contract.DecisionResult{SchemaVersion: contract.DecisionSchemaVersion, RequestID: requestID, Model: last.route.ModelReference, Data: last.outcome.Decisions, Usage: *report}, UpstreamCost: cost}
 	}
 	if last.err == nil && last.outcome.Embedding != nil {
 		value := last.outcome.Embedding

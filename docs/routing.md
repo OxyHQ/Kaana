@@ -223,6 +223,12 @@ reasonable.
   nothing has been delivered.** The emitter holds an attempt's `start` until its
   first output and is the one place that knows whether the stream committed; a
   failure after delivery settles as partial and is retried nowhere.
+- **A decisions request never moves once it reaches an adapter.** Its JSON body
+  may have been accepted and billed before a cut connection, a deadline or a
+  5xx, and nothing upstream retains it to deduplicate a second send, so it is
+  neither retried on its route nor failed over; it settles as the one attempt
+  that ran. Only route selection before any attempt (an open breaker, an
+  unreachable deployment) may skip ahead. See `decisions.md`.
 - **A same-route retry is a full attempt.** It passes `Admit` again (never
   bypassing an open or half-open breaker), reports its own outcome, is its own
   cost row, and is never a route switch. Only the transient classes in

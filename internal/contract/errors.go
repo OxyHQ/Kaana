@@ -258,6 +258,15 @@ func (e *Error) WithRetryAfter(milliseconds int) *Error {
 	return e
 }
 
+// WithoutRetry narrows a failure to non-retryable, for work that may already
+// have executed upstream and that nothing retains to deduplicate. It never
+// widens: a non-retryable code stays non-retryable.
+func (e *Error) WithoutRetry() *Error {
+	e.Retryable = false
+	e.RetryAfterMs = nil
+	return e
+}
+
 // WithUpstream records Oxy's classification of an upstream failure and what the
 // upstream said. Both free-text fields go through SafeErrorText.
 func (e *Error) WithUpstream(category UpstreamErrorCategory, passthrough *ProviderErrorPassthrough) *Error {
