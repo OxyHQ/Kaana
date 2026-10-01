@@ -102,6 +102,8 @@ type Route struct {
 // builds the HTTP request, and nothing that could be logged, echoed into an
 // error or written to a usage record ever holds one.
 type Call struct {
+	Decisions *contract.DecisionInput
+
 	// RequestID and Route identify credential-attempt telemetry. Neither contains
 	// credential material.
 	RequestID contract.RequestID
@@ -140,6 +142,8 @@ type Call struct {
 // would make an exact refund impossible, and a nil pointer is the easiest way
 // to accidentally return nothing.
 type Outcome struct {
+	Decisions []contract.DecisionAnswer
+
 	Embedding *EmbeddingResult
 	// Units measured so far. Each unit appears at most once, as a total.
 	Units []contract.UsageQuantity

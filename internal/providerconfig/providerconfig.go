@@ -173,8 +173,13 @@ func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.R
 func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contract.APIFormat {
 	switch protocol {
 	case ProtocolOpenAICompatible:
+		if slug == "typesafe" {
+			return []contract.APIFormat{contract.APIFormatDecisions}
+		}
 		formats := []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
 		switch slug {
+		case "openrouter":
+			formats = append(formats, contract.APIFormatDecisions)
 		case "siliconflow":
 			formats = append(formats, contract.APIFormatEmbeddings)
 		case "xai":
@@ -245,6 +250,15 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 		return fmt.Errorf("provider endpoint identity: parsing base URL: %w", err)
 	}
 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if slug == "typesafe" {
+		if raw != "https://api.typesafe.ai/v1" {
+			return fmt.Errorf("typesafe requires its canonical HTTPS API base")
+		}
+		return nil
+	}
+	if host == "api.typesafe.ai" {
+		return fmt.Errorf("TypeSafe origin is reserved for typesafe")
+	}
 	_, reservedOpenRouterHost := openRouterHosts[host]
 	if slug != "openrouter" {
 		if reservedOpenRouterHost {

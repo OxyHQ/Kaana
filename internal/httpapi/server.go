@@ -179,6 +179,7 @@ func New(config Config) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/inference", s.handleInference)
+	mux.HandleFunc("POST /internal/v1/decisions", s.handleInference)
 	mux.Handle("GET /internal/v1/realtime", s.realtime)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
@@ -313,6 +314,25 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(HeaderRequestID, string(requestID))
+	if r.URL.Path == "/internal/v1/decisions" || request.Client.APIFormat == contract.APIFormatDecisions || request.Input.Format == contract.InputDecisions {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.URL.Path != "/internal/v1/decisions" || request.Client.APIFormat != contract.APIFormatDecisions || request.Input.Format != contract.InputDecisions {
+			s.writeRejection(w, http.StatusBadRequest, contract.NewError(requestID, contract.CodeInvalidRequest, "decisions require the signed decisions endpoint and family"))
+			return
+		}
+		startedAt := time.Now()
+		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })
+		if result.Failure != nil {
+			s.writeRejection(w, http.StatusBadGateway, result.Failure)
+		} else if result.Decisions == nil {
+			s.writeRejection(w, http.StatusInternalServerError, contract.NewError(requestID, contract.CodeInternalError, "the adapter returned no decisions"))
+		} else {
+			writeJSON(w, http.StatusOK, result.Decisions)
+		}
+		s.logResult(requestID, result, time.Since(startedAt))
+		return
+	}
+
 	if request.Modality == contract.ModalityEmbedding {
 		startedAt := time.Now()
 		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })

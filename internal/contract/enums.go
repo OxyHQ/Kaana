@@ -68,6 +68,7 @@ var messageRoleValues = []MessageRole{RoleSystem, RoleDeveloper, RoleUser, RoleA
 type APIFormat string
 
 const (
+	APIFormatDecisions           APIFormat = "decisions"
 	APIFormatResponses           APIFormat = "responses"
 	APIFormatChatCompletions     APIFormat = "chat_completions"
 	APIFormatEmbeddings          APIFormat = "embeddings"
@@ -80,7 +81,7 @@ const (
 
 var apiFormatValues = []APIFormat{
 	APIFormatResponses, APIFormatChatCompletions, APIFormatEmbeddings, APIFormatImagesGenerations,
-	APIFormatAudioTranscriptions, APIFormatAudioSpeech, APIFormatRerank, APIFormatBatches,
+	APIFormatAudioTranscriptions, APIFormatAudioSpeech, APIFormatRerank, APIFormatBatches, APIFormatDecisions,
 }
 
 func (f APIFormat) Valid() bool { return isMember(f, apiFormatValues) }

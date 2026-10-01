@@ -38,6 +38,14 @@ const doneSentinel = "[DONE]"
 // differently.
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
+	if call.Decisions != nil {
+		if !a.decisions.approved() {
+			return outcome, decisionsUnavailable()
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/tts") {
 		return a.streamSpeech(ctx, call, out, credentials)
 	}
@@ -59,6 +67,14 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return outcome, err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if call.Decisions != nil {
+		outcome, err = a.readDecisions(response.Body, call)
+		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+		if ctx.Err() != nil {
+			return outcome, ctx.Err()
+		}
+		return outcome, err
+	}
 	if call.Route.Provider == "siliconflow" && !call.Stream && strings.HasSuffix(call.URL, "/embeddings") {
 		outcome, err = a.readEmbedding(response.Body, key)
 		outcome.KeyID, outcome.KeyClass = key.ID, key.Class

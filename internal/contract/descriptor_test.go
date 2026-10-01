@@ -83,6 +83,10 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
+	"decisionInputSchema":             reflect.TypeOf(DecisionInput{}),
+	"decisionQuestionSchema":          reflect.TypeOf(DecisionQuestion{}),
+	"decisionAnswerSchema":            reflect.TypeOf(DecisionAnswer{}),
+	"decisionResultSchema":            reflect.TypeOf(DecisionResult{}),
 	"inferenceSpeechParametersSchema": reflect.TypeOf(SpeechParameters{}),
 	// contracts 4.4.0 (set 3.2.0): spoken output from a conversational model.
 	"inferenceAudioOutputParametersSchema": reflect.TypeOf(AudioOutputParameters{}),
@@ -192,6 +196,7 @@ var goShapes = map[string]reflect.Type{
 // ordered list: a member added upstream and not here is an unhandled value, and
 // a member here and not upstream is a value Kaana could emit that Oxy rejects.
 var goEnums = map[string]enumBinding{
+	"decisionEffortSchema":                        bindEnum(decisionEffortValues),
 	"inferenceEnvironmentSchema":                  bindEnum(environmentValues),
 	"inferenceScopeSchema":                        bindEnum(scopeValues),
 	"inferenceModalitySchema":                     bindEnum(modalityValues),
@@ -334,6 +339,10 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 // A shape leaves this list only by being implemented, and joins it only with a
 // reason that names the owner.
 var notApplicable = map[string]string{
+	"powerLevelSchema":      "Oxy control-plane power-level selection; not exchanged with Kaana.",
+	"modelPowerClassSchema": "Oxy control-plane model classification; not exchanged with Kaana.",
+	"decisionRequestSchema": "Oxy public request; Kaana receives the signed inference envelope.",
+	"decisionSuccessSchema": "Oxy public response; Kaana returns DecisionResult with technical usage.",
 	// Catalogue identity and pricing are Oxy's (ADR 0006). Kaana consumes
 	// canonical model ids as opaque strings and holds its own operational
 	// inventory; it neither serves nor stores a customer-facing catalogue.
@@ -472,7 +481,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 97
+const expectedNotApplicableCount = 101
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -921,6 +930,19 @@ func (c *shapeChecker) compareKind(where string, node descriptorNode, goType ref
 		}
 		return c.compareFields(where, fieldsOfObject(node), goType)
 	case "union":
+		if goType == reflect.TypeOf(DecisionReply{}) {
+			if len(node.Variants) != 2 {
+				return []string{where + ": decision reply requires string and number arms"}
+			}
+			kinds := map[string]bool{}
+			for _, variant := range node.Variants {
+				kinds[variant.Kind] = true
+			}
+			if !kinds["string"] || !kinds["number"] {
+				return []string{where + ": decision reply scalar arms differ"}
+			}
+			return nil
+		}
 		return []string{fmt.Sprintf("%s: an undiscriminated union may only appear as a named shape in goCustomUnions", where)}
 	default:
 		return []string{fmt.Sprintf("%s: unhandled published kind %q", where, node.Kind)}
@@ -1012,6 +1034,7 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 // through goEnums because they have no published name of their own, so they are
 // registered here and compared member for member exactly the same way.
 var inlineEnumBindings = []enumBinding{
+	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),
 	bindEnum(audioMediaTypeValues),
 	bindEnum(audioOutputFormatValues),
@@ -1079,8 +1102,10 @@ func flattenUnion(node descriptorNode) (map[string]descriptorNode, error) {
 			if field.Optional || field.HasDefault {
 				optionalSomewhere[field.Name] = true
 			}
-			if _, seen := merged[field.Name]; !seen {
+			if previous, seen := merged[field.Name]; !seen {
 				merged[field.Name] = field
+			} else if previous.Kind != field.Kind {
+				merged[field.Name] = descriptorNode{Name: field.Name, Kind: "union", Variants: []descriptorNode{previous, field}}
 			}
 		}
 	}

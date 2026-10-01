@@ -34,6 +34,7 @@ is introduced; it is not hardcoded into credential custody.
 
 ```
 POST /internal/v1/inference    signed envelope in, normalized event stream out
+POST /internal/v1/decisions    signed typed envelope in, JSON result (provider gates dormant)
 GET  /internal/v1/realtime     WebSocket; the signed first frame opens or resumes a session
 GET  /internal/v1/health       signed; the customer-safe provider projection
 GET  /livez                    unsigned liveness; no provider or route detail

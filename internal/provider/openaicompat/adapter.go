@@ -69,6 +69,8 @@ type Config struct {
 
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
 type Adapter struct {
+	decisions decisionReview
+
 	config      Config
 	client      *http.Client
 	credentials *provider.KeyPool
@@ -163,6 +165,12 @@ func (a *Adapter) APIFormats() []contract.APIFormat {
 // the whole reason translation is a separate, pure method: a request this
 // protocol cannot express must cost nothing.
 func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	if request.Client.APIFormat == contract.APIFormatDecisions || request.Input.Format == contract.InputDecisions {
+		return a.translateDecisions(request, route)
+	}
+	if a.Provider() == "typesafe" {
+		return nil, decisionsUnavailable()
+	}
 	if request.AudioOutput != nil {
 		// Spoken output is audio events plus a transcript channel. This adapter
 		// produces it only on a deployment that answers aloud — OpenRouter's
@@ -422,6 +430,9 @@ var wireParameters = map[string]provider.RequestParameter{
 // proves both reachability and that the configured credential is accepted,
 // which are the two things a route decision turns on.
 func (a *Adapter) Health(ctx context.Context) provider.Health {
+	if a.Provider() == "typesafe" {
+		return provider.Health{Provider: a.Provider(), CheckedAt: contract.NewTimestamp(time.Now()), Status: provider.HealthUnavailable, Detail: "decisions routes are dormant pending review"}
+	}
 	now := time.Now()
 	pool := a.credentials.Projection(now)
 	health := provider.Health{

@@ -70,7 +70,7 @@ func (s *stubAdapter) Provider() contract.ProviderSlug { return "stub" }
 func (*stubAdapter) APIFormats() []contract.APIFormat {
 	return []contract.APIFormat{
 		contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatImagesGenerations,
-		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches,
+		contract.APIFormatAudioTranscriptions, contract.APIFormatAudioSpeech, contract.APIFormatRerank, contract.APIFormatBatches, contract.APIFormatDecisions,
 	}
 }
 
@@ -81,7 +81,7 @@ func (s *stubAdapter) Translate(request *contract.Request, route provider.Route)
 	if s.refuse != nil {
 		return nil, s.refuse
 	}
-	return &provider.Call{Route: route, Method: http.MethodPost, URL: "stub://call", Stream: request.Stream}, nil
+	return &provider.Call{Decisions: request.Input.Decisions, Route: route, Method: http.MethodPost, URL: "stub://call", Stream: request.Stream}, nil
 }
 
 func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, _ *provider.KeyPool) (provider.Outcome, error) {
@@ -91,6 +91,13 @@ func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provi
 		return provider.Outcome{}, s.fail
 	}
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}
+	if call.Decisions != nil {
+		p := 0.75
+		outcome.Decisions = []contract.DecisionAnswer{{ID: call.Decisions.Questions[0].ID, Kind: "noul", Probability: &p}}
+		outcome.Units = []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: 4}, {Unit: contract.UnitRequests, Quantity: 1}}
+		return outcome, nil
+	}
+
 	if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 		return outcome, err
 	}

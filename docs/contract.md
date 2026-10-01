@@ -2,6 +2,16 @@
 
 `@oxy.so/contracts` is the authority; `internal/contract` restates it in Go and is answerable to it.
 
+## Decisions foundation pending release
+
+This branch consumes the authoritative Oxy decisions foundation, contract set
+3.5.0 / envelope 2, built as `4.7.0-dev.20261001.1`. The descriptor is generated
+from that local foundation, not edited. The published tooling pin remains 4.5.0
+(set 3.3.0); `make check` must fail contract negotiation until the foundation is
+published and the pin/lock regenerated. See [decisions.md](decisions.md). No
+production Jev route is enabled. The historical rollout notes below predate this
+foundation and are not the current negotiated version.
+
 ## The contract is not re-invented here
 
 `@oxy.so/contracts@1.4.0` (contract version 3.1.0) is the wire contract, and the Go types in

@@ -85,18 +85,20 @@ const (
 	InputMessages  InputFormat = "messages"
 	InputText      InputFormat = "text"
 	InputTextBatch InputFormat = "text_batch"
+	InputDecisions InputFormat = "decisions"
 )
 
-var inputFormatValues = []InputFormat{InputMessages, InputText, InputTextBatch}
+var inputFormatValues = []InputFormat{InputMessages, InputText, InputTextBatch, InputDecisions}
 
-// Input is the request's input. Three formats, because the modalities genuinely
-// differ and pretending a batch is a one-message conversation loses the batch
+// Input is the request's input. Distinct formats preserve typed decisions and
+// modality boundaries; pretending a batch is a one-message conversation loses the batch
 // boundary that metering and provider translation depend on.
 type Input struct {
-	Format   InputFormat `json:"format"`
-	Messages []Message   `json:"messages,omitempty"`
-	Text     *string     `json:"text,omitempty"`
-	Texts    []string    `json:"texts,omitempty"`
+	Decisions *DecisionInput `json:"decisions,omitempty"`
+	Format    InputFormat    `json:"format"`
+	Messages  []Message      `json:"messages,omitempty"`
+	Text      *string        `json:"text,omitempty"`
+	Texts     []string       `json:"texts,omitempty"`
 }
 
 // SamplingParameters are all optional: absent means the route's own default.
@@ -397,6 +399,13 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
+	if r.Input.Format == InputDecisions || r.Client.APIFormat == APIFormatDecisions {
+		if err := r.ValidateDecisionsEnvelope(); err != nil {
+			return err
+		}
+	} else if r.Input.Decisions != nil {
+		return fmt.Errorf("contract: decisions require decisions input format")
+	}
 	if r.AudioOutput != nil {
 		switch {
 		case r.Client.APIFormat != APIFormatChatCompletions:
@@ -630,6 +639,11 @@ func (t RoutingTarget) validate() error {
 
 func (i Input) validate() error {
 	switch i.Format {
+	case InputDecisions:
+		if i.Decisions == nil {
+			return fmt.Errorf("contract: decisions input is required")
+		}
+		return i.Decisions.Validate()
 	case InputMessages:
 		if len(i.Messages) == 0 {
 			return fmt.Errorf("contract: a messages input must carry at least one message")
