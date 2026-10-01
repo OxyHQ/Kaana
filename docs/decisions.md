@@ -5,7 +5,7 @@ model and policy selection, and any bounded queue of individual jobs. Kaana
 accepts the existing signed envelope at `POST /internal/v1/decisions`, using the
 same exact-body Ed25519 verification and the sole signed origin
 `https://kaana.ai`. It returns `DecisionResult` JSON with a completed technical
-usage report, or the existing typed inference error body. There is no provider
+usage report, or a failure as described under "Failures". There is no provider
 batch endpoint, new ledger, local policy evaluator, or generation reservation.
 A classification and a later generation are separate requests and receipts.
 
@@ -15,9 +15,15 @@ preserve zero-based level order and their mean must match the distribution;
 Choice and Score preserve the actual provider reply and confidence as separate
 signals; missing confidence fails closed. Noul is one proposition probability. Answers match each exact question id once.
 All probabilities are finite and bounded, with 1e-6 sum/mean tolerance. Input is
-text only, at most 255 questions; conservative UTF-8 budgets are 64KiB total and
-32KiB state plus instructions plus the longest whole question. Chat controls,
-streaming, tools and unpinned targets are refused. No confidence is synthesized.
+text only, at most 255 questions. Input budgets restate Oxy's
+`decisionInputBudget` byte for byte: the larger of the normalized payload and
+the provider's structured-question body, serialized with JSON escaping and a
+255-byte model allowance, with shared instructions repeated per question.
+`total ≤ 64000` and `context ≤ 32000` (state plus the largest single question);
+a gateway additionally needs `total + 4096 ≤ 32000`. Go's encoder escapes
+`< > & U+2028 U+2029` exactly as Oxy's measurement does, and a test pins Go's
+numbers to Oxy's on the same inputs. Chat controls, streaming, tools and
+unpinned targets are refused. No confidence is synthesized.
 
 ## Provider mapping
 
@@ -38,8 +44,12 @@ routers are not inventory authority.
 Each question becomes a named System One question. Common instructions, the
 question, and its optional rubric remain distinct structured instruction fields.
 Choice labels become criteria-map keys, and score levels become ordered criteria.
-Shared instructions repeat per question on this wire; translation also bounds
-that expanded text before sending. Explicit effort is refused: the reviewed HTTP reference supplies no effort
+Shared instructions repeat per question on this wire. The body is built from
+`contract.DecisionWireQuestions`, the same representation the budget measures,
+and translation bounds the final encoded body again before sending: ≤ 64000
+whole and ≤ 32000 per single question, and on OpenRouter the questions plus the
+4096-byte policy allowance ≤ 32000 with the policy inside that allowance. A
+refusal is `request_too_large`, before any spend. Explicit effort is refused: the reviewed HTTP reference supplies no effort
 field. The contract can represent future efforts without the adapter guessing.
 
 OpenRouter's wire policy explicitly sends `only` and `order` containing only
@@ -51,12 +61,46 @@ actually honors every preference, including ZDR, needs independent evidence.
 
 The adapter checks returned model and, on OpenRouter, its TypeSafe provider and
 nonempty upstream id. Public result identity comes from Oxy's request and the
-exact signed route, never an upstream id or alias. Token counters survive an
-invalid answer or billed-cost field. The exact decimal `usage.cost` is parsed
-only by `providercost`, attached only to the operator attempt, and never enters
-the decision response. Provider confidence is returned separately from probabilities. Upstream ids and
+exact signed route, never an upstream id or alias. A response member the Go
+decoder could read two ways is refused: an exact duplicate anywhere, and in a
+struct-decoded object (the response, `usage`, each answer) a member not spelled
+exactly or two members equal under Unicode simple folding, which is how
+`encoding/json` matches fields. Map keys (question ids, choice labels) stay
+exact, so ids `A` and `a` remain two answers. Token counters survive an invalid
+answer, unless `usage` itself is ambiguous; then nothing is measured.
+
+`usage.cost` is parsed only by `providercost`, attached only to the operator
+attempt, and never enters the decision response. It is either the exact amount
+at 1e-12 scale — exponent forms included, `1.5e-7` is exact — or unknown: absent,
+`null`, non-numeric, negative, or finer than the scale is unknown, never zero
+and never rounded, and an unknown cost never discards a valid paid answer.
+Provider confidence is returned separately from probabilities. Upstream ids and
 answer content are not persisted or logged. Requests have a 30-second upstream
-deadline as well as caller cancellation.
+deadline as well as caller cancellation; a complete, validated answer read
+before a late deadline or cancellation lands still settles as completed.
+
+## Failures
+
+Oxy reads three answers, and Kaana gives exactly one of them:
+
+- **4xx, bare `InferenceError`**: refused before any provider attempt, so
+  nothing executed — 400 invalid request, 413 `request_too_large`, 403
+  permission (including the dormant gates), 404 model, 429 a customer-key
+  throttle. Capacity with nothing attempted (no route) is a typed 503
+  `DecisionFailure` without usage.
+- **502, `DecisionFailure`** `{schemaVersion:1, requestId, error, usage?}` once
+  any attempt reached an adapter. `error.retryable` is always false (narrowed
+  by `Error.WithoutRetry`; never widened): the body may have run and nothing
+  retains it. `usage` is the incomplete report, present only when the provider
+  measured units; absent means unmeasured, never zero. A cut connection, a
+  deadline and a truncated body are unmeasured; a parsed body with an invalid
+  answer is measured.
+- **200, `DecisionResult`**.
+
+A decisions attempt is never retried on its route nor failed over (see
+`routing.md`). Inside one attempt the credential walk re-sends only after a
+definitive 401/402/429 refusal, which accepted nothing; a transport failure
+returns at once.
 
 ## Closed gates and release dependencies
 
@@ -74,14 +118,12 @@ eligibility/privacy review. A later change must provide exact evidence and
 independent review before opening any gate, including affirmative Oxy catalogue
 `apiFormats:['decisions']` qualification; missing formats grant nothing.
 
-The generated descriptor was derived with the existing generator from the local
-Oxy foundation build. The reviewed source identifies its prerelease package
-as 4.7.0-dev.20261001.1, while this repository pins published 4.5.0. **This is not a published
-contract upgrade.** Foundation must release a distinct reproducible version;
-then update the exact package/lock pin, regenerate, verify zero descriptor drift,
-and run `make check`. Health reports 3.5.0 so the real Oxy handshake must require
-3.5.0; envelope version alone is not negotiation. Do not merge/deploy while this
-publication gate is unresolved.
+The descriptor is generated from an unpublished local build of the exact Oxy
+commit named in its `source` field (package 4.7.0, contract set 3.5.0); see
+`contract.md`. **This is not a published contract upgrade**, and the 4.5.0
+tooling pin is deliberately unchanged until Oxy releases 4.7.0. Health reports
+3.5.0, so the deployed Oxy handshake must require 3.5.0; envelope version alone
+is not negotiation. Do not merge or deploy while this publication gate is open.
 
 Reviewed public references (2026-10-01; no authenticated provider calls):
 

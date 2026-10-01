@@ -400,5 +400,5 @@ for direct `typesafe` and the existing `openrouter` slug, using `/systemone`.
 Their production rights/privacy/ZDR/eligibility gates remain closed. Decisions
 have an explicit stricter routing object, actual reply/confidence signals,
 nonstreaming JSON output, and separate synthetic real-wire tests; see
-[decisions.md](decisions.md) for wire mapping, refused efforts, and the pending
-contracts publication. Existing chat conformance still runs unchanged.
+[decisions.md](decisions.md) for wire mapping, refused efforts, failure
+semantics, and the pending contracts publication. Existing chat conformance still runs unchanged.
