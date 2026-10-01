@@ -85,7 +85,7 @@ func TestDecisionsRealWireConformance(t *testing.T) {
 				}
 				if slug == "openrouter" {
 					p := body.Provider
-					if p == nil || len(p.Only) != 1 || p.Only[0] != "TypeSafe" || len(p.Order) != 1 || p.Order[0] != "TypeSafe" || p.Ignore == nil || len(p.Ignore) != 0 || p.AllowFallbacks || !p.ZDR || p.DataCollection != "deny" || !p.RequireParameters || p.MaxPrice.Prompt != 0 || p.MaxPrice.Completion != 0 {
+					if p == nil || len(p.Only) != 1 || p.Only[0] != "TypeSafe" || len(p.Order) != 1 || p.Order[0] != "TypeSafe" || p.Ignore == nil || len(p.Ignore) != 0 || p.AllowFallbacks || !p.ZDR || p.DataCollection != "deny" || !p.RequireParameters || !p.MaxPrice.Prompt.IsZero() || !p.MaxPrice.Completion.IsZero() {
 						t.Errorf("policy is not closed: %+v", p)
 					}
 				} else if body.Provider != nil {
