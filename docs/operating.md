@@ -661,6 +661,35 @@ List only non-secret metadata:
 kaana-credentials list
 ```
 
+Inspect the ownership of one already-custodied OpenRouter key without exposing
+its value or making an inference request:
+
+```bash
+kaana-credentials inspect-openrouter-key \
+  --key-id <existing-exact-key-id> \
+  --expected-organization-id <non-secret-organization-id> \
+  --expected-workspace-id <non-secret-workspace-id>
+```
+
+The workspace selector is optional; omitting it does not prove a workspace
+binding. This command reads only the exact enabled credential, decrypts it
+within existing custody, and sends one bounded `GET /api/v1/key` to the fixed
+OpenRouter origin. Redirects, proxies, HTTP/2 and reused connections are
+refused to avoid forwarding or implicitly retrying the credential. It changes
+no database rows, credential bindings, roles or provider eligibility.
+
+Only ownership comparison results and allow-listed key limits, usage, expiry
+and free-tier metadata reach stdout. No key label, credential, identifier or
+raw response/error is emitted. Missing or null ownership fields report
+`bindingNotDemonstrated`; invalid field types produce a sanitized malformed
+response error and demonstrate no binding. A different or unproven expected
+owner/workspace returns failure after the safe report. Neither a successful
+match nor key limits prove granted funding, purchased balance, auto recharge,
+BYOK status, model availability, privacy terms or an inference budget. Those
+remain separate gates. Run only a reviewed image under already-authorized
+runtime custody roles; this command does not extend the protected credential
+administration workflow's operation allow-list.
+
 Disable without deleting ciphertext or losing the operator identity:
 
 ```bash

@@ -21,6 +21,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/openrouterkey"
 	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
@@ -416,6 +417,20 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(metadata)
+
+	case "inspect-openrouter-key":
+		ctx, cancel := context.WithTimeout(ctx, openrouterkey.Timeout)
+		defer cancel()
+		scope, expected, err := parseInspectOpenRouterKey(arguments[1:])
+		if err != nil {
+			return err
+		}
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
+		if err != nil {
+			return credentialstore.ErrCredentialUnavailable
+		}
+		defer repository.Close()
+		return inspectOpenRouterKey(ctx, store, openrouterkey.NewProduction(), scope, expected, stdout)
 	default:
 		return usageError()
 	}
@@ -520,7 +535,7 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies|put-credential-metadata|record-capacity-evidence|list-credential-metadata>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies|put-credential-metadata|record-capacity-evidence|list-credential-metadata|inspect-openrouter-key>")
 }
 
 // maxDocumentBytes bounds a metadata or evidence document read from stdin.
