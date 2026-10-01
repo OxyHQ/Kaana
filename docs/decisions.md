@@ -136,14 +136,20 @@ eligibility/privacy review. A later change must provide exact evidence and
 independent review before opening any gate, including affirmative Oxy catalogue
 `apiFormats:['decisions']` qualification; missing formats grant nothing.
 
-The descriptor is generated from an unpublished local build of the exact Oxy
-commit named in its `source` field (package 4.7.0, contract set 3.5.0); see
-`contract.md`. The contracts source of every later Oxy commit reviewed, through
+The descriptor is generated from the published `@oxy.so/contracts` 4.7.0
+(contract set 3.5.0), pinned exactly and locked from the public npm registry;
+see `contract.md`. Before publication it was generated from a local build of
+Oxy commit `6c574ba126533f4acf521e0577ecbe91af795dd0`; the contracts source of
+every later Oxy commit reviewed, through
 `54335fa1c9ccc69f8ce776fa3a1d27a42959a33b`, is identical to it (`decisions.ts`
-SHA-256 `2019f904c6f418b05b1925447b56cf2bfe5b577f45b404c354d630bdcd7e5083`). **This is not a published contract upgrade**, and the 4.5.0
-tooling pin is deliberately unchanged until Oxy releases 4.7.0. Health reports
-3.5.0, so the deployed Oxy handshake must require 3.5.0; envelope version alone
-is not negotiation. Do not merge or deploy while this publication gate is open.
+SHA-256 `2019f904c6f418b05b1925447b56cf2bfe5b577f45b404c354d630bdcd7e5083`), and
+regenerating from the published package changed nothing but the removed local
+`source` provenance. The publication gate is therefore closed; it opens none of
+the gates above. Health reports 3.5.0, so the deployed Oxy handshake must
+require 3.5.0; envelope version alone is not negotiation. No Jev model call has
+been made. The resale-rights, internal-eligibility, privacy, ZDR and
+immutable-route-identity reviews remain unapproved, the unpaired-surrogate
+activation gate remains open, and every production path still refuses.
 
 Reviewed public references (2026-10-01; no authenticated provider calls):
 

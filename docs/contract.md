@@ -2,19 +2,21 @@
 
 `@oxy.so/contracts` is the authority; `internal/contract` restates it in Go and is answerable to it.
 
-## Decisions foundation pending release
+## Decisions foundation on published 4.7.0
 
-This branch consumes Oxy contract set **3.5.0** / envelope 2 from
-`@oxy.so/contracts` **4.7.0, which is not published**. `descriptor.json` was
-generated, not edited, from a local build of the exact Oxy commit it names in
-its `source` field; `generate.mjs` refuses a local build unless
-`OXY_CONTRACTS_LOCAL_SOURCE=<owner/repo>@<commit>` records that origin, and never
-labels it published. The tooling pin and lock stay at published 4.5.0 (set
-3.3.0) until 4.7.0 is actually released, so `make contract-generate` fails on
-this branch by design. Releasing means: pin and lock the published version,
-regenerate with no `source` field and zero other drift, and pass `make check`.
-See [decisions.md](decisions.md). No production Jev route is enabled. The
-historical rollout notes below predate this foundation.
+This branch consumes Oxy contract set **3.5.0** / envelope 2 from the published
+`@oxy.so/contracts` **4.7.0**, pinned exactly in `tools/contract/package.json`
+and locked from the public npm registry (`bun.lock` integrity
+`sha512-/VS0Evw+YQ78B/JyoLCKHrFs/A5rY3E5+s8CvNP7QMfW4isT/VhPqIv+8lNVkJHzAJzOSrS5HHoOrM/DVx78qA==`).
+`descriptor.json` was regenerated, not edited, from that installed package with
+`OXY_CONTRACTS_LOCAL_SOURCE` unset, so it carries no `source` field. The only
+change from the earlier local-build descriptor was the removed `source`
+provenance (and its generated `$comment`); package 4.7.0, contract set 3.5.0
+and every shape were already identical. `generate.mjs` still refuses a local
+build unless `OXY_CONTRACTS_LOCAL_SOURCE=<owner/repo>@<commit>` records its
+origin, and never labels one published. See [decisions.md](decisions.md).
+Publishing the contract enables nothing: no production Jev route is enabled.
+The historical rollout notes below predate this foundation.
 
 ## The contract is not re-invented here
 
