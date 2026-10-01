@@ -80,12 +80,13 @@ type PlatformCredentialSource interface {
 // inventory rather than inside each adapter so two adapters for one provider
 // cannot disagree about it.
 type Route struct {
-	ScopedExecution *contract.ScopedExecutionAudience
-	DeploymentID    contract.DeploymentID
-	Provider        contract.ProviderSlug
-	ModelReference  contract.ModelReference
-	UpstreamModelID string
-	Regions         []contract.Region
+	ScopedExecution          *contract.ScopedExecutionAudience
+	ScopedDecisionPriceLimit *providercost.DecisionPriceLimit `json:"-"`
+	DeploymentID             contract.DeploymentID
+	Provider                 contract.ProviderSlug
+	ModelReference           contract.ModelReference
+	UpstreamModelID          string
+	Regions                  []contract.Region
 	// AcceptedParameters is the deployment's published statement of which
 	// caller controls its upstream accepts (inventory `observed`). Nil is
 	// UNKNOWN and refuses nothing; a present set lets Translate refuse a

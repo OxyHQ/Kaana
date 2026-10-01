@@ -491,6 +491,15 @@ func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
 	return nil, fmt.Errorf("provider: credential key id %q is not configured for %s", keyID, base.provider)
 }
 
+// ExactBinding returns the non-secret key identity of an existing bound view.
+// It never turns a provider-default pool into a different binding.
+func (p *KeyPool) ExactBinding() (string, bool) {
+	if p == nil || p.onlyKeyID == "" {
+		return "", false
+	}
+	return p.onlyKeyID, true
+}
+
 // SoleKeyID returns the id of the pool's only platform credential, and how
 // many the pool holds. It is the provider-default half of deployment
 // resolution: a deployment with no exact binding may use its provider's key

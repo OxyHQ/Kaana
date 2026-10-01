@@ -278,6 +278,7 @@ func run(logger *slog.Logger) error {
 	}
 
 	executor, err := kaana.NewExecutor(kaana.Config{
+		ScopedAttemptClaims: credentialDatabase,
 		Inventory:           inventoryStore,
 		Providers:           registry,
 		Rotation:            rotationRegistry,
