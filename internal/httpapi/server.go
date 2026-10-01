@@ -281,6 +281,18 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate signed Unicode escapes before encoding/json can replace an
+	// unpaired surrogate with U+FFFD. Oxy owns holds; rejection here precedes
+	// every Kaana executor, adapter and provider operation.
+	if r.URL.Path == "/internal/v1/decisions" {
+		w.Header().Set("Cache-Control", "no-store")
+		if err := validateDecisionJSONUnicode(body); err != nil {
+			s.writeRejection(w, http.StatusBadRequest,
+				contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
+			return
+		}
+	}
+
 	if version, err := envelopeVersion(body); err != nil {
 		s.writeRejection(w, http.StatusBadRequest,
 			contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
