@@ -156,3 +156,29 @@ func TestReviewedScopedMigrationRollsBackDefaultGrantExpansion(t *testing.T) {
 		t.Fatal("failed authority check did not roll back DDL", err)
 	}
 }
+
+func TestReviewedScopedMigrationRejectsInheritedOwnerAccess(t *testing.T) {
+	repo, ctx := reviewedMigrationFixture(t)
+	var owner string
+	if err := repo.pool.QueryRow(ctx, `SELECT current_user`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	// This membership is created and removed only inside the owned synthetic cluster.
+	grant := `GRANT ` + pgx.Identifier{owner}.Sanitize() + ` TO kaana_runtime`
+	revoke := `REVOKE ` + pgx.Identifier{owner}.Sanitize() + ` FROM kaana_runtime`
+	if _, err := repo.pool.Exec(ctx, grant); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := repo.pool.Exec(ctx, revoke); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := repo.ReviewedScopedMigration(ctx, false); err == nil {
+		t.Fatal("inherited owner access admitted")
+	}
+	var absent bool
+	if err := repo.pool.QueryRow(ctx, `SELECT to_regclass('public.scoped_provider_attempt_claims') IS NULL AND NOT EXISTS(SELECT 1 FROM kaana_schema_migrations WHERE version='0020')`).Scan(&absent); err != nil || !absent {
+		t.Fatal("inherited authority failure did not roll back", err)
+	}
+}

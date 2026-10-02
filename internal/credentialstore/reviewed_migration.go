@@ -146,5 +146,12 @@ func reviewedClaimTablePrivate(ctx context.Context, tx pgx.Tx) error {
 	if expanded {
 		return errors.New("credential store: claim table has non-owner access grants")
 	}
+	var applicationAccess bool
+	if err := tx.QueryRow(ctx, `SELECT bool_or(has_table_privilege(role,'public.scoped_provider_attempt_claims','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM unnest(ARRAY['kaana_runtime','kaana_credential_admin','kaana_customer_credential_control','kaana_platform_credential_control']) AS role`).Scan(&applicationAccess); err != nil {
+		return errors.New("credential store: checking effective claim table authority")
+	}
+	if applicationAccess {
+		return errors.New("credential store: application role has effective claim table access")
+	}
 	return nil
 }
