@@ -2,6 +2,7 @@ package credentialstore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -58,6 +59,7 @@ func TestProviderTelemetryFeedPostgres(t *testing.T) {
 		{"req_legacy", 0, nil, nil, "unknown", false, true, past, nil, nil, nil, nil, nil, nil},
 		{"req_b", 0, nil, nil, "unknown", false, false, past.Add(time.Second), units, started, latency, nil, failed, throttled},
 		{"req_b", 1, usd, amount, "provider_reported", true, true, past.Add(time.Second), units, started, latency, ttft, succeeded, nil},
+		{"req_empty", 0, nil, nil, "unknown", false, false, past.Add(2 * time.Second), "[]", started, latency, nil, failed, throttled},
 		{"req_unsettled", 0, nil, nil, "unknown", false, true, time.Now().UTC(), units, started, latency, nil, succeeded, nil},
 	} {
 		if _, err := pool.Exec(ctx, insert, row...); err != nil {
@@ -72,8 +74,19 @@ func TestProviderTelemetryFeedPostgres(t *testing.T) {
 	if len(page) != 2 || page[0].RequestID != "req_legacy" || page[1].RequestID != "req_b" || page[1].AttemptIndex != 0 {
 		t.Fatalf("first page = %+v", page)
 	}
-	if page[0].Telemetry != nil || len(page[0].Units) != 0 {
+	if page[0].Telemetry != nil || page[0].Units != nil {
 		t.Fatalf("an unmeasured legacy attempt was given telemetry: %+v", page[0])
+	}
+	wire, err := json.Marshal(page[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(wire, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded["units"]) != "null" {
+		t.Fatalf("SQL NULL measurement serialized as %s, want null", decoded["units"])
 	}
 	if page[1].KeyClass != "free" || page[1].Telemetry == nil || page[1].Telemetry.Outcome != "failed" ||
 		page[1].Telemetry.FailureCode == nil || *page[1].Telemetry.FailureCode != "rate_limited" || page[1].Cost != nil {
@@ -87,9 +100,22 @@ func TestProviderTelemetryFeedPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
-	if len(rest) != 1 || rest[0].RequestID != "req_b" || rest[0].AttemptIndex != 1 ||
+	if len(rest) != 2 || rest[0].RequestID != "req_b" || rest[0].AttemptIndex != 1 ||
 		rest[0].Cost == nil || rest[0].Cost.AmountPicos != "125000" || *rest[0].Telemetry.TimeToFirstOutputMs != 250 {
 		t.Fatalf("second page = %+v (the unsettled attempt must not appear yet)", rest)
+	}
+	if rest[1].RequestID != "req_empty" || rest[1].Units == nil || len(rest[1].Units) != 0 {
+		t.Fatalf("measured empty units did not survive SQL: %+v", rest[1])
+	}
+	wire, err = json.Marshal(rest[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(wire, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded["units"]) != "[]" {
+		t.Fatalf("measured empty units serialized as %s, want []", decoded["units"])
 	}
 	empty, unchanged, err := repository.ReadAttemptFeed(ctx, last, 10)
 	if err != nil || len(empty) != 0 || unchanged.Encode() != last.Encode() {
