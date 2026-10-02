@@ -47,14 +47,23 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 	case "migrate":
 		flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
-		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
-			return errors.New("usage: kaana-credentials migrate")
+		reviewed := flags.Bool("reviewed-0020", false, "restrict to reviewed migration 0020")
+		inspectOnly := flags.Bool("inspect-only", false, "read-only migration proof")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 || (*inspectOnly && !*reviewed) {
+			return errors.New("usage: kaana-credentials migrate [--reviewed-0020 [--inspect-only]]")
 		}
 		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
 		if err != nil {
 			return err
 		}
 		defer repository.Close()
+		if *reviewed {
+			report, err := repository.ReviewedScopedMigration(ctx, *inspectOnly)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(stdout).Encode(report)
+		}
 		if err := repository.Migrate(ctx); err != nil {
 			return err
 		}

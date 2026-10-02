@@ -181,10 +181,18 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		return fmt.Errorf("credential store: creating migration ledger: %w", err)
 	}
 
-	for _, migration := range []struct {
-		version string
-		body    string
-	}{
+	for _, migration := range schemaMigrations() {
+		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type schemaMigration struct{ version, body string }
+
+func schemaMigrations() []schemaMigration {
+	return []schemaMigration{
 		{version: "0001", body: migration0001},
 		{version: "0002", body: migration0002},
 		{version: "0003", body: migration0003},
@@ -205,12 +213,7 @@ func migratePostgres(ctx context.Context, tx migrationExecutor) error {
 		{version: "0018", body: migration0018},
 		{version: "0019", body: migration0019},
 		{version: "0020", body: migration0020},
-	} {
-		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
-			return err
-		}
 	}
-	return nil
 }
 
 // WriteProviderCostEvent uses the same atomic batch boundary for a single
