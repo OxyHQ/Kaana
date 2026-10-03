@@ -137,7 +137,6 @@ func (p *Postgres) ReadAttemptFeed(ctx context.Context, after *AttemptFeedCursor
 		if currency != nil && amountPicos != nil {
 			event.Cost = &providercost.OperatorAmount{Currency: *currency, AmountPicos: *amountPicos}
 		}
-		event.Units = make([]contract.UsageQuantity, 0)
 		if unitsJSON != nil {
 			if err := json.Unmarshal(unitsJSON, &event.Units); err != nil {
 				return nil, nil, fmt.Errorf("credential store: decoding attempt units: %w", err)
