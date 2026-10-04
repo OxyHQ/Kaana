@@ -1,0 +1,5 @@
+--- FAIL: TestSeparateObservationsPreserveOldXaiAndOwnJevWindow (0.00s)
+    multiple_observations_test.go:39: xAI observation re-dated, re-versioned or changed
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/providercost	0.004s
+FAIL
