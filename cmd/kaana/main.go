@@ -126,7 +126,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer credentialDatabase.Close()
-	if observation, loaded := costs.Observation(); loaded {
+	for _, observation := range costs.Observations() {
 		registerContext, cancelRegister := context.WithTimeout(context.Background(), 15*time.Second)
 		err := credentialDatabase.RegisterRateCardVersion(registerContext, observation)
 		cancelRegister()

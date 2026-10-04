@@ -39,11 +39,19 @@ in 1e-12 of the currency's major unit — the same scale as the published
 contract's money type, so an operator reconciling an invoice against the ledger
 is comparing like with like.
 
-The file is one immutable observation, not a mutable table: schema version,
+Each file is one immutable observation, not a mutable table: schema version,
 rate-card version id, provider-owned or operator-reviewed source, upstream
 source version, observation time, effective time and optional expiry accompany
 the deployment rates. Every estimated attempt retains that version id, so a
 later price change cannot erase which observation produced the estimate.
+
+The typed loader may load several separate documents. Their deployment sets
+and version IDs must be disjoint; neither file order nor a later file may
+overwrite a price. Measurement and private publication resolve the observation
+for that exact deployment. Each original observation is registered separately,
+so adding an October card cannot re-date a September card or extend its expiry.
+The current production entrypoints still load their existing single file; this
+loader support activates no card or private audience.
 
 When an upstream returns the exact amount it billed for the request, that fact
 outranks the rate-card calculation for the same attempt. It is parsed directly
