@@ -1,0 +1,144 @@
+{
+  "kind": "kaana-jev-private-publication-plumbing-v1",
+  "sourceCommit": "b72db010ae4e743419ed268e994eebd1c5a51ab3",
+  "baseCommit": "1c9bf94d3598e86bebef9cb700c38369628d00b0",
+  "activation": false,
+  "sourceAudience": null,
+  "sources": [
+    {
+      "path": "cmd/kaana-publisher/main.go",
+      "sha256": "d073078de771714445aa2f44f68c50056ca64e1c8c539214c6addfd187bf1717",
+      "bytes": 19968
+    },
+    {
+      "path": "docs/scoped-inventory.md",
+      "sha256": "9b9373d5403b0e3ad02fd9cfb83835093ef040a64b72676cb05dfadc897164e8",
+      "bytes": 3006
+    },
+    {
+      "path": "internal/providercost/scoped_price.go",
+      "sha256": "035d8269ca8484d2ccfe627803378dab0d5dd3970f7d3abfb79a9afb3e0ffb8e",
+      "bytes": 3369
+    },
+    {
+      "path": "internal/publisher/publisher.go",
+      "sha256": "3bb681e1d10c38c34c74bceac0ef1f53f86762650a6ac97988559798ddf8a75b",
+      "bytes": 16006
+    },
+    {
+      "path": "internal/publisher/scoped.go",
+      "sha256": "951c2617b94e90ea3017060ce4ee301320528f6e46159819a3a2ef15d3dd70ab",
+      "bytes": 4524
+    },
+    {
+      "path": "internal/publisher/scoped_test.go",
+      "sha256": "6e5629ee7d9d1471b64665c5778cf563a8b7495c7265dd0f913045db45bc47a5",
+      "bytes": 8872
+    },
+    {
+      "path": "internal/publisher/snapshot.go",
+      "sha256": "9a844f4feaa34b6e0945cb4ccd52184f6d905a716e19d268996abeb364e53026",
+      "bytes": 21659
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/README.md",
+      "sha256": "f17e60b5a06d0dba284185f237039742866b62f377b9c1e48c34337d70135dd1",
+      "bytes": 2109
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/make-check.log",
+      "sha256": "502c8e3fbaebeffd0db33ab0344755c0994b34b248c9e7962cb2623a9f18ec03",
+      "bytes": 4679
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/mutant-stale-eligibility.log",
+      "sha256": "d61274375e335e87bb53a53f8f05930205901f6b95bfe3e078996caf8210e364",
+      "bytes": 301
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/mutation.json",
+      "sha256": "889549d3bf16364720f34813bb0a40b51c9e738aa9e51a66741549d293f01540",
+      "bytes": 289
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/restored-focal.log",
+      "sha256": "2268cea17cad38fef56bf5dcf1a556ab0721abb390135c3bbb82924b212e4350",
+      "bytes": 166
+    }
+  ],
+  "unchangedInputs": [
+    {
+      "path": "internal/scopedpermit/source.go",
+      "sha256": "405bc07a9471206bf1f26340a657ae1c97afd229ea3235c246d1d72f9d1eff73",
+      "bytes": 931
+    },
+    {
+      "path": "configs/provider-rates.json",
+      "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968",
+      "bytes": 2124
+    },
+    {
+      "path": "configs/model-attribution.json",
+      "sha256": "376fb3f82d27fd820604296d31eada016398c40f3c3947fe27948a6d1a170d35",
+      "bytes": 45422
+    },
+    {
+      "path": "go.mod",
+      "sha256": "d06d898144c64c5b582bb476f1a932db6658d42ae430a1c50d3df14f155db5e5",
+      "bytes": 1381
+    },
+    {
+      "path": "go.sum",
+      "sha256": "a20df0fb07a0801266c1a5aa7645ba2b35993871c3a7cdca9134949db77f582e",
+      "bytes": 5764
+    },
+    {
+      "path": "internal/contract/descriptor.json",
+      "sha256": "754f327ac4a493e22504095511779b8a249940c2e22edbde27da548d4c2e585f",
+      "bytes": 271628
+    },
+    {
+      "path": "tools/contract/package.json",
+      "sha256": "b035602ead2e5de2fffd28ae2a6247dc170f97263c22d196f7bf3d1b06a7ab76",
+      "bytes": 479
+    },
+    {
+      "path": "tools/contract/bun.lock",
+      "sha256": "b7d24989e54d57dda3ee4d6080359da6e7f15889b53724cf9e85867d61a8d630",
+      "bytes": 563
+    }
+  ],
+  "validation": {
+    "makeCheck": {
+      "exitCode": 0,
+      "toolchain": {
+        "go": "1.26.7",
+        "golangci": "2.13.2",
+        "bun": "1.3.14"
+      },
+      "postgresIntegrationClaim": false
+    },
+    "mutant": {
+      "sameFixtures": true,
+      "exitCode": 1,
+      "sourceRestoredByteExact": true
+    },
+    "restoredFocal": {
+      "exitCode": 0,
+      "race": true,
+      "packages": [
+        "internal/publisher",
+        "internal/providercost",
+        "cmd/kaana-publisher"
+      ]
+    }
+  },
+  "limits": [
+    "synthetic discovery and evidence boundary; no provider request",
+    "nil source getter; no source activation or live publication",
+    "no production SQL or independent PostgreSQL integration claim",
+    "one local compile setup error corrected before these final logs, not a runtime RED"
+  ]
+}
