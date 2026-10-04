@@ -90,6 +90,27 @@ explicit unknown observation. The controlled projection contains no plaintext
 credential and is intended only for a separately authenticated operator path
 into Oxy; it is never attached to an inference response.
 
+## Independent private observations
+
+`scopedpermit.LoadRateCards` appends private observations only when their own
+compiled source getter is present. With neither authority, ordinary pricing
+remains optional. Fixed commissioning (`3.6`) reads
+`/etc/kaana-rates/provider-rates-jev-scoped.json`; private Auto (`3.7`) reads
+`/etc/kaana-rates/provider-rates-jev-private-auto.json`. Each source is checked
+against its own deployment, card version and upstream source version. Both
+may coexist on distinct deployments, with three separately immutable
+observations; Auto never substitutes the commissioning file or bypasses its
+validation. Serving and publisher use the same loader, and either authority
+makes the publisher load its cards.
+
+The Auto getter remains nil in this preparation. The third file is not baked
+or required while that getter is absent. Activation must separately compose
+accepted source/card bytes, add the exact third filename to the Docker context
+allowlist and Dockerfile copy, then verify both image paths and the signed
+publication. Historical ordinary and commissioning card bytes and observation
+times stay unchanged. No loader flag grants inference authority or repairs a
+missing, mismatched or unapproved observation.
+
 ## Per-attempt telemetry and rate-card history
 
 Every platform-funded upstream attempt is one `provider_cost_events` row keyed

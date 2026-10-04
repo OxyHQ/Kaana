@@ -186,7 +186,7 @@ func run(logger *slog.Logger) error {
 	// publisher behavior and does not load an optional cost table. Once reviewed
 	// authority exists, both publisher and serving read the same baked card path.
 	var cards *providercost.Cards
-	if scopedpermit.SourceReviewedAudience() != nil {
+	if scopedpermit.SourceReviewedAudience() != nil || scopedpermit.SourceReviewedPrivateAutoApproval() != nil {
 		cards, err = scopedpermit.LoadRateCards(os.Getenv("KAANA_PROVIDER_RATES_PATH"))
 		if err != nil {
 			return err

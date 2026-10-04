@@ -38,7 +38,7 @@ func TestReviewedAliaCommissioningSourceBindsExactAudienceAndExpires(t *testing.
 }
 
 func TestReviewedAliaSourceLoadsIndependentCardWithoutReDatingXai(t *testing.T) {
-	cards, err := loadRateCards("../../configs/provider-rates.json", "unused", "../../configs/provider-rates-jev-scoped.json", SourceReviewedAudience())
+	cards, err := loadRateCards("../../configs/provider-rates.json", "unused", "../../configs/provider-rates-jev-scoped.json", "absent-auto", SourceReviewedAudience(), nil)
 	if err != nil || len(cards.Observations()) != 2 {
 		t.Fatal("reviewed source did not load exactly two independent observations", err)
 	}

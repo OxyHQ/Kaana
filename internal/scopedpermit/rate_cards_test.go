@@ -14,12 +14,12 @@ import (
 )
 
 func TestAbsentAuthorityNeverLoadsPrivateCard(t *testing.T) {
-	cards, err := loadRateCards("", "absent-default", "absent-private", nil)
+	cards, err := loadRateCards("", "absent-default", "absent-private", "absent-auto", nil, nil)
 	if err != nil || cards != nil {
 		t.Fatalf("ordinary optional pricing changed: %v", err)
 	}
 	ordinary := "../../configs/provider-rates.json"
-	cards, err = loadRateCards(ordinary, "absent-default", "absent-private", nil)
+	cards, err = loadRateCards(ordinary, "absent-default", "absent-private", "absent-auto", nil, nil)
 	if err != nil || len(cards.Observations()) != 1 {
 		t.Fatalf("absent authority tried to load private pricing: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestReviewedCardAppendPreservesEachObservation(t *testing.T) {
 	}
 	for _, path := range []string{"", ordinary} {
 		t.Run(fmt.Sprintf("configured=%t", path != ""), func(t *testing.T) {
-			cards, err := loadRateCards(path, ordinary, private, cardBindingFixture())
+			cards, err := loadRateCards(path, ordinary, private, "absent-auto", cardBindingFixture(), nil)
 			if err != nil || len(cards.Observations()) != 2 {
 				t.Fatalf("separate observations not loaded: %v", err)
 			}
@@ -80,13 +80,13 @@ func TestPrivateAppendRefusesMissingOrMismatchedEvidence(t *testing.T) {
 			case "source":
 				a.ProviderSourceVersion = "foreign-observation"
 			}
-			if _, err := loadRateCards(ordinary, ordinary, private, a); err == nil {
+			if _, err := loadRateCards(ordinary, ordinary, private, "absent-auto", a, nil); err == nil {
 				t.Fatal("foreign card evidence admitted")
 			}
 		})
 	}
 	for _, paths := range [][2]string{{"absent-ordinary", private}, {ordinary, "absent-private"}} {
-		if _, err := loadRateCards(paths[0], ordinary, paths[1], cardBindingFixture()); err == nil {
+		if _, err := loadRateCards(paths[0], ordinary, paths[1], "absent-auto", cardBindingFixture(), nil); err == nil {
 			t.Fatal("missing configured card silently ignored")
 		}
 	}
@@ -94,7 +94,7 @@ func TestPrivateAppendRefusesMissingOrMismatchedEvidence(t *testing.T) {
 	if err := os.WriteFile(malformed, []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadRateCards(ordinary, ordinary, malformed, cardBindingFixture()); err == nil {
+	if _, err := loadRateCards(ordinary, ordinary, malformed, "absent-auto", cardBindingFixture(), nil); err == nil {
 		t.Fatal("malformed private card ignored")
 	}
 }
