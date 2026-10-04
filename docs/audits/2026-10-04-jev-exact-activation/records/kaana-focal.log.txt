@@ -1,0 +1,8 @@
+ok  	github.com/OxyHQ/Kaana/internal/scopedpermit	1.016s
+--- FAIL: TestPrivatePublicationRequiresNormalEvidenceAndCannotEnableGeneralJev (0.00s)
+    scoped_test.go:48: global Jev publication enabled
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/publisher	2.502s
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.680s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	2.079s
+FAIL

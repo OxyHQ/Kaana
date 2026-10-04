@@ -1,0 +1,4 @@
+ok  	github.com/OxyHQ/Kaana/internal/scopedpermit	1.017s
+ok  	github.com/OxyHQ/Kaana/internal/publisher	3.899s
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.830s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	2.332s
