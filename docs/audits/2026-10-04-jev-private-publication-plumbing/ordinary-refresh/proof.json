@@ -1,0 +1,83 @@
+{
+  "kind": "kaana-private-ordinary-refresh-preservation-v1",
+  "sourceCommit": "ca80428aa493097b66da0ab4bc3ef999b74f72b3",
+  "baseSource": "b72db010ae4e743419ed268e994eebd1c5a51ab3",
+  "sources": [
+    {
+      "path": "docs/scoped-inventory.md",
+      "bytes": 3356,
+      "sha256": "b257a6c045b0987a0ab3fd7426c1c092611ea51160ade708990fa44d1e138d73"
+    },
+    {
+      "path": "internal/publisher/publisher.go",
+      "bytes": 16209,
+      "sha256": "eeb8ac5adfdb6ad3a6af0b92ab2f64cb936b52e7b0d0b0456dbb20c09ac7ebcc"
+    },
+    {
+      "path": "internal/publisher/scoped.go",
+      "bytes": 5093,
+      "sha256": "62693de4d04e730c103f65f9610d44514d0b00257a64e42112b86f911655c61d"
+    },
+    {
+      "path": "internal/publisher/scoped_test.go",
+      "bytes": 11925,
+      "sha256": "33886f75e9dc4dd5734fe68988213e988c63989e7cbdcd2eec74a9a295ecdeb9"
+    },
+    {
+      "path": "internal/publisher/snapshot.go",
+      "bytes": 21984,
+      "sha256": "d6dede4d59bc9d947ca6d793e2a630148f3cb6cb5053e02fc12a1d0c6cf59765"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/README.md",
+      "bytes": 1198,
+      "sha256": "3964a45aaba2d1926ebbec29225a600c5ad65f2b44cba67200540b53e5cb3d15"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/private-omission-final-red.log",
+      "bytes": 846,
+      "sha256": "0290e0f13a59450572eace27fa24078ca790fac14db16f5714ec413ad9df2045"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/private-omission-green.log",
+      "bytes": 166,
+      "sha256": "bc762bd9aeb443aa5cc7a6ce2a3a5ca9178d3873f5617141c38fb6f30ddd983e"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/private-omission-make-check.log",
+      "bytes": 4680,
+      "sha256": "8ead56930c209d4998407313f4bbb29a722099993aef973f7013b29dfefd91e3"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/private-omission-mutant.log",
+      "bytes": 846,
+      "sha256": "e3cdd8607461a9afce6aa01622b699ef7b4c3b05d16a29a4fb766547a34a4522"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/private-omission-mutation.json",
+      "bytes": 158,
+      "sha256": "b73acbc73a0d6cfa6f8d2ddd6553054ceece20caebc9c079bd192d924552f73d"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-private-publication-plumbing/ordinary-refresh/private-omission-restored.log",
+      "bytes": 54,
+      "sha256": "5b0441fbd59be7753c881679dd1b80bf6bfe8c9d0844ed0c26e6d5a152b01bc1"
+    }
+  ],
+  "activation": false,
+  "validation": {
+    "redFinalFixtures": 3,
+    "greenSameFixtures": 3,
+    "makeCheckExit": 0,
+    "mutantExit": 1,
+    "restoredExit": 0,
+    "sourceRestoredByteExact": true
+  },
+  "limits": [
+    "synthetic discovery/evidence, no provider/production writes",
+    "nil compiled source and unchanged card/attribution",
+    "no PostgreSQL integration claim"
+  ]
+}
