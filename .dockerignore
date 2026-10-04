@@ -33,6 +33,8 @@
 # The reviewed PRODUCTION rate card (real list prices, read back deployment ids),
 # by exact name: the example rate card beside it stays out.
 !configs/provider-rates.json
+# The separately reviewed private Jev observation; never admit configs/**.
+!configs/provider-rates-jev-scoped.json
 
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the

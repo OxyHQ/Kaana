@@ -1,0 +1,48 @@
+{
+  "kind": "private-rate-card-build-context-proof-v1",
+  "sourceHead": "775a852518495fb5cfd1df7e7be6b903345339af",
+  "baseCommit": "02be6602b4a381257f42f65d81ce7428b04341e4",
+  "source": {
+    "path": ".dockerignore",
+    "sha256": "62a6a8f2a77a84b00fba939d8e2b9643ea0cac600d19789a9f92fe7ead555614"
+  },
+  "dockerfileSha256": "5ce409962e6d0ea3c1ea3682eb2b100cbbc1094cdb10e3fcf4926f75d153ed12",
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/red.log.txt",
+      "sha256": "c0b85360a941a3555474a877d700e53d18e56a7a912a481d45ecedfa8734fe99"
+    },
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/green.log.txt",
+      "sha256": "a26bb80ca9dc4a92ff5eb7c71fe0877f6063e4ebd2017621ed6992ef8882b38d"
+    },
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/red-context.json.txt",
+      "sha256": "192a3fbf289b4f1525718c187cb32bebbca4ab132e81319b5d16bdb193a77b47"
+    },
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/green-context.json.txt",
+      "sha256": "0469153a45b09353a2b5a5465a39f6fc8ec0c6b37a46f2f835734bbca0fbb85e"
+    },
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/moby-context-main.go.txt",
+      "sha256": "b2dd12f047bb57de5690be930fcb9dd128ec89ee883941ba722e462b5197131c"
+    },
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/moby-context-go.mod.txt",
+      "sha256": "460bc92ed17a6940601b8129966c67d209ba5134022f9baaa7ec3a0507433e05"
+    },
+    {
+      "path": "docs/audits/2026-10-04-private-card-docker-context/records/moby-context-go.sum.txt",
+      "sha256": "11f1d2993cb2b5aed8c7d5276c6cc7c57a28240b628709a70f226a1e8d970299"
+    }
+  ],
+  "contextEvaluator": "github.com/moby/patternmatcher@v0.6.0 MatchesOrParentMatches (Docker ignore implementation)",
+  "beforeIncluded": 143,
+  "afterIncluded": 144,
+  "soleAddedPath": "configs/provider-rates-jev-scoped.json",
+  "runtimeSourcesUnchanged": true,
+  "dockerImageBuildExecuted": false,
+  "AWSCallsExecuted": false,
+  "limit": "This proves source build-context inclusion; the subsequent canonical CI/release image build remains required."
+}
