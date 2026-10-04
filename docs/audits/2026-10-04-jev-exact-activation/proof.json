@@ -1,0 +1,122 @@
+{
+  "kind": "exact-alia-jev-source-activation-proof-v1",
+  "repository": "kaana",
+  "sourceHead": "6c99eda08402c0f2af775e8d7cc62b9b252bffd8",
+  "sourceTree": "e4543946810f75caa1d21a9e9566f38940f6e9fd",
+  "audienceFileSha256": "b4ba1e9df1e694872c90614f30becafb952fc31adb42522bb2b64db7aff97c56",
+  "fixtureFileSha256": "181a8c0309c4b3af114d79c83bf0af6df3b88fee13e969958b0c1b77bb74707e",
+  "sourceFreezeFileSha256": "41042463ac274fc51877fea664f591b1c3513e4b1881a3d5705fe3a74ca3e42a",
+  "sourceInputs": [
+    {
+      "path": "internal/scopedpermit/source.go",
+      "sha256": "fd77d6677019b907a7edd2c8c4d1d156c262fd13ede7cd9bd7b61f18008500ef",
+      "gitBlob": "6d6c3f3f752b1a203a97141b6c8687215e76bf3f"
+    },
+    {
+      "path": "internal/scopedpermit/source_activation_test.go",
+      "sha256": "00e207a1aa6350a25e8dc2da3e8a8d13dcdf3d7d1ee0c87eb9e0ae4233cf8d4b",
+      "gitBlob": "de35f6506abdafd0402dffd91555222d2564e612"
+    },
+    {
+      "path": "internal/scopedpermit/rate_cards.go",
+      "sha256": "6913140a2c4a9b55b52a70df7244f3a16b4bd4f73278a906df1d3bd5fe7874bc",
+      "gitBlob": "1da6aac17f79ccb0c7038379fa85c742363e09f6"
+    },
+    {
+      "path": "internal/scopedpermit/rate_cards_test.go",
+      "sha256": "b9c40ca7e525d1f0a9a72fa46b655facbc2be65405fb2d1638aabb66a58b7be5",
+      "gitBlob": "6dd46a06bff460e7ead8284136afb9967be902f9"
+    },
+    {
+      "path": "internal/publisher/scoped.go",
+      "sha256": "3c533b76300b8d905661ea897e37c9e619a152451f14fb8fbae5dbdc619b4b0d",
+      "gitBlob": "54bc862050edb047a2125c55d23dfd6418b677bc"
+    },
+    {
+      "path": "internal/publisher/scoped_test.go",
+      "sha256": "955a6ac9106e7e2e58e345c5d1f50c31643163f5fcafc5126e4eda4f28b340c9",
+      "gitBlob": "2cfa2704832b8f875e5582587a7360cbd51db122"
+    },
+    {
+      "path": "internal/kaana/mention_wire_export_test.go",
+      "sha256": "2efcb1167ac01abadae917acec84ec200a5aed1768c4f03791d4fa5367a03147",
+      "gitBlob": "78068a718a3e79cd5df6db97d3e11fa6c1e146f7"
+    },
+    {
+      "path": "internal/kaana/mention_wire_integration_test.go",
+      "sha256": "90a875b4bb48816906c278f69bb90acc964c59e06b55f913c57443b90110c8c0",
+      "gitBlob": "4b74c42f76b2a990893ec9c9318b5c8b523ce349"
+    },
+    {
+      "path": "configs/provider-rates.json",
+      "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968",
+      "gitBlob": "9391c2d010dae9f652eeebd2dc761b4582ac1f04"
+    },
+    {
+      "path": "configs/provider-rates-jev-scoped.json",
+      "sha256": "9d20790738035f59d5b609ad8096fa54a365aa3d04ed61a3e8243adf25454761",
+      "gitBlob": "7a2c035509d81cc45349cdda8f97601a63199382"
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "5ce409962e6d0ea3c1ea3682eb2b100cbbc1094cdb10e3fcf4926f75d153ed12",
+      "gitBlob": "75941293a6c64812dedacb115f284ac585cfeaa0"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-jev-exact-activation/records/kaana-focal.log.txt",
+      "sha256": "5ce94e57dff3d088618f30303ad458498f5a366050f14bc7a262aa5714fec325"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-exact-activation/records/kaana-focal-final.log.txt",
+      "sha256": "84e8fffe7ac372f7d00ada45d8dfdddda6487664e1546a5af3ec2b7bc3d0b36e"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-exact-activation/records/kaana-build.log.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-exact-activation/records/kaana-vet.log.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/audits/2026-10-04-jev-exact-activation/records/interrepo-final.log.txt",
+      "sha256": "dab33406a4cee8530d21a3ec9af80d38fef7d9cc03890d7a7aaf022f71464ce2"
+    }
+  ],
+  "ownedPostgresPidsAbsent": [
+    1982662,
+    1986955,
+    1987977
+  ],
+  "validation": {
+    "oxyFocalSuites": 5,
+    "oxyFocalTests": 70,
+    "signedInterrepo": "one permanent runtime-role SQL claim, one provider-fake send; signed replay and foreign audience denied",
+    "kaanaRacePackages": [
+      "scopedpermit",
+      "publisher",
+      "kaana",
+      "httpapi"
+    ],
+    "canonicalApiBuild": 0,
+    "kaanaBuild": 0,
+    "kaanaVet": 0,
+    "eslint": 0
+  },
+  "historicalFailures": [
+    "API literal lacked ExactDecimal brand; schema parse fixed, final canonical build passed",
+    "Kaana absent-source test assumed compiled getter nil; explicit absent factory injection now tests absence while actual source has independent positive control"
+  ],
+  "limitations": [
+    "Source preparation only: no CI/image/rollout/catalogue/legal/preflight acceptance or provider call",
+    "Mention positive is synthetic local fixture injection, not production Mention source approval",
+    "No public approval, benchmark, legal bypass, new key/account/funds or pricing invented",
+    "Exact one Alia audience expires 2026-10-05T02:30:00.000Z; no renewal or reuse; permanent claim separate from min(sourceExpiry, now+300s) lease"
+  ],
+  "rootPreconditions": [
+    "Canonical deployment credential binding must be read fresh and established by root before publication/claim if missing",
+    "Both CI/images/rollouts, actual catalogue/legal operation and fresh eligibility readback are required before POST"
+  ]
+}

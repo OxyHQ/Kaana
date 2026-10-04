@@ -30,8 +30,8 @@
 #
 # # What this image deliberately does not contain
 #
-# No inventory snapshot and no provider rate card. Both are business data, and
-# baking the inventory would freeze its `issuedAt`: past KAANA_INVENTORY_MAX_AGE
+# No inventory snapshot. Reviewed immutable rate-card observations are baked
+# separately below; baking the inventory would freeze its `issuedAt`: past KAANA_INVENTORY_MAX_AGE
 # (default 1h) every unpinned model reference would be refused, so the image
 # would deploy green and degrade an hour later on a clock nobody was watching.
 # Kaana re-reads the file every KAANA_INVENTORY_RELOAD_INTERVAL, so the snapshot
@@ -135,8 +135,9 @@ RUN mkdir -p /out/etc/kaana-cutovers \
 # The reviewed production rate card (docs/cost.md), in a directory of its own
 # for the reason the attribution table has one: /etc/kaana is a mount point.
 # It is read only when the task sets KAANA_PROVIDER_RATES_PATH to it, and the
-# example file is never baked.
-RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json /out/etc/kaana-rates/ \
+# example file is never baked. The separate Jev observation stays inert until
+# the compiled scoped audience is reviewed; it never replaces the xAI card.
+RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json configs/provider-rates-jev-scoped.json /out/etc/kaana-rates/ \
     && chown -R 65532:65532 /out/etc/kaana-rates
 
 RUN mkdir -p /out/etc/ssl/certs \

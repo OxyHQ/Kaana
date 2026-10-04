@@ -187,7 +187,7 @@ func run(logger *slog.Logger) error {
 	// authority exists, both publisher and serving read the same baked card path.
 	var cards *providercost.Cards
 	if scopedpermit.SourceReviewedAudience() != nil {
-		cards, err = providercost.Load(environmentOr("KAANA_PROVIDER_RATES_PATH", "/etc/kaana-rates/provider-rates.json"))
+		cards, err = scopedpermit.LoadRateCards(os.Getenv("KAANA_PROVIDER_RATES_PATH"))
 		if err != nil {
 			return err
 		}
