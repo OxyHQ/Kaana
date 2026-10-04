@@ -42,6 +42,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 // DefaultInterval is how often the snapshot is re-issued.
@@ -266,13 +267,13 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 
 	now := p.now()
 	withhold, eligibility := p.withholdFor(ctx, discoveries, previousBody, published, now)
-	permit, err := sourceReviewedPrivatePermit(p.cards, eligibility, now)
-	if err != nil {
-		return err
-	}
+	permit := p.privatePermitForCycle(scopedpermit.SourceReviewedAudience(), eligibility, now)
 	built, err := buildSnapshotWithholding(discoveries, p.attribution, observations, now, withhold, p.withholding.ReportOnly, permit)
 	if err != nil {
 		return err
+	}
+	if built.PrivatePublicationOmitted {
+		p.logger.Warn("private deployment omitted; ordinary inventory refresh continues", "reason", "private_discovery_unverified")
 	}
 	for _, decision := range built.Withheld {
 		p.logger.Warn("a deployment its provider lists is withheld from the snapshot: Kaana's evidence says it cannot be served now",

@@ -47,3 +47,9 @@ source getter remains nil, so the production entrypoint does not load an
 optional card or activate a deployment. Activating a reviewed source permit is
 a separate change shared with Oxy, with an actual card version and finite
 expiry.
+
+A failed private prerequisite or unverified private discovery omits the private
+row from the newly built snapshot and emits a fixed diagnostic. Ordinary routes
+continue refreshing; a previous private row is never carried forward by that
+fallback. A snapshot with no ordinary or verified private route still fails the
+existing empty-inventory guard.

@@ -88,3 +88,14 @@ func scopedCandidate(discoveries []Discovery, permit *privatePublicationPermit, 
 	}
 	return candidate, nil
 }
+
+// A missing private prerequisite withdraws that row, never ordinary inventory.
+// No previous private permit is carried forward and logs contain no authority.
+func (p *Publisher) privatePermitForCycle(audience *contract.ScopedExecutionAudience, eligibility *Decider, at time.Time) *privatePublicationPermit {
+	permit, err := privatePermitForAudience(audience, p.cards, eligibility, at)
+	if err != nil {
+		p.logger.Warn("private deployment omitted; ordinary inventory refresh continues", "reason", "private_prerequisites_unavailable")
+		return nil
+	}
+	return permit
+}

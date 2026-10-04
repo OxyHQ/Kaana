@@ -100,6 +100,9 @@ type Discovery struct {
 
 // BuildResult is a built snapshot and what had to be dropped to build it.
 type BuildResult struct {
+	// PrivatePublicationOmitted reports only an unverified private candidate.
+	// It carries no permit or provider evidence into the ordinary snapshot.
+	PrivatePublicationOmitted bool
 	// Body is the exact bytes to publish, already validated by the real reader.
 	Body []byte
 	// SnapshotID identifies the CONTENT, so an unchanged re-issue keeps its id
@@ -245,9 +248,9 @@ func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 		}
 	}
 
-	candidate, err := scopedCandidate(discoveries, permit, at, withhold, reportOnly)
-	if err != nil {
-		return BuildResult{}, err
+	candidate, privateErr := scopedCandidate(discoveries, permit, at, withhold, reportOnly)
+	if privateErr != nil {
+		candidate = nil
 	}
 	if candidate != nil {
 		deployments = append(deployments, *candidate)
@@ -294,13 +297,14 @@ func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 	sort.Strings(inexecutable)
 	sort.Strings(unservable)
 	result := BuildResult{
-		Body:         body,
-		SnapshotID:   file.SnapshotID,
-		Deployments:  len(deployments),
-		Observations: observations,
-		Unattributed: unattributed,
-		Inexecutable: inexecutable,
-		Unservable:   unservable,
+		PrivatePublicationOmitted: privateErr != nil,
+		Body:                      body,
+		SnapshotID:                file.SnapshotID,
+		Deployments:               len(deployments),
+		Observations:              observations,
+		Unattributed:              unattributed,
+		Inexecutable:              inexecutable,
+		Unservable:                unservable,
 	}
 	if reportOnly {
 		result.WouldWithhold = decisions
