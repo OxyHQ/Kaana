@@ -79,6 +79,17 @@ func TestPrivateAutoNegotiationIndependentAndSourceBound(t *testing.T) {
 		if positive.Code != 200 || !bytes.Contains(positive.Body.Bytes(), []byte(`"privateAutoSourceApproval"`)) || !bytes.Contains(positive.Body.Bytes(), []byte(`"privateAutoExecutionContractVersion":"3.7.0"`)) {
 			t.Fatal("signed source negotiation failed", positive.Code, positive.Body.String())
 		}
+		if file := os.Getenv("KAANA_PRIVATE_AUTO_NEGOTIATION_FIXTURE"); file != "" && !models {
+			out, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, writeErr := out.Write(positive.Body.Bytes())
+			closeErr := out.Close()
+			if writeErr != nil || closeErr != nil {
+				t.Fatal(writeErr, closeErr)
+			}
+		}
 		if request(negotiate, models, false).Code != 401 {
 			t.Fatal("unsigned negotiation accepted")
 		}
