@@ -69,6 +69,8 @@ func TestPrivateAutoNegotiationIndependentAndSourceBound(t *testing.T) {
 		}
 		return response
 	}
+	// Explicitly retain the absent-source negative after production source activation.
+	server.privateAutoSource = func() *contract.PrivateAutoSourceApproval { return nil }
 	negotiate := `{"privateAutoExecutionContractVersion":"3.7.0"}`
 	if request(negotiate, false, true).Code != 400 || request(negotiate, true, true).Code != 400 {
 		t.Fatal("nil production source negotiated private Auto")

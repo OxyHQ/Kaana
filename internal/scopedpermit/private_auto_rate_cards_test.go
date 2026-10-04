@@ -154,9 +154,9 @@ func TestAutoCardFailsClosedForEveryBindingOrMissingFile(t *testing.T) {
 	}
 }
 
-func TestAutoSourceRemainsInactiveAndThirdFileNotRequired(t *testing.T) {
-	if SourceReviewedPrivateAutoApproval() != nil {
-		t.Fatal("test must not activate Auto")
+func TestAutoSourceUsesReviewedThirdCardPath(t *testing.T) {
+	if source := SourceReviewedPrivateAutoApproval(); source == nil || source.ApprovalID != "alia-private-auto-internal-20261005-01" {
+		t.Fatal("exact reviewed Auto source missing")
 	}
 	if privateAutoRateCardPath != "/etc/kaana-rates/provider-rates-jev-private-auto.json" {
 		t.Fatalf("unexpected Auto path %q", privateAutoRateCardPath)

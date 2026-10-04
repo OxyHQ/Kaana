@@ -35,6 +35,7 @@
 !configs/provider-rates.json
 # The separately reviewed private Jev observation; never admit configs/**.
 !configs/provider-rates-jev-scoped.json
+!configs/provider-rates-jev-private-auto.json
 
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the

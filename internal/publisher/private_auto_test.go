@@ -36,8 +36,8 @@ func autoPublicationFixture(t *testing.T) ([]Discovery, *privateAutoPublicationP
 func TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery(t *testing.T) {
 	discoveries, permit, at := autoPublicationFixture(t)
 	allow := func(contract.DeploymentID, contract.ProviderSlug) (Withholding, bool) { return Withholding{}, false }
-	if scopedpermit.SourceReviewedPrivateAutoApproval() != nil {
-		t.Fatal("production Auto source activated")
+	if source := scopedpermit.SourceReviewedPrivateAutoApproval(); source == nil || source.Validate() != nil {
+		t.Fatal("reviewed production Auto source missing")
 	}
 	candidate, err := privateAutoCandidate(discoveries, permit, at, allow, false)
 	if err != nil || candidate == nil || candidate.ScopedExecution != nil || candidate.Current || candidate.PrivateAutoSourceApproval == nil {
