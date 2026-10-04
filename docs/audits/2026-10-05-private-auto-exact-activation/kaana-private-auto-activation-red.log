@@ -1,0 +1,7 @@
+--- FAIL: TestPrivateAutoSourceMatchesExactReviewedApproval (0.00s)
+    private_auto_activation_test.go:32: compiled source differs from exact reviewed approval
+--- FAIL: TestPrivateAutoActualThirdCardRetainsOriginalObservations (0.00s)
+    private_auto_activation_test.go:60: missing reviewed Auto source
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/scopedpermit	0.002s
+FAIL

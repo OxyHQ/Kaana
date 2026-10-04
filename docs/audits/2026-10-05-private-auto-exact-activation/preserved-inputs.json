@@ -1,0 +1,44 @@
+[
+  {
+    "path": "internal/scopedpermit/source.go",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "fd77d6677019b907a7edd2c8c4d1d156c262fd13ede7cd9bd7b61f18008500ef",
+    "unchanged": true
+  },
+  {
+    "path": "configs/provider-rates.json",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968",
+    "unchanged": true
+  },
+  {
+    "path": "configs/provider-rates-jev-scoped.json",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "9d20790738035f59d5b609ad8096fa54a365aa3d04ed61a3e8243adf25454761",
+    "unchanged": true
+  },
+  {
+    "path": "internal/scopedpermit/rate_cards.go",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "b7e419277f0bb2ae48e1c3183d20c7c38ba73baecbd50cebba3ee76ef9608e7c",
+    "unchanged": true
+  },
+  {
+    "path": "tools/contract/package.json",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "b035602ead2e5de2fffd28ae2a6247dc170f97263c22d196f7bf3d1b06a7ab76",
+    "unchanged": true
+  },
+  {
+    "path": "tools/contract/bun.lock",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "b7d24989e54d57dda3ee4d6080359da6e7f15889b53724cf9e85867d61a8d630",
+    "unchanged": true
+  },
+  {
+    "path": "internal/contract/descriptor.json",
+    "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+    "sha256": "754f327ac4a493e22504095511779b8a249940c2e22edbde27da548d4c2e585f",
+    "unchanged": true
+  }
+]
