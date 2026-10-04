@@ -70,9 +70,10 @@ type Config struct {
 
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
 type Adapter struct {
-	scopedSource     func() *contract.ScopedExecutionAudience
-	scopedHTTPClient func() *http.Client
-	decisions        decisionReview
+	privateAutoSource func() *contract.PrivateAutoSourceApproval
+	scopedSource      func() *contract.ScopedExecutionAudience
+	scopedHTTPClient  func() *http.Client
+	decisions         decisionReview
 	// decisionTimeout overrides defaultDecisionDeadline; only tests set it.
 	decisionTimeout time.Duration
 
@@ -105,7 +106,7 @@ func New(config Config) (*Adapter, error) {
 	}
 	client := provider.RefuseRedirects(config.HTTPClient)
 	config.BaseURL = strings.TrimSuffix(config.BaseURL, "/")
-	return &Adapter{config: config, client: client, credentials: credentials, scopedSource: scopedpermit.SourceReviewedAudience, scopedHTTPClient: provider.NewSingleAttemptHTTPClient}, nil
+	return &Adapter{config: config, client: client, credentials: credentials, privateAutoSource: scopedpermit.SourceReviewedPrivateAutoApproval, scopedSource: scopedpermit.SourceReviewedAudience, scopedHTTPClient: provider.NewSingleAttemptHTTPClient}, nil
 }
 
 // quotaHeadersFor is what each provider speaking this protocol declares about

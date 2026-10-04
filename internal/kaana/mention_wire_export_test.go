@@ -7,3 +7,8 @@ import "github.com/OxyHQ/Kaana/internal/contract"
 func SetMentionAudienceForTest(e *Executor, audience contract.ScopedExecutionAudience) {
 	e.scopedSource = func() *contract.ScopedExecutionAudience { return &audience }
 }
+
+// Test binary only; no production activation switch is introduced.
+func SetPrivateAutoApprovalForTest(e *Executor, approval contract.PrivateAutoSourceApproval) {
+	e.privateAutoSource = func() *contract.PrivateAutoSourceApproval { return &approval }
+}

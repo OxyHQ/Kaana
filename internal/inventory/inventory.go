@@ -60,9 +60,10 @@ const DefaultMaxSnapshotAge = time.Hour
 
 // Deployment is one declared row of the inventory file.
 type Deployment struct {
-	ScopedExecution *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
-	DeploymentID    contract.DeploymentID             `json:"deploymentId"`
-	Provider        contract.ProviderSlug             `json:"provider"`
+	PrivateAutoSourceApproval *contract.PrivateAutoSourceApproval `json:"privateAutoSourceApproval,omitempty"`
+	ScopedExecution           *contract.ScopedExecutionAudience   `json:"scopedExecution,omitempty"`
+	DeploymentID              contract.DeploymentID               `json:"deploymentId"`
+	Provider                  contract.ProviderSlug               `json:"provider"`
 	// ModelReference is always revision-pinned: a deployment serves specific
 	// weights.
 	ModelReference contract.ModelReference `json:"modelReference"`
@@ -227,11 +228,12 @@ func ValidModality(modality string) bool {
 // `TestAnEndpointCannotCarryItsOwnModelReference` gates that by inspecting this
 // type, because the field is what a future change would add first.
 type Endpoint struct {
-	ScopedExecution *contract.ScopedExecutionAudience
-	DeploymentID    contract.DeploymentID
-	Provider        contract.ProviderSlug
-	UpstreamModelID string
-	Regions         []contract.Region
+	PrivateAutoSourceApproval *contract.PrivateAutoSourceApproval
+	ScopedExecution           *contract.ScopedExecutionAudience
+	DeploymentID              contract.DeploymentID
+	Provider                  contract.ProviderSlug
+	UpstreamModelID           string
+	Regions                   []contract.Region
 	// Observed is catalogue metadata. Candidates() copies exactly one field of
 	// it into a route, AcceptedParameters, which can only refuse a request;
 	// nothing the provider's model list said can change where a request goes
@@ -248,15 +250,16 @@ type Endpoint struct {
 // is attested; it must never be rewritten to the AWS region Kaana happens to run
 // in.
 type DeploymentDescriptor struct {
-	ScopedExecution           *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
-	KeyID                     string                            `json:"keyId,omitempty"`
-	UpstreamModelID           string                            `json:"upstreamModelId,omitempty"`
-	ProviderRateCardVersionID string                            `json:"providerRateCardVersionId,omitempty"`
-	ProviderSourceVersion     string                            `json:"providerSourceVersion,omitempty"`
-	DeploymentID              contract.DeploymentID             `json:"deploymentId"`
-	ModelReference            contract.ModelReference           `json:"modelReference"`
-	Provider                  contract.ProviderSlug             `json:"provider"`
-	Regions                   []contract.Region                 `json:"regions"`
+	PrivateAutoSourceApproval *contract.PrivateAutoSourceApproval `json:"privateAutoSourceApproval,omitempty"`
+	ScopedExecution           *contract.ScopedExecutionAudience   `json:"scopedExecution,omitempty"`
+	KeyID                     string                              `json:"keyId,omitempty"`
+	UpstreamModelID           string                              `json:"upstreamModelId,omitempty"`
+	ProviderRateCardVersionID string                              `json:"providerRateCardVersionId,omitempty"`
+	ProviderSourceVersion     string                              `json:"providerSourceVersion,omitempty"`
+	DeploymentID              contract.DeploymentID               `json:"deploymentId"`
+	ModelReference            contract.ModelReference             `json:"modelReference"`
+	Provider                  contract.ProviderSlug               `json:"provider"`
+	Regions                   []contract.Region                   `json:"regions"`
 	// AcceptedParameters is this deployment's own accepted-parameter set
 	// (Observed.AcceptedParameters): the caller controls its upstream takes.
 	// Absent is unknown, `[]` is "takes none of these". It is not part of the
@@ -288,12 +291,13 @@ func (s RouteSet) Candidates() []provider.Route {
 	routes := make([]provider.Route, 0, len(s.endpoints))
 	for _, endpoint := range s.endpoints {
 		routes = append(routes, provider.Route{
-			ScopedExecution: cloneAudience(endpoint.ScopedExecution),
-			DeploymentID:    endpoint.DeploymentID,
-			Provider:        endpoint.Provider,
-			ModelReference:  s.reference,
-			UpstreamModelID: endpoint.UpstreamModelID,
-			Regions:         append([]contract.Region(nil), endpoint.Regions...),
+			ScopedExecution:           cloneAudience(endpoint.ScopedExecution),
+			PrivateAutoSourceApproval: clonePrivateAutoApproval(endpoint.PrivateAutoSourceApproval),
+			DeploymentID:              endpoint.DeploymentID,
+			Provider:                  endpoint.Provider,
+			ModelReference:            s.reference,
+			UpstreamModelID:           endpoint.UpstreamModelID,
+			Regions:                   append([]contract.Region(nil), endpoint.Regions...),
 			// The accepted-parameter set is the one observation a route
 			// carries: it only lets Translate refuse what the upstream would
 			// reject, so it cannot change where a request goes or what is sent.
@@ -431,6 +435,11 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 	currentReference := make(map[contract.ModelID]contract.ModelReference)
 
 	for _, deployment := range parsed.Deployments {
+		if a := deployment.PrivateAutoSourceApproval; a != nil {
+			if a.Validate() != nil || deployment.ScopedExecution != nil || deployment.Current || a.DeploymentID != deployment.DeploymentID || a.Provider != deployment.Provider || a.ModelReference != deployment.ModelReference || a.UpstreamModelID != deployment.UpstreamModelID || !sameRegions(a.Regions, deployment.Regions) {
+				return nil, fmt.Errorf("inventory: private Auto identity differs")
+			}
+		}
 		if scope := deployment.ScopedExecution; scope != nil {
 			if err := scope.Validate(); err != nil {
 				return nil, fmt.Errorf("inventory: invalid scoped audience: %w", err)
@@ -479,12 +488,13 @@ func Parse(raw []byte, maxAge time.Duration) (*Inventory, error) {
 		set := inventory.byReference[deployment.ModelReference]
 		set.reference = deployment.ModelReference
 		set.endpoints = append(set.endpoints, Endpoint{
-			ScopedExecution: cloneAudience(deployment.ScopedExecution),
-			DeploymentID:    deployment.DeploymentID,
-			Provider:        deployment.Provider,
-			UpstreamModelID: deployment.UpstreamModelID,
-			Regions:         append([]contract.Region(nil), deployment.Regions...),
-			Observed:        deployment.Observed,
+			ScopedExecution:           cloneAudience(deployment.ScopedExecution),
+			PrivateAutoSourceApproval: clonePrivateAutoApproval(deployment.PrivateAutoSourceApproval),
+			DeploymentID:              deployment.DeploymentID,
+			Provider:                  deployment.Provider,
+			UpstreamModelID:           deployment.UpstreamModelID,
+			Regions:                   append([]contract.Region(nil), deployment.Regions...),
+			Observed:                  deployment.Observed,
 		})
 		inventory.byReference[deployment.ModelReference] = set
 
@@ -569,7 +579,7 @@ func (i *Inventory) Deployment(id contract.DeploymentID) (provider.Route, error)
 	var matched *provider.Route
 	for _, set := range i.byReference {
 		for _, route := range set.Candidates() {
-			if route.ScopedExecution != nil || route.DeploymentID != id {
+			if route.ScopedExecution != nil || route.PrivateAutoSourceApproval != nil || route.DeploymentID != id {
 				continue
 			}
 			if matched != nil {
@@ -604,7 +614,7 @@ func (i *Inventory) deploymentDescriptors(includeScoped bool) []DeploymentDescri
 	descriptors := make([]DeploymentDescriptor, 0)
 	for _, set := range i.byReference {
 		for _, endpoint := range set.endpoints {
-			if endpoint.ScopedExecution != nil && !includeScoped {
+			if endpoint.PrivateAutoSourceApproval != nil || (endpoint.ScopedExecution != nil && !includeScoped) {
 				continue
 			}
 			regions := make([]contract.Region, len(endpoint.Regions))
@@ -902,7 +912,7 @@ func cloneAudience(a *contract.ScopedExecutionAudience) *contract.ScopedExecutio
 func publicSet(set RouteSet) RouteSet {
 	out := RouteSet{reference: set.reference}
 	for _, endpoint := range set.endpoints {
-		if endpoint.ScopedExecution == nil {
+		if endpoint.ScopedExecution == nil && endpoint.PrivateAutoSourceApproval == nil {
 			out.endpoints = append(out.endpoints, endpoint)
 		}
 	}
@@ -954,7 +964,7 @@ func (i *Inventory) DeploymentScoped(id contract.DeploymentID, at time.Time, aud
 func (i *Inventory) PublicDeployments() []Endpoint {
 	out := []Endpoint{}
 	for _, endpoint := range i.Deployments() {
-		if endpoint.ScopedExecution == nil {
+		if endpoint.ScopedExecution == nil && endpoint.PrivateAutoSourceApproval == nil {
 			out = append(out, endpoint)
 		}
 	}
@@ -982,6 +992,9 @@ func (i *Inventory) CatalogueScoped(at time.Time) []CatalogueEntry {
 		seen := map[contract.ProviderSlug]bool{}
 		providers := []contract.ProviderSlug{}
 		for _, endpoint := range set.endpoints {
+			if endpoint.PrivateAutoSourceApproval != nil {
+				continue
+			}
 			if endpoint.ScopedExecution != nil && !endpoint.ScopedExecution.NotExpired(at) {
 				continue
 			}
@@ -1015,4 +1028,89 @@ func (i *Inventory) DeploymentDescriptorsScopedAt(at time.Time) []DeploymentDesc
 		}
 	}
 	return out
+}
+
+func clonePrivateAutoApproval(a *contract.PrivateAutoSourceApproval) *contract.PrivateAutoSourceApproval {
+	if a == nil {
+		return nil
+	}
+	copy := *a
+	copy.Regions = append([]contract.Region{}, a.Regions...)
+	return &copy
+}
+func sameRegions(a, b []contract.Region) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[contract.Region]bool{}
+	for _, r := range a {
+		seen[r] = true
+	}
+	for _, r := range b {
+		if !seen[r] {
+			return false
+		}
+		delete(seen, r)
+	}
+	return len(seen) == 0
+}
+
+// ResolvePrivateAuto never falls back to ordinary or commissioning rows.
+func (i *Inventory) ResolvePrivateAuto(reference contract.ModelReference, at time.Time, approval *contract.PrivateAutoSourceApproval) (RouteSet, error) {
+	out := RouteSet{reference: reference}
+	if approval == nil || !approval.NotExpired(at) || !reference.Pinned() {
+		return out, ErrNoRoute{Reference: reference}
+	}
+	for _, endpoint := range i.byReference[reference].endpoints {
+		if endpoint.ScopedExecution == nil && endpoint.PrivateAutoSourceApproval.Equal(approval) {
+			out.endpoints = append(out.endpoints, endpoint)
+		}
+	}
+	if out.Len() != 1 {
+		return RouteSet{}, ErrNoRoute{Reference: reference}
+	}
+	return out, nil
+}
+
+// Private Auto metadata is visible only in its independent signed negotiation.
+func (i *Inventory) DeploymentDescriptorsPrivateAutoAt(at time.Time, expected ...*contract.PrivateAutoSourceApproval) []DeploymentDescriptor {
+	out := i.DeploymentDescriptors()
+	for _, set := range i.byReference {
+		for _, e := range set.endpoints {
+			a := e.PrivateAutoSourceApproval
+			if a == nil || !a.NotExpired(at) || (len(expected) > 0 && !a.Equal(expected[0])) {
+				continue
+			}
+			out = append(out, DeploymentDescriptor{PrivateAutoSourceApproval: clonePrivateAutoApproval(a), KeyID: a.KeyID, UpstreamModelID: e.UpstreamModelID, ProviderRateCardVersionID: a.ProviderRateCardVersionID, ProviderSourceVersion: a.ProviderSourceVersion, DeploymentID: e.DeploymentID, ModelReference: set.reference, Provider: e.Provider, Regions: append([]contract.Region{}, e.Regions...), AcceptedParameters: acceptedParametersOf(e.Observed)})
+		}
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].DeploymentID < out[b].DeploymentID })
+	return out
+}
+
+// CataloguePrivateAuto includes observed private entries only under 3.7.
+func (i *Inventory) CataloguePrivateAuto(at time.Time, expected ...*contract.PrivateAutoSourceApproval) []CatalogueEntry {
+	entries := i.Catalogue()
+	seen := map[contract.ModelReference]bool{}
+	for _, e := range entries {
+		seen[e.Reference] = true
+	}
+	for reference, set := range i.byReference {
+		endpoints := []Endpoint{}
+		providers := []contract.ProviderSlug{}
+		for _, e := range set.endpoints {
+			if e.PrivateAutoSourceApproval != nil && e.PrivateAutoSourceApproval.NotExpired(at) && (len(expected) == 0 || e.PrivateAutoSourceApproval.Equal(expected[0])) {
+				endpoints = append(endpoints, e)
+				providers = append(providers, e.Provider)
+			}
+		}
+		if len(endpoints) == 0 || seen[reference] {
+			continue
+		}
+		entry := CatalogueEntry{Model: reference.ModelID(), Reference: reference, Providers: providers}
+		aggregateObservations(&entry, endpoints)
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(a, b int) bool { return entries[a].Reference < entries[b].Reference })
+	return entries
 }

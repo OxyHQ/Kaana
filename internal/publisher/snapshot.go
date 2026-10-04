@@ -50,13 +50,14 @@ type snapshotWithheld struct {
 }
 
 type snapshotDeployment struct {
-	ScopedExecution *contract.ScopedExecutionAudience `json:"scopedExecution,omitempty"`
-	DeploymentID    contract.DeploymentID             `json:"deploymentId"`
-	Provider        contract.ProviderSlug             `json:"provider"`
-	ModelReference  contract.ModelReference           `json:"modelReference"`
-	UpstreamModelID string                            `json:"upstreamModelId"`
-	Regions         []contract.Region                 `json:"regions,omitempty"`
-	Current         bool                              `json:"current"`
+	PrivateAutoSourceApproval *contract.PrivateAutoSourceApproval `json:"privateAutoSourceApproval,omitempty"`
+	ScopedExecution           *contract.ScopedExecutionAudience   `json:"scopedExecution,omitempty"`
+	DeploymentID              contract.DeploymentID               `json:"deploymentId"`
+	Provider                  contract.ProviderSlug               `json:"provider"`
+	ModelReference            contract.ModelReference             `json:"modelReference"`
+	UpstreamModelID           string                              `json:"upstreamModelId"`
+	Regions                   []contract.Region                   `json:"regions,omitempty"`
+	Current                   bool                                `json:"current"`
 	// Observed is copied verbatim from discovery. It deliberately reuses the
 	// reader's type: it is a leaf block with no routing meaning, and
 	// inventory.Parse validates it on the round trip before anything is written.
@@ -168,7 +169,7 @@ func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 	return buildSnapshotWithholding(discoveries, attribution, previous, at, withhold, reportOnly, nil)
 }
 
-func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool, permit *privatePublicationPermit) (BuildResult, error) {
+func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool, permit *privatePublicationPermit, privateAuto ...*privateAutoPublicationPermit) (BuildResult, error) {
 	if len(discoveries) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: no provider reported any models, so a snapshot would declare nothing and Kaana would refuse it")
 	}
@@ -255,6 +256,26 @@ func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 	if candidate != nil {
 		deployments = append(deployments, *candidate)
 	}
+	if len(privateAuto) > 0 && privateAuto[0] != nil {
+		autoCandidate, autoErr := privateAutoCandidate(discoveries, privateAuto[0], at, withhold, reportOnly)
+		if autoErr != nil {
+			privateErr = autoErr
+		}
+		if autoCandidate != nil {
+			collision := false
+			for _, d := range deployments {
+				if d.DeploymentID == autoCandidate.DeploymentID {
+					collision = true
+					break
+				}
+			}
+			if collision {
+				privateErr = fmt.Errorf("publisher: private Auto deployment already belongs to another publication")
+			} else {
+				deployments = append(deployments, *autoCandidate)
+			}
+		}
+	}
 	if len(deployments) == 0 {
 		if len(withheld) > 0 {
 			return BuildResult{}, fmt.Errorf("publisher: every servable deployment is withheld (%d), so the snapshot would be empty; the published one is left in place", len(withheld))
@@ -331,7 +352,7 @@ func ObservationsFrom(body []byte) (Observations, error) {
 	// returns, which is the silent re-pointing this state exists to prevent.
 	references := make([]contract.ModelReference, 0, len(parsed.Deployments)+len(parsed.Withheld))
 	for _, deployment := range parsed.Deployments {
-		if deployment.ScopedExecution == nil {
+		if deployment.ScopedExecution == nil && deployment.PrivateAutoSourceApproval == nil {
 			references = append(references, deployment.ModelReference)
 		}
 	}
@@ -396,6 +417,15 @@ func contentID(deployments []snapshotDeployment) string {
 		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%s\x00%v\x00%t\n",
 			deployment.DeploymentID, deployment.Provider, deployment.ModelReference,
 			deployment.UpstreamModelID, deployment.Regions, deployment.Current)
+		if deployment.PrivateAutoSourceApproval != nil {
+			private, _ := json.Marshal(struct {
+				Approval *contract.PrivateAutoSourceApproval `json:"approval"`
+				Observed *inventory.Observed                 `json:"observed"`
+			}{deployment.PrivateAutoSourceApproval, deployment.Observed})
+			_, _ = digest.Write([]byte("private-auto-v4\x00"))
+			_, _ = digest.Write(private)
+			_, _ = digest.Write([]byte("\n"))
+		}
 		if deployment.ScopedExecution != nil {
 			scoped, _ := json.Marshal(struct {
 				Audience *contract.ScopedExecutionAudience `json:"audience"`

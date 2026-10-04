@@ -45,7 +45,7 @@ const RequestEnvelopeVersion = 2
 // window. Callers must still validate the version-specific target rules before
 // interpreting the rest of the envelope.
 func SupportsRequestEnvelopeVersion(version int) bool {
-	return version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion || version == ScopedRequestEnvelopeVersion
+	return version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion || version == ScopedRequestEnvelopeVersion || version == PrivateAutoRequestEnvelopeVersion
 }
 
 // UsageReportSchemaVersion is the normalized usage-report schema this build
