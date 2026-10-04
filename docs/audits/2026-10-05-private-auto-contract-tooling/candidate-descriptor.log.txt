@@ -1,0 +1,4 @@
+=== RUN   TestPrivateAutoCandidateDescriptor
+--- PASS: TestPrivateAutoCandidateDescriptor (0.00s)
+PASS
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.006s
