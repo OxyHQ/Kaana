@@ -187,3 +187,56 @@ func TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry(t *testing.T) {
 		})
 	}
 }
+
+func TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version string
+		source  string
+		allowed bool
+	}{
+		{"own card", "card", "source", true},
+		{"foreign card version", "foreign-card", "source", false},
+		{"own version with mismatched source", "card", "different-source", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, request, adapter, claims := scopedExecutorFixture(t)
+			// Two genuinely distinct immutable documents, loaded by the production API.
+			// The fixture clock remains unchanged; the added card cannot become evidence
+			// for the approved private deployment.
+			folder := t.TempDir()
+			documents := []string{
+				`{"schemaVersion":1,"rateCardVersionId":"card","source":"operator","sourceVersion":"source","observedAt":"2026-10-02T00:00:00Z","effectiveAt":"2026-10-02T00:00:00Z","rateCards":[{"deploymentId":"dep-private","currency":"USD","rates":[{"unit":"input_tokens","amountPerUnit":42000},{"unit":"output_tokens","amountPerUnit":0}]}]}`,
+				`{"schemaVersion":1,"rateCardVersionId":"foreign-card","source":"provider_documentation","sourceVersion":"foreign-source","observedAt":"2026-09-30T00:00:00Z","effectiveAt":"2026-09-30T00:00:00Z","rateCards":[{"deploymentId":"foreign-deployment","currency":"USD","rates":[{"unit":"input_tokens","amountPerUnit":99999}]}]}`,
+			}
+			paths := []string{filepath.Join(folder, "own.json"), filepath.Join(folder, "foreign.json")}
+			for i, document := range documents {
+				if err := os.WriteFile(paths[i], []byte(document), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cards, err := providercost.Load(paths...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.costs = cards
+			// Match the signed/source/snapshot audience to isolate the actual-card check.
+			audience := request.ScopedExecution.ScopedExecutionAudience
+			audience.ProviderRateCardVersionID = tc.version
+			audience.ProviderSourceVersion = tc.source
+			request.ScopedExecution.ScopedExecutionAudience = audience
+			e.scopedSource = func() *contract.ScopedExecutionAudience { return &audience }
+			result := e.Execute(context.Background(), request, func(contract.StreamEvent) error { return nil })
+			if tc.allowed {
+				if result.Failure != nil || adapter.sends != 1 || claims.calls != 1 {
+					t.Fatalf("two-card positive failed: %+v sends=%d claims=%d", result.Failure, adapter.sends, claims.calls)
+				}
+				if result.UpstreamCost.Attempts[0].RateCardVersionID != "card" {
+					t.Fatal("cost cites foreign observation")
+				}
+			} else if result.Failure == nil || adapter.sends != 0 || claims.calls != 0 {
+				t.Fatalf("foreign evidence accepted: %+v sends=%d claims=%d", result.Failure, adapter.sends, claims.calls)
+			}
+		})
+	}
+}

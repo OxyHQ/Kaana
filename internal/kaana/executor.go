@@ -1036,7 +1036,7 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 		if e.scopedSource == nil || !scopedpermit.Matches(&scope.ScopedExecutionAudience, e.scopedSource(), at) || e.scopedClaims == nil || scope.SnapshotID != snapshot.SnapshotID() {
 			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped source approval unavailable")
 		}
-		observation, ok := e.costs.Observation()
+		observation, ok := e.costs.ObservationForDeployment(scope.DeploymentID)
 		if !ok || observation.VersionID != scope.ProviderRateCardVersionID || observation.SourceVersion != scope.ProviderSourceVersion {
 			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped actual price identity unavailable")
 		}
