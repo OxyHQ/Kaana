@@ -111,16 +111,13 @@ returns at once.
 
 ## Closed gates and release dependencies
 
-**Unpaired UTF-16 surrogates are an open activation gate.** Go decodes a lone
-surrogate escape such as `"\ud800"` in the signed envelope to U+FFFD. The
-provider would therefore receive different text from what Oxy accepted, and
-Oxy's measurement of the escape (6 bytes) differs from Kaana's (3). The size
-difference cannot let Kaana accept anything Oxy refused, and the budgets stay
-as they are. The silent substitution is still unacceptable for a decision.
-Before any gate opens, text containing unpaired surrogates must be refused as
-unsupported, before spend: by Oxy's schema, and by Kaana on the raw signed
-body, because after decoding it cannot be told apart from a genuine U+FFFD.
-This change does not implement that refusal.
+**Kaana rejects unpaired UTF-16 surrogates before decoding.**
+`internal/httpapi/decision_unicode.go` validates the raw signed decisions body,
+so a lone surrogate cannot silently become U+FFFD. Valid supplementary pairs
+and a literal U+FFFD remain valid. Oxy must also reject unsupported text before
+reservation; that separate control-plane change is tracked in
+[oxy#1572](https://github.com/OxyHQ/oxy/issues/1572). A Kaana refusal alone does
+not prove the Oxy pre-reservation boundary.
 
 All production constructors leave five independent reviews unapproved: resale
 rights, internal eligibility, privacy, ZDR, and immutable route identity. Both
@@ -148,8 +145,10 @@ regenerating from the published package changed nothing but the removed local
 the gates above. Health reports 3.5.0, so the deployed Oxy handshake must
 require 3.5.0; envelope version alone is not negotiation. No Jev model call has
 been made. The resale-rights, internal-eligibility, privacy, ZDR and
-immutable-route-identity reviews remain unapproved, the unpaired-surrogate
-activation gate remains open, and every production path still refuses.
+immutable-route-identity reviews remain unapproved in production source. The
+Kaana surrogate refusal is implemented; Oxy pre-reservation validation and
+real route acceptance are tracked separately. Every production decisions path
+still refuses while its source-reviewed approval is absent.
 
 Reviewed public references (2026-10-01; no authenticated provider calls):
 
@@ -157,3 +156,36 @@ Reviewed public references (2026-10-01; no authenticated provider calls):
 - [TypeSafe model documentation](https://docs.typesafe.ai/models): version identity and context limits.
 - [OpenRouter's Jev guide](https://openrouter.ai/blog/insights/what-is-jev/): compatible `/v1/systemone` path and dated response example.
 - [OpenRouter provider routing](https://openrouter.ai/docs/features/provider-routing): routing preference vocabulary; family-specific enforcement remains unverified.
+
+
+## Existing OpenRouter route evidence — 2026-10-04
+
+The [current OpenRouter Jev guide](https://openrouter.ai/docs/guides/community/jev)
+states that existing OpenRouter keys can call Jev with the same account and
+billing. A separate TypeSafe account or new order is not a default prerequisite.
+The [System One guide](https://openrouter.ai/docs/guides/community/typesafe-sdk)
+documents the existing `/api/v1/systemone` endpoint and a response with dated
+model `typesafe/jev-1.13-20260917` and provider `TypeSafe`.
+
+The public [ZDR endpoint list](https://openrouter.ai/api/v1/endpoints/zdr), read
+on this date, includes `TypeSafe | typesafe/jev-1.13-20260917` under canonical
+model `typesafe/jev-1.13`, with prompt price `0.000000042` USD/token,
+completion price `0` and `supports_implicit_caching:false`. Both the canonical
+and dated model endpoint metadata URLs resolve to that same endpoint. These
+are public route facts, not an authenticated inference result or proof that a
+dated request identifier is accepted.
+
+The [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request)
+explicitly accepts provider preferences. The System One guide does not by
+itself establish enforcement of each preference on that surface. The existing
+adapter already supplies TypeSafe-only routing, no fallback, ZDR, denied data
+collection and exact price ceilings for scoped calls. The remaining technical
+acceptance is a bounded call through the existing custody and signed admission
+path, with model/provider binding and independently reconciled usage. It must
+retain any refusal instead of removing privacy filters to obtain a success.
+
+The public evidence corrects the earlier assumption that a new provider account
+or direct TypeSafe enterprise agreement must be obtained. It does not turn on
+`SourceReviewedAudience`, publish a deployment, approve customer resale, or
+activate Mention/Auto. The exact source authorization, principal, funding,
+request identity and receipt controls remain in [oxy#1572](https://github.com/OxyHQ/oxy/issues/1572).
