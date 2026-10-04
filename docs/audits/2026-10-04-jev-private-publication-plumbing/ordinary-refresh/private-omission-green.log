@@ -1,0 +1,3 @@
+ok  	github.com/OxyHQ/Kaana/internal/publisher	3.427s
+ok  	github.com/OxyHQ/Kaana/internal/providercost	1.144s
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-publisher	1.034s

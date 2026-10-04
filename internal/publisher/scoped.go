@@ -5,6 +5,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"time"
 )
 
@@ -17,8 +18,26 @@ type privatePublicationPermit struct {
 	Eligibility    *Decider
 }
 
-// No reviewed principal/funding/privacy/immutable route publication exists yet.
-func sourceReviewedPrivatePermit() *privatePublicationPermit { return nil }
+// Only compiled source approval can activate private publication. Actual cards
+// and the same-cycle database Decider are dependencies, never caller authority.
+func sourceReviewedPrivatePermit(cards *providercost.Cards, eligibility *Decider, at time.Time) (*privatePublicationPermit, error) {
+	return privatePermitForAudience(scopedpermit.SourceReviewedAudience(), cards, eligibility, at)
+}
+
+func privatePermitForAudience(audience *contract.ScopedExecutionAudience, cards *providercost.Cards, eligibility *Decider, at time.Time) (*privatePublicationPermit, error) {
+	if audience == nil || !audience.NotExpired(at) {
+		return nil, nil
+	}
+	if !scopedpermit.Matches(audience, audience, at) || eligibility == nil || !eligibility.now.Equal(at) {
+		return nil, fmt.Errorf("publisher: reviewed private authority lacks fresh canonical eligibility")
+	}
+	observation, loaded := cards.Observation()
+	price, priced := cards.ScopedDecisionPublishedPrice(audience.DeploymentID, at)
+	if !loaded || !priced || observation.VersionID != audience.ProviderRateCardVersionID || observation.SourceVersion != audience.ProviderSourceVersion {
+		return nil, fmt.Errorf("publisher: reviewed private authority lacks its actual immutable card")
+	}
+	return &privatePublicationPermit{Audience: *audience, PublishedPrice: price, Cards: cards, Eligibility: eligibility}, nil
+}
 
 func scopedCandidate(discoveries []Discovery, permit *privatePublicationPermit, at time.Time, withhold Withhold, reportOnly bool) (*snapshotDeployment, error) {
 	if permit == nil {
@@ -68,4 +87,15 @@ func scopedCandidate(discoveries []Discovery, permit *privatePublicationPermit, 
 		return nil, nil
 	}
 	return candidate, nil
+}
+
+// A missing private prerequisite withdraws that row, never ordinary inventory.
+// No previous private permit is carried forward and logs contain no authority.
+func (p *Publisher) privatePermitForCycle(audience *contract.ScopedExecutionAudience, eligibility *Decider, at time.Time) *privatePublicationPermit {
+	permit, err := privatePermitForAudience(audience, p.cards, eligibility, at)
+	if err != nil {
+		p.logger.Warn("private deployment omitted; ordinary inventory refresh continues", "reason", "private_prerequisites_unavailable")
+		return nil
+	}
+	return permit
 }

@@ -1,10 +1,15 @@
 package publisher
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,7 +41,8 @@ func TestPrivatePublicationRequiresNormalEvidenceAndCannotEnableGeneralJev(t *te
 	if candidate.Current || candidate.ScopedExecution == nil {
 		t.Fatal("private candidate broadened")
 	}
-	if sourceReviewedPrivatePermit() != nil || executable(discoveries[0].Provider, permit.Audience.UpstreamModelID) {
+	sourcePermit, sourceErr := sourceReviewedPrivatePermit(permit.Cards, permit.Eligibility, at)
+	if sourceErr != nil || sourcePermit != nil || executable(discoveries[0].Provider, permit.Audience.UpstreamModelID) {
 		t.Fatal("global Jev publication enabled")
 	}
 	for _, tc := range []struct {
@@ -76,5 +82,137 @@ func TestScopedSnapshotHashChangesOnlyForScopedEvidence(t *testing.T) {
 	candidate.Observed = nil
 	if contentID([]snapshotDeployment{*candidate}) != legacy {
 		t.Fatal("legacy observed fields entered hash")
+	}
+}
+
+func TestPrivateFactoryUsesActualCardAndSameCycleEligibility(t *testing.T) {
+	discoveries, fixture := privateFixture(t)
+	at := fixture.Eligibility.now
+	permit, err := privatePermitForAudience(&fixture.Audience, fixture.Cards, fixture.Eligibility, at)
+	if err != nil || permit == nil || permit.Cards != fixture.Cards || permit.Eligibility != fixture.Eligibility || permit.PublishedPrice != fixture.PublishedPrice {
+		t.Fatalf("actual dependency positive: permit=%+v err=%v", permit, err)
+	}
+	built, err := buildSnapshotWithholding(discoveries, testAttribution(t), Observations{}, at, fixture.Eligibility.Decide, false, permit)
+	if err != nil {
+		t.Fatalf("actual snapshot construction: %v", err)
+	}
+	var snapshot snapshotFile
+	if err := json.Unmarshal(built.Body, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Deployments) != 1 || snapshot.Deployments[0].Current || snapshot.Deployments[0].ScopedExecution == nil || !snapshot.Deployments[0].ScopedExecution.Equal(&fixture.Audience) {
+		t.Fatal("private route was missing, broadened, or changed")
+	}
+	if _, err := BuildSnapshotWithholding(discoveries, testAttribution(t), Observations{}, at, fixture.Eligibility.Decide, false); err == nil {
+		t.Fatal("public snapshot builder admitted private authority")
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*privatePublicationPermit)
+	}{
+		{"missing-card", func(p *privatePublicationPermit) { p.Cards = nil }},
+		{"missing-evidence", func(p *privatePublicationPermit) { p.Eligibility = nil }},
+		{"previous-cycle", func(p *privatePublicationPermit) { p.Eligibility.now = at.Add(-time.Nanosecond) }},
+		{"card-version", func(p *privatePublicationPermit) { p.Audience.ProviderRateCardVersionID = "other-card" }},
+		{"source-version", func(p *privatePublicationPermit) { p.Audience.ProviderSourceVersion = "other-source" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, f := privateFixture(t)
+			tc.mutate(f)
+			if got, err := privatePermitForAudience(&f.Audience, f.Cards, f.Eligibility, at); err == nil || got != nil {
+				t.Fatal("missing actual source dependency accepted")
+			}
+		})
+	}
+	expired := fixture.Audience
+	expired.ExpiresAt = string(contract.NewTimestamp(at))
+	if got, err := privatePermitForAudience(&expired, fixture.Cards, fixture.Eligibility, at); err != nil || got != nil {
+		t.Fatal("expired approval did not disappear")
+	}
+	if got, err := privatePermitForAudience(nil, nil, nil, at); err != nil || got != nil {
+		t.Fatal("inert source approval changed legacy publication")
+	}
+}
+
+func TestFailedDatabaseEvidenceCannotBecomePrivateEligibility(t *testing.T) {
+	discoveries, f := privateFixture(t)
+	at := f.Eligibility.now
+	evidence := &fakeEvidence{evidence: f.Eligibility.evidence}
+	p := &Publisher{evidence: evidence, withholding: DefaultWithholdPolicy(), logger: quietLogger()}
+	withhold, decider := p.withholdFor(context.Background(), discoveries, nil, false, at)
+	if withhold == nil || decider == nil || !decider.now.Equal(at) {
+		t.Fatal("fresh actual evidence lost its same-cycle Decider")
+	}
+	if got, err := privatePermitForAudience(&f.Audience, f.Cards, decider, at); err != nil || got == nil {
+		t.Fatal("fresh private positive failed", err)
+	}
+	evidence.set(f.Eligibility.evidence, errors.New("synthetic SQL unavailable"))
+	carry, missing := p.withholdFor(context.Background(), discoveries, nil, false, at)
+	if carry == nil || missing != nil {
+		t.Fatal("legacy fallback unexpectedly supplied private eligibility")
+	}
+	if got, err := privatePermitForAudience(&f.Audience, f.Cards, missing, at); err == nil || got != nil {
+		t.Fatal("private publication accepted carried fallback")
+	}
+}
+
+func TestPrivateFailureDropsPreviousPrivateWithoutStoppingOrdinaryRefresh(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*privatePublicationPermit)
+	}{
+		{"missing-card", func(p *privatePublicationPermit) { p.Cards = nil }},
+		{"missing-eligibility", func(p *privatePublicationPermit) { p.Eligibility = nil }},
+		{"mismatched-price", func(p *privatePublicationPermit) { p.PublishedPrice.Input = "0.043" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			discoveries, permit := privateFixture(t)
+			discoveries = append(discoveries, Discovery{Provider: Provider{Slug: "groq"}, Models: []DiscoveredModel{{UpstreamModelID: "gpt-oss-120b"}}})
+			at := permit.Eligibility.now
+			allowed := func(contract.DeploymentID, contract.ProviderSlug) (Withholding, bool) { return Withholding{}, false }
+			previous, err := buildSnapshotWithholding(discoveries, testAttribution(t), Observations{}, at, allowed, false, permit)
+			if err != nil || previous.Deployments != 2 {
+				t.Fatal("positive private and ordinary snapshot", err)
+			}
+			observations, err := ObservationsFrom(previous.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			permit.Eligibility = NewDecider(permit.Eligibility.evidence, DefaultWithholdPolicy(), at.Add(time.Second))
+			tc.mutate(permit)
+			next, err := buildSnapshotWithholding(discoveries, testAttribution(t), observations, at.Add(time.Second), allowed, false, permit)
+			if err != nil {
+				t.Fatal("private failure stopped ordinary refresh", err)
+			}
+			snapshot := parseSnapshot(t, next.Body)
+			var ordinaryReference contract.ModelReference
+			for _, d := range parseSnapshot(t, previous.Body).Deployments {
+				if d.Provider == "groq" {
+					ordinaryReference = d.ModelReference
+				}
+			}
+			if len(snapshot.Deployments) != 1 || snapshot.Deployments[0].Provider != "groq" || snapshot.Deployments[0].ScopedExecution != nil || snapshot.Deployments[0].ModelReference != ordinaryReference {
+				t.Fatal("private carried forward, ordinary removed, or original reference changed")
+			}
+		})
+	}
+}
+
+func TestPrivateCycleOmissionIsDiagnosedWithoutAuthorityAndNeverCarriesOldPermit(t *testing.T) {
+	_, f := privateFixture(t)
+	var logs bytes.Buffer
+	p := &Publisher{cards: f.Cards, logger: slog.New(slog.NewTextHandler(&logs, nil))}
+	if got := p.privatePermitForCycle(&f.Audience, f.Eligibility, f.Eligibility.now); got == nil {
+		t.Fatal("positive cycle permit missing")
+	}
+	if got := p.privatePermitForCycle(&f.Audience, nil, f.Eligibility.now); got != nil {
+		t.Fatal("previous private authority carried across failed SQL")
+	}
+	if !strings.Contains(logs.String(), "private_prerequisites_unavailable") || strings.Contains(logs.String(), f.Audience.KeyID) || strings.Contains(logs.String(), f.Audience.Principal.CredentialID) {
+		t.Fatal("missing diagnostic or authority leaked")
+	}
+	before := logs.Len()
+	if got := p.privatePermitForCycle(nil, nil, f.Eligibility.now); got != nil || logs.Len() != before {
+		t.Fatal("inert source changed ordinary cycle or emitted refusal")
 	}
 }

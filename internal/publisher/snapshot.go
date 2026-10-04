@@ -100,6 +100,9 @@ type Discovery struct {
 
 // BuildResult is a built snapshot and what had to be dropped to build it.
 type BuildResult struct {
+	// PrivatePublicationOmitted reports only an unverified private candidate.
+	// It carries no permit or provider evidence into the ordinary snapshot.
+	PrivatePublicationOmitted bool
 	// Body is the exact bytes to publish, already validated by the real reader.
 	Body []byte
 	// SnapshotID identifies the CONTENT, so an unchanged re-issue keeps its id
@@ -161,6 +164,11 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 // routes. With reportOnly, every decision is returned in WouldWithhold and
 // nothing is left out. A nil withhold withholds nothing.
 func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool) (BuildResult, error) {
+	// Public builders never accept private authority supplied by their caller.
+	return buildSnapshotWithholding(discoveries, attribution, previous, at, withhold, reportOnly, nil)
+}
+
+func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool, permit *privatePublicationPermit) (BuildResult, error) {
 	if len(discoveries) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: no provider reported any models, so a snapshot would declare nothing and Kaana would refuse it")
 	}
@@ -240,9 +248,9 @@ func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 		}
 	}
 
-	candidate, err := scopedCandidate(discoveries, sourceReviewedPrivatePermit(), at, withhold, reportOnly)
-	if err != nil {
-		return BuildResult{}, err
+	candidate, privateErr := scopedCandidate(discoveries, permit, at, withhold, reportOnly)
+	if privateErr != nil {
+		candidate = nil
 	}
 	if candidate != nil {
 		deployments = append(deployments, *candidate)
@@ -289,13 +297,14 @@ func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 	sort.Strings(inexecutable)
 	sort.Strings(unservable)
 	result := BuildResult{
-		Body:         body,
-		SnapshotID:   file.SnapshotID,
-		Deployments:  len(deployments),
-		Observations: observations,
-		Unattributed: unattributed,
-		Inexecutable: inexecutable,
-		Unservable:   unservable,
+		PrivatePublicationOmitted: privateErr != nil,
+		Body:                      body,
+		SnapshotID:                file.SnapshotID,
+		Deployments:               len(deployments),
+		Observations:              observations,
+		Unattributed:              unattributed,
+		Inexecutable:              inexecutable,
+		Unservable:                unservable,
 	}
 	if reportOnly {
 		result.WouldWithhold = decisions

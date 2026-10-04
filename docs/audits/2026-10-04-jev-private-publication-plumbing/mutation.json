@@ -1,0 +1,7 @@
+{
+  "mutation": "remove same-cycle eligibility check in private factory",
+  "mutantExit": 1,
+  "restoredExit": 0,
+  "beforeSha256": "951c2617b94e90ea3017060ce4ee301320528f6e46159819a3a2ef15d3dd70ab",
+  "restoredSha256": "951c2617b94e90ea3017060ce4ee301320528f6e46159819a3a2ef15d3dd70ab"
+}

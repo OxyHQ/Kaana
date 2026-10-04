@@ -1,0 +1,10 @@
+--- FAIL: TestPrivateFailureDropsPreviousPrivateWithoutStoppingOrdinaryRefresh (0.00s)
+    --- FAIL: TestPrivateFailureDropsPreviousPrivateWithoutStoppingOrdinaryRefresh/missing-card (0.00s)
+        scoped_test.go:182: private failure stopped ordinary refresh publisher: scoped actual card identity or price differs
+    --- FAIL: TestPrivateFailureDropsPreviousPrivateWithoutStoppingOrdinaryRefresh/missing-eligibility (0.00s)
+        scoped_test.go:182: private failure stopped ordinary refresh publisher: fresh publication eligibility unavailable
+    --- FAIL: TestPrivateFailureDropsPreviousPrivateWithoutStoppingOrdinaryRefresh/mismatched-price (0.00s)
+        scoped_test.go:182: private failure stopped ordinary refresh publisher: scoped actual card identity or price differs
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/publisher	0.004s
+FAIL

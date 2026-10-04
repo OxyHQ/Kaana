@@ -1,0 +1,6 @@
+--- FAIL: TestPrivateFactoryUsesActualCardAndSameCycleEligibility (0.00s)
+    --- FAIL: TestPrivateFactoryUsesActualCardAndSameCycleEligibility/previous-cycle (0.00s)
+        scoped_test.go:120: missing actual source dependency accepted
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/publisher	0.004s
+FAIL
