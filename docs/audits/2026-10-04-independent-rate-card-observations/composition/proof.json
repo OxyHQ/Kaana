@@ -1,0 +1,19 @@
+{
+  "kind": "independent-card-source-main-composition-v1",
+  "composedCommit": "a40988bb4dd4c8ad183c1c88ba471af855322cf0",
+  "currentMain": "44e8ecd66145b73292e3164dc2448614123b6ae5",
+  "mainTree": "9bcd32b05d70003563ac121d62d0d5a342092172",
+  "originalAcceptedBase": "63c1b80d96ef83d5e80f3ccb22dbdc4ddbacede3",
+  "originalAcceptedBaseTree": "9bcd32b05d70003563ac121d62d0d5a342092172",
+  "mainFullTreeEqualOriginalAcceptedBase": true,
+  "composedWholeTree": "4f56f663ee913d40753c299fc730bf9e4dddf33a",
+  "testedCheckpointWholeTree": "4f56f663ee913d40753c299fc730bf9e4dddf33a",
+  "composedFullTreeEqualTestedCheckpoint": true,
+  "mergeConflictResolution": [
+    "internal/publisher/scoped.go",
+    "internal/publisher/scoped_test.go"
+  ],
+  "resolutionReason": "The fetched main squash and accepted original base have identical full Git trees; retain tested follow-up files byte-exact, verified final full tree matches tested checkpoint",
+  "noRepeatedTestsNecessaryBecauseWholeTreeEqual": true,
+  "noActivation": true
+}
