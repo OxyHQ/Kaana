@@ -11,19 +11,60 @@ import (
 
 // PrivateAutoRequest is the v4 wire shape. The ordinary Request stays v2/3.
 type PrivateAutoRequest struct {
-	Request
-	PrivateAutoExecution PrivateAutoExecution `json:"privateAutoExecution"`
+	Speech               *SpeechParameters      `json:"speech,omitempty"`
+	AudioOutput          *AudioOutputParameters `json:"audioOutput,omitempty"`
+	SchemaVersion        int                    `json:"schemaVersion"`
+	Attribution          Attribution            `json:"attribution"`
+	Target               RoutingTarget          `json:"target"`
+	Modality             Modality               `json:"modality"`
+	Input                Input                  `json:"input"`
+	Stream               bool                   `json:"stream"`
+	MaxOutputTokens      *int                   `json:"maxOutputTokens,omitempty"`
+	Sampling             SamplingParameters     `json:"sampling"`
+	Reasoning            *ReasoningParameters   `json:"reasoning,omitempty"`
+	Tools                []ToolDefinition       `json:"tools,omitempty"`
+	ToolChoice           *ToolChoice            `json:"toolChoice,omitempty"`
+	ResponseFormat       *ResponseFormat        `json:"responseFormat,omitempty"`
+	Client               ClientRequestMetadata  `json:"client"`
+	IdempotencyKey       *IdempotencyKey        `json:"idempotencyKey,omitempty"`
+	RoutingPolicy        RoutingPolicyReference `json:"routingPolicy"`
+	AuthorizedRoutes     []AuthorizedRoute      `json:"authorizedRoutes,omitempty"`
+	PrivateAutoExecution PrivateAutoExecution   `json:"privateAutoExecution"`
+}
+
+// PrivateAutoInput is the strict private input shape, separate from the public
+// Input union. Its template restrictions are checked by the request validator.
+type PrivateAutoInput struct {
+	Format    InputFormat   `json:"format"`
+	Decisions DecisionInput `json:"decisions"`
 }
 
 func (r *PrivateAutoRequest) InferenceRequest() Request {
-	request := r.Request
-	request.PrivateAutoExecution = &r.PrivateAutoExecution
-	return request
+	return Request{
+		Speech:               r.Speech,
+		AudioOutput:          r.AudioOutput,
+		SchemaVersion:        r.SchemaVersion,
+		Attribution:          r.Attribution,
+		Target:               r.Target,
+		Modality:             r.Modality,
+		Input:                r.Input,
+		Stream:               r.Stream,
+		MaxOutputTokens:      r.MaxOutputTokens,
+		Sampling:             r.Sampling,
+		Reasoning:            r.Reasoning,
+		Tools:                r.Tools,
+		ToolChoice:           r.ToolChoice,
+		ResponseFormat:       r.ResponseFormat,
+		Client:               r.Client,
+		IdempotencyKey:       r.IdempotencyKey,
+		RoutingPolicy:        r.RoutingPolicy,
+		AuthorizedRoutes:     r.AuthorizedRoutes,
+		PrivateAutoExecution: &r.PrivateAutoExecution,
+	}
 }
 
 func (r *PrivateAutoRequest) UnmarshalJSON(raw []byte) error {
 	allowed := privateAutoFields(reflect.TypeFor[PrivateAutoRequest]())
-	delete(allowed, "scopedExecution")
 	if fields, err := privateAutoObject(raw, allowed); err != nil {
 		return err
 	} else if err = validatePrivateAutoChildren(fields, reflect.TypeFor[PrivateAutoRequest]()); err != nil {
@@ -90,7 +131,6 @@ func (r *Request) ValidatePrivateAutoInputBytes(raw []byte) error {
 		return nil
 	}
 	allowed := privateAutoFields(reflect.TypeFor[PrivateAutoRequest]())
-	delete(allowed, "scopedExecution")
 	fields, err := privateAutoObject(raw, allowed)
 	if err != nil {
 		return err
@@ -99,27 +139,42 @@ func (r *Request) ValidatePrivateAutoInputBytes(raw []byte) error {
 	if len(input) > PrivateAutoMaximumBytes {
 		return errors.New("contract: private Auto controlled input exceeds byte limit")
 	}
-	leaf, err := privateAutoObject(input, map[string]bool{"format": true, "decisions": true})
-	if err != nil {
+	if _, err = decodePrivateAutoInput(input); err != nil {
 		return err
 	}
-	decisions, err := privateAutoObject(leaf["decisions"], map[string]bool{"state": true, "instructions": true, "questions": true})
-	if err != nil {
-		return err
-	}
-	var questions []json.RawMessage
-	if err = json.Unmarshal(decisions["questions"], &questions); err != nil {
-		return err
-	}
-	if len(questions) != 1 {
-		return errors.New("contract: private Auto single question required")
-	}
-	if _, err = privateAutoObject(questions[0], map[string]bool{"id": true, "kind": true, "question": true, "criteria": true, "options": true}); err != nil {
-		return err
-	}
+
 	sum := sha256.Sum256(input)
 	if hex.EncodeToString(sum[:]) != r.PrivateAutoExecution.InputSHA256 {
 		return errors.New("contract: private Auto input hash differs")
 	}
 	return nil
+}
+
+func decodePrivateAutoInput(input []byte) (PrivateAutoInput, error) {
+	var value PrivateAutoInput
+	leaf, err := privateAutoObject(input, map[string]bool{"format": true, "decisions": true})
+	if err != nil {
+		return value, err
+	}
+	decisions, err := privateAutoObject(leaf["decisions"], map[string]bool{"state": true, "instructions": true, "questions": true})
+	if err != nil {
+		return value, err
+	}
+	var questions []json.RawMessage
+	if err = json.Unmarshal(decisions["questions"], &questions); err != nil {
+		return value, err
+	}
+	if len(questions) != 1 {
+		return value, errors.New("contract: private Auto single question required")
+	}
+	if _, err = privateAutoObject(questions[0], map[string]bool{"id": true, "kind": true, "question": true, "criteria": true, "options": true}); err != nil {
+		return value, err
+	}
+	if err = json.Unmarshal(input, &value); err != nil {
+		return value, err
+	}
+	if value.Format != InputDecisions {
+		return value, errors.New("contract: private Auto decisions input required")
+	}
+	return value, nil
 }

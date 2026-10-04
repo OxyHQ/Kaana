@@ -2,12 +2,10 @@ package contract
 
 import (
 	"encoding/json"
-	"os"
-	"reflect"
 	"testing"
 )
 
-// Separate candidate fixtures cannot silently enter the published 3.5 validator.
+// Private contract fixtures are validated against the exact installed published package.
 func TestWritePrivateAutoWireFixtures(t *testing.T) {
 	var source PrivateAutoSourceApproval
 	if err := json.Unmarshal(privateAutoGolden(t, "approval"), &source); err != nil {
@@ -20,11 +18,19 @@ func TestWritePrivateAutoWireFixtures(t *testing.T) {
 	if err := json.Unmarshal(privateAutoGolden(t, "unicode"), &unicode); err != nil {
 		t.Fatal(err)
 	}
+	rawInput, err := json.Marshal(first.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateInput, err := decodePrivateAutoInput(rawInput)
+	if err != nil {
+		t.Fatal(err)
+	}
 	valid := []fixture{
 		{Schema: "privateAutoSourceApprovalSchema", Case: "source", Value: source},
 		{Schema: "privateAutoExecutionSchema", Case: "child", Value: first.PrivateAutoExecution},
 		{Schema: "privateAutoPrincipalSchema", Case: "principal", Value: source.Principal},
-		{Schema: "privateAutoInputSchema", Case: "input", Value: first.Input},
+		{Schema: "privateAutoInputSchema", Case: "input", Value: privateInput},
 		{Schema: "privateAutoInferenceRequestSchema", Case: "go-envelope", Value: first},
 		{Schema: "privateAutoInferenceRequestSchema", Case: "go-unicode-envelope", Value: unicode},
 	}
@@ -55,71 +61,4 @@ func TestWritePrivateAutoWireFixtures(t *testing.T) {
 	root := fixtureOutputRoot(t)
 	writeFixtures(t, root+"/valid", valid)
 	writeFixtures(t, root+"/invalid", invalid)
-}
-
-// The canonical generated candidate descriptor is separate from descriptor.json.
-// Check its four newly exchanged named shapes with the existing structural comparator.
-func TestPrivateAutoCandidateDescriptor(t *testing.T) {
-	path := os.Getenv("KAANA_PRIVATE_AUTO_CANDIDATE_DESCRIPTOR")
-	if path == "" {
-		t.Skip("candidate descriptor is supplied by the explicit provisional validator")
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var file descriptorFile
-	if err = json.Unmarshal(raw, &file); err != nil {
-		t.Fatal(err)
-	}
-	var provenance struct {
-		Source struct {
-			Kind   string `json:"kind"`
-			Origin string `json:"origin"`
-		} `json:"source"`
-	}
-	if err = json.Unmarshal(raw, &provenance); err != nil {
-		t.Fatal(err)
-	}
-	if provenance.Source.Kind != "unpublished-local-build" || provenance.Source.Origin != os.Getenv("OXY_CONTRACTS_LOCAL_SOURCE") {
-		t.Fatal("candidate provenance differs")
-	}
-	shapes := map[string]reflect.Type{
-		"privateAutoSourceApprovalSchema": reflect.TypeFor[PrivateAutoSourceApproval](),
-		"privateAutoExecutionSchema":      reflect.TypeFor[PrivateAutoExecution](),
-		"privateAutoPrincipalSchema":      reflect.TypeFor[PrivateAutoPrincipal](),
-		"privateAutoInputSchema":          reflect.TypeFor[Input](),
-	}
-	// Nested exported references use the same registered production Go types.
-	for name, typ := range shapes {
-		if _, exists := goShapes[name]; exists {
-			t.Fatal("candidate unexpectedly registered as published")
-		}
-		goShapes[name] = typ
-	}
-	defer func() {
-		for name := range shapes {
-			delete(goShapes, name)
-		}
-	}()
-	checker := shapeChecker{descriptor: file}
-	for name, typ := range shapes {
-		node, ok := file.Shapes[name]
-		if !ok {
-			t.Fatalf("candidate omits %s", name)
-		}
-		// private input deliberately excludes text/messages/batch formats through
-		// strict decoding; actual values are tested against Zod below. The legacy
-		// shared Input struct carries those other variants, so only its two private
-		// fields are structurally compared here.
-		if name == "privateAutoInputSchema" {
-			typ = reflect.TypeOf(struct {
-				Format    InputFormat   `json:"format"`
-				Decisions DecisionInput `json:"decisions"`
-			}{})
-		}
-		for _, problem := range checker.compareShape(name, node, typ) {
-			t.Error(problem)
-		}
-	}
 }

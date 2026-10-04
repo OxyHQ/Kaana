@@ -83,12 +83,17 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
-	"decisionInputSchema":             reflect.TypeOf(DecisionInput{}),
-	"decisionQuestionSchema":          reflect.TypeOf(DecisionQuestion{}),
-	"decisionAnswerSchema":            reflect.TypeOf(DecisionAnswer{}),
-	"decisionResultSchema":            reflect.TypeOf(DecisionResult{}),
-	"decisionFailureSchema":           reflect.TypeOf(DecisionFailure{}),
-	"inferenceSpeechParametersSchema": reflect.TypeOf(SpeechParameters{}),
+	"privateAutoSourceApprovalSchema":   reflect.TypeFor[PrivateAutoSourceApproval](),
+	"privateAutoExecutionSchema":        reflect.TypeFor[PrivateAutoExecution](),
+	"privateAutoPrincipalSchema":        reflect.TypeFor[PrivateAutoPrincipal](),
+	"privateAutoInputSchema":            reflect.TypeFor[PrivateAutoInput](),
+	"privateAutoInferenceRequestSchema": reflect.TypeFor[PrivateAutoRequest](),
+	"decisionInputSchema":               reflect.TypeOf(DecisionInput{}),
+	"decisionQuestionSchema":            reflect.TypeOf(DecisionQuestion{}),
+	"decisionAnswerSchema":              reflect.TypeOf(DecisionAnswer{}),
+	"decisionResultSchema":              reflect.TypeOf(DecisionResult{}),
+	"decisionFailureSchema":             reflect.TypeOf(DecisionFailure{}),
+	"inferenceSpeechParametersSchema":   reflect.TypeOf(SpeechParameters{}),
 	// contracts 4.4.0 (set 3.2.0): spoken output from a conversational model.
 	"inferenceAudioOutputParametersSchema": reflect.TypeOf(AudioOutputParameters{}),
 	"inferenceStreamAudioEventSchema":      reflect.TypeOf(StreamAudioEvent{}),
@@ -343,10 +348,15 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 // A shape leaves this list only by being implemented, and joins it only with a
 // reason that names the owner.
 var notApplicable = map[string]string{
-	"powerLevelSchema":      "Oxy control-plane power-level selection; not exchanged with Kaana.",
-	"modelPowerClassSchema": "Oxy control-plane model classification; not exchanged with Kaana.",
-	"decisionRequestSchema": "Oxy public request; Kaana receives the signed inference envelope.",
-	"decisionSuccessSchema": "Oxy public response; Kaana returns DecisionResult with technical usage.",
+	"costCenterUsageSchema":            "Oxy owns the cost-center usage projection and customer ledger",
+	"inferenceEconomicTreatmentSchema": "Oxy owns economic treatment; Kaana only executes the signed private authority",
+	"meteredGenerationSchema":          "Oxy owns the metered generation receipt returned to product clients",
+	"providerCostSourceSchema":         "Oxy owns provider-cost source attribution on product receipts",
+	"inferenceOutputModalitySchema":    "Oxy owns catalogue output capabilities; Kaana receives execution modality on the request",
+	"powerLevelSchema":                 "Oxy control-plane power-level selection; not exchanged with Kaana.",
+	"modelPowerClassSchema":            "Oxy control-plane model classification; not exchanged with Kaana.",
+	"decisionRequestSchema":            "Oxy public request; Kaana receives the signed inference envelope.",
+	"decisionSuccessSchema":            "Oxy public response; Kaana returns DecisionResult with technical usage.",
 	// Catalogue identity and pricing are Oxy's (ADR 0006). Kaana consumes
 	// canonical model ids as opaque strings and holds its own operational
 	// inventory; it neither serves nor stores a customer-facing catalogue.
@@ -485,7 +495,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 101
+const expectedNotApplicableCount = 106
 
 type enumBinding struct {
 	goType  reflect.Type
