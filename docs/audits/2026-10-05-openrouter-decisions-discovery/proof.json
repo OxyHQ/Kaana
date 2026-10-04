@@ -1,0 +1,74 @@
+{
+  "source": "69bd59717486a24adf9c027263d55e04c783de43",
+  "base": "34495fadbb203b50a5047d305737d3e75895529b",
+  "sources": [
+    {
+      "path": "docs/inventory.md",
+      "sha256": "1250d9e408d99134d4743d9b15c826919225dd3c2c9338b5576e8db333dbebfe"
+    },
+    {
+      "path": "internal/publisher/discovery.go",
+      "sha256": "3c00316de97628fc2dc2442d973f1d4ccd444e5257b3dced1f17e1fdad0ee840"
+    },
+    {
+      "path": "internal/publisher/discovery_decisions_test.go",
+      "sha256": "62d77c839e92af6b266304b25e80839debd9fd119729920649f1239296841979"
+    },
+    {
+      "path": "internal/publisher/testdata/openrouter-decisions/provenance.json",
+      "sha256": "1cf626f1aa23c9bdb61939edbdccb75986209703f9efcda331f1b823e405fd03"
+    },
+    {
+      "path": "internal/publisher/testdata/openrouter-decisions/text-decisions.json.gz",
+      "sha256": "0e11256ce10135ee7232c9afe0154e3b5c70c8fe1c1e3ce05f738fa2ab0443e8"
+    },
+    {
+      "path": "internal/publisher/testdata/openrouter-decisions/text.json.gz",
+      "sha256": "a6d663cfba3225e8150539b5b0040eb8db48cfb3705d3e0f2cd0d81acda8d95a"
+    },
+    {
+      "path": "internal/publisher/testdata/openrouter-decisions/zdr.json.gz",
+      "sha256": "79eb7bdc71d602808ae4c359909b38a151d753e6420442f2017c4f72965ca8d2"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/red.log",
+      "sha256": "4482e3ca2c79bfd36ca94e5ba07264c07cdfee47cc98e394969740f9dbc69595"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/green.log",
+      "sha256": "f178943f3555ae1176b8396fa0525ce77bdd0ab36bf4a14a4ab3ee07df4726d5"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/publisher-race.log",
+      "sha256": "1751b9fe8699510c99119b42c77d7f7e7a9f24ba676d98227be93621419ea786"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/publisher-final-race.log",
+      "sha256": "dbaff4f8c5d48ab9658daee9dcaf9c9158eaba7d7c583bd34d634e69e9c3aac2"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/full-race.log",
+      "sha256": "1e4748159dc8e3cfe44256303137a02a8ae04936b16c0ce9aac67aa7584e30d7"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/lint-initial.log",
+      "sha256": "ab797959f00b9c270a6be2ee874c219dfbff601d7d6aa802ec7e56364faa2aee"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/lint-final.log",
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    },
+    {
+      "path": "docs/audits/2026-10-05-openrouter-decisions-discovery/commands.json",
+      "sha256": "8dbabedd23b3e1c13f86bad0d58b7e071994b9ecd5bd47810f32adb061ad5fdd"
+    }
+  ],
+  "limits": [
+    "Public metadata served by authenticated local mock is not production account eligibility evidence.",
+    "One existing model-list GET gains output_modalities=text,decisions; ZDR/account/card/withholding/permit checks unchanged.",
+    "No AWS/provider inference/push/deploy or source audience changes.",
+    "Full Go suite may skip database integration absent opt-in; no database acceptance claimed."
+  ]
+}

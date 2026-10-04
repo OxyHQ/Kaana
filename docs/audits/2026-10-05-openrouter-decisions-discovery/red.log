@@ -1,0 +1,6 @@
+--- FAIL: TestDecisionDiscoveryAuthenticatedListToPrivateSnapshot (0.13s)
+    --- FAIL: TestDecisionDiscoveryAuthenticatedListToPrivateSnapshot/exact-private-candidate (0.07s)
+        discovery_decisions_test.go:128: authenticated decisions discovery omitted exact private candidate: publisher: scoped authenticated catalogue binding absent
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/publisher	0.138s
+FAIL
