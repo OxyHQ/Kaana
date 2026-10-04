@@ -1,0 +1,12 @@
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_card
+    scoped_executor_test.go:232: two-card positive failed: permission_denied: scoped actual price identity unavailable (requestId=request-1, retryable=false) sends=0 claims=0
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/foreign_card_version
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_version_with_mismatched_source
+--- FAIL: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards (0.00s)
+    --- FAIL: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_card (0.00s)
+    --- PASS: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/foreign_card_version (0.00s)
+    --- PASS: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_version_with_mismatched_source (0.00s)
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/kaana	0.005s
+FAIL

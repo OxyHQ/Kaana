@@ -1,0 +1,34 @@
+=== RUN   TestScopedExecutorClaimsBeforeSendAndRefusesFreshRequestReplay
+--- PASS: TestScopedExecutorClaimsBeforeSendAndRefusesFreshRequestReplay (0.00s)
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/principal_mismatch
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/snapshot_mismatch
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/actual_card_mismatch
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/wrong_existing_key_binding
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/nil_source
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/no_claim_storage
+=== RUN   TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/missing_invoke
+--- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers (0.01s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/principal_mismatch (0.00s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/snapshot_mismatch (0.00s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/actual_card_mismatch (0.00s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/wrong_existing_key_binding (0.00s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/nil_source (0.00s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/no_claim_storage (0.00s)
+    --- PASS: TestScopedExecutorRefusesBeforeClaimWhenAuthorityEvidenceDiffers/missing_invoke (0.00s)
+=== RUN   TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry
+=== RUN   TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry/unknown_claim
+=== RUN   TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry/uncertain_send
+--- PASS: TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry (0.00s)
+    --- PASS: TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry/unknown_claim (0.00s)
+    --- PASS: TestScopedExecutorUnknownClaimAndUncertainSendNeverRetry/uncertain_send (0.00s)
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_card
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/foreign_card_version
+=== RUN   TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_version_with_mismatched_source
+--- PASS: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards (0.00s)
+    --- PASS: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_card (0.00s)
+    --- PASS: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/foreign_card_version (0.00s)
+    --- PASS: TestScopedExecutorUsesExactDeploymentObservationAcrossTwoCards/own_version_with_mismatched_source (0.00s)
+PASS
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.045s

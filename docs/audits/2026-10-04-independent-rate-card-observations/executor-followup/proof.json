@@ -1,0 +1,108 @@
+{
+  "kind": "scoped-executor-two-card-followup-proof-v1",
+  "sourceCommit": "e03a069c8c4ef6599e28248cb08f9aa728cd01b2",
+  "baseCommit": "63c1b80d96ef83d5e80f3ccb22dbdc4ddbacede3",
+  "sourceInputs": [
+    {
+      "path": "cmd/kaana/main.go",
+      "bytes": 43617,
+      "sha256": "313f195bcc8d874d09ba89d17ef1433dc0c19def7e66f7d397ae054bfd305fb6"
+    },
+    {
+      "path": "docs/cost.md",
+      "bytes": 10514,
+      "sha256": "bfb8e0320f4b0fa685de650131c2c0114b7789f536a2ebd325ff1dc39c047325"
+    },
+    {
+      "path": "internal/credentialstore/separate_rate_cards_postgres_integration_test.go",
+      "bytes": 2783,
+      "sha256": "132eb7d9a8945f24ec03b3f03070f4cde7082ce310f80269539fad89229d0062"
+    },
+    {
+      "path": "internal/kaana/executor.go",
+      "bytes": 55516,
+      "sha256": "26ff4f2cf85379067ee6dfa1ce3111b016f4f3ae22b898eda4a6c949ab1de8d5"
+    },
+    {
+      "path": "internal/kaana/scoped_executor_test.go",
+      "bytes": 13227,
+      "sha256": "3264f174ebbf8e64b798c613a5de9b050f2d3a94d2974e627fffebad61c9a2e8"
+    },
+    {
+      "path": "internal/providercost/multiple_observations_test.go",
+      "bytes": 4304,
+      "sha256": "1c6dcccb42f142488c357f0dfc3e69a513ef02b3b563b74da63d2432dd59739e"
+    },
+    {
+      "path": "internal/providercost/providercost.go",
+      "bytes": 30288,
+      "sha256": "9dc00592526458b86497b5112b8ca6403dd6eff9c957742e0daa90a825d7b184"
+    },
+    {
+      "path": "internal/providercost/scoped_price.go",
+      "bytes": 3399,
+      "sha256": "0c2c8e63fd5498df5b91ccc6156cddf07ed3acd5c260bc714a2d56db380832e3"
+    },
+    {
+      "path": "internal/publisher/scoped.go",
+      "bytes": 5158,
+      "sha256": "3c533b76300b8d905661ea897e37c9e619a152451f14fb8fbae5dbdc619b4b0d"
+    },
+    {
+      "path": "internal/publisher/scoped_test.go",
+      "bytes": 13244,
+      "sha256": "155fea4c30b26216b6f8a27faac394a4e3998c194cffa31107b7cd3a0347d3b1"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/executor-followup/executor-two-cards-red.log",
+      "bytes": 993,
+      "sha256": "6dd8fb9f8ba72968eac5d46272d5975c69d55fa9ad31e4358645b158d89686fb"
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/executor-followup/executor-two-cards-green.log",
+      "bytes": 3007,
+      "sha256": "d1590298430e25f1e2e1128f39b4eaf04da370cf4e219c2defa4f0398da33d5d"
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/executor-followup/make-check-executor-final.log",
+      "bytes": 4684,
+      "sha256": "29331ea5c271b6b70bdf343b962a800e836b8d6b3f88da8393447b9216e49d14"
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/executor-followup/historical-executor-fixture-compile.log",
+      "bytes": 259,
+      "sha256": "8b38f02b44fdb26584db44c19376003ef1d0d8c4bf59ae17c3de1bba35e31edc"
+    }
+  ],
+  "priorCheckpoint": {
+    "commit": "edae2a1",
+    "path": "docs/audits/2026-10-04-independent-rate-card-observations/proof.json",
+    "sha256": "5c2e3627f4d80ecba211649a6ad9dafc4393c5219f472ec019d0791d3f9f2cda",
+    "completeScopedExecution": false
+  },
+  "validation": {
+    "redExit": 1,
+    "redSameFixture": {
+      "ownCard": "permission_denied/0claims/0sends",
+      "foreignVersion": "PASSdenial",
+      "mismatchedSource": "PASSdenial"
+    },
+    "greenExit": 0,
+    "greenSameFixture": {
+      "ownCard": "1claim/1send/cost-own-version",
+      "foreignVersion": "PASSdenial",
+      "mismatchedSource": "PASSdenial"
+    },
+    "finalMakeCheckExit": 0,
+    "remainingRuntimeGlobalObservationCalls": 0
+  },
+  "limits": [
+    "prior edae2a1 passed tests but omitted executor lookup; retained as incomplete checkpoint",
+    "historical initial fixture Result.Cost compile error retained, not product RED",
+    "getters nil, existing xAI config bytes unchanged; no production/card/getter activation",
+    "no production/provider requests",
+    "base main44e composition still required"
+  ]
+}

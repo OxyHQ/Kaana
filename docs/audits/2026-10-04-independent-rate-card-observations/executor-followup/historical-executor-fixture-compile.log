@@ -1,0 +1,4 @@
+# github.com/OxyHQ/Kaana/internal/kaana [github.com/OxyHQ/Kaana/internal/kaana.test]
+internal/kaana/scoped_executor_test.go:234:15: result.Cost undefined (type Result has no field or method Cost)
+FAIL	github.com/OxyHQ/Kaana/internal/kaana [build failed]
+FAIL
