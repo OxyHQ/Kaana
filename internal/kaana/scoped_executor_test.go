@@ -77,8 +77,11 @@ func (f *scopedAdapterFixture) Stream(ctx context.Context, call *provider.Call, 
 }
 func scopedExecutorFixture(t *testing.T) (*Executor, *contract.Request, *scopedAdapterFixture, *scopedClaimFixture) {
 	t.Helper()
-	at := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
-	audience := contract.ScopedExecutionAudience{PermitID: "synthetic-permit", IdempotencyKey: "idem", FixtureSHA256: strings.Repeat("a", 64), ExpiresAt: at.Add(2 * time.Minute).Format(time.RFC3339), Principal: contract.ScopedExecutionPrincipal{AccountID: "account", ApplicationID: "app", CredentialID: "credential", Environment: contract.EnvironmentProduction}, Policy: contract.RoutingPolicyReference{RoutingPolicyID: "policy", PolicyVersion: 1}, DeploymentID: "dep-private", Provider: "openrouter", KeyID: "exact-key", ModelReference: "typesafe/jev-1.13@2026-09-17", UpstreamModelID: "typesafe/jev-1.13-20260917", PriceVersionID: "oxy-price", ProviderRateCardVersionID: "card", ProviderSourceVersion: "source", MaxCostUSD: "0.01"}
+	return scopedExecutorFixtureAt(t, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), 2*time.Minute)
+}
+func scopedExecutorFixtureAt(t *testing.T, at time.Time, sourceLifetime time.Duration) (*Executor, *contract.Request, *scopedAdapterFixture, *scopedClaimFixture) {
+	t.Helper()
+	audience := contract.ScopedExecutionAudience{PermitID: "synthetic-permit-" + strings.ReplaceAll(t.Name(), "/", "-"), IdempotencyKey: "idem", FixtureSHA256: strings.Repeat("a", 64), ExpiresAt: at.Add(sourceLifetime).Format(time.RFC3339), Principal: contract.ScopedExecutionPrincipal{AccountID: "account", ApplicationID: "app", CredentialID: "credential", Environment: contract.EnvironmentProduction}, Policy: contract.RoutingPolicyReference{RoutingPolicyID: "policy", PolicyVersion: 1}, DeploymentID: "dep-private", Provider: "openrouter", KeyID: "exact-key", ModelReference: "typesafe/jev-1.13@2026-09-17", UpstreamModelID: "typesafe/jev-1.13-20260917", PriceVersionID: "oxy-price", ProviderRateCardVersionID: "card", ProviderSourceVersion: "source", MaxCostUSD: "0.01"}
 	deployment := inventory.Deployment{ScopedExecution: &audience, DeploymentID: audience.DeploymentID, Provider: audience.Provider, ModelReference: audience.ModelReference, UpstreamModelID: audience.UpstreamModelID, Regions: []contract.Region{"test-region"}}
 	raw, err := json.Marshal(map[string]any{"snapshotId": "snapshot", "issuedAt": contract.NewTimestamp(at), "deployments": []inventory.Deployment{deployment}})
 	if err != nil {
