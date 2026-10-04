@@ -1,0 +1,8 @@
+ok  	github.com/OxyHQ/Kaana/internal/contract	1.307s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	2.562s
+ok  	github.com/OxyHQ/Kaana/internal/inventory	1.074s
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.763s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaicompat	37.265s
+ok  	github.com/OxyHQ/Kaana/internal/providercost	1.145s
+ok  	github.com/OxyHQ/Kaana/internal/publisher	3.946s
+ok  	github.com/OxyHQ/Kaana/internal/scopedpermit	1.015s

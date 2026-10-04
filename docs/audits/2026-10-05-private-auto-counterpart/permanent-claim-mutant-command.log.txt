@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/home/nate/Oxy/.agent-evidence/integration-private-auto-kaana-20261005/owned-pg.py", line 20, in <module>
+    r=run(['go','test','-race','-count=1','./internal/kaana','-run','^TestPrivateAutoSignedHTTPPermanentSQLChild$','-v'],env)
+  File "/home/nate/Oxy/.agent-evidence/integration-private-auto-kaana-20261005/owned-pg.py", line 10, in run
+    if r.returncode:raise RuntimeError('owned PG fixture command failed')
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: owned PG fixture command failed

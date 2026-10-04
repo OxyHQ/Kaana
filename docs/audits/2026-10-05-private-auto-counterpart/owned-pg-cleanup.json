@@ -1,0 +1,9 @@
+{
+  "testsExit": 0,
+  "ownPid": 2050002,
+  "port": 58012,
+  "database": "kaana_auto_fixture",
+  "noProductionAccess": true,
+  "pidAbsent": true,
+  "postmasterPidAbsent": true
+}

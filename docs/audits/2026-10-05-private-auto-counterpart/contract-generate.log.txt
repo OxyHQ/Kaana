@@ -1,0 +1,18 @@
+$ bun generate.mjs
+39 | const packageJsonPath = require.resolve('@oxy.so/contracts/package.json');
+40 | const packageRoot = dirname(packageJsonPath);
+41 | const packageManifest = require('@oxy.so/contracts/package.json');
+42 | const inferenceDir = join(packageRoot, 'dist', 'esm', 'inference');
+43 | 
+44 | const installed = realpathSync(join(import.meta.dirname, 'node_modules'));
+                       ^
+ENOENT: no such file or directory, lstat '/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-counterpart-20261004/tools/contract/node_modules'
+    path: "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-counterpart-20261004/tools/contract/node_modules",
+ syscall: "lstat",
+   errno: -2,
+    code: "ENOENT"
+
+      at /home/nate/Oxy/Kaana/.worktrees/1572-private-auto-counterpart-20261004/tools/contract/generate.mjs:44:19
+
+Bun v1.4.2 (Linux x64)
+error: script "generate" exited with code 1

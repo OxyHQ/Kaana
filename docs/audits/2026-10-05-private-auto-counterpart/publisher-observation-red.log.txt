@@ -1,0 +1,26 @@
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/price
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/privacy
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/expiry
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/region
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/unservable
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/auth
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/key
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/fresh
+=== RUN   TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/privatelegal
+--- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery (0.01s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/price (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/privacy (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/expiry (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/region (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/unservable (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/auth (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/key (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/fresh (0.00s)
+    --- PASS: TestPrivateAutoPublicationRequiresFreshPrivateReviewAndDiscovery/privatelegal (0.00s)
+=== RUN   TestPrivateAutoOmissionPreservesOrdinaryAndNeverCarriesStalePrivateRow
+    private_auto_test.go:113: publisher: the previous snapshot pins "typesafe/jev-1.13@2026-09-17" to revision "2026-09-17", which this publisher did not mint; refusing to re-date it
+--- FAIL: TestPrivateAutoOmissionPreservesOrdinaryAndNeverCarriesStalePrivateRow (0.00s)
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/publisher	0.027s
+FAIL
