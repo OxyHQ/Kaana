@@ -1,0 +1,88 @@
+{
+  "kind": "kaana-private-auto-published410-audit-v1",
+  "sourceCommit": "bc24381dce9eb178bf06b23ddf1f0a00c4666f43",
+  "baseLoaderCommit": "770f5ea",
+  "gitInputs": [
+    {
+      "path": "docs/contract.md",
+      "sha256": "2e9d77fa31c024e8949e0051d039242e2d8e55bb143188422de39476fc9141a6"
+    },
+    {
+      "path": "internal/contract/descriptor.json",
+      "sha256": "776b8b42573b735637a24dff4592f3d4f32de6c1b5fee74238273deb9ca52729"
+    },
+    {
+      "path": "internal/contract/descriptor_test.go",
+      "sha256": "433546015b1c7b8f1675b805c448bd0f3fd610c29a1553011c6f31b37cdf5f49"
+    },
+    {
+      "path": "internal/contract/private_auto_fixtures_test.go",
+      "sha256": "f63da0e78de3fafd5ed10de24c0e324fa927620560e28dd320bc6c3bbafb63ba"
+    },
+    {
+      "path": "internal/contract/private_auto_request.go",
+      "sha256": "25620cc866b8aa627b6c5c27e3a278215dbb7f6caf7a988aa25f61caaf4668cf"
+    },
+    {
+      "path": "tools/contract/bun.lock",
+      "sha256": "6593c31f9ab1d18eaba31e278079c54c48691e3b0acbcafb48fa83b17875ed9d"
+    },
+    {
+      "path": "tools/contract/package.json",
+      "sha256": "73c694deb048977b477bc70441e4150465f2957caf473a1e77f44e9dcabda054"
+    },
+    {
+      "path": "tools/contract/validate-private-auto.mjs",
+      "sha256": "9dd0e0b3f0550368202e52347ad008e44959ec2b5b1c2c15862ab677c48eb085"
+    }
+  ],
+  "publishedArchive": {
+    "path": "/home/nate/Oxy/.agent-evidence/root-1519-full-completion-20261004/contracts410-publication-final/contracts.tgz",
+    "sha256": "506ec6f933a749fb420bdd97365e8363be34712ae023325f903a9c66f374d06c",
+    "integrity": "sha512-TsVCYxAlcEsXvqH8TQhZpsFU05mCDh+4968xxPZxmk88VPaigaS3uYmLpbaEIV6RB3VHKoFaK4JEYy9jJNRFvg==",
+    "registryReceipt": {
+      "path": "/home/nate/Oxy/.agent-evidence/root-1519-full-completion-20261004/contracts410-publication-final/contracts-registry-readback.json",
+      "sha256": "dae2c8bffc1cc9b9a5f1f215a86e218e3c2aed8908512f7e53c49ca19fad95f5"
+    }
+  },
+  "registryReceipt": {
+    "path": "docs/audits/2026-10-05-private-auto-published-contract/registry-readback.json",
+    "sha256": "dae2c8bffc1cc9b9a5f1f215a86e218e3c2aed8908512f7e53c49ca19fad95f5"
+  },
+  "installedMembers": {
+    "path": "docs/audits/2026-10-05-private-auto-published-contract/installed-201-members.json",
+    "sha256": "95b1109621bfc9e05d4d2c13b3561d6fd62689a9ac27d1bae3e78e4bf10dd15b",
+    "exactCount": 201
+  },
+  "independentReview": {
+    "path": "/home/nate/Oxy/.agent-evidence/integration-kaana410-published-contract-review-20261005/review.json",
+    "sha256": "196ba063b43b44dea4173ebb800fdfe268b752e34556cc511f13a189b29db10c"
+  },
+  "retainedGateLogs": [
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/root-1519-full-completion-20261004/kaana410-candidate/published-values.log",
+      "sha256": "5758244607eef18f32762bccf93859946c75441956743146df7d7552a3529618"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/root-1519-full-completion-20261004/kaana410-candidate/published-make-check.log",
+      "sha256": "8e71a6fe173a5c3a17426c06ece121fe06f870f6977d05ad217ceef4c2a8bd5b"
+    }
+  ],
+  "checks": {
+    "rootCanonicalMakeCheck": "PASS all gates passed; root reports exit0",
+    "ordinaryValues": 80,
+    "ordinaryRejects": 29,
+    "privateValues": 6,
+    "privateRejects": 8,
+    "actualSignedNegotiation": 1,
+    "independentTestsRepeated": false
+  },
+  "limitations": [
+    "Source-only review; no deployment acceptance inferred",
+    "Earlier provisional candidate and realSQL signed fixture evidence remain historical separate, not mislabeled published controls",
+    "Future ownAliaAuto activation still requires exact source/card/key/price/legal/funding readback"
+  ],
+  "autoSourceGetter": "nil",
+  "agentPublicationOrAWSCalls": 0,
+  "docsReadmeSha256": "ffc3c70a72a01f7daf9b7028126673617d25144fa29c68f1383d614a60a3868c"
+}
