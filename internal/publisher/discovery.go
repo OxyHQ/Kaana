@@ -439,6 +439,12 @@ func discoveryEndpoint(target Provider, page int) (string, error) {
 	base := strings.TrimSuffix(target.BaseURL, "/")
 	switch target.Discovery {
 	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryXAIRealtimeSessions, providerconfig.DiscoveryMistralModels:
+		if target.Slug == "openrouter" {
+			// The upstream default is text-only. Include decisions in the same
+			// authenticated list; attribution and scoped permits still decide
+			// what can be published, independently of discovery visibility.
+			return base + "/models?output_modalities=text,decisions", nil
+		}
 		return base + "/models", nil
 	case providerconfig.DiscoveryNebiusModels:
 		parsed, err := url.Parse(base + "/models")

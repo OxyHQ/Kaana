@@ -1,0 +1,8 @@
+internal/publisher/discovery_decisions_test.go:25:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+internal/publisher/discovery_decisions_test.go:30:15: Error return value of `r.Close` is not checked (errcheck)
+	defer r.Close()
+	             ^
+2 issues:
+* errcheck: 2

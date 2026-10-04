@@ -1,0 +1,22 @@
+{
+  "go build ./... && go vet ./...": {
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "go test -race -count=1 ./...": {
+    "exitCode": 0,
+    "limit": "Executed before test-helper defer Close error reporting cleanup; runtime and assertions identical. Final publisher suite repeated after cleanup."
+  },
+  "go test -race -count=1 ./internal/publisher": {
+    "exitCode": 0
+  },
+  "golangci-lint run": {
+    "exitCode": 0
+  },
+  "baseline": {
+    "exitCode": 1,
+    "failure": "scoped authenticated catalogue binding absent",
+    "limit": "Final test differs only checked fixture Close error reporting; assertion and fixture bytes unchanged."
+  }
+}

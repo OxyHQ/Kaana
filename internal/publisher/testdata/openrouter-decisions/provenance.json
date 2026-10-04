@@ -1,0 +1,26 @@
+{
+  "authority": "Public metadata retained for local HTTP fixtures; not account eligibility or production discovery proof",
+  "documentation": "https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties",
+  "inputs": [
+    {
+      "file": "text.json.gz",
+      "uncompressedSha256": "4d98f8efaaa2ff49675b07ad7cea3f8f3247c9238a07946d903c5809965872ee",
+      "url": "https://openrouter.ai/api/v1/models",
+      "rows": 466
+    },
+    {
+      "file": "text-decisions.json.gz",
+      "uncompressedSha256": "24dfd693136bc5419cc9841c3aae425b0e869d466e1530824c2304d8adaee825",
+      "url": "https://openrouter.ai/api/v1/models?output_modalities=text,decisions",
+      "rows": 479
+    },
+    {
+      "file": "zdr.json.gz",
+      "uncompressedSha256": "290619440602a758aa3b0dd779c1dc9f6fff0ab1785f6fed1a77c125c8074395",
+      "url": "https://openrouter.ai/api/v1/endpoints/zdr",
+      "rows": 942
+    }
+  ],
+  "retainedOn": "2026-10-04",
+  "observationLimit": "Separate unauthenticated public GETs, not an atomic upstream snapshot. Test reuses expanded-list text entries for byte comparison to isolate the decisions delta."
+}

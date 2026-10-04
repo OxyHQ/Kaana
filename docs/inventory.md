@@ -161,6 +161,15 @@ A PRESENT `supported_parameters` list is a complete statement, so a parameter it
 omits is reported unsupported; an absent list leaves `supportsTools`,
 `reasoningEfforts` and `acceptedParameters` absent.
 
+OpenRouter discovery requests `GET /api/v1/models?output_modalities=text,decisions`
+with the existing account credential. The documented default is text-only;
+including decisions makes their identities visible to the publisher without
+attributing or authorizing them. The ordinary attribution/executable checks
+remain unchanged, and private Jev publication still requires the exact source
+permit, account discovery, zero-retention endpoint, key eligibility and rate
+card. No additional provider request or inference probe is made. See
+[OpenRouter's model-list parameter](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties).
+
 **For OpenRouter the parameter list is not the `/models` entry's.** Every Kaana
 request to OpenRouter requires zero data retention and that the serving
 endpoint accept every parameter sent, so what a Kaana route accepts is what
