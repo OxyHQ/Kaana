@@ -8,6 +8,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestPrivatePublicationRequiresNormalEvidenceAndCannotEnableGeneralJev(t *te
 	if candidate.Current || candidate.ScopedExecution == nil {
 		t.Fatal("private candidate broadened")
 	}
-	sourcePermit, sourceErr := sourceReviewedPrivatePermit(permit.Cards, permit.Eligibility, at)
+	sourcePermit, sourceErr := privatePermitForAudience(nil, permit.Cards, permit.Eligibility, at)
 	if sourceErr != nil || sourcePermit != nil || executable(discoveries[0].Provider, permit.Audience.UpstreamModelID) {
 		t.Fatal("global Jev publication enabled")
 	}
@@ -66,6 +67,34 @@ func TestPrivatePublicationRequiresNormalEvidenceAndCannotEnableGeneralJev(t *te
 	withheld := func(contract.DeploymentID, contract.ProviderSlug) (Withholding, bool) { return Withholding{}, true }
 	if got, err := scopedCandidate(discoveries, permit, at, withheld, false); err != nil || got != nil {
 		t.Fatal("withheld route published")
+	}
+}
+
+func TestReviewedAliaSourcePublicationStillRequiresItsOwnCardAndKey(t *testing.T) {
+	discoveries, fixture := privateFixture(t)
+	at := time.Date(2026, 10, 4, 20, 30, 0, 0, time.UTC)
+	if permit, err := sourceReviewedPrivatePermit(fixture.Cards, fixture.Eligibility, at); err == nil || permit != nil {
+		t.Fatal("foreign fixture card/eligibility authorized compiled source")
+	}
+	cards, err := providercost.Load("../../configs/provider-rates.json", "../../configs/provider-rates-jev-scoped.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := scopedpermit.SourceReviewedAudience()
+	eligibility := NewDecider(Evidence{Keys: map[contract.ProviderSlug][]KeyEvidence{"openrouter": {{KeyID: scope.KeyID}}}}, DefaultWithholdPolicy(), at)
+	permit, err := sourceReviewedPrivatePermit(cards, eligibility, at)
+	if err != nil || permit == nil {
+		t.Fatal("exact source/card/eligibility was refused", err)
+	}
+	discoveries[0].Provider.CredentialKeyID = scope.KeyID
+	allowed := func(contract.DeploymentID, contract.ProviderSlug) (Withholding, bool) { return Withholding{}, false }
+	candidate, err := scopedCandidate(discoveries, permit, at, allowed, false)
+	if err != nil || candidate == nil || candidate.Current || candidate.ScopedExecution == nil || !candidate.ScopedExecution.Equal(scope) || executable(discoveries[0].Provider, scope.UpstreamModelID) {
+		t.Fatal("private source candidate broadened public Jev", err)
+	}
+	eligibility.evidence.Keys["openrouter"] = []KeyEvidence{{KeyID: "foreign"}}
+	if candidate, err = scopedCandidate(discoveries, permit, at, allowed, false); err == nil || candidate != nil {
+		t.Fatal("foreign current key admitted")
 	}
 }
 func TestScopedSnapshotHashChangesOnlyForScopedEvidence(t *testing.T) {

@@ -14,10 +14,7 @@ import (
 )
 
 func TestAbsentAuthorityNeverLoadsPrivateCard(t *testing.T) {
-	if SourceReviewedAudience() != nil {
-		t.Fatal("this inactive preparation must not carry a source permit")
-	}
-	cards, err := LoadRateCards("")
+	cards, err := loadRateCards("", "absent-default", "absent-private", nil)
 	if err != nil || cards != nil {
 		t.Fatalf("ordinary optional pricing changed: %v", err)
 	}
