@@ -53,3 +53,17 @@ row from the newly built snapshot and emits a fixed diagnostic. Ordinary routes
 continue refreshing; a previous private row is never carried forward by that
 fallback. A snapshot with no ordinary or verified private route still fails the
 existing empty-inventory guard.
+
+## Prepared independent Jev observation
+
+Both process entrypoints use `scopedpermit.LoadRateCards`; only a non-nil
+`SourceReviewedAudience` can append the baked Jev observation. Docker copies the
+ordinary and private documents into the same read-only image directory. The
+existing publisher selects each deployment's own observation and its same-cycle
+DB Decider; neither a JSON file nor an environment path grants permission.
+
+The getter remains nil in this preparation. Final exact audience, source window,
+card-validity/legal review and serving/publisher image pins are still required.
+No `issuedAt` or expiry for that audience is fabricated here. The first operation
+and later Mention delivery remain separate approvals. Existing two-card executor
+and SQL claim-lease evidence remains historical evidence of those unchanged paths.

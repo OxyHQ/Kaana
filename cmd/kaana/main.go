@@ -38,6 +38,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
 
@@ -68,12 +69,9 @@ func run(logger *slog.Logger) error {
 	// Upstream rate cards are optional and hold no customer-facing amount. An
 	// absent file means provider cost is not measured, which every measurement
 	// then says rather than reporting zero.
-	var costs *providercost.Cards
-	if ratesPath := os.Getenv("KAANA_PROVIDER_RATES_PATH"); ratesPath != "" {
-		costs, err = providercost.Load(ratesPath)
-		if err != nil {
-			return err
-		}
+	costs, err := scopedpermit.LoadRateCards(os.Getenv("KAANA_PROVIDER_RATES_PATH"))
+	if err != nil {
+		return err
 	}
 
 	keys, err := edgeauth.ParsePublicKeys(os.Getenv("KAANA_EDGE_PUBLIC_KEYS"))
