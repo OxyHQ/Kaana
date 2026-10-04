@@ -55,8 +55,8 @@ private audience, serving retains its optional ordinary path and publisher does
 not load private pricing. With a reviewed audience, both append the separate
 baked `/etc/kaana-rates/provider-rates-jev-scoped.json` observation and verify its
 exact deployment, card version and provider source version against that audience.
-A missing or conflicting card fails closed. This wiring does not activate the
-currently absent source audience.
+A missing or conflicting card fails closed. Card loading does not grant
+inference authority; the independently reviewed source and admission checks do.
 
 The independent Jev document preserves the observed October 4 dated TypeSafe
 list price (USD0.042 per million input tokens, output0), including its original
@@ -103,13 +103,14 @@ observations; Auto never substitutes the commissioning file or bypasses its
 validation. Serving and publisher use the same loader, and either authority
 makes the publisher load its cards.
 
-The Auto getter remains nil in this preparation. The third file is not baked
-or required while that getter is absent. Activation must separately compose
-accepted source/card bytes, add the exact third filename to the Docker context
-allowlist and Dockerfile copy, then verify both image paths and the signed
-publication. Historical ordinary and commissioning card bytes and observation
-times stay unchanged. No loader flag grants inference authority or repairs a
-missing, mismatched or unapproved observation.
+The reviewed own-Alia Auto source binds the separate October 4 22:51 observation
+and expires at 2026-10-05T22:51:12Z. Its exact third filename is included in the
+Docker context allowlist and image copy. Runtime acceptance still requires the
+actual image, key binding, signed publication and Oxy private legal review; a
+source commit alone does not establish production admission. If the Auto getter
+is absent, the third file is not required. Historical ordinary and commissioning
+card bytes and observation times stay unchanged. No loader flag grants inference
+authority or repairs a missing, mismatched or unapproved observation.
 
 ## Per-attempt telemetry and rate-card history
 
