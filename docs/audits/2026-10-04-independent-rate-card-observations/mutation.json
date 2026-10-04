@@ -1,0 +1,7 @@
+{
+  "mutation": "use the first global observation instead of exact deployment observation",
+  "mutantExit": 1,
+  "restoredExit": 0,
+  "sourceRestoredByteExact": true,
+  "sha256": "9dc00592526458b86497b5112b8ca6403dd6eff9c957742e0daa90a825d7b184"
+}

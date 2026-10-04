@@ -1,0 +1,93 @@
+go build ./...
+go vet ./...
+golangci-lint run ./...
+0 issues.
+go test -race -count=1 ./...
+ok  	github.com/OxyHQ/Kaana/cmd/kaana	1.072s
+?   	github.com/OxyHQ/Kaana/cmd/kaana-credential-control	[no test files]
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-credentials	1.169s
+?   	github.com/OxyHQ/Kaana/cmd/kaana-platform-credential-control	[no test files]
+?   	github.com/OxyHQ/Kaana/cmd/kaana-platform-credential-import	[no test files]
+?   	github.com/OxyHQ/Kaana/cmd/kaana-probe	[no test files]
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-publisher	1.069s
+ok  	github.com/OxyHQ/Kaana/internal/awssig	1.010s
+ok  	github.com/OxyHQ/Kaana/internal/branding	1.344s
+ok  	github.com/OxyHQ/Kaana/internal/contract	1.372s
+ok  	github.com/OxyHQ/Kaana/internal/credentialcontrol	1.060s
+ok  	github.com/OxyHQ/Kaana/internal/credentialstore	1.152s
+ok  	github.com/OxyHQ/Kaana/internal/credentialvalidation	1.067s
+ok  	github.com/OxyHQ/Kaana/internal/customerlimit	1.028s
+ok  	github.com/OxyHQ/Kaana/internal/edgeauth	1.042s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	5.436s
+ok  	github.com/OxyHQ/Kaana/internal/inventory	1.123s
+ok  	github.com/OxyHQ/Kaana/internal/kaana	3.470s
+ok  	github.com/OxyHQ/Kaana/internal/openrouterkey	1.600s
+ok  	github.com/OxyHQ/Kaana/internal/oxyvalidation	2.678s
+ok  	github.com/OxyHQ/Kaana/internal/platformactivity	2.407s
+ok  	github.com/OxyHQ/Kaana/internal/platformcredentialcontrol	1.039s
+ok  	github.com/OxyHQ/Kaana/internal/provider	2.441s
+ok  	github.com/OxyHQ/Kaana/internal/provider/anthropic	4.704s
+?   	github.com/OxyHQ/Kaana/internal/provider/conformance	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/provider/deepgram	2.882s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaiaudio	11.968s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaicompat	39.476s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openairealtime	5.783s
+?   	github.com/OxyHQ/Kaana/internal/provider/openairealtime/openairealtimetest	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/provider/spokenchat	1.027s
+ok  	github.com/OxyHQ/Kaana/internal/providerconfig	1.039s
+ok  	github.com/OxyHQ/Kaana/internal/providercost	1.178s
+ok  	github.com/OxyHQ/Kaana/internal/providertelemetry	1.038s
+ok  	github.com/OxyHQ/Kaana/internal/publisher	6.505s
+ok  	github.com/OxyHQ/Kaana/internal/realtime	7.077s
+ok  	github.com/OxyHQ/Kaana/internal/rotation	1.014s
+?   	github.com/OxyHQ/Kaana/internal/scopedpermit	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/sse	1.013s
+ok  	github.com/OxyHQ/Kaana/internal/workloadidentity	3.112s
+cd tools/contract && bun install --frozen-lockfile && bun run generate
+bun install v1.3.14 (0d9b296a)
+
+Checked 2 installs across 3 packages (no changes) [1.00ms]
+$ bun generate.mjs
+wrote /home/nate/Oxy/Kaana/.worktrees/1572-jev-rate-card-provenance-20261004/internal/contract/descriptor.json
+  package @oxy.so/contracts@4.8.0
+  contract 3.5.0
+  253 shapes, 33 constants
+go test -count=1 ./internal/contract/...
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.045s
+cd tools/contract && bun run validate
+$ bun validate.mjs
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.007s
+validated 80 produced shapes and 29 rejection controls against @oxy.so/contracts 3.5.0
+python3 -B .github/scripts/credential_admin_workflow_test.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.037s
+
+OK
+python3 -B .github/scripts/cloudflare_rate_limit_test.py
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.001s
+
+OK
+CREATED kaana_public_inference_per_ip
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+CREATED http_ratelimit entry point with kaana_public_inference_per_ip
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+UPDATED kaana_public_inference_per_ip: enabled
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+DRIFT kaana_public_inference_per_ip: ratelimit
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+MISSING kaana_public_inference_per_ip: no http_ratelimit entry point exists
+python3 -B .github/scripts/cloudflare_dns_test.py
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+OK
+DELETED api.kaana.ai after exact apex, livez, and old-target verification
+CONFLICT kaana.ai: [('another-alb.us-west-2.elb.amazonaws.com', True)]
+OK kaana.ai -> kaana-alb.us-west-2.elb.amazonaws.com proxied=True
+DELETED api.kaana.ai after exact apex, livez, and old-target verification
+OK kaana.ai -> kaana-alb.us-west-2.elb.amazonaws.com proxied=True
+all gates passed

@@ -1,0 +1,155 @@
+{
+  "kind": "independent-rate-card-observations-source-proof-v1",
+  "sourceCommit": "a4a6fc2b845785ca61effb471e3b4973fd7fd38c",
+  "baseCommit": "63c1b80d96ef83d5e80f3ccb22dbdc4ddbacede3",
+  "sourceInputs": [
+    {
+      "path": "cmd/kaana/main.go",
+      "sha256": "313f195bcc8d874d09ba89d17ef1433dc0c19def7e66f7d397ae054bfd305fb6",
+      "bytes": 43617
+    },
+    {
+      "path": "docs/cost.md",
+      "sha256": "bfb8e0320f4b0fa685de650131c2c0114b7789f536a2ebd325ff1dc39c047325",
+      "bytes": 10514
+    },
+    {
+      "path": "internal/credentialstore/separate_rate_cards_postgres_integration_test.go",
+      "sha256": "132eb7d9a8945f24ec03b3f03070f4cde7082ce310f80269539fad89229d0062",
+      "bytes": 2783
+    },
+    {
+      "path": "internal/providercost/multiple_observations_test.go",
+      "sha256": "1c6dcccb42f142488c357f0dfc3e69a513ef02b3b563b74da63d2432dd59739e",
+      "bytes": 4304
+    },
+    {
+      "path": "internal/providercost/providercost.go",
+      "sha256": "9dc00592526458b86497b5112b8ca6403dd6eff9c957742e0daa90a825d7b184",
+      "bytes": 30288
+    },
+    {
+      "path": "internal/providercost/scoped_price.go",
+      "sha256": "0c2c8e63fd5498df5b91ccc6156cddf07ed3acd5c260bc714a2d56db380832e3",
+      "bytes": 3399
+    },
+    {
+      "path": "internal/publisher/scoped.go",
+      "sha256": "3c533b76300b8d905661ea897e37c9e619a152451f14fb8fbae5dbdc619b4b0d",
+      "bytes": 5158
+    },
+    {
+      "path": "internal/publisher/scoped_test.go",
+      "sha256": "155fea4c30b26216b6f8a27faac394a4e3998c194cffa31107b7cd3a0347d3b1",
+      "bytes": 13244
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/make-check.log",
+      "sha256": "5c86601eaa149f9f67c9ee581f033fb0e6ccd8f332ecbd614ac818dcdf89164b",
+      "bytes": 4683
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/make-check-final.log",
+      "sha256": "df2d38f081d80dea1f1fb40ec119c8f75791121207c99555f748dfda2a2f6af6",
+      "bytes": 4684
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/mutant-global-observation.log",
+      "sha256": "8443a3753901178b12c61b812f7a819bd890b5f4566b0e7c1d89d1544cf4056c",
+      "bytes": 227
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/restored-focal.log",
+      "sha256": "d4c902fbe9138898dd50117cb2c50d764243163140a914fb32cd9c4546bf444a",
+      "bytes": 156
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/mutation.json",
+      "sha256": "30394aed1dbff5a2a42f900378d2128bb8a4b063bda873507f719ad8c12ad14c",
+      "bytes": 248
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/owned-pg.log",
+      "sha256": "0268f4142400bf56abe47f16a6f47889514a44ff431f0fb7c4b446f95848f495",
+      "bytes": 2466
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/owned-pg-cleanup.json",
+      "sha256": "2e23f0cb0a21d33af4f1f851486428e2d90f5ea36f60133f717933aabda55ff5",
+      "bytes": 177
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/historical-role-setup-owned-pg.log",
+      "sha256": "e4a2b5986377904a3d2eedadb7f8f31bec43a196134312e33a744a7ab9958b0c",
+      "bytes": 1354
+    },
+    {
+      "path": "docs/audits/2026-10-04-independent-rate-card-observations/historical-role-setup-owned-pg-cleanup.json",
+      "sha256": "042586ae33809a957e11a66b2b71220c881d2e7547dc9bb61f0007a2d911e471",
+      "bytes": 55
+    }
+  ],
+  "unchangedInputs": [
+    {
+      "path": "configs/provider-rates.json",
+      "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968",
+      "bytes": 2124
+    },
+    {
+      "path": "internal/scopedpermit/source.go",
+      "sha256": "405bc07a9471206bf1f26340a657ae1c97afd229ea3235c246d1d72f9d1eff73",
+      "bytes": 931
+    },
+    {
+      "path": "cmd/kaana-publisher/main.go",
+      "sha256": "d073078de771714445aa2f44f68c50056ca64e1c8c539214c6addfd187bf1717",
+      "bytes": 19968
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "e0375b491dd9ba0ea5735adcfa823d846de33f8ad44e5beb728e3472b344f9da",
+      "bytes": 10153
+    },
+    {
+      "path": "go.mod",
+      "sha256": "d06d898144c64c5b582bb476f1a932db6658d42ae430a1c50d3df14f155db5e5",
+      "bytes": 1381
+    },
+    {
+      "path": "go.sum",
+      "sha256": "a20df0fb07a0801266c1a5aa7645ba2b35993871c3a7cdca9134949db77f582e",
+      "bytes": 5764
+    },
+    {
+      "path": "internal/contract/scoped_execution.go",
+      "sha256": "af833d670e9eee4f808e6a7af8a5ae14686ffe744921c24418e717eb2b30ea87",
+      "bytes": 11194
+    }
+  ],
+  "operationalHarness": {
+    "path": "/home/nate/Oxy/.agent-evidence/integration-jev-rate-card-provenance-20261004/owned-pg.py",
+    "sha256": "f8c3c4a392971be2a82aa22398c992d790a4c80e5c05075489c864424019c79d",
+    "bytes": 2077
+  },
+  "validation": {
+    "finalMakeCheckExit": 0,
+    "canonicalOwnedPostgresFinalExit": 0,
+    "mutantExit": 1,
+    "restoredFocalExit": 0,
+    "ownedPidsAbsent": [
+      1614841,
+      1625061
+    ]
+  },
+  "limits": [
+    "inert multi-document loader only; sourceReviewed getter still nil",
+    "current entrypoints still load original one file",
+    "old xAI card exact, no redate/expiry/global source rewrite",
+    "first PG role provisioning failure retained as setup, not product RED",
+    "owned-pg log retains preliminary no-expiry fixture run plus final distinct-expiry fixture run; finalmake/check bound to sourceCommit",
+    "no production DB/provider calls",
+    "actual merged main44e not claimed whole-tree equal; compose preserving main before release"
+  ]
+}

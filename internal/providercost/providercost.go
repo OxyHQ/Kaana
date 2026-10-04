@@ -158,11 +158,9 @@ const (
 // A nil *Cards is a supported state and means cost measurement is not
 // configured: every measurement then reports itself unpriced rather than zero.
 type Cards struct {
-	byDeployment map[contract.DeploymentID]Card
-	versionID    string
-	effectiveAt  time.Time
-	expiresAt    *time.Time
-	observation  RateCardObservation
+	byDeployment          map[contract.DeploymentID]Card
+	observations          map[string]RateCardObservation
+	deploymentObservation map[contract.DeploymentID]string
 }
 
 // RateCardObservation is the immutable identity and content of one loaded
@@ -181,13 +179,47 @@ type RateCardObservation struct {
 	RateCards []byte
 }
 
-// Observation is the version a non-nil table was loaded from. A nil table
-// measures nothing and has no version to register.
+// Observation returns the original version only for a single-document table.
+// Use Observations for registration or ObservationForDeployment for attribution.
 func (c *Cards) Observation() (RateCardObservation, bool) {
+	if c == nil || len(c.observations) != 1 {
+		return RateCardObservation{}, false
+	}
+	for _, observation := range c.observations {
+		return observation, true
+	}
+	return RateCardObservation{}, false
+}
+
+// Observations retains each original document's identity and temporal evidence.
+// Sorting makes registration deterministic; no combined observation is invented.
+func (c *Cards) Observations() []RateCardObservation {
+	if c == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(c.observations))
+	for id := range c.observations {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	result := make([]RateCardObservation, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, c.observations[id])
+	}
+	return result
+}
+
+// ObservationForDeployment names only the evidence that priced that deployment.
+func (c *Cards) ObservationForDeployment(id contract.DeploymentID) (RateCardObservation, bool) {
 	if c == nil {
 		return RateCardObservation{}, false
 	}
-	return c.observation, true
+	versionID, found := c.deploymentObservation[id]
+	if !found {
+		return RateCardObservation{}, false
+	}
+	observation, found := c.observations[versionID]
+	return observation, found
 }
 
 type cardFile struct {
@@ -201,13 +233,44 @@ type cardFile struct {
 	RateCards     []Card         `json:"rateCards"`
 }
 
-// Load reads rate cards from a JSON file.
-func Load(path string) (*Cards, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("providercost: reading %s: %w", path, err)
+// Load reads disjoint rate-card documents without merging their observations.
+func Load(paths ...string) (*Cards, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("providercost: no rate-card file supplied")
 	}
-	return Parse(raw)
+	tables := make([]*Cards, 0, len(paths))
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("providercost: reading %s: %w", path, err)
+		}
+		table, err := Parse(raw)
+		if err != nil {
+			return nil, err
+		}
+		tables = append(tables, table)
+	}
+	return combine(tables)
+}
+
+func combine(tables []*Cards) (*Cards, error) {
+	result := &Cards{byDeployment: map[contract.DeploymentID]Card{}, observations: map[string]RateCardObservation{}, deploymentObservation: map[contract.DeploymentID]string{}}
+	for _, table := range tables {
+		for id, observation := range table.observations {
+			if _, duplicate := result.observations[id]; duplicate {
+				return nil, fmt.Errorf("providercost: duplicate rate-card version %s", id)
+			}
+			result.observations[id] = observation
+		}
+		for id, card := range table.byDeployment {
+			if _, duplicate := result.byDeployment[id]; duplicate {
+				return nil, fmt.Errorf("providercost: two observations price %s", id)
+			}
+			result.byDeployment[id] = card
+			result.deploymentObservation[id] = table.deploymentObservation[id]
+		}
+	}
+	return result, nil
 }
 
 // Parse builds a rate table, refusing anything that would produce a plausible
@@ -233,8 +296,9 @@ func Parse(raw []byte) (*Cards, error) {
 	}
 
 	cards := &Cards{
-		byDeployment: make(map[contract.DeploymentID]Card, len(parsed.RateCards)),
-		versionID:    parsed.VersionID, effectiveAt: parsed.EffectiveAt, expiresAt: parsed.ExpiresAt,
+		byDeployment:          make(map[contract.DeploymentID]Card, len(parsed.RateCards)),
+		observations:          map[string]RateCardObservation{},
+		deploymentObservation: make(map[contract.DeploymentID]string, len(parsed.RateCards)),
 	}
 	for _, card := range parsed.RateCards {
 		switch {
@@ -263,12 +327,13 @@ func Parse(raw []byte) (*Cards, error) {
 			seen[rate.Unit] = struct{}{}
 		}
 		cards.byDeployment[card.DeploymentID] = card
+		cards.deploymentObservation[card.DeploymentID] = parsed.VersionID
 	}
 	encoded, err := json.Marshal(parsed.RateCards)
 	if err != nil {
 		return nil, fmt.Errorf("providercost: encoding rate cards: %w", err)
 	}
-	cards.observation = RateCardObservation{
+	cards.observations[parsed.VersionID] = RateCardObservation{
 		VersionID: parsed.VersionID, Source: parsed.Source, SourceVersion: parsed.SourceVersion,
 		ObservedAt: parsed.ObservedAt, EffectiveAt: parsed.EffectiveAt, ExpiresAt: parsed.ExpiresAt,
 		RateCards: encoded,
@@ -339,7 +404,8 @@ func (c *Cards) measureAt(deployment contract.DeploymentID, units []contract.Usa
 	if at.IsZero() {
 		at = time.Now()
 	}
-	if at.Before(c.effectiveAt) || (c.expiresAt != nil && !at.Before(*c.expiresAt)) {
+	observation, observed := c.ObservationForDeployment(deployment)
+	if !observed || at.Before(observation.EffectiveAt) || (observation.ExpiresAt != nil && !at.Before(*observation.ExpiresAt)) {
 		return Measurement{Source: SourceUnknown}
 	}
 	card, found := c.byDeployment[deployment]
@@ -352,7 +418,7 @@ func (c *Cards) measureAt(deployment contract.DeploymentID, units []contract.Usa
 		rates[rate.Unit] = rate.AmountPerUnit
 	}
 
-	measurement := Measurement{Priced: true, Source: SourceRateCard, RateCardVersionID: c.versionID, Cost: Money{Currency: card.Currency}}
+	measurement := Measurement{Priced: true, Source: SourceRateCard, RateCardVersionID: observation.VersionID, Cost: Money{Currency: card.Currency}}
 	for _, quantity := range units {
 		rate, priced := rates[quantity.Unit]
 		if !priced {

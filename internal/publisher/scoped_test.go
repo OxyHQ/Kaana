@@ -9,6 +9,8 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -214,5 +216,31 @@ func TestPrivateCycleOmissionIsDiagnosedWithoutAuthorityAndNeverCarriesOldPermit
 	before := logs.Len()
 	if got := p.privatePermitForCycle(nil, nil, f.Eligibility.now); got != nil || logs.Len() != before {
 		t.Fatal("inert source changed ordinary cycle or emitted refusal")
+	}
+}
+
+func TestPrivateFactorySelectsItsOwnObservationBesideUnchangedXai(t *testing.T) {
+	_, fixture := privateFixture(t)
+	observation, _ := fixture.Cards.Observation()
+	document, err := json.Marshal(map[string]any{"schemaVersion": 1, "rateCardVersionId": observation.VersionID, "source": observation.Source, "sourceVersion": observation.SourceVersion, "observedAt": observation.ObservedAt, "effectiveAt": observation.EffectiveAt, "rateCards": json.RawMessage(observation.RateCards)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "private.json")
+	if err := os.WriteFile(path, document, 0600); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := providercost.Load("../../configs/provider-rates.json", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit, err := privatePermitForAudience(&fixture.Audience, actual, fixture.Eligibility, fixture.Eligibility.now)
+	if err != nil || permit == nil || permit.PublishedPrice != fixture.PublishedPrice {
+		t.Fatal("private factory read global/other card", err)
+	}
+	changed := fixture.Audience
+	changed.ProviderRateCardVersionID = "rc_xai_realtime_2026_09_30"
+	if permit, err := privatePermitForAudience(&changed, actual, fixture.Eligibility, fixture.Eligibility.now); err == nil || permit != nil {
+		t.Fatal("foreign observation accepted")
 	}
 }

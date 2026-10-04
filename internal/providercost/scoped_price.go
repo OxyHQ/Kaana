@@ -12,7 +12,7 @@ func (c *Cards) MatchesPublishedTokenPrice(id contract.DeploymentID, price ListP
 	if c == nil || price.Validate() != nil {
 		return false
 	}
-	observation, ok := c.Observation()
+	observation, ok := c.ObservationForDeployment(id)
 	if !ok || at.Before(observation.EffectiveAt) || (observation.ExpiresAt != nil && !at.Before(*observation.ExpiresAt)) {
 		return false
 	}
@@ -51,7 +51,7 @@ func (c *Cards) ScopedDecisionPriceLimit(id contract.DeploymentID, at time.Time)
 	if c == nil {
 		return DecisionPriceLimit{}, false
 	}
-	observation, ok := c.Observation()
+	observation, ok := c.ObservationForDeployment(id)
 	if !ok || at.Before(observation.EffectiveAt) || (observation.ExpiresAt != nil && !at.Before(*observation.ExpiresAt)) {
 		return DecisionPriceLimit{}, false
 	}

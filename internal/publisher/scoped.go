@@ -31,7 +31,7 @@ func privatePermitForAudience(audience *contract.ScopedExecutionAudience, cards 
 	if !scopedpermit.Matches(audience, audience, at) || eligibility == nil || !eligibility.now.Equal(at) {
 		return nil, fmt.Errorf("publisher: reviewed private authority lacks fresh canonical eligibility")
 	}
-	observation, loaded := cards.Observation()
+	observation, loaded := cards.ObservationForDeployment(audience.DeploymentID)
 	price, priced := cards.ScopedDecisionPublishedPrice(audience.DeploymentID, at)
 	if !loaded || !priced || observation.VersionID != audience.ProviderRateCardVersionID || observation.SourceVersion != audience.ProviderSourceVersion {
 		return nil, fmt.Errorf("publisher: reviewed private authority lacks its actual immutable card")
@@ -60,7 +60,7 @@ func scopedCandidate(discoveries []Discovery, permit *privatePublicationPermit, 
 	if _, blocked := permit.Eligibility.Decide(scope.DeploymentID, scope.Provider); blocked {
 		return nil, nil
 	}
-	observation, ok := permit.Cards.Observation()
+	observation, ok := permit.Cards.ObservationForDeployment(scope.DeploymentID)
 	if !ok || observation.VersionID != scope.ProviderRateCardVersionID || observation.SourceVersion != scope.ProviderSourceVersion || !permit.Cards.MatchesPublishedTokenPrice(scope.DeploymentID, permit.PublishedPrice, at) {
 		return nil, fmt.Errorf("publisher: scoped actual card identity or price differs")
 	}
