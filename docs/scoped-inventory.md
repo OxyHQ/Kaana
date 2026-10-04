@@ -30,3 +30,20 @@ principal and immutable card identities) and actual observed catalogue evidence.
 Private rows do not affect observed-date history for ordinary model lines.
 
 This source change activates no route, permit, credential, migration or inference.
+
+## Same-cycle private publication dependencies
+
+The canonical publisher passes its real immutable rate-card file to the private
+factory and the Decider produced by that cycle's actual PostgreSQL evidence
+read. The factory requires the Decider's timestamp to equal the snapshot time;
+it derives the published quote inside `providercost` and binds the card's
+version and source version. Authenticated discovery must independently report
+that exact quote, dated model identity and execution key.
+
+The ordinary evidence-read failure path still carries forward unexpired
+withholding decisions. It returns no Decider, so that fallback cannot authorize
+a private row. The public snapshot builder carries no private permit. The
+source getter remains nil, so the production entrypoint does not load an
+optional card or activate a deployment. Activating a reviewed source permit is
+a separate change shared with Oxy, with an actual card version and finite
+expiry.

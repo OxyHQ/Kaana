@@ -88,3 +88,15 @@ func (c *Cards) ScopedDecisionPriceLimit(id contract.DeploymentID, at time.Time)
 	}
 	return limit, input && output && !limit.Prompt.IsZero() && limit.Completion.IsZero()
 }
+
+// ScopedDecisionPublishedPrice derives the canonical per-million quote from
+// the actual valid immutable card. It is not a guessed/customer price, and a
+// private candidate still has to match authenticated upstream discovery.
+func (c *Cards) ScopedDecisionPublishedPrice(id contract.DeploymentID, at time.Time) (ListPrice, bool) {
+	limit, ok := c.ScopedDecisionPriceLimit(id, at)
+	if !ok {
+		return ListPrice{}, false
+	}
+	price := ListPrice{Currency: "USD", Input: canonicalDecimal(limit.Prompt.decimal), Output: canonicalDecimal(limit.Completion.decimal)}
+	return price, price.Validate() == nil
+}

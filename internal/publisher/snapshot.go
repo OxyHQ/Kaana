@@ -161,6 +161,11 @@ func BuildSnapshot(discoveries []Discovery, attribution *Attribution, previous O
 // routes. With reportOnly, every decision is returned in WouldWithhold and
 // nothing is left out. A nil withhold withholds nothing.
 func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool) (BuildResult, error) {
+	// Public builders never accept private authority supplied by their caller.
+	return buildSnapshotWithholding(discoveries, attribution, previous, at, withhold, reportOnly, nil)
+}
+
+func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution, previous Observations, at time.Time, withhold Withhold, reportOnly bool, permit *privatePublicationPermit) (BuildResult, error) {
 	if len(discoveries) == 0 {
 		return BuildResult{}, fmt.Errorf("publisher: no provider reported any models, so a snapshot would declare nothing and Kaana would refuse it")
 	}
@@ -240,7 +245,7 @@ func BuildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 		}
 	}
 
-	candidate, err := scopedCandidate(discoveries, sourceReviewedPrivatePermit(), at, withhold, reportOnly)
+	candidate, err := scopedCandidate(discoveries, permit, at, withhold, reportOnly)
 	if err != nil {
 		return BuildResult{}, err
 	}
