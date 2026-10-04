@@ -364,6 +364,12 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 				if err != nil {
 					return err
 				}
+				// The source audience covers delivery/review time; this SQL claim
+				// records one short runtime attempt. Its permanent operation PK
+				// never releases or reauthorizes the permit after lease expiry.
+				if bound := at.Add(5 * time.Minute); expires.After(bound) {
+					expires = bound
+				}
 				won, err := e.scopedClaims.ClaimScopedAttempt(ctx, credentialstore.ScopedAttemptClaim{PermitID: scope.PermitID, DeploymentID: scope.DeploymentID, Scope: credentialstore.Scope{Provider: scope.Provider, KeyID: scope.KeyID}, ClaimedAt: at, ExpiresAt: expires})
 				if err != nil || !won {
 					return errors.New("scoped attempt unavailable")

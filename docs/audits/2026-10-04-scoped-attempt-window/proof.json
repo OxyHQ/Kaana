@@ -1,0 +1,95 @@
+{
+  "kind": "scoped-attempt-window-proof-v1",
+  "sourceCommit": "9a3d9799a4522a709ae464e814df9d4631607067",
+  "baseCommit": "189bd9f88e2559e4e3a6201f8acd0b72636fcbd8",
+  "sources": [
+    {
+      "path": "internal/kaana/executor.go",
+      "sha256": "7a791f9602a6afe071ed58c5eea0cf5b00c3e33e922f2281bd35e0a49cae06de"
+    },
+    {
+      "path": "internal/kaana/scoped_executor_test.go",
+      "sha256": "00d0f7fe2046f877e82f7129ce182744c0dfdfa11f3b70c914b1d717d25a435b"
+    },
+    {
+      "path": "internal/kaana/scoped_attempt_window_postgres_test.go",
+      "sha256": "d36de13eafb92c25a4a5f095a5056741e177e7097708818a31e30a791a5f1402"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/owned-pg.py",
+      "sha256": "96a9e6c1e8b393d3ee57551dbf0c87e59b5e9c97d312ce17a9781aaeaebb10cc"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/baseline-sql-executor.log",
+      "sha256": "898bbd9a01f62396b6f3cae918c4893ad41a1ef2f7fe8c6c3cf7f56156f9c808"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/baseline-cleanup.json",
+      "sha256": "467706e876f956f99b458654bdf29f5e7960ea118d4633e2cb4b2ae7147c8d1e"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/baseline-output.log",
+      "sha256": "3afef7261fc54fcc1f12ebc13f6f6d8b86c1e985a584c414ab9c66b93dfd58b7"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/owned-pg.log",
+      "sha256": "57d69373213210b42bb924a25f092783aa14b30059e7b38479e33c103ff1623a"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/owned-pg-cleanup.json",
+      "sha256": "84c7eeedffee0cc4abf7124a651192847ecb42d9f75159dc75a7df98c0a7c5df"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/final-output.log",
+      "sha256": "91f80b56b9cc6bcfe23d20ae22cfd7f49b3381549fd66fb58b30a65b4f79fcb6"
+    },
+    {
+      "path": "docs/audits/2026-10-04-scoped-attempt-window/make-check.log",
+      "sha256": "fa354ea0795b6201604665ce4b21faf3acc1c00c6b040af00017a5e2b1d80de3"
+    }
+  ],
+  "baseline": {
+    "runtimeSource": "internal/kaana/executor.go",
+    "sha256": "26ff4f2cf85379067ee6dfa1ce3111b016f4f3ae22b898eda4a6c949ab1de8d5",
+    "result": "six-hour source rejected by real SQL five-minute claim constraint; three-minute and source-expired controls passed",
+    "passed": 2,
+    "failed": 1
+  },
+  "final": {
+    "sqlExecutorPassed": 3,
+    "makeCheckPassed": true,
+    "sourceAudienceUnchanged": true,
+    "claimExpiry": "min(sourceExpiresAt, claimedAt + 300 seconds)",
+    "permanentReplayFence": "operation_id primary key; lease expiry never releases claim",
+    "transport": "synthetic provider adapter; actual canonical runtime SQL repository with verified TLS",
+    "productionProviderRequests": 0
+  },
+  "cleanup": [
+    {
+      "testsExit": 1,
+      "pid": 1830820,
+      "pidAbsent": true,
+      "postmasterPidAbsent": true,
+      "tls": "verify-full owned self-signed fixture",
+      "noProductionAccess": true
+    },
+    {
+      "testsExit": 0,
+      "pid": 1832483,
+      "pidAbsent": true,
+      "postmasterPidAbsent": true,
+      "tls": "verify-full owned self-signed fixture",
+      "noProductionAccess": true
+    }
+  ],
+  "constraintsUnchanged": [
+    "internal/credentialstore/migrations/0020_scoped_provider_attempt_claims.sql"
+  ],
+  "tools": {
+    "go": "1.26.7",
+    "golangci-lint": "2.13.2",
+    "bun": "1.3.14"
+  }
+}
