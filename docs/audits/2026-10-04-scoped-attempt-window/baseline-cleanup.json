@@ -1,0 +1,8 @@
+{
+  "testsExit": 1,
+  "pid": 1830820,
+  "pidAbsent": true,
+  "postmasterPidAbsent": true,
+  "tls": "verify-full owned self-signed fixture",
+  "noProductionAccess": true
+}

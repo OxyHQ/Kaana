@@ -1,0 +1,3 @@
+The source audience may survive review and deployment. Its signed expiry stays unchanged; the runtime SQL attempt lease is capped at the earlier of that expiry and 300 seconds after the claim. The permanent operation key still rejects replay after the lease expires. No schema, ACL or active audience changes.
+
+The real executor and canonical PostgreSQL repository failed the six-hour source case before the fix (two controls passed), then passed all three cases under owned verified TLS. The tests shorten only the owned fixture lease to demonstrate replay refusal after expiry; an expired source produces zero claim calls and sends. Provider responses are synthetic, with no live key or provider request. `make check` passed with the pinned toolchain.
