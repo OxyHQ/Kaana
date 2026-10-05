@@ -175,17 +175,17 @@ type systemOneResponse struct {
 
 func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported}
-	fail := func() (provider.Outcome, error) {
-		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "invalid systemone response"}
+	fail := func(reason string) (provider.Outcome, error) {
+		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "invalid systemone response: " + reason}
 	}
 	var response systemOneResponse
 	raw, readErr := io.ReadAll(io.LimitReader(body, (2<<20)+1))
 	if readErr != nil || len(raw) > 2<<20 {
-		return fail()
+		return fail("body_read")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	if err := decoder.Decode(&response); err != nil {
-		return fail()
+		return fail("response_json")
 	}
 	ambiguity := unambiguousDecisionJSON(json.NewDecoder(bytes.NewReader(raw)), systemOneResponseShape)
 	// Account for reported work even when answer identity or money is malformed,
@@ -203,24 +203,39 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 	}
 	outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: 1})
 	if ambiguity != nil {
-		return fail()
+		return fail("ambiguous_json")
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return fail()
+		return fail("trailing_json")
 	}
-	if call.Decisions == nil || response.Model != call.Route.UpstreamModelID || response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil || *response.Usage.InputTokens < 0 || *response.Usage.OutputTokens < 0 || len(response.Answers) != len(call.Decisions.Questions) {
-		return fail()
+	if call.Decisions == nil {
+		return fail("missing_questions")
+	}
+	if response.Model != call.Route.UpstreamModelID {
+		return fail("model_identity")
+	}
+	if response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil || *response.Usage.InputTokens < 0 || *response.Usage.OutputTokens < 0 {
+		return fail("usage_units")
+	}
+	if len(response.Answers) != len(call.Decisions.Questions) {
+		return fail("answer_count")
 	}
 	if a.Provider() == "openrouter" && (response.Provider != "TypeSafe" || response.ID == "") {
-		return fail()
+		return fail("provider_identity")
 	}
 	answers := make([]contract.DecisionAnswer, 0, len(response.Answers))
 	for _, question := range call.Decisions.Questions {
 		rawAnswer, ok := response.Answers[question.ID]
 		var wire systemOneAnswer
-		if !ok || json.Unmarshal(rawAnswer, &wire) != nil || wire.Type != question.Kind {
-			return fail()
+		if !ok {
+			return fail("answer_identity")
+		}
+		if json.Unmarshal(rawAnswer, &wire) != nil {
+			return fail("answer_json")
+		}
+		if wire.Type != question.Kind {
+			return fail("answer_kind")
 		}
 		answer := contract.DecisionAnswer{ID: question.ID, Kind: question.Kind}
 		switch question.Kind {
@@ -228,23 +243,23 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 			answer.Reply = &contract.DecisionReply{Label: wire.Choice}
 			answer.Confidence = wire.Confidence
 			if len(wire.Probabilities) != len(question.Options) {
-				return fail()
+				return fail("choice_probability_count")
 			}
 			for _, option := range question.Options {
 				p, ok := wire.Probabilities[option]
 				if !ok || p == nil {
-					return fail()
+					return fail("choice_probability_key")
 				}
 				answer.Probabilities = append(answer.Probabilities, *p)
 			}
 		case "score":
 			if len(wire.Probabilities) != len(question.Levels) {
-				return fail()
+				return fail("score_probability_count")
 			}
 			for i := range question.Levels {
 				p, ok := wire.Probabilities[strconv.Itoa(i)]
 				if !ok || p == nil {
-					return fail()
+					return fail("score_probability_key")
 				}
 				answer.Distribution = append(answer.Distribution, *p)
 			}
@@ -253,14 +268,14 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 			answer.Confidence = wire.Confidence
 		case "noul":
 			if wire.Confidence != nil || wire.Choice != nil || wire.Score != nil || wire.Probabilities != nil {
-				return fail()
+				return fail("noul_fields")
 			}
 			answer.Probability = wire.Noul
 		}
 		answers = append(answers, answer)
 	}
 	if err := contract.ValidateDecisionAnswers(*call.Decisions, answers); err != nil {
-		return fail()
+		return fail(decisionAnswerFailureReason(err))
 	}
 	outcome.Decisions = answers
 	outcome.FinishReason = contract.FinishStop
@@ -358,4 +373,40 @@ func foldJSONName(name string) string {
 		folded.WriteRune(r)
 	}
 	return folded.String()
+}
+
+// Only exact, static errors from our validator become diagnostics. Never echo
+// an upstream body, question identifier, answer, or arbitrary error string.
+// A future validator error stays rejected and gets the closed fallback.
+func decisionAnswerFailureReason(err error) string {
+	switch err.Error() {
+	case "contract: decision answer count differs":
+		return "answer_count"
+	case "contract: decision answer identity differs":
+		return "answer_identity"
+	case "contract: decisions require actual reply and confidence":
+		return "reply_confidence"
+	case "contract: invalid choice answer":
+		return "choice_value"
+	case "contract: invalid choice reply":
+		return "choice_reply"
+	case "contract: choice reply must select a maximum probability option":
+		return "choice_maximum"
+	case "contract: invalid score answer":
+		return "score_value"
+	case "contract: score reply must match mean":
+		return "score_reply"
+	case "contract: invalid noul answer":
+		return "noul_value"
+	case "contract: unknown decision answer kind":
+		return "answer_kind"
+	case "contract: invalid decision probability":
+		return "probability_value"
+	case "contract: decision probabilities do not sum to one":
+		return "probability_sum"
+	case "contract: decision score differs from distribution":
+		return "score_distribution"
+	default:
+		return "answer_contract"
+	}
 }

@@ -1,0 +1,6 @@
+--- FAIL: TestDecisionDiagnosticLogsOnlyFiniteReason (0.00s)
+    --- FAIL: TestDecisionDiagnosticLogsOnlyFiniteReason/positive (0.00s)
+        decision_diagnostic_test.go:36: missing finite diagnostic: map[code:provider_error durationMs:1 level:WARN msg:inference request failed requestId:synthetic-request retryable:true time:2026-10-05T06:03:02.361203689+03:00]
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/httpapi	0.004s
+FAIL

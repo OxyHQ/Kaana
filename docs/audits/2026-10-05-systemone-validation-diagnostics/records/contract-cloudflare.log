@@ -1,0 +1,52 @@
+cd tools/contract && bun install --frozen-lockfile && bun run generate
+bun install v1.3.14 (0d9b296a)
+
++ @oxy.so/contracts@4.10.0
+
+2 packages installed [21.00ms]
+$ bun generate.mjs
+wrote /home/nate/Oxy/Kaana/.worktrees/1572-systemone-response-diagnosis-20261005/internal/contract/descriptor.json
+  package @oxy.so/contracts@4.10.0
+  contract 3.5.0
+  263 shapes, 41 constants
+go test -count=1 ./internal/contract/...
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.046s
+cd tools/contract && bun run validate
+$ bun validate.mjs && bun validate-private-auto.mjs
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.005s
+validated 80 produced shapes and 29 rejection controls against @oxy.so/contracts 3.5.0
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.004s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	0.006s
+{"kind":"published-private-auto-shared-contract-validation","packageVersion":"4.10.0","privateContractVersion":"3.7.0","valid":6,"rejected":8,"actualSignedNegotiatedDescriptor":1,"published":true}
+python3 -B .github/scripts/credential_admin_workflow_test.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.026s
+
+OK
+python3 -B .github/scripts/cloudflare_rate_limit_test.py
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.000s
+
+OK
+CREATED kaana_public_inference_per_ip
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+CREATED http_ratelimit entry point with kaana_public_inference_per_ip
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+UPDATED kaana_public_inference_per_ip: enabled
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+DRIFT kaana_public_inference_per_ip: ratelimit
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+MISSING kaana_public_inference_per_ip: no http_ratelimit entry point exists
+python3 -B .github/scripts/cloudflare_dns_test.py
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+OK
+DELETED api.kaana.ai after exact apex, livez, and old-target verification
+CONFLICT kaana.ai: [('another-alb.us-west-2.elb.amazonaws.com', True)]
+OK kaana.ai -> kaana-alb.us-west-2.elb.amazonaws.com proxied=True
+DELETED api.kaana.ai after exact apex, livez, and old-target verification
+OK kaana.ai -> kaana-alb.us-west-2.elb.amazonaws.com proxied=True

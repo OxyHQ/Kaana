@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "sourceHead": "30a397791d093c66119fa5304484f55b75392465",
+  "baseHead": "12da319a6cac070301111ad345f1f72ae2a8e46f",
+  "scope": "Finite SystemOne response-validation diagnostics; unchanged acceptance and accounting",
+  "sources": [
+    {
+      "path": "internal/provider/openaicompat/decisions.go",
+      "sha256": "503bf4bb1d569d39777e528ab24c6753c3d5ac4f724a21b026dd5e3195b726be"
+    },
+    {
+      "path": "internal/provider/openaicompat/decisions_diagnostics_test.go",
+      "sha256": "e2154944fd4e12fcc590fcc089c03ef71d30669ebc4bde60ab248b952b1e19d9"
+    },
+    {
+      "path": "internal/provider/decision_diagnostic.go",
+      "sha256": "838b7bcaf53321e8616fda3ebb69c1779ef67dc6e568d77bb13a8c090e11d37a"
+    },
+    {
+      "path": "internal/httpapi/server.go",
+      "sha256": "13bee7cc0e134dfd646fe9e45c61ce1268df7dadd156749f054e8aa11327a9ed"
+    },
+    {
+      "path": "internal/httpapi/decision_diagnostic_test.go",
+      "sha256": "50b3036f3ea91b4ce8a80a4d67ee05c64db619ab1eeae3a7b6a8b37d205bc5c9"
+    }
+  ],
+  "unchanged": [
+    {
+      "path": "internal/contract/decisions.go",
+      "sha256": "a2edf603707630b326e9d814f4271a331e80332ef680cb2f0d89f1e95a7229e8"
+    },
+    {
+      "path": "internal/contract/descriptor.json",
+      "sha256": "776b8b42573b735637a24dff4592f3d4f32de6c1b5fee74238273deb9ca52729"
+    },
+    {
+      "path": "internal/provider/errors.go",
+      "sha256": "528f35292bfce616b02464be8a2c9299c8ccaac45db0b801751124f36512b047"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-05-systemone-validation-diagnostics/records/red.log",
+      "sha256": "5823cb11bd06d5c381eedc3c1992412761a7ebd764d7af61b7d814627979e58b"
+    },
+    {
+      "path": "docs/audits/2026-10-05-systemone-validation-diagnostics/records/log-red.log",
+      "sha256": "5e6c0f19c1f891d64a448b10bff3f25a53956327f22158a71de37844d705554c"
+    },
+    {
+      "path": "docs/audits/2026-10-05-systemone-validation-diagnostics/records/green.log",
+      "sha256": "189f53cd8359d78d43943caad34a2b194cd3c616f960dc8e4e0922b457fdd977"
+    },
+    {
+      "path": "docs/audits/2026-10-05-systemone-validation-diagnostics/records/static.log",
+      "sha256": "925957ca56dd5b280944d4f283b7f4c9f80900b74f971dee75c63eccb060aae9"
+    },
+    {
+      "path": "docs/audits/2026-10-05-systemone-validation-diagnostics/records/full-test.log",
+      "sha256": "0f68e73b0e8a91068a07ed5ce36e58776ee27cab1a1cdd18212672694d75a393"
+    },
+    {
+      "path": "docs/audits/2026-10-05-systemone-validation-diagnostics/records/contract-cloudflare.log",
+      "sha256": "10318025db3d7c94012fc401868b8ab78967be71cbe2d9a560e686d358075171"
+    }
+  ],
+  "validation": {
+    "baseline": "Synthetic documented3Noul+1Score+legend positive passes.19 malformed reason assertions fail with baseline generic error;6 log controls include positive RED before logger projection.",
+    "final": "Focused adapter+HTTP race suites, all Go race suites, gofmt/build/vet/lint0, contract regeneration/types/Zod and Cloudflare controls PASS. Final full suite includes unknown-validator fallback control.",
+    "commands": [
+      "make fmt build vet lint",
+      "make test",
+      "PATH=/home/nate/.cache/bun-1.3.14/bin:$PATH make contract cloudflare"
+    ],
+    "tools": {
+      "go": "1.26.7",
+      "golangci-lint": "2.13.2",
+      "bun": "1.3.14"
+    },
+    "sqlIntegration": "No database changed; make test-integration not run. Existing SQL tests without configured DB may skip."
+  },
+  "limitations": [
+    "Historical provider response not retained; failure cause cannot be reconstructed.",
+    "Synthetic response is documented shape composed into Mention question kinds, not captured production payload.",
+    "No validator tolerance/normalization changes, authority changes, replay, provider calls, AWS or deployment.",
+    "Original request40fcb042-cd51-4754-88e8-273230a0f761 remains failed and cannot be replayed under this change."
+  ],
+  "primarySources": [
+    "https://docs.typesafe.ai/primitives/score",
+    "https://docs.typesafe.ai/primitives/noul",
+    "https://openrouter.ai/docs/guides/community/typesafe-sdk"
+  ]
+}
