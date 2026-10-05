@@ -27,7 +27,7 @@ func TestAbsentAuthorityNeverLoadsPrivateCard(t *testing.T) {
 
 func TestReviewedCardAppendPreservesEachObservation(t *testing.T) {
 	ordinary := "../../configs/provider-rates.json"
-	private := "../../configs/provider-rates-jev-scoped.json"
+	private := "testdata/retired-alia-provider-card.json"
 	raw, err := os.ReadFile(ordinary)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestReviewedCardAppendPreservesEachObservation(t *testing.T) {
 
 func TestPrivateAppendRefusesMissingOrMismatchedEvidence(t *testing.T) {
 	ordinary := "../../configs/provider-rates.json"
-	private := "../../configs/provider-rates-jev-scoped.json"
+	private := "testdata/retired-alia-provider-card.json"
 	for _, field := range []string{"deployment", "version", "source"} {
 		t.Run(field, func(t *testing.T) {
 			a := cardBindingFixture()

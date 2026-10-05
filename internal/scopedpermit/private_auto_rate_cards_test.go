@@ -28,7 +28,7 @@ func autoCardFixture(t *testing.T) (string, *contract.PrivateAutoSourceApproval)
 	if err = auto.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	raw, err = os.ReadFile("../../configs/provider-rates-jev-scoped.json")
+	raw, err = os.ReadFile("testdata/retired-alia-provider-card.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func autoCardFixture(t *testing.T) (string, *contract.PrivateAutoSourceApproval)
 }
 
 func TestSeparateAutoCardRetainsThreeImmutableObservations(t *testing.T) {
-	ordinary, scoped := "../../configs/provider-rates.json", "../../configs/provider-rates-jev-scoped.json"
+	ordinary, scoped := "../../configs/provider-rates.json", "testdata/retired-alia-provider-card.json"
 	autoPath, auto := autoCardFixture(t)
 	beforeBytes := map[string][32]byte{}
 	for _, path := range []string{ordinary, scoped} {
@@ -120,7 +120,7 @@ func TestAutoCannotBypassRetainedScopedCardValidation(t *testing.T) {
 			case "source":
 				scoped.ProviderSourceVersion = "foreign"
 			}
-			if _, err := loadRateCards("", "../../configs/provider-rates.json", "../../configs/provider-rates-jev-scoped.json", path, scoped, auto); err == nil {
+			if _, err := loadRateCards("", "../../configs/provider-rates.json", "testdata/retired-alia-provider-card.json", path, scoped, auto); err == nil {
 				t.Fatal("Auto bypassed scoped validation")
 			}
 		})
@@ -145,7 +145,7 @@ func TestAutoCardFailsClosedForEveryBindingOrMissingFile(t *testing.T) {
 			case "missing":
 				selected = "absent-auto"
 			case "old-scoped-instead":
-				selected = "../../configs/provider-rates-jev-scoped.json"
+				selected = "testdata/retired-alia-provider-card.json"
 			}
 			if _, err := loadRateCards("", "../../configs/provider-rates.json", "absent-scoped", selected, nil, &changed); err == nil {
 				t.Fatalf("Auto %s admitted", field)

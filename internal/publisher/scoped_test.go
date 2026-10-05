@@ -70,9 +70,9 @@ func TestPrivatePublicationRequiresNormalEvidenceAndCannotEnableGeneralJev(t *te
 	}
 }
 
-func TestReviewedAliaSourcePublicationStillRequiresItsOwnCardAndKey(t *testing.T) {
+func TestReviewedMentionSourcePublicationStillRequiresItsOwnCardAndKey(t *testing.T) {
 	discoveries, fixture := privateFixture(t)
-	at := time.Date(2026, 10, 4, 20, 30, 0, 0, time.UTC)
+	at := time.Date(2026, 10, 5, 3, 14, 22, 0, time.UTC)
 	if permit, err := sourceReviewedPrivatePermit(fixture.Cards, fixture.Eligibility, at); err == nil || permit != nil {
 		t.Fatal("foreign fixture card/eligibility authorized compiled source")
 	}
