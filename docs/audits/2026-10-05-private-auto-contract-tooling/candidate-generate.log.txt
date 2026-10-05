@@ -1,0 +1,4 @@
+wrote /home/nate/Oxy/.agent-evidence/integration-private-auto-contract-tooling-20261005/isolated-generator/internal/contract/descriptor.json
+  package @oxy.so/contracts@4.9.1
+  contract 3.5.0
+  262 shapes, 41 constants

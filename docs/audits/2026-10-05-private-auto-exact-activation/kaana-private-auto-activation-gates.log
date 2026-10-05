@@ -1,0 +1,50 @@
+go build ./...
+go vet ./...
+golangci-lint run ./...
+0 issues.
+go test -race -count=1 ./...
+ok  	github.com/OxyHQ/Kaana/cmd/kaana	1.052s
+?   	github.com/OxyHQ/Kaana/cmd/kaana-credential-control	[no test files]
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-credentials	1.120s
+?   	github.com/OxyHQ/Kaana/cmd/kaana-platform-credential-control	[no test files]
+?   	github.com/OxyHQ/Kaana/cmd/kaana-platform-credential-import	[no test files]
+?   	github.com/OxyHQ/Kaana/cmd/kaana-probe	[no test files]
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-publisher	1.046s
+ok  	github.com/OxyHQ/Kaana/internal/awssig	1.012s
+ok  	github.com/OxyHQ/Kaana/internal/branding	1.320s
+ok  	github.com/OxyHQ/Kaana/internal/contract	1.340s
+ok  	github.com/OxyHQ/Kaana/internal/credentialcontrol	1.035s
+ok  	github.com/OxyHQ/Kaana/internal/credentialstore	1.092s
+ok  	github.com/OxyHQ/Kaana/internal/credentialvalidation	1.039s
+ok  	github.com/OxyHQ/Kaana/internal/customerlimit	1.015s
+ok  	github.com/OxyHQ/Kaana/internal/edgeauth	1.019s
+--- FAIL: TestPrivateAutoNegotiationIndependentAndSourceBound (0.00s)
+    private_auto_test.go:74: nil production source negotiated private Auto
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/httpapi	4.003s
+ok  	github.com/OxyHQ/Kaana/internal/inventory	1.070s
+ok  	github.com/OxyHQ/Kaana/internal/kaana	3.393s
+ok  	github.com/OxyHQ/Kaana/internal/openrouterkey	1.668s
+ok  	github.com/OxyHQ/Kaana/internal/oxyvalidation	2.742s
+ok  	github.com/OxyHQ/Kaana/internal/platformactivity	2.381s
+ok  	github.com/OxyHQ/Kaana/internal/platformcredentialcontrol	1.026s
+ok  	github.com/OxyHQ/Kaana/internal/provider	2.523s
+ok  	github.com/OxyHQ/Kaana/internal/provider/anthropic	4.658s
+?   	github.com/OxyHQ/Kaana/internal/provider/conformance	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/provider/deepgram	2.935s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaiaudio	10.939s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaicompat	39.638s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openairealtime	5.587s
+?   	github.com/OxyHQ/Kaana/internal/provider/openairealtime/openairealtimetest	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/provider/spokenchat	1.022s
+ok  	github.com/OxyHQ/Kaana/internal/providerconfig	1.027s
+ok  	github.com/OxyHQ/Kaana/internal/providercost	1.157s
+ok  	github.com/OxyHQ/Kaana/internal/providertelemetry	1.021s
+ok  	github.com/OxyHQ/Kaana/internal/publisher	7.155s
+ok  	github.com/OxyHQ/Kaana/internal/realtime	7.327s
+ok  	github.com/OxyHQ/Kaana/internal/rotation	1.021s
+ok  	github.com/OxyHQ/Kaana/internal/scopedpermit	1.032s
+ok  	github.com/OxyHQ/Kaana/internal/sse	1.007s
+ok  	github.com/OxyHQ/Kaana/internal/workloadidentity	3.342s
+FAIL
+make: *** [Makefile:78: test] Error 1

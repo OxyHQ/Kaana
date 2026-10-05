@@ -1,0 +1,93 @@
+{
+  "kind": "private-auto-provisional-contract-tooling-v1",
+  "sourceCommit": "91602ba0e1c7575e40c080303eaf7a05f8a3858b",
+  "baseCounterpartProof": "45361838aa1c11ba67a3c0d43fb843c01fdff6f7",
+  "inputs": [
+    {
+      "path": "internal/contract/private_auto_fixtures_test.go",
+      "sha256": "6905f4c0c74347eccf314dac9cbe939cd98c2f62b92928c6d85a917e770059e3"
+    },
+    {
+      "path": "internal/httpapi/private_auto_test.go",
+      "sha256": "d3691289c2817cd9cc8824acc0f19a0811324960bca851209f190c1f2079b2ee"
+    },
+    {
+      "path": "tools/contract/validate-private-auto.mjs",
+      "sha256": "42fdcf460f948dd784a6fc839a198e8056ca7a1bbdd754ba989779506da8d0e0"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/README.md",
+      "sha256": "0a4a1e086f4b4067555fb28e09817ddf7d4bc286757f5c10690cc3a853de6f9b"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/candidate-binding.json",
+      "sha256": "f53134525d6e6dde3d54bcb7f5b8afcdccbab64a89df7897e7d379e3f7c35fee"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/candidate-descriptor.log.txt",
+      "sha256": "38286ac043c08b5865e4df23fb51808834f8cd99e3b6d527fbd3060fb89d010d"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/candidate-generate.log.txt",
+      "sha256": "fe3f78f44caba1cc8e1609dafc088753485bd4f0a8e3f9eebf079eb628e79cff"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/candidate-values.log.txt",
+      "sha256": "1ba3a2eed18a1287b9349e4f68ed02266c054261c5fbfe0aa0954175d0e72f18"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/delegation-schema-red.log.txt",
+      "sha256": "bcd7e2205cb912cf743f23c4b24af85e60068fcc930940f4c252034a61d7f1a7"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/descriptor.provisional.json",
+      "sha256": "8e01ae7e689055d6cc0c40d9b9f8fe89d2f01e1d513e90987d349c93a792667b"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/go-controls.log.txt",
+      "sha256": "e15043c5cb7455f6c641074e9c1730160f3e96899bd5a205f2a4d93d8c20a07c"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-contract-tooling/lint.log.txt",
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    }
+  ],
+  "candidateRefs": [
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-contract-candidate-20261005/v2/oxy.so-contracts-4.9.1.tgz",
+      "sha256": "5585c357020fd22cc848e92adb26660641d2d978fc7ffca4fed8a79d501a1c32"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-contract-candidate-20261005/v2/receipt.json",
+      "sha256": "da2c8c097f34ab7f5c983ed3d11d43236d39dc843a734dbda8ba03df6ab54c40"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-contract-candidate-20261005/oxy.so-contracts-4.9.1.tgz",
+      "sha256": "192313084e179d1a020525bc39f44b807d1e2568fe746851d6f5896000329c62"
+    }
+  ],
+  "candidateSource": "OxyHQ/oxy@008ad9c1c6855b672f314ec9f7c681376e41dc40",
+  "generator": {
+    "path": "tools/contract/generate.mjs",
+    "sha256": "acd20487a304ddf29ee137281927665ba6378d3101f6a49ad1ba27711456aaf8",
+    "isolatedCopyByteEqual": true
+  },
+  "publishedDescriptorUnchanged": {
+    "path": "internal/contract/descriptor.json",
+    "sha256": "754f327ac4a493e22504095511779b8a249940c2e22edbde27da548d4c2e585f"
+  },
+  "checks": {
+    "privateNamedStructuralShapes": 4,
+    "sharedZodProducedFixtures": 6,
+    "sharedZodMustRejectControls": 8,
+    "actualSignedNegotiatedDescriptor": 1,
+    "historicalDelegationCandidate": "RED preserved",
+    "contractAndHttpRaceExit": 0,
+    "lintExit": 0
+  },
+  "provisional": true,
+  "published": false,
+  "productionReady": false
+}

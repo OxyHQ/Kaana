@@ -65,7 +65,11 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 	if err := request.ValidateDecisionsEnvelope(); err != nil {
 		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input", Detail: "invalid typed decisions envelope"}
 	}
-	if request.ScopedExecution != nil {
+	if child := request.PrivateAutoExecution; child != nil {
+		if request.ValidatePrivateAutoExecution() != nil || a.privateAutoSource == nil || !child.MatchesSource(a.privateAutoSource(), time.Now()) || !route.PrivateAutoSourceApproval.Equal(a.privateAutoSource()) || route.ScopedExecution != nil || route.ScopedDecisionPriceLimit == nil || route.ScopedDecisionPriceLimit.Prompt.IsZero() || !route.ScopedDecisionPriceLimit.Completion.IsZero() {
+			return nil, decisionsUnavailable()
+		}
+	} else if request.ScopedExecution != nil {
 		if err := request.ValidateScopedExecution(); err != nil {
 			return nil, decisionsUnavailable()
 		}
@@ -73,7 +77,7 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 		if a.scopedSource == nil || !scopedpermit.Matches(scope, a.scopedSource(), time.Now()) || !scope.Equal(route.ScopedExecution) || route.ScopedDecisionPriceLimit == nil || route.ScopedDecisionPriceLimit.Prompt.IsZero() || !route.ScopedDecisionPriceLimit.Completion.IsZero() {
 			return nil, decisionsUnavailable()
 		}
-	} else if !a.decisions.approved() || route.ScopedExecution != nil {
+	} else if !a.decisions.approved() || route.ScopedExecution != nil || route.PrivateAutoSourceApproval != nil {
 		return nil, decisionsUnavailable()
 	}
 	if route.Provider != a.Provider() || !route.ModelReference.Valid() || !route.ModelReference.Pinned() || *request.Target.ModelReference != route.ModelReference {
@@ -123,7 +127,7 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 		// must fit inside the gateway's total.
 		core := len(encoded)
 		body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true}
-		if request.ScopedExecution != nil {
+		if request.ScopedExecution != nil || request.PrivateAutoExecution != nil {
 			body.Provider.MaxPrice = *route.ScopedDecisionPriceLimit
 		}
 		if encoded, err = json.Marshal(body); err != nil {
@@ -136,7 +140,12 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 			return nil, tooLarge
 		}
 	}
-	return &provider.Call{RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/systemone", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
+	if child := request.PrivateAutoExecution; child != nil {
+		if route.ScopedDecisionPriceLimit == nil || len(encoded) > contract.PrivateAutoMaximumBytes || !providercost.PrivateDecisionQuoteWithin(*route.ScopedDecisionPriceLimit, len(encoded), child.MaxCostUSD) {
+			return nil, provider.ErrUnsupported{Code: contract.CodePermissionDenied, Detail: "private Auto actual quote exceeds source ceiling"}
+		}
+	}
+	return &provider.Call{PrivateAutoExecution: request.PrivateAutoExecution, RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/systemone", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
 }
 
 // gatewayBodyFits bounds a gateway body as sent: the questions plus the

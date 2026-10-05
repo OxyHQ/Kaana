@@ -268,7 +268,7 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 	now := p.now()
 	withhold, eligibility := p.withholdFor(ctx, discoveries, previousBody, published, now)
 	permit := p.privatePermitForCycle(scopedpermit.SourceReviewedAudience(), eligibility, now)
-	built, err := buildSnapshotWithholding(discoveries, p.attribution, observations, now, withhold, p.withholding.ReportOnly, permit)
+	built, err := buildSnapshotWithholding(discoveries, p.attribution, observations, now, withhold, p.withholding.ReportOnly, permit, p.privateAutoPermitForCycle(scopedpermit.SourceReviewedPrivateAutoApproval(), eligibility, now))
 	if err != nil {
 		return err
 	}

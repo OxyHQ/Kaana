@@ -1,0 +1,34 @@
+golangci-lint run ./...
+0 issues.
+python3 -B .github/scripts/credential_admin_workflow_test.py
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.022s
+
+OK
+python3 -B .github/scripts/cloudflare_rate_limit_test.py
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.000s
+
+OK
+CREATED kaana_public_inference_per_ip
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+CREATED http_ratelimit entry point with kaana_public_inference_per_ip
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+UPDATED kaana_public_inference_per_ip: enabled
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+DRIFT kaana_public_inference_per_ip: ratelimit
+OK kaana_public_inference_per_ip: Kaana public inference: 20 requests per 10 seconds per IP
+MISSING kaana_public_inference_per_ip: no http_ratelimit entry point exists
+python3 -B .github/scripts/cloudflare_dns_test.py
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+OK
+DELETED api.kaana.ai after exact apex, livez, and old-target verification
+CONFLICT kaana.ai: [('another-alb.us-west-2.elb.amazonaws.com', True)]
+OK kaana.ai -> kaana-alb.us-west-2.elb.amazonaws.com proxied=True
+DELETED api.kaana.ai after exact apex, livez, and old-target verification
+OK kaana.ai -> kaana-alb.us-west-2.elb.amazonaws.com proxied=True

@@ -1,0 +1,174 @@
+{
+  "kind": "kaana-private-auto-exact-activation-source-proof-v1",
+  "sourceCommit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+  "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+  "sources": [
+    {
+      "path": ".dockerignore",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "ce99def03026abec3d6484765b6e59067bd6de5ad0d5238dea925fd9c233bd05",
+      "gitExact": true
+    },
+    {
+      "path": "Dockerfile",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "cb3d689a0f62bbb58baf59dd55cc653e86ec4c0b4f2debd0b49db2d447f2b881",
+      "gitExact": true
+    },
+    {
+      "path": "configs/provider-rates-jev-private-auto.json",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "9bb42935daa583f1efaee802050020c309dd4cc76e2e94af5dc3f04efa953234",
+      "gitExact": true
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-exact-activation/README.md",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "0a0e8a28716b0cb791440319499eec5e7499b766ec10d42a09245df8810afc4d",
+      "gitExact": true
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-exact-activation/source-approval.json",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "48cc94c95a4d2c0987facb9c5f1bbe9afaee559d3c3b1d733f91f3ebfcb51d1e",
+      "gitExact": true
+    },
+    {
+      "path": "internal/httpapi/private_auto_test.go",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "d668b0c87f4d6104f97b5c4e36df19e64ed40d043f24ba9877df0e71a08b17a8",
+      "gitExact": true
+    },
+    {
+      "path": "internal/publisher/private_auto_test.go",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "78aba33330637df30b479c09d846e7edc7b488e4a162368bcb6965cabc7a8889",
+      "gitExact": true
+    },
+    {
+      "path": "internal/scopedpermit/private_auto.go",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "c424501244376b9cb2c8e76fefb408e3bbfa021e164cca0abdfb8a1632890054",
+      "gitExact": true
+    },
+    {
+      "path": "internal/scopedpermit/private_auto_activation_test.go",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "db5922544e03c3a054a9873c51931c737c2f2511ceaeba1b3006dc53d111b2ae",
+      "gitExact": true
+    },
+    {
+      "path": "internal/scopedpermit/private_auto_rate_cards_test.go",
+      "commit": "73be159e7125079f70fb2bec95bd83f8d340cc71",
+      "sha256": "b7a4747c71d4b4c775156dd5d64a9e5eece725c8acd6e4cdc1d107dfa91fc4f5",
+      "gitExact": true
+    }
+  ],
+  "records": [
+    {
+      "path": "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-exact-activation-20261005/docs/audits/2026-10-05-private-auto-exact-activation/kaana-private-auto-activation-red.log",
+      "sha256": "d82860d8c8cd7b83b737fdbb4350831a39090a7b34fda9c20c8463a15df210e6"
+    },
+    {
+      "path": "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-exact-activation-20261005/docs/audits/2026-10-05-private-auto-exact-activation/kaana-private-auto-activation-green.log",
+      "sha256": "6af5ad967f76b5b36d16721b74c33a7ffd670ad6eea6d97cf7ee959ba71e4495"
+    },
+    {
+      "path": "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-exact-activation-20261005/docs/audits/2026-10-05-private-auto-exact-activation/kaana-private-auto-activation-gates.log",
+      "sha256": "1c94baf304de4a500f9a1dc72b18c9b915a275c8c6ea34aabcf06c43cc50fe16"
+    },
+    {
+      "path": "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-exact-activation-20261005/docs/audits/2026-10-05-private-auto-exact-activation/kaana-private-auto-activation-http-followup.log",
+      "sha256": "dde9fbe7efb7a31bf5596c925be3fdaba80f3aaa6534f7dbedd1526e8388f53b"
+    },
+    {
+      "path": "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-exact-activation-20261005/docs/audits/2026-10-05-private-auto-exact-activation/kaana-private-auto-activation-final-checks.log",
+      "sha256": "4989f195d2e93eea680f58efd164b12b4cf8e72cea66490e1b98b5c992ec940b"
+    },
+    {
+      "path": "/home/nate/Oxy/Kaana/.worktrees/1572-private-auto-exact-activation-20261005/docs/audits/2026-10-05-private-auto-exact-activation/preserved-inputs.json",
+      "sha256": "0e10ad17fe14f0da3cdd7d3b16100cf5958ce10e258f849523f79e4ba4bcef3b"
+    }
+  ],
+  "externalInputs": [
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/root-1519-full-completion-20261004/private-auto-final-source-approval.json",
+      "sha256": "48cc94c95a4d2c0987facb9c5f1bbe9afaee559d3c3b1d733f91f3ebfcb51d1e"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/integration-alia-private-auto-candidate-20261005/provider-rates-jev-private-auto-proposal.json",
+      "sha256": "9bb42935daa583f1efaee802050020c309dd4cc76e2e94af5dc3f04efa953234"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/root-1519-full-completion-20261004/jev-canonical-runtime/after-import705-read-run/result.private.json",
+      "sha256": "5346f023fd5ebcdb45b6807363b9e0f19669cdab3cf6a4b8f97c87108f1b3f44"
+    }
+  ],
+  "preservedInputs": [
+    {
+      "path": "internal/scopedpermit/source.go",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "fd77d6677019b907a7edd2c8c4d1d156c262fd13ede7cd9bd7b61f18008500ef",
+      "unchanged": true
+    },
+    {
+      "path": "configs/provider-rates.json",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968",
+      "unchanged": true
+    },
+    {
+      "path": "configs/provider-rates-jev-scoped.json",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "9d20790738035f59d5b609ad8096fa54a365aa3d04ed61a3e8243adf25454761",
+      "unchanged": true
+    },
+    {
+      "path": "internal/scopedpermit/rate_cards.go",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "b7e419277f0bb2ae48e1c3183d20c7c38ba73baecbd50cebba3ee76ef9608e7c",
+      "unchanged": true
+    },
+    {
+      "path": "tools/contract/package.json",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "b035602ead2e5de2fffd28ae2a6247dc170f97263c22d196f7bf3d1b06a7ab76",
+      "unchanged": true
+    },
+    {
+      "path": "tools/contract/bun.lock",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "b7d24989e54d57dda3ee4d6080359da6e7f15889b53724cf9e85867d61a8d630",
+      "unchanged": true
+    },
+    {
+      "path": "internal/contract/descriptor.json",
+      "baseCommit": "770f5ea5b1f7f98859753146635a3a4a60785471",
+      "sha256": "754f327ac4a493e22504095511779b8a249940c2e22edbde27da548d4c2e585f",
+      "unchanged": true
+    }
+  ],
+  "validation": {
+    "frozenActivationFixture": "2 meaningful baseline failures; same fixture passes after source/card",
+    "focalRacePackages": [
+      "scopedpermit",
+      "publisher",
+      "contract"
+    ],
+    "build": 0,
+    "vet": 0,
+    "lint": 0,
+    "fullGoRace": "one old global-nil assumption in httpapi failed; all other packages passed; retained",
+    "finalHttpapiRace": 0,
+    "finalFmtLintCloudflare": 0,
+    "fullContractGate": "pending root4.10/descriptor composition; base4.8 untouched",
+    "noSQLDelta": true
+  },
+  "limits": {
+    "noPush": true,
+    "noAWS": true,
+    "noProviderCalls": true,
+    "noImagePublicationOrDeployment": true,
+    "runtimeAcceptancePending": true
+  }
+}

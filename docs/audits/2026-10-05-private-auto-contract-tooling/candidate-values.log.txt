@@ -1,0 +1,3 @@
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.004s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	0.006s
+{"kind":"provisional-private-auto-shared-contract-validation","source":"OxyHQ/oxy@008ad9c1c6855b672f314ec9f7c681376e41dc40","packageVersion":"4.9.1","privateContractVersion":"3.7.0","valid":6,"rejected":8,"actualSignedNegotiatedDescriptor":1,"published":false}

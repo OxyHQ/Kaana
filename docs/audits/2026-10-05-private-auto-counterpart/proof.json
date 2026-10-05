@@ -1,0 +1,305 @@
+{
+  "kind": "kaana-private-auto-counterpart-local-proof-v1",
+  "sourceCommit": "a5af66e8dc19ef3c47c3871dfd23d378da4d29d5",
+  "sourceTree": "e8f29f5bbbcda0230f5680dd3d7d3ab069c464be",
+  "baseCommit": "34495fadbb203b50a5047d305737d3e75895529b",
+  "inputs": [
+    {
+      "path": "internal/contract/private_auto.go",
+      "sha256": "3d22e295c73cd7deb85bc8cbf1bd31d64005db2d0df6f9cb90e2220a98658dd8"
+    },
+    {
+      "path": "internal/contract/private_auto_request.go",
+      "sha256": "69ecc2ef2a3f4b79b518632ab974fb4b2ff2025ec8f398ae82e1b30b8b6a07d9"
+    },
+    {
+      "path": "internal/contract/private_auto_test.go",
+      "sha256": "55ec1e6a1501138b212b8be68b8a3a0ef1e3d617f074e207526f2961e4acadb2"
+    },
+    {
+      "path": "internal/contract/request.go",
+      "sha256": "edfd65e415ec226613109df4a51136960871cf272a6bdcd6e26e3b3f31b0a0d5"
+    },
+    {
+      "path": "internal/contract/testdata/private-auto/golden-approval.json",
+      "sha256": "8ac3ab9bba5826ac41b7f22961925ea20d4ed2ef3109edacb14bd45e27689c02"
+    },
+    {
+      "path": "internal/contract/testdata/private-auto/golden-first.json",
+      "sha256": "3a0afb8b247d8049a254dc2e1d03d146efb2b02e25acb6b22cb7b50e5073781f"
+    },
+    {
+      "path": "internal/contract/testdata/private-auto/golden-unicode.json",
+      "sha256": "d8655dd7f5ff619f79db59b0a49be1ee7728fc38df3f38df866af9b4df4848f6"
+    },
+    {
+      "path": "internal/contract/version.go",
+      "sha256": "da301f63fbdd374cace6b99f80942d046a8cb530733e819ada2a8e7208c35362"
+    },
+    {
+      "path": "internal/contract/version_test.go",
+      "sha256": "de56d1cfd6fa904a8bde3317d9332389a77d9b064731b4c822957f8aa9ab14a6"
+    },
+    {
+      "path": "internal/httpapi/private_auto_test.go",
+      "sha256": "75e6abe1eb7caa9119b0cf02ac697316e6c99f3a2bc0f4dfe940ef49950897f9"
+    },
+    {
+      "path": "internal/httpapi/server.go",
+      "sha256": "749265df735269c4a6074928b8eb10d440db589f833dda1bc9a197778d119431"
+    },
+    {
+      "path": "internal/inventory/inventory.go",
+      "sha256": "2f837e4c7a79b29a407f7912610c3ebaa4db1eb773f2c2c80a7c04ac16a1598d"
+    },
+    {
+      "path": "internal/kaana/executor.go",
+      "sha256": "23295556cc095c73252e7fd888dca78b567954e61514adb8edb473f74e0b9fbb"
+    },
+    {
+      "path": "internal/kaana/mention_wire_export_test.go",
+      "sha256": "3c663e88588eb863096cdbd4e1c3b84c701fe4d830984c4908871e66cdad2277"
+    },
+    {
+      "path": "internal/kaana/mention_wire_integration_test.go",
+      "sha256": "7f88b390b655aee5694c30d9d9e11af60eac8ddefe99d7406adad4d21a55bb37"
+    },
+    {
+      "path": "internal/kaana/private_auto_signed_postgres_test.go",
+      "sha256": "c173c16b2382bea8cacbd1e65c4e18d6500510b33356ae182fa536709c1f7bfb"
+    },
+    {
+      "path": "internal/provider/adapter.go",
+      "sha256": "0d159aee3faf1219e357656a0718c98d323cd611a831dd1ac576d10d2d4771c9"
+    },
+    {
+      "path": "internal/provider/openaicompat/adapter.go",
+      "sha256": "656aae5faf0a3ad11487c69c85d7e3c5f486202748093db46708a4ca402ef41c"
+    },
+    {
+      "path": "internal/provider/openaicompat/decisions.go",
+      "sha256": "82c83f7cc4d9d82caccfb2d81ec34df6f34c798eaa9d427c0f0b3c30d092d62f"
+    },
+    {
+      "path": "internal/provider/openaicompat/private_auto_test.go",
+      "sha256": "abd07dc139d60a1d5d8be5a5f5e1e4a2345f67a8a4fbe8121a2ea6a77ba5bed1"
+    },
+    {
+      "path": "internal/provider/openaicompat/stream.go",
+      "sha256": "879f278d4161d7eb20c8bd859bd8b8201a4df73fbe3397fa0a7982124458eeb8"
+    },
+    {
+      "path": "internal/providercost/private_auto.go",
+      "sha256": "2aa89d59a3b4e4c4d3a314813f78d0a73cbf3291200c28ff5b9604e7ee16e9cc"
+    },
+    {
+      "path": "internal/providercost/private_auto_test.go",
+      "sha256": "e1305855cef5661640920989ab5a5ca12d64da078701b4b60d94c02420a52bc8"
+    },
+    {
+      "path": "internal/publisher/private_auto.go",
+      "sha256": "0fbc8e3172b8310f2f4c23bd426aa297875f879d65fde9792f31b4ded1afb66f"
+    },
+    {
+      "path": "internal/publisher/private_auto_test.go",
+      "sha256": "56968a9cd364d93dfb3932682f5581dfd200eb0f3dba3d456b0d38f8ba7f8904"
+    },
+    {
+      "path": "internal/publisher/publisher.go",
+      "sha256": "4dcd452100619cde471a15939c6362765619c657e6a51bf20fa7617f77920914"
+    },
+    {
+      "path": "internal/publisher/snapshot.go",
+      "sha256": "0908d1986e856e414852f448b11ff5f1e55f0a7e931eb421bd58f2c682ec9162"
+    },
+    {
+      "path": "internal/scopedpermit/private_auto.go",
+      "sha256": "ddda9be4fa7dbacf4d6987d4af5dae3b93aa3fffcf037021d7e6a19a54c663d3"
+    },
+    {
+      "path": "internal/scopedpermit/rate_cards.go",
+      "sha256": "3b296ad715cc3df6d39edc9ef936f6cba679fceb1ff4c8726d833580fd01abb1"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/README.md",
+      "sha256": "26bb95c9e0d08c206ce4655a8a19c44a2f83cfc688b7dc31c08d626e67ae70b5"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/build.log.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/cloudflare.log.txt",
+      "sha256": "4719d3967d403d2cb5257348a4b6aaf8109c09c1f3f9cbaca60a4959069ff747"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/contract-generate-final.log.txt",
+      "sha256": "9bbb09b59419822d2d545b7737d141f2b0c0071863e88961ca14e27a8da5ff18"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/contract-generate.log.txt",
+      "sha256": "2cb174ef9d457a8a81691b37d4571b9909e4de0ea3f613bd8c8c2c3333658edd"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/contract-install.log.txt",
+      "sha256": "f54bab439d707cb6e84858301a82e34009d966839b516d18bb256573e63b507f"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/contract-validate.log.txt",
+      "sha256": "f146a2a4bedeac2a0d074628b6fcd1f865541b241fa4ad2db807ccbf11b99d10"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/lint-final.log.txt",
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/migration-mutant-restored.sha256",
+      "sha256": "87e0d0c8699cfb938b93a7dc8ca50a34f6abf7b7e2fa1a42a2d15b28ec208de2"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/owned-pg-cleanup.json",
+      "sha256": "71f9024da4ddafeff9da11f02e69a0c743314b3fb8f1db7a597f213af188bbf3"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/owned-pg-insecure-setup-failure.log.txt",
+      "sha256": "c4333dc22211e0755ff03bab6512ad85756c497501bfd6fc43062e73a38f0f61"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/owned-pg.log.txt",
+      "sha256": "3b1615e40f5e033a13afa8a1682d0e553a8ac06f840b471077fc8baa685595b5"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/owned-pg.py",
+      "sha256": "a8504b68c13d2a6f20ed0ae98524b92b6f0ff100482201461ad8303e37753a77"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/permanent-claim-mutant-command.log.txt",
+      "sha256": "fd315a2d11180c214149464178bd66aca938694fe119dea07f33b1d9cef8db83"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/permanent-claim-mutant.log.txt",
+      "sha256": "9acbe161fa842afea72f6678f5dae7f98fe91ae0bab1d67593888b45af3abaff"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/publisher-observation-red.log.txt",
+      "sha256": "de942f3d9108779811ab33b2e5897a3265e4c30ab8f2e3c85fbad472c98b7c0e"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/race-all.log.txt",
+      "sha256": "81d227958ff2ff8d9d864fd3ace84fe38d44d3902254618d0404ba7aad2a6224"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/race-final.log.txt",
+      "sha256": "1d20b7e6b1cfed9386ed7c6caefd7c284dfbdb850e152de7f21572f18c69fa92"
+    },
+    {
+      "path": "docs/audits/2026-10-05-private-auto-counterpart/vet.log.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "unchangedInputs": [
+    {
+      "path": "internal/contract/descriptor.json",
+      "sha256": "754f327ac4a493e22504095511779b8a249940c2e22edbde27da548d4c2e585f",
+      "base": "34495fa"
+    },
+    {
+      "path": "tools/contract/package.json",
+      "sha256": "b035602ead2e5de2fffd28ae2a6247dc170f97263c22d196f7bf3d1b06a7ab76",
+      "base": "34495fa"
+    },
+    {
+      "path": "tools/contract/bun.lock",
+      "sha256": "b7d24989e54d57dda3ee4d6080359da6e7f15889b53724cf9e85867d61a8d630",
+      "base": "34495fa"
+    },
+    {
+      "path": "configs/provider-rates.json",
+      "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968",
+      "base": "34495fa"
+    },
+    {
+      "path": "configs/provider-rates-jev-scoped.json",
+      "sha256": "9d20790738035f59d5b609ad8096fa54a365aa3d04ed61a3e8243adf25454761",
+      "base": "34495fa"
+    },
+    {
+      "path": "go.mod",
+      "sha256": "d06d898144c64c5b582bb476f1a932db6658d42ae430a1c50d3df14f155db5e5",
+      "base": "34495fa"
+    },
+    {
+      "path": "go.sum",
+      "sha256": "a20df0fb07a0801266c1a5aa7645ba2b35993871c3a7cdca9134949db77f582e",
+      "base": "34495fa"
+    }
+  ],
+  "sharedCandidateInputs": [
+    {
+      "path": "/home/nate/Oxy/oxy/.worktrees/1572-private-auto-parent-child-20261004/packages/contracts/src/inference/privateAutoExecution.ts",
+      "sha256": "9894d6ca1ca457a847324f71fbcad58103730e472375f6fe88ba076c05a5a099"
+    },
+    {
+      "path": "/home/nate/Oxy/oxy/.worktrees/1572-private-auto-parent-child-20261004/packages/contracts/src/inference/request.ts",
+      "sha256": "4ff12f09d5d5003587c293a51af92b0f9aacf400da71de7765edbf4392b45ef5"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-transport-20261005/golden-first.json",
+      "sha256": "3a0afb8b247d8049a254dc2e1d03d146efb2b02e25acb6b22cb7b50e5073781f"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-transport-20261005/golden-unicode.json",
+      "sha256": "d8655dd7f5ff619f79db59b0a49be1ee7728fc38df3f38df866af9b4df4848f6"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-transport-20261005/golden-approval.json",
+      "sha256": "8ac3ab9bba5826ac41b7f22961925ea20d4ed2ef3109edacb14bd45e27689c02"
+    }
+  ],
+  "sharedApprovalCanonicalSha256": "126882e06843972f2486ca1187eb6cd03fb37716ffde952be5eb888583237ebb",
+  "checks": {
+    "goBuild": 0,
+    "goVet": 0,
+    "golangciLint": 0,
+    "allGoRace": 0,
+    "affectedEightPackagesRace": 0,
+    "cloudflareControls": 0,
+    "legacyContractGeneration": 0,
+    "legacyZodProducedShapes": 80,
+    "legacyZodRejectionControls": 29,
+    "ownedPostgresSignedHTTP": 0,
+    "permanentClaimMutant": "failed as expected: expired SQL lease reopened parent sends=2 claims=2",
+    "migrationRestoredSha256": "9ae8773d866624f57c5f0258e954e171096d01876a8216fa0a0bf5e0d799f9d8"
+  },
+  "ownedPostgres": {
+    "testsExit": 0,
+    "ownPid": 2050002,
+    "port": 58012,
+    "database": "kaana_auto_fixture",
+    "noProductionAccess": true,
+    "pidAbsent": true,
+    "postmasterPidAbsent": true
+  },
+  "authority": {
+    "getter": "nil",
+    "activeApproval": false,
+    "ordinaryContract": "3.5.0",
+    "commissioningContract": "3.6.0",
+    "candidatePrivateContract": "3.7.0",
+    "candidateEnvelope": 4,
+    "productionReady": false,
+    "awsMutations": 0,
+    "actualProviderRequests": 0,
+    "ddlChanges": 0,
+    "aclChanges": 0
+  },
+  "limits": [
+    "Candidate 3.7 schema and exact golden agreement; shared publication/descriptor update not claimed.",
+    "Provider exchange only is fake for signed HTTP plus actual executor and PostgreSQL test.",
+    "Full suite database tests may skip absent dedicated URL; separately recorded owned PostgreSQL test executed SQL.",
+    "Oxy selector/admission/legal-review and final source approval remain independent work.",
+    "Publisher authenticated discovery positive is a fixture; real default discovery decisions omission requires separately reviewed correction."
+  ]
+}

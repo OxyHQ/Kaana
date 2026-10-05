@@ -1,0 +1,321 @@
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-gh51tcm4/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-gh51tcm4/data -l logfile start
+
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:62: credential store: DATABASE_URL must use sslmode=verify-full with a trusted root
+--- FAIL: TestPrivateAutoSignedHTTPPermanentSQLChild (0.00s)
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/kaana	0.013s
+FAIL
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-t5x4g946/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-t5x4g946/data -l logfile start
+
+.....+...+++++++++++++++++++++++++++++++++++++++*......+....+.....+......+++++++++++++++++++++++++++++++++++++++*.........+.....................+..+.........++++++
+........+...+........+.+...+...+............+...+++++++++++++++++++++++++++++++++++++++*...+..+.+...............+..+....+......+...+..+....+++++++++++++++++++++++++++++++++++++++*...+.+......+.....+...+....+......+......+.....+...+......+.+...........+.........+...+.+.....+.........+.+...........+......+...+.+...+...............+...+..+.+..+....+...+...........+..........+...........+.+..+......+.......+............+.....+.......+......+...+..+...............+....+...+.....+..........+...+.....+.......+..+...+......+.+.........+..+....+.....+......+....+...+...+............+...+...+..+.........+...+..........+..................+.........+......+..+...+...+.+...+.....+......+......+.+...+..............+...+.......+...............+...+..+.+..+....+......+.........+........+.+.........+..++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:221: positive child did not produce decision: sends=0 result={"schemaVersion":1,"code":"authentication_failed","message":"the request is not a signed Oxy edge envelope","retryable":false,"requestId":"req_kaana_or3nrw5cqmtb5cfacxhq"}
+--- FAIL: TestPrivateAutoSignedHTTPPermanentSQLChild (0.11s)
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/kaana	0.121s
+FAIL
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-tovadhtg/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-tovadhtg/data -l logfile start
+
+...+.+...+...........+...+.+..+.........+.+..+++++++++++++++++++++++++++++++++++++++*..........+..+.......+..+...+...+.......+.....+.+++++++++++++++++++++++++++++++++++++++*.....+.....+....+...+..+...+...................+.....+...+...+...+....+..+.............+......+............+.....+.........+...+.+.........+.....+.......+..............+......+......+....+...............+......+...+.....+.......+...+..+............+......+....+...+........+.+...+..+..........+.........+..+.......+...+.....+...+...................+..+...+..........+.....+...+.............+..+...+.+...+..+.+..................+..+...+......+.+..+............+.+..............+...+.+..+....+........+.............+..+......+......+...+.......+..............+.......+..+......+.......+...+..+..........+...+...........+......+....+......+...+.....+....+..+...+......................+.....+......+.......+..+.+...+..+.......+......+.........+........+.......+.....+...............+.+.....+.+.....+......+....+...........+.........+.+............+...+..+..........+..+....+.....+.+........+.+.........+..+...+.+...............+............+........+.+...+..+.+.............................+......+...+.....................+.+..+................+......+...+...+........+.......+...+...........+......+............+...+....+...+...+..++++++
+........+.......+..+...+++++++++++++++++++++++++++++++++++++++*....+.......+...+...+.....+......+.+.........+.....+...+.+......+...+.....+......+.+...+........+++++++++++++++++++++++++++++++++++++++*......................+........+.+.........+..+.........+.+.........+..+...+...............+.+......+.................+.+...........+...+.+..+....+......+...+.....+......+...+.............+...+.....+.+......+..+.......+.....+..................+...+.........+...+.++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:221: positive child did not produce decision: sends=0 result={"schemaVersion":1,"code":"invalid_request","message":"invalid private Auto request","retryable":false,"requestId":"req_kaana_zgcniz5gqgon5bjacxkq"}
+--- FAIL: TestPrivateAutoSignedHTTPPermanentSQLChild (0.12s)
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/kaana	0.134s
+FAIL
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-s_0hk66a/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-s_0hk66a/data -l logfile start
+
+.+...........+...+...+..........+..+++++++++++++++++++++++++++++++++++++++*.......+++++++++++++++++++++++++++++++++++++++*.....+.+............+...+.....+.........+.........+.......+............+..+.........+.....................+.+........+.+........+..........+...+.....+...+.......+........+................+...+..+....+..+....+...+............+.....+.+........+.........+..........+........+....+......+...+..+.......+...............+.....+......+.+........+.+..+....+...+.....+......+.........+.+..+...+......+.+........+......+.........+....++++++
+...........+....+...+.....+.+.....+......+.........+......+...+...+.........+...+.......+...+..+.+++++++++++++++++++++++++++++++++++++++*.......+..+++++++++++++++++++++++++++++++++++++++*..........+......+..................+..+.+..+.............+.....+....+....................+...............+...+.+......+...........+....+...+...+........+.+..............+.........+.+..+.......+..+.+........+......................+...+.........+......+.....................+........+......+.+........+............+......+...+.......+.....+..........+..+...+.........+...+.............+...+......+...+..+...+............+....+......+.....+......+...+......+.+...+..+.......+..+.+.................+.......+..............+.+........+......+...................+..+......+.......+...........+.......+............+..+..........+...+.....+.+.....+......+...+.+......+......+..+......+....+..+...+...+.......+..+................+.....+....+...........+....+.........+...........+....+.................+..........+..+.......+......+...+..+...............+....+.....+...+.+.....+.+........+...+...+.......+..+.+.....+.........+.......+......+............+..+.+........+......+.+...+...............+.....+.........+.+......+.....+..........+........+.+......+...+..+...+...+...+...................+.....+.+......+.....+...+.......+......+..+..........+...+...+......+.....+.+...+.........+.....+...+...+......+.+........+.......+.....+.........+...+..........+...+..............+..........+.....+.........+.+...+..+......+....+...+..................+.....+....+.....+.........+.........+.+..+............+......+......+.........+............+.......+...+.....+...+......+..........+........+.....................+....+...+.........+.....+.............+........+.......+...+...+..+.......+...............+......+.....+.......+...+......+..............+.........+...+....+...+...+....................++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:262: real signed HTTP and runtime SQL: one permanent child claim/send; changed input replay after lease expiry and foreign/expired authority denied before provider
+--- PASS: TestPrivateAutoSignedHTTPPermanentSQLChild (0.17s)
+PASS
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.187s
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-xwffw8xi/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-xwffw8xi/data -l logfile start
+
+.........+...+..+......+.......+...+.........+++++++++++++++++++++++++++++++++++++++*.+++++++++++++++++++++++++++++++++++++++*...+...............+............+.........+.+...+..+............+...+....+.....+....+.....+.+...+...+..+..........+...+........+.+.........+..+............+..........+........+.......+......+.........+..+..............................+...+.+......+.....+....+..+.......+.....+...+.......+...........+.........+..........+.....+...+....+.........+............+...+...........+.+..++++++
+.+.......+.........+...+.....+++++++++++++++++++++++++++++++++++++++*.+............+...+......+.+...+..+.+........+......+++++++++++++++++++++++++++++++++++++++*..+..+.........+.+.....+.+............+.....+.......+......+...+................................+...+.......+..+.+...........+.+........+.+.....+...+.......+...+...........+....+......+............+..+.+.........+..+.........+...............+.+.........+.....+.+......+...+......+......+........+.......+............+..+.+..+.+.................+..........+...+.....+......+..........+......+..+......+....+.......................+...+....+..+.+............+..+..........+......+.....+...+..........+...........+...+.+...........+...+...+.......+......+..+.............+.........+........+.......+...........+.+...+.....+.+...........+...+......+....+..++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:273: real signed HTTP and runtime SQL: two legitimate parents each one permanent child claim/send; changed approval and input replay after lease expiry and foreign/expired authority denied before provider
+--- PASS: TestPrivateAutoSignedHTTPPermanentSQLChild (0.17s)
+PASS
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.183s
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-h_4e20ap/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-h_4e20ap/data -l logfile start
+
+.+......+...+...+...+.....+.+......+..+................+..+....+...+.....+...+....+.....+.+........+......+++++++++++++++++++++++++++++++++++++++*.+..+......+............+...+......+.+..+..........+.....+.......+++++++++++++++++++++++++++++++++++++++*.+............................+.....+.......+........+...............+.......+..+.......+.........+.........+..+......+............+...............+...+...+..........+.....+............+...+.+.....+.........+....+..+...............+....+......+...+...........+.+...............+...+..+.+...+.................+....+.....+...+.......+...+..+......+......................+.....+.+..+..........+.....+...+...............+.......+...+......+...+...+..+......+......+....+..+.......+...+..+.+.................+....+......+..+...+...+......................+........+....+...+.....+....+...+..+......+.............+.........+..+.............+.....+............+.+...+......+......+..+...+...+......+...+......+.+..............+....+..+.........................+...+...+...+...........+.........+.+......+..+.+..+.......+............+...+........+..........+.....+.......+..+...+.+..+...+.+...+........+.........+.+..+............+...+.......+.................................+......+......++++++
+..+.....+......+.+...............+...+..+++++++++++++++++++++++++++++++++++++++*......+.....+......+......+....+......+...+.....+....+.....+...+++++++++++++++++++++++++++++++++++++++*..........+..+.........+......+.......+......+..+...+.........+.+..+.......+......+.....+.........+......+.......+........+.......+..+.......+.....+.............+...+..............+...++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:278: real signed HTTP and runtime SQL: two legitimate parents each one permanent child claim/send; changed approval and input replay after lease expiry and foreign/expired authority denied before provider
+--- PASS: TestPrivateAutoSignedHTTPPermanentSQLChild (0.20s)
+PASS
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.217s
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-oc2y91mv/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-oc2y91mv/data -l logfile start
+
+.....+......+..+......+....+..+.+.....+....+.........+..+.......+.....+...+.........+...+.............+...+.....+......+.+..+.+++++++++++++++++++++++++++++++++++++++*..........+..+++++++++++++++++++++++++++++++++++++++*....+...........+...+.+.....+....+.....+.........+.......+...+...+..............+.+...............+..+.+.........+..+.........+....+.....+......+......+.....................+.........+.+..+...+.............+.........+...+...+.........+......+.....+.......+.....+............+.............+..+......+.+...........+...+.......+........+................+...+........+...+.+...+............+.....................+..+...+...+......+.+..+............+....+..+...+.......+...+......+.........+..+...+....+.....+.+..+...+................+......+.....+.......+...+..+...+....+.....+.+...+.........+..+.+.....+....+.............................++++++
+...+......+..............+.+.....+.+...+.........+..+++++++++++++++++++++++++++++++++++++++*......+.+.....+......+....+......+.....+...+.......+...+..+.........+..........+........+++++++++++++++++++++++++++++++++++++++*............+...+.+...+..+....+.....+......+......+...+.......+..+......+....+...+............+..+.................................+......+.+...............+...............+.....+.+........+....+..+...............+....+......+.....+...+..........+......+..+.........+...+.+......+......+...+......+...+.....+................+.....+.........+............+..........+...+......+..+............+.......+.....+....+..............+...+..........+............+..+.+..+...+.......+..+......+....+..................+...+..+............+......+...+.........+.......+...+......+.........+..+...+.......+........+...+...++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:254: expired SQL lease reopened parent: sends=2 claims=2
+--- FAIL: TestPrivateAutoSignedHTTPPermanentSQLChild (0.15s)
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/kaana	0.162s
+FAIL
+waiting for server to shut down.... done
+server stopped
+The files belonging to this database system will be owned by user "nate".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+creating directory /tmp/kauto-4pi5elna/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Bucharest
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /usr/lib/postgresql/17/bin/pg_ctl -D /tmp/kauto-4pi5elna/data -l logfile start
+
+....+.........+..........+...+..+............+.+.....+.......+..+++++++++++++++++++++++++++++++++++++++*..+..+............+...+.......+..+.............+...+++++++++++++++++++++++++++++++++++++++*......+...............+...+............+...+......+.+..............+....+...+........+.........+.+..+....+...............+......+...+..+.......+.....+............+....+.....+.+......+.....+.........+...+......+.+.....+....+...........+......+...+....+........+..........+..+.+..............+..........+......+..+...+.++++++
+........+......+........+...+..........+..+++++++++++++++++++++++++++++++++++++++*...+........+.+.....+....+..+.........+.+...+......+.....+....+......+..+.........+.........+....+...+..............+...+.+......+......+...+..+....+........+...+....+...+......+..+.......+..+....+..+.......+.....+...+...+++++++++++++++++++++++++++++++++++++++*.+....+...+......+..+...+..........++++++
+-----
+waiting for server to start.... done
+server started
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+CREATE ROLE
+=== RUN   TestPrivateAutoSignedHTTPPermanentSQLChild
+    private_auto_signed_postgres_test.go:278: real signed HTTP and runtime SQL: two legitimate parents each one permanent child claim/send; changed approval and input replay after lease expiry and foreign/expired authority denied before provider
+--- PASS: TestPrivateAutoSignedHTTPPermanentSQLChild (0.19s)
+PASS
+ok  	github.com/OxyHQ/Kaana/internal/kaana	1.203s
+waiting for server to shut down.... done
+server stopped

@@ -50,6 +50,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/rotation"
+	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
@@ -80,6 +81,7 @@ const MaxDeploymentDescriptorQueryIDs = 64
 
 // Server serves the Oxy-facing surface.
 type Server struct {
+	privateAutoSource   func() *contract.PrivateAutoSourceApproval
 	executor            *kaana.Executor
 	verifier            *edgeauth.Verifier
 	validationVerifier  *edgeauth.Verifier
@@ -335,6 +337,14 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		}
 		request = scoped.InferenceRequest()
 	}
+	if request.SchemaVersion == contract.PrivateAutoRequestEnvelopeVersion {
+		var private contract.PrivateAutoRequest
+		if err := json.Unmarshal(body, &private); err != nil {
+			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "invalid private Auto request"))
+			return
+		}
+		request = private.InferenceRequest()
+	}
 	if err := request.ValidateScopedInputBytes(body); err != nil {
 		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
 		return
@@ -578,9 +588,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 /* -------------------------------------------------------------------------- */
 
 type deploymentDescriptorsResponse struct {
-	ScopedExecutionContractVersion string                           `json:"scopedExecutionContractVersion,omitempty"`
-	SnapshotID                     string                           `json:"snapshotId"`
-	Deployments                    []inventory.DeploymentDescriptor `json:"deployments"`
+	PrivateAutoExecutionContractVersion string                           `json:"privateAutoExecutionContractVersion,omitempty"`
+	ScopedExecutionContractVersion      string                           `json:"scopedExecutionContractVersion,omitempty"`
+	SnapshotID                          string                           `json:"snapshotId"`
+	Deployments                         []inventory.DeploymentDescriptor `json:"deployments"`
 }
 
 var (
@@ -622,6 +633,14 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	descriptors := current.DeploymentDescriptors()
 	if query.ScopedExecutionContractVersion != "" {
 		descriptors = current.DeploymentDescriptorsScoped()
+	}
+	if query.PrivateAutoExecutionContractVersion != "" {
+		approval := s.privateAutoApproval()
+		if approval == nil || !approval.NotExpired(time.Now()) {
+			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodePermissionDenied, "private Auto negotiation unavailable"))
+			return
+		}
+		descriptors = current.DeploymentDescriptorsPrivateAutoAt(time.Now(), approval)
 	}
 	if err := validateUniqueDeploymentDescriptors(descriptors); err != nil {
 		// Inventory loading already refuses duplicate ids. Keep the read surface's
@@ -665,14 +684,16 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, deploymentDescriptorsResponse{
-		SnapshotID:                     current.SnapshotID(),
-		ScopedExecutionContractVersion: query.ScopedExecutionContractVersion,
-		Deployments:                    descriptors,
+		SnapshotID:                          current.SnapshotID(),
+		PrivateAutoExecutionContractVersion: query.PrivateAutoExecutionContractVersion,
+		ScopedExecutionContractVersion:      query.ScopedExecutionContractVersion,
+		Deployments:                         descriptors,
 	})
 }
 
 type deploymentDescriptorQuery struct {
-	ScopedExecutionContractVersion string
+	PrivateAutoExecutionContractVersion string
+	ScopedExecutionContractVersion      string
 	// nil means the explicit {} operator list. A non-nil slice is one exact
 	// selector or a bounded batch; the parser refuses an empty batch.
 	DeploymentIDs []contract.DeploymentID
@@ -701,13 +722,14 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 	seenDeploymentID := false
 	seenDeploymentIDs := false
 	seenScopedVersion := false
+	seenPrivateAutoVersion := false
 	for decoder.More() {
 		keyToken, err := decoder.Token()
 		if err != nil {
 			return deploymentDescriptorQuery{}, fmt.Errorf("reading field name: %w", err)
 		}
 		key, ok := keyToken.(string)
-		if !ok || (key != "deploymentId" && key != "deploymentIds" && key != "scopedExecutionContractVersion") {
+		if !ok || (key != "deploymentId" && key != "deploymentIds" && key != "scopedExecutionContractVersion" && key != "privateAutoExecutionContractVersion") {
 			return deploymentDescriptorQuery{}, errors.New("the query contains an unknown field")
 		}
 
@@ -720,6 +742,14 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 		}
 
 		switch key {
+		case "privateAutoExecutionContractVersion":
+			if seenPrivateAutoVersion {
+				return deploymentDescriptorQuery{}, errors.New("duplicate private Auto version")
+			}
+			seenPrivateAutoVersion = true
+			if json.Unmarshal(raw, &query.PrivateAutoExecutionContractVersion) != nil || query.PrivateAutoExecutionContractVersion != contract.PrivateAutoExecutionContractVersion {
+				return deploymentDescriptorQuery{}, errors.New("unsupported private Auto version")
+			}
 		case "scopedExecutionContractVersion":
 			if seenScopedVersion {
 				return deploymentDescriptorQuery{}, errors.New("duplicate scoped version")
@@ -768,6 +798,9 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 				query.DeploymentIDs = append(query.DeploymentIDs, deploymentID)
 			}
 		}
+	}
+	if seenScopedVersion && seenPrivateAutoVersion {
+		return deploymentDescriptorQuery{}, errors.New("private extensions cannot be combined")
 	}
 	if seenDeploymentID && seenDeploymentIDs {
 		return deploymentDescriptorQuery{}, errors.New("deploymentId and deploymentIds cannot be combined")
@@ -901,10 +934,11 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type modelsResponse struct {
-	Deployments                    []inventory.DeploymentDescriptor `json:"deployments,omitempty"`
-	ScopedExecutionContractVersion string                           `json:"scopedExecutionContractVersion,omitempty"`
-	ContractVersion                string                           `json:"contractVersion"`
-	CheckedAt                      contract.Timestamp               `json:"checkedAt"`
+	PrivateAutoExecutionContractVersion string                           `json:"privateAutoExecutionContractVersion,omitempty"`
+	Deployments                         []inventory.DeploymentDescriptor `json:"deployments,omitempty"`
+	ScopedExecutionContractVersion      string                           `json:"scopedExecutionContractVersion,omitempty"`
+	ContractVersion                     string                           `json:"contractVersion"`
+	CheckedAt                           contract.Timestamp               `json:"checkedAt"`
 	// Configuration is the same snapshot identity the health surface reports, so
 	// a catalogue read and a health read can be compared without guessing
 	// whether they saw the same file.
@@ -1014,13 +1048,23 @@ func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query, err := parseDeploymentDescriptorQuery(body)
-	if err != nil || r.URL.RawQuery != "" || query.ScopedExecutionContractVersion != "3.6.0" || query.DeploymentIDs != nil {
+	if err != nil || r.URL.RawQuery != "" || (query.ScopedExecutionContractVersion != "3.6.0" && query.PrivateAutoExecutionContractVersion != contract.PrivateAutoExecutionContractVersion) || query.DeploymentIDs != nil {
 		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "explicit scoped catalogue negotiation required"))
 		return
 	}
 	current := s.inventory.Current()
 	now := time.Now()
 	entries := current.CatalogueScoped(now)
+	descriptors := current.DeploymentDescriptorsScopedAt(now)
+	if query.PrivateAutoExecutionContractVersion != "" {
+		approval := s.privateAutoApproval()
+		if approval == nil || !approval.NotExpired(now) {
+			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodePermissionDenied, "private Auto negotiation unavailable"))
+			return
+		}
+		entries = current.CataloguePrivateAuto(now, approval)
+		descriptors = current.DeploymentDescriptorsPrivateAutoAt(now, approval)
+	}
 	seenModels := map[contract.ModelID]contract.ModelReference{}
 	for _, entry := range entries {
 		if existing, duplicate := seenModels[entry.Model]; duplicate && existing != entry.Reference {
@@ -1029,5 +1073,12 @@ func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
 		}
 		seenModels[entry.Model] = entry.Reference
 	}
-	writeJSON(w, http.StatusOK, modelsResponse{ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: entries, Deployments: current.DeploymentDescriptorsScopedAt(now), PinnedOnlyReferences: current.PinnedOnlyReferences()})
+	writeJSON(w, http.StatusOK, modelsResponse{PrivateAutoExecutionContractVersion: query.PrivateAutoExecutionContractVersion, ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: entries, Deployments: descriptors, PinnedOnlyReferences: current.PinnedOnlyReferences()})
+}
+
+func (s *Server) privateAutoApproval() *contract.PrivateAutoSourceApproval {
+	if s.privateAutoSource != nil {
+		return s.privateAutoSource()
+	}
+	return scopedpermit.SourceReviewedPrivateAutoApproval()
 }

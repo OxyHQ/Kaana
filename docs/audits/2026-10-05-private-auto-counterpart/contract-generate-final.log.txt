@@ -1,0 +1,5 @@
+$ bun generate.mjs
+wrote /home/nate/Oxy/Kaana/.worktrees/1572-private-auto-counterpart-20261004/internal/contract/descriptor.json
+  package @oxy.so/contracts@4.8.0
+  contract 3.5.0
+  253 shapes, 33 constants

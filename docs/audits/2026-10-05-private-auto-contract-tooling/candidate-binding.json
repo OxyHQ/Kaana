@@ -1,0 +1,9 @@
+{
+  "archive": "/home/nate/Oxy/.agent-evidence/coverage-private-auto-contract-candidate-20261005/v2/oxy.so-contracts-4.9.1.tgz",
+  "sha256": "5585c357020fd22cc848e92adb26660641d2d978fc7ffca4fed8a79d501a1c32",
+  "packageRoot": "/home/nate/Oxy/.agent-evidence/integration-private-auto-contract-tooling-20261005/candidate/package",
+  "source": "OxyHQ/oxy@008ad9c1c6855b672f314ec9f7c681376e41dc40",
+  "generator": "/home/nate/Oxy/.agent-evidence/integration-private-auto-contract-tooling-20261005/isolated-generator/tools/contract/generate.mjs",
+  "descriptor": "/home/nate/Oxy/.agent-evidence/integration-private-auto-contract-tooling-20261005/isolated-generator/internal/contract/descriptor.json",
+  "provisional": true
+}

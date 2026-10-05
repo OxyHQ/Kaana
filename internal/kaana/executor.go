@@ -43,6 +43,7 @@ const providerCostPersistenceTimeout = 5 * time.Second
 
 // Executor turns an envelope into a stream and a usage report.
 type Executor struct {
+	privateAutoSource   func() *contract.PrivateAutoSourceApproval
 	scopedSource        func() *contract.ScopedExecutionAudience
 	scopedClaims        ScopedAttemptClaimer
 	inventory           *inventory.Store
@@ -139,6 +140,7 @@ func NewExecutor(config Config) (*Executor, error) {
 		costs:        config.Costs,
 		costRecorder: config.CostRecorder,
 		scopedSource: scopedpermit.SourceReviewedAudience, scopedClaims: config.ScopedAttemptClaims,
+		privateAutoSource:   scopedpermit.SourceReviewedPrivateAutoApproval,
 		customerCredentials: config.CustomerCredentials,
 		validationReporter:  config.ValidationReporter,
 		customerLimits:      customerLimits,
@@ -203,6 +205,14 @@ type candidate struct {
 // are given for the HTTP request, so an adapter that ignores it cannot make an
 // upstream call at all.
 func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink Sink) Result {
+	if s := request.PrivateAutoExecution; s != nil {
+		expires, err := time.Parse(time.RFC3339Nano, s.RuntimeExpiresAt)
+		if err == nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, expires)
+			defer cancel()
+		}
+	}
 	result := e.execute(ctx, request, sink)
 	if e.costRecorder == nil || len(result.UpstreamCost.Attempts) == 0 {
 		return result
@@ -373,6 +383,35 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 				won, err := e.scopedClaims.ClaimScopedAttempt(ctx, credentialstore.ScopedAttemptClaim{PermitID: scope.PermitID, DeploymentID: scope.DeploymentID, Scope: credentialstore.Scope{Provider: scope.Provider, KeyID: scope.KeyID}, ClaimedAt: at, ExpiresAt: expires})
 				if err != nil || !won {
 					return errors.New("scoped attempt unavailable")
+				}
+				return nil
+			}}
+		}
+		if scope := request.PrivateAutoExecution; scope != nil {
+			keyID, exact := "", false
+			if platformCredentials != nil {
+				keyID, exact = platformCredentials.ExactBinding()
+			}
+			if !exact || keyID != scope.KeyID {
+				permit.NotAttributable()
+				customerPermit.NotAttributable()
+				failure := contract.NewError(requestID, contract.CodePermissionDenied, "private Auto exact credential unavailable")
+				_ = emit.finishWithError(failure)
+				return Result{Failure: failure}
+			}
+			call.ScopedAttempt = &provider.ScopedCredentialAttempt{KeyID: scope.KeyID, Claim: func(ctx context.Context) error {
+				at := e.now()
+				if e.privateAutoSource == nil || !scope.MatchesSource(e.privateAutoSource(), at) {
+					return errors.New("private Auto approval unavailable")
+				}
+				// Re-read the installed snapshot and actual observation immediately before claim/send.
+				if _, failure := e.resolve(request, at); failure != nil {
+					return errors.New("private Auto dispatch evidence unavailable")
+				}
+				expires, _ := time.Parse(time.RFC3339Nano, scope.RuntimeExpiresAt)
+				won, err := e.scopedClaims.ClaimScopedAttempt(ctx, credentialstore.ScopedAttemptClaim{PermitID: scope.OperationID, DeploymentID: scope.DeploymentID, Scope: credentialstore.Scope{Provider: scope.Provider, KeyID: scope.KeyID}, ClaimedAt: at, ExpiresAt: expires})
+				if err != nil || !won || ctx.Err() != nil || !scope.MatchesSource(e.privateAutoSource(), e.now()) {
+					return errors.New("private Auto attempt unavailable")
 				}
 				return nil
 			}}
@@ -1036,6 +1075,29 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 			}
 		}
 	}
+	if scope := request.PrivateAutoExecution; scope != nil {
+		snapshot := e.inventory.Current()
+		if e.privateAutoSource == nil || !scope.MatchesSource(e.privateAutoSource(), at) || e.scopedClaims == nil || snapshot.SnapshotID() != scope.SnapshotID {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto source approval unavailable")
+		}
+		observation, ok := e.costs.ObservationForDeployment(scope.DeploymentID)
+		if !ok || observation.VersionID != scope.ProviderRateCardVersionID || observation.SourceVersion != scope.ProviderSourceVersion {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto price identity unavailable")
+		}
+		limit, ok := e.costs.ScopedDecisionPriceLimit(scope.DeploymentID, at)
+		if !ok {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto price ceiling unavailable")
+		}
+		candidates, failure := resolveAuthorizedRoutesPrivate(snapshot, requestID, request.AuthorizedRoutes, at, nil, e.privateAutoSource())
+		if failure != nil {
+			return nil, failure
+		}
+		if len(candidates) != 1 {
+			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto requires one route")
+		}
+		candidates[0].route.ScopedDecisionPriceLimit = &limit
+		return candidates, nil
+	}
 	if request.ScopedExecution != nil {
 		scope := request.ScopedExecution
 		snapshot := e.inventory.Current()
@@ -1073,11 +1135,17 @@ func resolveAuthorizedRoutes(snapshot *inventory.Inventory, requestID contract.R
 	return resolveAuthorizedRoutesScoped(snapshot, requestID, routes, at, nil)
 }
 func resolveAuthorizedRoutesScoped(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time, scope *contract.ScopedExecutionAudience) ([]candidate, *contract.Error) {
+	return resolveAuthorizedRoutesPrivate(snapshot, requestID, routes, at, scope, nil)
+}
+func resolveAuthorizedRoutesPrivate(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time, scope *contract.ScopedExecutionAudience, auto *contract.PrivateAutoSourceApproval) ([]candidate, *contract.Error) {
 	candidates := make([]candidate, 0, len(routes))
 	resolvedRevisions := make(map[contract.ModelID]contract.ModelReference)
 
 	for index, authorized := range routes {
 		set, err := snapshot.Resolve(authorized.ModelReference, at)
+		if auto != nil {
+			set, err = snapshot.ResolvePrivateAuto(authorized.ModelReference, at, auto)
+		}
 		if scope != nil {
 			set, err = snapshot.ResolveScoped(authorized.ModelReference, at, scope)
 		}

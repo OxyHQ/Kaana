@@ -1,0 +1,3 @@
+$ bun validate.mjs
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.004s
+validated 80 produced shapes and 29 rejection controls against @oxy.so/contracts 3.5.0

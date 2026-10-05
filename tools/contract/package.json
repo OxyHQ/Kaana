@@ -7,9 +7,9 @@
   "description": "Derives internal/contract/descriptor.json from the published @oxy.so/contracts inference module, and validates Kaana-produced fixtures against the published Zod schemas.",
   "scripts": {
     "generate": "bun generate.mjs",
-    "validate": "bun validate.mjs"
+    "validate": "bun validate.mjs && bun validate-private-auto.mjs"
   },
   "dependencies": {
-    "@oxy.so/contracts": "4.8.0"
+    "@oxy.so/contracts": "4.10.0"
   }
 }

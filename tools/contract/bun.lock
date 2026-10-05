@@ -5,12 +5,12 @@
     "": {
       "name": "@oxy.so/kaana-contract-tools",
       "dependencies": {
-        "@oxy.so/contracts": "4.8.0",
+        "@oxy.so/contracts": "4.10.0",
       },
     },
   },
   "packages": {
-    "@oxy.so/contracts": ["@oxy.so/contracts@4.8.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-6A9jTeMFrqJtXlw0HThZfRcSGwWGCMxF8pGlmL1iFxa+NShDnthSv/l7W93gpVMwZnaKQf/kDPrYmUueax4Ujw=="],
+    "@oxy.so/contracts": ["@oxy.so/contracts@4.10.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-TsVCYxAlcEsXvqH8TQhZpsFU05mCDh+4968xxPZxmk88VPaigaS3uYmLpbaEIV6RB3VHKoFaK4JEYy9jJNRFvg=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
   }

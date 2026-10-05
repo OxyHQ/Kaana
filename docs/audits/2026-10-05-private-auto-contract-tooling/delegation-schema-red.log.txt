@@ -1,0 +1,13 @@
+ok  	github.com/OxyHQ/Kaana/internal/contract	0.004s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	0.006s
+36 |     for (const name of entries) {
+37 |       const fixture = JSON.parse(readFileSync(join(wire, kind, name), 'utf8'));
+38 |       const parsed = contracts[fixture.schema]?.safeParse(fixture.value);
+39 |       if (!parsed || parsed.success !== (kind === 'valid')) {
+40 |         // Only schema/case names are diagnostic; transient input is never printed.
+41 |         throw new Error(`Candidate ${kind} control disagrees: ${fixture.schema}/${fixture.case}`);
+                       ^
+error: Candidate invalid control disagrees: privateAutoInferenceRequestSchema/delegation
+      at /home/nate/Oxy/Kaana/.worktrees/1572-private-auto-counterpart-20261004/tools/contract/validate-private-auto.mjs:41:19
+
+Bun v1.4.2 (Linux x64)

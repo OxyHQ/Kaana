@@ -53,19 +53,33 @@ func (*wireProvider) APIFormats() []contract.APIFormat {
 func (p *wireProvider) PlatformCredentials() *provider.KeyPool { return p.pool }
 func (*wireProvider) Health(context.Context) provider.Health   { return provider.Health{} }
 func (*wireProvider) Translate(r *contract.Request, route provider.Route) (*provider.Call, error) {
-	return &provider.Call{Route: route, Decisions: r.Input.Decisions}, nil
+	return &provider.Call{PrivateAutoExecution: r.PrivateAutoExecution, Route: route, Decisions: r.Input.Decisions}, nil
 }
 func (p *wireProvider) Stream(ctx context.Context, call *provider.Call, _ provider.Emitter, pool *provider.KeyPool) (provider.Outcome, error) {
 	outcome, key, err := provider.WalkAttempts(ctx, pool, call, func(ctx context.Context, _ provider.Key) (provider.Outcome, provider.CredentialedAttempt) {
 		var count int
-		if err := p.claims.QueryRow(ctx, `SELECT count(*) FROM scoped_provider_attempt_claims WHERE operation_id=$1`, call.Route.ScopedExecution.PermitID).Scan(&count); err != nil || count != 1 {
+		operation := ""
+		if call.Route.ScopedExecution != nil {
+			operation = call.Route.ScopedExecution.PermitID
+		} else if call.PrivateAutoExecution != nil {
+			operation = call.PrivateAutoExecution.OperationID
+		}
+		if err := p.claims.QueryRow(ctx, `SELECT count(*) FROM scoped_provider_attempt_claims WHERE operation_id=$1`, operation).Scan(&count); err != nil || count != 1 {
 			return provider.Outcome{}, provider.CredentialedAttempt{Transport: true, Failure: errors.New("provider reached without durable SQL claim")}
 		}
 		p.sends.Add(1)
 		answers := make([]contract.DecisionAnswer, 0, len(call.Decisions.Questions))
 		for _, q := range call.Decisions.Questions {
 			answer := contract.DecisionAnswer{ID: q.ID, Kind: q.Kind}
-			if q.Kind == "score" {
+			switch q.Kind {
+			case "choice":
+				label := q.Options[0]
+				confidence := 1.0
+				answer.Reply = &contract.DecisionReply{Label: &label}
+				answer.Confidence = &confidence
+				answer.Probabilities = make([]float64, len(q.Options))
+				answer.Probabilities[0] = 1
+			case "score":
 				mean := float64(len(q.Levels)-1) / 2
 				confidence := 1.0
 				answer.Reply = &contract.DecisionReply{Score: &mean}
@@ -73,7 +87,7 @@ func (p *wireProvider) Stream(ctx context.Context, call *provider.Call, _ provid
 				answer.Mean = &mean
 				answer.Distribution = make([]float64, len(q.Levels))
 				answer.Distribution[len(q.Levels)/2] = 1
-			} else {
+			default:
 				probability := .75
 				answer.Probability = &probability
 			}
