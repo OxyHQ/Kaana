@@ -1,0 +1,41 @@
+go test -race -count=1 ./...
+ok  	github.com/OxyHQ/Kaana/cmd/kaana	1.056s
+?   	github.com/OxyHQ/Kaana/cmd/kaana-credential-control	[no test files]
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-credentials	1.142s
+?   	github.com/OxyHQ/Kaana/cmd/kaana-platform-credential-control	[no test files]
+?   	github.com/OxyHQ/Kaana/cmd/kaana-platform-credential-import	[no test files]
+?   	github.com/OxyHQ/Kaana/cmd/kaana-probe	[no test files]
+ok  	github.com/OxyHQ/Kaana/cmd/kaana-publisher	1.057s
+ok  	github.com/OxyHQ/Kaana/internal/awssig	1.014s
+ok  	github.com/OxyHQ/Kaana/internal/branding	1.381s
+ok  	github.com/OxyHQ/Kaana/internal/contract	1.411s
+ok  	github.com/OxyHQ/Kaana/internal/credentialcontrol	1.036s
+ok  	github.com/OxyHQ/Kaana/internal/credentialstore	1.095s
+ok  	github.com/OxyHQ/Kaana/internal/credentialvalidation	1.044s
+ok  	github.com/OxyHQ/Kaana/internal/customerlimit	1.017s
+ok  	github.com/OxyHQ/Kaana/internal/edgeauth	1.021s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	5.190s
+ok  	github.com/OxyHQ/Kaana/internal/inventory	1.074s
+ok  	github.com/OxyHQ/Kaana/internal/kaana	3.340s
+ok  	github.com/OxyHQ/Kaana/internal/openrouterkey	1.598s
+ok  	github.com/OxyHQ/Kaana/internal/oxyvalidation	2.662s
+ok  	github.com/OxyHQ/Kaana/internal/platformactivity	2.246s
+ok  	github.com/OxyHQ/Kaana/internal/platformcredentialcontrol	1.029s
+ok  	github.com/OxyHQ/Kaana/internal/provider	2.543s
+ok  	github.com/OxyHQ/Kaana/internal/provider/anthropic	4.627s
+?   	github.com/OxyHQ/Kaana/internal/provider/conformance	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/provider/deepgram	2.922s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaiaudio	11.212s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaicompat	39.444s
+ok  	github.com/OxyHQ/Kaana/internal/provider/openairealtime	5.659s
+?   	github.com/OxyHQ/Kaana/internal/provider/openairealtime/openairealtimetest	[no test files]
+ok  	github.com/OxyHQ/Kaana/internal/provider/spokenchat	1.021s
+ok  	github.com/OxyHQ/Kaana/internal/providerconfig	1.027s
+ok  	github.com/OxyHQ/Kaana/internal/providercost	1.160s
+ok  	github.com/OxyHQ/Kaana/internal/providertelemetry	1.021s
+ok  	github.com/OxyHQ/Kaana/internal/publisher	7.058s
+ok  	github.com/OxyHQ/Kaana/internal/realtime	7.275s
+ok  	github.com/OxyHQ/Kaana/internal/rotation	1.019s
+ok  	github.com/OxyHQ/Kaana/internal/scopedpermit	1.040s
+ok  	github.com/OxyHQ/Kaana/internal/sse	1.008s
+ok  	github.com/OxyHQ/Kaana/internal/workloadidentity	3.306s

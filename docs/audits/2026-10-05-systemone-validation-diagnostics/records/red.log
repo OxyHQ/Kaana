@@ -1,0 +1,42 @@
+--- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics (0.00s)
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/model (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/provider (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/id (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/count (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/question (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/type (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/decode (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/noul_extra (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/noul_range (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/noul_missing (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/score_count (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/score_key (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/score_null (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/confidence (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/range (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/sum (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/mean (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/score_missing (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+    --- FAIL: TestDecisionsMentionShapeAndFiniteDiagnostics/duplicate (0.00s)
+        decisions_diagnostics_test.go:58: wrong finite diagnostic: provider_error (unknown): invalid systemone response
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/provider/openaicompat	0.005s
+FAIL
