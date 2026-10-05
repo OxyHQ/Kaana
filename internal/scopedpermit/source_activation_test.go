@@ -10,7 +10,7 @@ import (
 )
 
 func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testing.T) {
-	raw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-distinct-source/audience.json")
+	raw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-third-source/audience.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,16 +22,16 @@ func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testi
 	if !reflect.DeepEqual(audience, &expected) {
 		t.Fatal("compiled audience differs from root freeze")
 	}
-	if audience == nil || audience.Validate() != nil || audience.PermitID != "jev-mention-native-en-onepost-20261005-02" || audience.FixtureSHA256 != "207a9c8fa2847e7263d6e8d525a951bca72d82bfb762aeb37cf546ca8762966a" || audience.Principal.ApplicationID != "6a2f851751b784a86fd0e916" || audience.MaxCostUSD != "0.01" {
+	if audience == nil || audience.Validate() != nil || audience.PermitID != "jev-mention-native-en-onepost-20261005-03" || audience.FixtureSHA256 != "0c12c43c70a269a40ca0e856af98c48db8d20573b2e1b7d75f9bd6f9468a73da" || audience.Principal.ApplicationID != "6a2f851751b784a86fd0e916" || audience.MaxCostUSD != "0.01" {
 		t.Fatal("reviewed source tuple was not compiled exactly")
 	}
-	at := time.Date(2026, 10, 5, 5, 21, 14, 0, time.UTC)
-	expires := time.Date(2026, 10, 5, 5, 21, 15, 0, time.UTC)
-	if audience.ExpiresAt != "2026-10-05T05:21:15Z" || !Matches(audience, SourceReviewedAudience(), at) || Matches(nil, audience, at) || Matches(audience, nil, at) || Matches(audience, audience, expires) || Matches(audience, audience, expires.Add(time.Second)) {
+	at := time.Date(2026, 10, 5, 7, 9, 11, 0, time.UTC)
+	expires := time.Date(2026, 10, 5, 7, 9, 12, 0, time.UTC)
+	if audience.ExpiresAt != "2026-10-05T07:09:12Z" || !Matches(audience, SourceReviewedAudience(), at) || Matches(nil, audience, at) || Matches(audience, nil, at) || Matches(audience, audience, expires) || Matches(audience, audience, expires.Add(time.Second)) {
 		t.Fatal("absent or expired audience admitted, or exact positive refused")
 	}
 
-	previousRaw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-revalidation/audience.json")
+	previousRaw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-distinct-source/audience.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testi
 		}
 	}
 	// Returning a fresh value keeps consumers from mutating compiled approval.
-	if SourceReviewedAudience().IdempotencyKey != "mention_jev_native_en_d5c4e4815e9bfb2b998af67bb7677011" {
+	if SourceReviewedAudience().IdempotencyKey != "mention_jev_native_en_9aebfe5269e8fbe9e8c3961a93ef71d3" {
 		t.Fatal("source approval was mutable")
 	}
 }
@@ -85,7 +85,7 @@ func TestDistinctMentionCardMatchesFrozenBytesAndRetainsObservation(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := os.ReadFile("../../docs/audits/2026-10-05-mention-distinct-source/provider-card.json")
+	expected, err := os.ReadFile("../../docs/audits/2026-10-05-mention-third-source/provider-card.json")
 	if err != nil {
 		t.Fatal(err)
 	}
