@@ -1,0 +1,8 @@
+--- FAIL: TestScoreNormalizedMassRealWire (0.16s)
+    --- FAIL: TestScoreNormalizedMassRealWire/nonfinite_number (0.01s)
+        decisions_normalization_test.go:70: expected answer_json rejection, got provider_error (unknown): invalid systemone response: ambiguous_json
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/provider/openaicompat	36.068s
+ok  	github.com/OxyHQ/Kaana/internal/contract	1.324s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	2.147s
+FAIL

@@ -1,0 +1,3 @@
+ok  	github.com/OxyHQ/Kaana/internal/provider/openaicompat	41.367s
+ok  	github.com/OxyHQ/Kaana/internal/contract	1.330s
+ok  	github.com/OxyHQ/Kaana/internal/httpapi	1.965s
