@@ -1,0 +1,9 @@
+# Distinct second Mention source
+
+Compile the exact second-operation root freeze into the singleton3.6 audience and its existing baked card path. The selected native English post, key, permit, deployment and card identity differ from the paid failed original. The fixed expiry is **2026-10-05T05:21:15Z**. Original source evidence and permanent claims remain retained; this is no retry or extension of the first operation.
+
+Only `internal/scopedpermit/source.go` and `configs/provider-rates-jev-scoped.json` change production bytes. The card preserves its original observation/effective time and rates. Fresh primary revalidation is separately linked in the root review. Auto3.7 source/card, ordinary xAI card, three-card loader, Docker context/copy, contracts/SDK pins and finite diagnostic160 source remain byte-identical to main261426. The Oxy .2 policy uses the same stable relationship and a cumulative today total2, including original failed1; that policy implementation and activation are reviewed separately.
+
+The same updated source/card fixture fails four checks against the previous source, then all `make check` gates pass with the new source. Controls bind exact source/card, expiry, retired permit/key/input/deployment/card rejection, public closure and current key/card eligibility. No SQL integration run or production effect is claimed. [proof.json](proof.json) pins ten source inputs, twelve unchanged files and both logs.
+
+Root must accept CI/images, new canonical binding/catalogue/legal readbacks and three before-snapshots before the new Mention getter can automatically admit the selected post. No manual invoker. Product getter remains a separate preparation awaiting all five actual review references. The original provider failure remains historically unclassified; finite diagnostics do not weaken answer validation.
