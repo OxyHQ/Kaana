@@ -10,7 +10,7 @@ import (
 )
 
 func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testing.T) {
-	raw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-revalidation/audience.json")
+	raw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-distinct-source/audience.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,16 +22,16 @@ func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testi
 	if !reflect.DeepEqual(audience, &expected) {
 		t.Fatal("compiled audience differs from root freeze")
 	}
-	if audience == nil || audience.Validate() != nil || audience.PermitID != "jev-mention-native-en-onepost-20261005-01" || audience.FixtureSHA256 != "a962e5ed49a962db7934684c62834dd25b04aba94162ad9d07140c9a2abeb3b2" || audience.Principal.ApplicationID != "6a2f851751b784a86fd0e916" || audience.MaxCostUSD != "0.01" {
+	if audience == nil || audience.Validate() != nil || audience.PermitID != "jev-mention-native-en-onepost-20261005-02" || audience.FixtureSHA256 != "207a9c8fa2847e7263d6e8d525a951bca72d82bfb762aeb37cf546ca8762966a" || audience.Principal.ApplicationID != "6a2f851751b784a86fd0e916" || audience.MaxCostUSD != "0.01" {
 		t.Fatal("reviewed source tuple was not compiled exactly")
 	}
-	at := time.Date(2026, 10, 5, 3, 14, 22, 0, time.UTC)
-	expires := time.Date(2026, 10, 5, 3, 14, 23, 0, time.UTC)
-	if audience.ExpiresAt != "2026-10-05T03:14:23Z" || !Matches(audience, SourceReviewedAudience(), at) || Matches(nil, audience, at) || Matches(audience, nil, at) || Matches(audience, audience, expires) || Matches(audience, audience, expires.Add(time.Second)) {
+	at := time.Date(2026, 10, 5, 5, 21, 14, 0, time.UTC)
+	expires := time.Date(2026, 10, 5, 5, 21, 15, 0, time.UTC)
+	if audience.ExpiresAt != "2026-10-05T05:21:15Z" || !Matches(audience, SourceReviewedAudience(), at) || Matches(nil, audience, at) || Matches(audience, nil, at) || Matches(audience, audience, expires) || Matches(audience, audience, expires.Add(time.Second)) {
 		t.Fatal("absent or expired audience admitted, or exact positive refused")
 	}
 
-	previousRaw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-activation/audience.json")
+	previousRaw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-revalidation/audience.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +51,11 @@ func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testi
 		func() { audience.PriceVersionID = "foreign" },
 		func() { audience.ProviderSourceVersion = "foreign" },
 		func() { audience.IdempotencyKey = "new-operation" },
+		func() { audience.PermitID = previous.PermitID },
+		func() { audience.IdempotencyKey = previous.IdempotencyKey },
+		func() { audience.FixtureSHA256 = previous.FixtureSHA256 },
+		func() { audience.DeploymentID = previous.DeploymentID },
+		func() { audience.ProviderRateCardVersionID = previous.ProviderRateCardVersionID },
 	} {
 		audience = SourceReviewedAudience()
 		change()
@@ -59,7 +64,7 @@ func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testi
 		}
 	}
 	// Returning a fresh value keeps consumers from mutating compiled approval.
-	if SourceReviewedAudience().IdempotencyKey != "mention_jev_native_en_8d04b9d17510fe89d7ae084039ee4231" {
+	if SourceReviewedAudience().IdempotencyKey != "mention_jev_native_en_d5c4e4815e9bfb2b998af67bb7677011" {
 		t.Fatal("source approval was mutable")
 	}
 }
@@ -72,5 +77,26 @@ func TestReviewedMentionSourceLoadsIndependentCardWithoutReDatingXai(t *testing.
 	observation, ok := cards.ObservationForDeployment(SourceReviewedAudience().DeploymentID)
 	if !ok || observation.VersionID != SourceReviewedAudience().ProviderRateCardVersionID || observation.SourceVersion != SourceReviewedAudience().ProviderSourceVersion {
 		t.Fatal("private card/source binding mismatch")
+	}
+}
+
+func TestDistinctMentionCardMatchesFrozenBytesAndRetainsObservation(t *testing.T) {
+	actual, err := os.ReadFile("../../configs/provider-rates-jev-scoped.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := os.ReadFile("../../docs/audits/2026-10-05-mention-distinct-source/provider-card.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actual) != string(expected) {
+		t.Fatal("baked card differs from exact reviewed bytes")
+	}
+	var card map[string]any
+	if err := json.Unmarshal(actual, &card); err != nil {
+		t.Fatal(err)
+	}
+	if card["observedAt"] != "2026-10-04T22:51:12.367282Z" || card["effectiveAt"] != "2026-10-04T22:51:12.367282Z" {
+		t.Fatal("old observation was redated")
 	}
 }
