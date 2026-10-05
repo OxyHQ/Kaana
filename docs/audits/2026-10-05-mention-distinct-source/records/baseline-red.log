@@ -1,0 +1,13 @@
+--- FAIL: TestPrivateAutoSourceMatchesExactReviewedApproval (0.00s)
+    private_auto_activation_test.go:48: Mention singleton expiry changed
+--- FAIL: TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires (0.00s)
+    source_activation_test.go:23: compiled audience differs from root freeze
+--- FAIL: TestDistinctMentionCardMatchesFrozenBytesAndRetainsObservation (0.00s)
+    source_activation_test.go:93: baked card differs from exact reviewed bytes
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/scopedpermit	0.006s
+--- FAIL: TestReviewedMentionSourcePublicationStillRequiresItsOwnCardAndKey (0.00s)
+    scoped_test.go:77: foreign fixture card/eligibility authorized compiled source
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/publisher	2.462s
+FAIL
