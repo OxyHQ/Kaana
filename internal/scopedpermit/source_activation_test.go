@@ -10,7 +10,7 @@ import (
 )
 
 func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testing.T) {
-	raw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-activation/audience.json")
+	raw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-revalidation/audience.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,10 +25,22 @@ func TestReviewedMentionCommissioningSourceBindsExactAudienceAndExpires(t *testi
 	if audience == nil || audience.Validate() != nil || audience.PermitID != "jev-mention-native-en-onepost-20261005-01" || audience.FixtureSHA256 != "a962e5ed49a962db7934684c62834dd25b04aba94162ad9d07140c9a2abeb3b2" || audience.Principal.ApplicationID != "6a2f851751b784a86fd0e916" || audience.MaxCostUSD != "0.01" {
 		t.Fatal("reviewed source tuple was not compiled exactly")
 	}
-	at := time.Date(2026, 10, 5, 1, 28, 25, 0, time.UTC)
-	expires := time.Date(2026, 10, 5, 1, 28, 26, 0, time.UTC)
-	if audience.ExpiresAt != "2026-10-05T01:28:26Z" || !Matches(audience, SourceReviewedAudience(), at) || Matches(nil, audience, at) || Matches(audience, nil, at) || Matches(audience, audience, expires) || Matches(audience, audience, expires.Add(time.Second)) {
+	at := time.Date(2026, 10, 5, 3, 14, 22, 0, time.UTC)
+	expires := time.Date(2026, 10, 5, 3, 14, 23, 0, time.UTC)
+	if audience.ExpiresAt != "2026-10-05T03:14:23Z" || !Matches(audience, SourceReviewedAudience(), at) || Matches(nil, audience, at) || Matches(audience, nil, at) || Matches(audience, audience, expires) || Matches(audience, audience, expires.Add(time.Second)) {
 		t.Fatal("absent or expired audience admitted, or exact positive refused")
+	}
+
+	previousRaw, err := os.ReadFile("../../docs/audits/2026-10-05-mention-native-source-activation/audience.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var previous contract.ScopedExecutionAudience
+	if err = json.Unmarshal(previousRaw, &previous); err != nil {
+		t.Fatal(err)
+	}
+	if Matches(&previous, audience, at) {
+		t.Fatal("prior Mention source revision admitted")
 	}
 	for _, change := range []func(){
 		func() { audience.Principal.ApplicationID = "6a2f851751b784a86fd0e934" },

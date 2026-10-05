@@ -72,7 +72,7 @@ func TestPrivatePublicationRequiresNormalEvidenceAndCannotEnableGeneralJev(t *te
 
 func TestReviewedMentionSourcePublicationStillRequiresItsOwnCardAndKey(t *testing.T) {
 	discoveries, fixture := privateFixture(t)
-	at := time.Date(2026, 10, 5, 1, 28, 25, 0, time.UTC)
+	at := time.Date(2026, 10, 5, 3, 14, 22, 0, time.UTC)
 	if permit, err := sourceReviewedPrivatePermit(fixture.Cards, fixture.Eligibility, at); err == nil || permit != nil {
 		t.Fatal("foreign fixture card/eligibility authorized compiled source")
 	}

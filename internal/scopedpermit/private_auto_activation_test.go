@@ -44,7 +44,7 @@ func TestPrivateAutoSourceMatchesExactReviewedApproval(t *testing.T) {
 	if SourceReviewedPrivateAutoApproval().Equal(changed) {
 		t.Fatal("caller mutated source authority")
 	}
-	if SourceReviewedAudience().ExpiresAt != "2026-10-05T01:28:26Z" {
+	if SourceReviewedAudience().ExpiresAt != "2026-10-05T03:14:23Z" {
 		t.Fatal("Mention singleton expiry changed")
 	}
 }
