@@ -518,6 +518,11 @@ func (s *Server) logResult(requestID contract.RequestID, result kaana.Result, el
 	}
 	if result.Failure != nil {
 		attributes = append(attributes, "code", result.Failure.Code, "retryable", result.Failure.Retryable)
+		if result.Failure.Code == contract.CodeProviderError {
+			if reason := provider.DecisionResponseDiagnostic(result.Failure.Message); reason != "" {
+				attributes = append(attributes, "decisionResponseValidation", reason)
+			}
+		}
 		s.logger.Warn("inference request failed", attributes...)
 		return
 	}
