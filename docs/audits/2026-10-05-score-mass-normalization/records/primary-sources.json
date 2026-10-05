@@ -1,0 +1,30 @@
+{
+  "officialAdapterCommit": "e1d4cc938204b22fc5a3c3aca7044072fe3f712d",
+  "sources": [
+    {
+      "file": "official-adapter.py",
+      "url": "https://raw.githubusercontent.com/typesafe-ai/system-one-adapter-python/e1d4cc938204b22fc5a3c3aca7044072fe3f712d/src/system_one_adapter/_client.py",
+      "sha256": "a062db2602ac642b653f31ec6b16761667e6b0b1c76ff64a4ae7a4873eee62e7"
+    },
+    {
+      "file": "score.md",
+      "url": "https://docs.typesafe.ai/primitives/score.md",
+      "sha256": "a0a39b9c01f5ac3616efae071bf23f879bbe3fb12b0af2169932dbb71dd83d32"
+    },
+    {
+      "file": "api.md",
+      "url": "https://docs.typesafe.ai/api.md",
+      "sha256": "6b760275f89341fe15cff80c28aacae94d7d0c0c99afcd987ec0bca680b5713a"
+    },
+    {
+      "file": "jaggedness.md",
+      "url": "https://docs.typesafe.ai/model-jaggedness/jev-1.13.md",
+      "sha256": "5d471be7c8d2a359a81979b7bcf2c2fab536a198d4e50155c4233380d5c03986"
+    },
+    {
+      "file": "official-normalization.py",
+      "url": "https://raw.githubusercontent.com/typesafe-ai/system-one-adapter-python/e1d4cc938204b22fc5a3c3aca7044072fe3f712d/src/system_one_adapter/_utils/probability_normalization.py",
+      "sha256": "4cc0bef241dffb1dd2a1d4318b08c3f6f3dbf0ea54badff41ed0d9803edf39ca"
+    }
+  ]
+}

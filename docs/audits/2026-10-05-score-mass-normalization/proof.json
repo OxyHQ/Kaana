@@ -1,0 +1,147 @@
+{
+  "kind": "systemone-score-mass-normalization-proof-v1",
+  "base": "112afea274aa1100f719c2a343c9605543d69aae",
+  "sourceHead": "dd368526da3581b7716559dc5d0906690743eecf",
+  "sources": [
+    {
+      "path": "internal/provider/openaicompat/decisions.go",
+      "sha256": "843ba3596619e8c9b1a5400ec488f93c7108794a793fe58650299855cb8c3063"
+    },
+    {
+      "path": "internal/provider/openaicompat/decisions_normalization_test.go",
+      "sha256": "77f6ca1ff725ce45379a42f00ac7e38e67a2fabf3d4cd82ea611cfdcfaf42796"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/README.md",
+      "sha256": "a64a8ee290ad350866f7c518ef15d28bd166491f0cd7a979ed7beabfdb734b57"
+    }
+  ],
+  "unchanged": [
+    {
+      "path": "internal/contract/decisions.go",
+      "sha256": "a2edf603707630b326e9d814f4271a331e80332ef680cb2f0d89f1e95a7229e8"
+    },
+    {
+      "path": "internal/contract/descriptor.json",
+      "sha256": "776b8b42573b735637a24dff4592f3d4f32de6c1b5fee74238273deb9ca52729"
+    },
+    {
+      "path": "internal/scopedpermit/source.go",
+      "sha256": "9cf7a96bf1772df839107d69091d8a73d6e6cd1250913c24b3a24dc97e0633c6"
+    },
+    {
+      "path": "internal/scopedpermit/private_auto.go",
+      "sha256": "c424501244376b9cb2c8e76fefb408e3bbfa021e164cca0abdfb8a1632890054"
+    },
+    {
+      "path": "configs/provider-rates-jev-scoped.json",
+      "sha256": "7dad32e09865c10b8d33487f76303a0f1f2ceb325771eb9ed4fd1a0bc1d7b351"
+    },
+    {
+      "path": "configs/provider-rates-jev-private-auto.json",
+      "sha256": "9bb42935daa583f1efaee802050020c309dd4cc76e2e94af5dc3f04efa953234"
+    },
+    {
+      "path": "internal/httpapi/server.go",
+      "sha256": "13bee7cc0e134dfd646fe9e45c61ce1268df7dadd156749f054e8aa11327a9ed"
+    },
+    {
+      "path": "internal/provider/decision_diagnostic.go",
+      "sha256": "838b7bcaf53321e8616fda3ebb69c1779ef67dc6e568d77bb13a8c090e11d37a"
+    },
+    {
+      "path": "tools/contract/package.json",
+      "sha256": "73c694deb048977b477bc70441e4150465f2957caf473a1e77f44e9dcabda054"
+    },
+    {
+      "path": "tools/contract/bun.lock",
+      "sha256": "6593c31f9ab1d18eaba31e278079c54c48691e3b0acbcafb48fa83b17875ed9d"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/baseline-final-fixture-red.log",
+      "sha256": "691ee6d8d157d82980d32a71bbab648020c9412eac07112c7e94c5279a8189bd"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/baseline-red.log",
+      "sha256": "14a74d9d6bdf665aa6102b6efe201c9219134e3883b95bed4f329f5cbcd44943"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/exact_mass.json",
+      "sha256": "a9654ade2cb3acd92a9b762e80277d9e0da9b8014b97abee438a8cf09cf21c01"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/focused-final-green.log",
+      "sha256": "e33269723b1fd3f12eb594809b37d58c82ce4dc0d3733fd901d69f85be5c4aac"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/focused-green.log",
+      "sha256": "38984724ef07252482b297057656b6398c9a27dd2aed9a91f62ad6679bd18777"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/make-check.log",
+      "sha256": "48beff948de0cf7aa3b0e8809f83156e19a0c88c2694139a66d9e02729f02bc6"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/mass_above_one.json",
+      "sha256": "c7ddb5a4452c9a3e0dd8e836b6a25d6252421b8430bb51648488b3e39d481c84"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/mass_below_one.json",
+      "sha256": "d3d6bb9893dac59f8a8d3033b94d26f5450718ce863754a1c5d867bbcb72abbd"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/primary-sources.json",
+      "sha256": "c2ee942aa779fb99366cde6b36c79c0506cd3bd83d6296827ef9ea1ee0fdb1ea"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/published-contract-replay.cjs",
+      "sha256": "d1bb38a2a10f2ad822ec6823ec7f9c1c08968999151d1272ce35610749d9fa0d"
+    },
+    {
+      "path": "docs/audits/2026-10-05-score-mass-normalization/records/published-contract-replay.log",
+      "sha256": "f4fea4c87beb2b10548d99bfabc1a35e626f8c0ce77265309e5a2537820624ec"
+    }
+  ],
+  "primarySnapshots": [
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/i04-score-normalization-20261005/official-adapter.py",
+      "sha256": "a062db2602ac642b653f31ec6b16761667e6b0b1c76ff64a4ae7a4873eee62e7",
+      "url": "https://raw.githubusercontent.com/typesafe-ai/system-one-adapter-python/e1d4cc938204b22fc5a3c3aca7044072fe3f712d/src/system_one_adapter/_client.py"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/i04-score-normalization-20261005/score.md",
+      "sha256": "a0a39b9c01f5ac3616efae071bf23f879bbe3fb12b0af2169932dbb71dd83d32",
+      "url": "https://docs.typesafe.ai/primitives/score.md"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/i04-score-normalization-20261005/api.md",
+      "sha256": "6b760275f89341fe15cff80c28aacae94d7d0c0c99afcd987ec0bca680b5713a",
+      "url": "https://docs.typesafe.ai/api.md"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/i04-score-normalization-20261005/jaggedness.md",
+      "sha256": "5d471be7c8d2a359a81979b7bcf2c2fab536a198d4e50155c4233380d5c03986",
+      "url": "https://docs.typesafe.ai/model-jaggedness/jev-1.13.md"
+    },
+    {
+      "path": "/home/nate/Oxy/.agent-evidence/i04-score-normalization-20261005/official-normalization.py",
+      "sha256": "4cc0bef241dffb1dd2a1d4318b08c3f6f3dbf0ea54badff41ed0d9803edf39ca",
+      "url": "https://raw.githubusercontent.com/typesafe-ai/system-one-adapter-python/e1d4cc938204b22fc5a3c3aca7044072fe3f712d/src/system_one_adapter/_utils/probability_normalization.py"
+    }
+  ],
+  "validation": {
+    "baseline": "Identical final13case real-wire fixture:3 failures; first draft additionally had incorrect expected diagnostic(nonfinite is ambiguous_json), preserved separately",
+    "final": "13cases PASS; focused adapter/contract/HTTP race suites exit0; canonical make check exit0 withGo1.26.7/lint2.13.2/Bun1.3.14",
+    "publishedContract": "Actual3positive adapter wire outputs each2answers accepted by4.10.0 and4.9.1;4negative controls each rejected",
+    "SQL": "No database-dependent integration claimed or required; no schema/SQL change",
+    "effects": "Only local fake HTTP; no AWS/provider request/key/replay/activation"
+  },
+  "limits": [
+    "Official TypeSafe adapter is not proof of hosted Jev implementation or lost historical response magnitude",
+    "Historical request f1f5293a-370c-47b9-b176-b973748d05b6 remains failed; no replay or new authority",
+    "Raw probability mass tolerance and final score tolerance remain1e-6; normalization is not arbitrary probability or score repair",
+    "Source approvals/card/expiry/dailybudget/SDK remain unchanged"
+  ]
+}

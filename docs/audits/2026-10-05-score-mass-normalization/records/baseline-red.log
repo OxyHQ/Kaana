@@ -1,0 +1,12 @@
+--- FAIL: TestScoreNormalizedMassRealWire (0.21s)
+    --- FAIL: TestScoreNormalizedMassRealWire/mass_below_one (0.04s)
+        decisions_normalization_test.go:76: provider_error (unknown): invalid systemone response: score_distribution
+    --- FAIL: TestScoreNormalizedMassRealWire/mass_above_one (0.02s)
+        decisions_normalization_test.go:76: provider_error (unknown): invalid systemone response: score_distribution
+    --- FAIL: TestScoreNormalizedMassRealWire/raw_unnormalized_score (0.02s)
+        decisions_normalization_test.go:71: expected score_distribution rejection, got <nil>
+    --- FAIL: TestScoreNormalizedMassRealWire/nonfinite_number (0.01s)
+        decisions_normalization_test.go:71: expected answer_json rejection, got provider_error (unknown): invalid systemone response: ambiguous_json
+FAIL
+FAIL	github.com/OxyHQ/Kaana/internal/provider/openaicompat	0.213s
+FAIL
