@@ -1,0 +1,122 @@
+{
+  "kind": "third-distinct-mention-kaana-source-proof-v1",
+  "baseHead": "62fd0c43b52484923856bbe3fe700ab09ed785c7",
+  "sourceHead": "feb77a9616537f0fb69b1e19f228a942f2d64ec9",
+  "rootFreezeSha256": "72be09e28debddcc7df18577c6ffafe3d13f8b8be7b35d91cd596c3b80c5aaf1",
+  "sources": [
+    {
+      "path": "configs/provider-rates-jev-scoped.json",
+      "sha256": "40634000dfe23d9364dd09129b3f30c9ab2e6c9fab2e298c99845329f870ec0c"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/README.md",
+      "sha256": "e71a31ae0c32db79c191eb831009bd5f0187d1c1fcfc05d8d2b2caf70fa8c4e3"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/audience.json",
+      "sha256": "c7bc1aea899adead03d35f30620a1bdc6cd6805067bf0dee40a5be8f7e71fde1"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/economics.json",
+      "sha256": "078b78f052f79171e362288cceb3148c44e085539a8d2ec9f5e4e1f1635211d9"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/frozen.json",
+      "sha256": "72be09e28debddcc7df18577c6ffafe3d13f8b8be7b35d91cd596c3b80c5aaf1"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/provider-card.json",
+      "sha256": "40634000dfe23d9364dd09129b3f30c9ab2e6c9fab2e298c99845329f870ec0c"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/root-review.json",
+      "sha256": "ea34cfaf7bc7e3b7743dcc6509d15f421b741de4e496269f913009b41b89b998"
+    },
+    {
+      "path": "internal/publisher/scoped_test.go",
+      "sha256": "662303e16ee6578a0da3cec7eb39692a77f9abf7a2fac0e2310fe69ea4214a8d"
+    },
+    {
+      "path": "internal/scopedpermit/private_auto_activation_test.go",
+      "sha256": "fbe70140124f7ecbd4f3721b12957b528b9c76fd18d6e55b243adc1243993422"
+    },
+    {
+      "path": "internal/scopedpermit/source.go",
+      "sha256": "b1b4338a2599b0c53ce416ff37d8cf71dad1c4249f93ddd454614a5bc8832e47"
+    },
+    {
+      "path": "internal/scopedpermit/source_activation_test.go",
+      "sha256": "d72afcef5e35c3cd0cfcecf9d638c3fb33871969e1970794ab0ddc7337342dd0"
+    }
+  ],
+  "unchanged": [
+    {
+      "path": "internal/provider/openaicompat/decisions.go",
+      "sha256": "843ba3596619e8c9b1a5400ec488f93c7108794a793fe58650299855cb8c3063"
+    },
+    {
+      "path": "internal/provider/openaicompat/decisions_normalization_test.go",
+      "sha256": "77f6ca1ff725ce45379a42f00ac7e38e67a2fabf3d4cd82ea611cfdcfaf42796"
+    },
+    {
+      "path": "internal/provider/decision_diagnostic.go",
+      "sha256": "838b7bcaf53321e8616fda3ebb69c1779ef67dc6e568d77bb13a8c090e11d37a"
+    },
+    {
+      "path": "internal/httpapi/server.go",
+      "sha256": "13bee7cc0e134dfd646fe9e45c61ce1268df7dadd156749f054e8aa11327a9ed"
+    },
+    {
+      "path": "internal/contract/descriptor.json",
+      "sha256": "776b8b42573b735637a24dff4592f3d4f32de6c1b5fee74238273deb9ca52729"
+    },
+    {
+      "path": "internal/scopedpermit/private_auto.go",
+      "sha256": "c424501244376b9cb2c8e76fefb408e3bbfa021e164cca0abdfb8a1632890054"
+    },
+    {
+      "path": "internal/scopedpermit/rate_cards.go",
+      "sha256": "b7e419277f0bb2ae48e1c3183d20c7c38ba73baecbd50cebba3ee76ef9608e7c"
+    },
+    {
+      "path": "configs/provider-rates-jev-private-auto.json",
+      "sha256": "9bb42935daa583f1efaee802050020c309dd4cc76e2e94af5dc3f04efa953234"
+    },
+    {
+      "path": "configs/provider-rates.json",
+      "sha256": "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968"
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "cb3d689a0f62bbb58baf59dd55cc653e86ec4c0b4f2debd0b49db2d447f2b881"
+    },
+    {
+      "path": ".dockerignore",
+      "sha256": "ce99def03026abec3d6484765b6e59067bd6de5ad0d5238dea925fd9c233bd05"
+    },
+    {
+      "path": "tools/contract/package.json",
+      "sha256": "73c694deb048977b477bc70441e4150465f2957caf473a1e77f44e9dcabda054"
+    },
+    {
+      "path": "tools/contract/bun.lock",
+      "sha256": "6593c31f9ab1d18eaba31e278079c54c48691e3b0acbcafb48fa83b17875ed9d"
+    }
+  ],
+  "records": [
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/records/baseline-red.log",
+      "sha256": "a8b84247cc7081ff31be8c475c596d14664273a223cdfb6346db904e497011cf"
+    },
+    {
+      "path": "docs/audits/2026-10-05-mention-third-source/records/make-check.log",
+      "sha256": "861af733532ec9c4c7b3f31ebdd6926e2ac3bd726f59bf708685d287a73335cf"
+    }
+  ],
+  "checks": {
+    "sameFinalFixtureBaseline": "4 meaningful failures against old source/card; no testcase rewritten between RED/GREEN",
+    "final": "PATH=/home/nate/.cache/bun-1.3.14/bin:$PATH make check EXIT0; all canonical Go/build/vet/lint/race/contract/cloudflare gates",
+    "production": "No AWS/provider/SQL or request/rekey; runtime qualification pending root",
+    "limits": "Root fixedexpiry07:09:12 unchanged; first2paidfailures remain consumed; stable cumulative daily3 Oxy policy separate"
+  }
+}
