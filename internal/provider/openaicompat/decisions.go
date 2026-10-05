@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -263,6 +264,25 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 				}
 				answer.Distribution = append(answer.Distribution, *p)
 			}
+			// TypeSafe computes Score on normalized mass, even when its wire
+			// probabilities retain a small rounding residual. Validate the raw
+			// distribution before normalizing; never repair invalid probabilities
+			// or widen the contract's existing 1e-6 mass/score tolerances.
+			mass := 0.0
+			for _, p := range answer.Distribution {
+				if math.IsNaN(p) || math.IsInf(p, 0) || p < 0 || p > 1 {
+					return fail("probability_value")
+				}
+				mass += p
+			}
+			if math.Abs(mass-1) > 1e-6 {
+				return fail("probability_sum")
+			}
+			for i := range answer.Distribution {
+				answer.Distribution[i] /= mass
+			}
+			// Keep the actual provider score/reply. The unchanged contract below
+			// still rejects disagreement with the normalized weighted mean.
 			answer.Mean = wire.Score
 			answer.Reply = &contract.DecisionReply{Score: wire.Score}
 			answer.Confidence = wire.Confidence
