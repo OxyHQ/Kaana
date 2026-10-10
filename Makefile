@@ -21,7 +21,7 @@ DESCRIPTOR   := internal/contract/descriptor.json
 
 .DEFAULT_GOAL := check
 
-.PHONY: check ci fmt build vet lint test test-integration contract contract-generate contract-types contract-validate cloudflare tools help
+.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-generate contract-types contract-validate cloudflare tools help
 
 ## check: every gate CI runs, in CI's order. The one command to run before a PR.
 check: fmt build vet lint test contract cloudflare
@@ -91,7 +91,14 @@ endif
 	go test -race -count=1 ./internal/credentialstore/...
 
 ## contract: the full contract-drift gate.
-contract: contract-generate contract-types contract-validate
+contract: contract-lint contract-generate contract-types contract-validate
+
+## contract-lint: Biome over the contract tool, and nothing else.
+#
+# The root biome.json includes ONLY tools/contract/**: configs/**, .github/*.json
+# and $(DESCRIPTOR) are byte-exact inputs that a formatter must never touch.
+contract-lint:
+	cd $(CONTRACT_DIR) && bun install --frozen-lockfile && bunx biome ci .
 
 ## contract-generate: regenerate the descriptor and fail on any diff.
 #

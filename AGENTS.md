@@ -24,8 +24,11 @@ gofmt -l .                      # prints nothing
 go build ./... && go vet ./...
 golangci-lint run               # v2.13.2
 go test -race -count=1 ./...
-cd tools/contract && bun install --frozen-lockfile && bun run generate && bun run validate
+cd tools/contract && bun install --frozen-lockfile && bunx biome ci . && bun run generate && bun run validate
 ```
+
+Biome (root `biome.json`) covers ONLY `tools/contract/**`. Never widen it:
+`configs/**`, `.github/*.json` and the descriptor are byte-exact inputs.
 
 ## Rules
 
