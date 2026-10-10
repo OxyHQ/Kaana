@@ -103,7 +103,6 @@ then admitted through Kaana's onboarding gates.
 
 ## Database invariant
 
-Kaana is PostgreSQL-only. Adding MongoDB, Mongoose or a Mongo connection string
-is not a migration option or a fallback. Provider credentials, migration audit
-records and any other durable Kaana state use PostgreSQL; the inference payload
-itself is not persisted.
+Kaana is PostgreSQL-only. No other database is a migration option or a
+fallback. Provider credentials, migration audit records and any other durable
+Kaana state use PostgreSQL; the inference payload itself is not persisted.
