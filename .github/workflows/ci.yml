@@ -136,6 +136,12 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: tools/contract
 
+      - name: Biome formats and lints the contract tool
+        # Biome's root biome.json includes ONLY tools/contract/**, so this never
+        # reads configs/**, .github/*.json or the generated descriptor.
+        run: bunx biome ci .
+        working-directory: tools/contract
+
       - name: the committed descriptor is what the pinned package produces
         # Catches a hand-edited descriptor and a version bump nobody
         # re-derived. The package version is pinned exactly, so regeneration is

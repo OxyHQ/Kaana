@@ -55,7 +55,9 @@ function readFixtures(kind) {
   const dir = join(FIXTURE_ROOT, kind);
   let entries;
   try {
-    entries = readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
+    entries = readdirSync(dir)
+      .filter((name) => name.endsWith('.json'))
+      .sort();
   } catch (error) {
     throw new Error(`cannot read generated fixtures from ${dir}: ${error.message}`);
   }
@@ -84,7 +86,9 @@ try {
     throw new Error('no valid fixtures were found; every check below would pass vacuously');
   }
   if (invalid.length === 0) {
-    throw new Error('no invalid control fixtures were found; the validator would have no vacuity floor');
+    throw new Error(
+      'no invalid control fixtures were found; the validator would have no vacuity floor',
+    );
   }
 
   for (const fixture of valid) {

@@ -50,7 +50,9 @@ if (localBuild && !/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/.test(localSource ?? '')) {
   );
 }
 if (!localBuild && localSource !== undefined) {
-  throw new Error('OXY_CONTRACTS_LOCAL_SOURCE names a local build, but the package is the installed artifact');
+  throw new Error(
+    'OXY_CONTRACTS_LOCAL_SOURCE names a local build, but the package is the installed artifact',
+  );
 }
 
 const OUTPUT = resolve(import.meta.dirname, '..', '..', 'internal', 'contract', 'descriptor.json');
@@ -89,7 +91,10 @@ async function loadInferenceExports() {
 }
 
 const isZodSchema = (value) =>
-  typeof value === 'object' && value !== null && '_def' in value && typeof value.parse === 'function';
+  typeof value === 'object' &&
+  value !== null &&
+  '_def' in value &&
+  typeof value.parse === 'function';
 
 /* -------------------------------------------------------------------------- */
 /*  Description                                                               */
@@ -264,7 +269,9 @@ function describe(schema, nameOfSchema, allowRef) {
     case 'ZodAny':
       return { kind: 'unknown', ...node };
     default:
-      throw new Error(`unhandled zod type ${typeName}; the generator must learn it before the descriptor can be trusted`);
+      throw new Error(
+        `unhandled zod type ${typeName}; the generator must learn it before the descriptor can be trusted`,
+      );
   }
 }
 
@@ -291,7 +298,9 @@ for (const [name, { value }] of inferenceExports) {
 
 const shapes = {};
 const constants = {};
-for (const [name, { value, module }] of [...inferenceExports].sort(([a], [b]) => (a < b ? -1 : 1))) {
+for (const [name, { value, module }] of [...inferenceExports].sort(([a], [b]) =>
+  a < b ? -1 : 1,
+)) {
   if (isZodSchema(value)) {
     const described = describe(value, nameOfSchema, false);
     shapes[name] = {
