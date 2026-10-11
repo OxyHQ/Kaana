@@ -47,10 +47,11 @@ import (
 
 // apiVersion is the Messages API version this adapter is written against. The
 // provider requires the header on every request and uses it to keep response
-// shapes stable, so it is pinned here beside the code that parses them rather
-// than being configurable: a version somebody changed in an environment
-// variable would change the JSON this package decodes.
-const apiVersion = "2023-06-01"
+// shapes stable, so it is pinned in code rather than being configurable: a
+// version somebody changed in an environment variable would change the JSON
+// this package decodes. It is providerconfig's constant because the
+// publisher's authenticated model list sends the same header.
+const apiVersion = providerconfig.AnthropicAPIVersion
 
 // Config describes the provider.
 type Config struct {

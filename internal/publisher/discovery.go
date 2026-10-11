@@ -95,6 +95,9 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	if target.Discovery == providerconfig.DiscoveryCohereModels {
 		return discoverCohereModels(ctx, client, target)
 	}
+	if target.Discovery == providerconfig.DiscoveryAnthropicModels {
+		return discoverAnthropicModels(ctx, client, target)
+	}
 
 	endpoint, err := discoveryEndpoint(target, 1)
 	if err != nil {
@@ -206,7 +209,15 @@ func readModelList(ctx context.Context, client *http.Client, target Provider, en
 	if err != nil {
 		return fmt.Errorf("publisher: building the model list request for %s: %w", target.Slug, err)
 	}
-	request.Header.Set("Authorization", "Bearer "+target.APIKey)
+	if target.Discovery == providerconfig.DiscoveryAnthropicModels {
+		// Anthropic authenticates exactly as its Messages adapter does:
+		// `x-api-key` with the mandatory `anthropic-version`, never a bearer
+		// token (internal/provider/anthropic, authorize).
+		request.Header.Set("x-api-key", target.APIKey)
+		request.Header.Set("anthropic-version", providerconfig.AnthropicAPIVersion)
+	} else {
+		request.Header.Set("Authorization", "Bearer "+target.APIKey)
+	}
 	request.Header.Set("Accept", "application/json")
 
 	response, err := provider.RefuseRedirects(client).Do(request)
@@ -378,6 +389,123 @@ func cohereModelListEndpoint(target Provider, pageToken string) (string, error) 
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+// discoverAnthropicModels reads Anthropic's authenticated Models API,
+// `GET {base}/models` (https://platform.claude.com/docs/en/api/models/list),
+// with the same `x-api-key` and `anthropic-version` the Messages adapter
+// sends. The list is account-scoped: it names the models this key can call.
+//
+// It pages forward on the documented cursor — `has_more` with `last_id` sent
+// back as `after_id`, `limit` at its documented maximum — and refuses a
+// repeated cursor, a `has_more` without one, or a catalogue past
+// maxModelListEntries rather than loop. Without a `lifecycle` filter Anthropic
+// lists active and deprecated models and omits retired ones; a retired row is
+// still skipped if one arrives. Deprecated rows are kept — deprecation
+// announces a retirement date, and attribution, not discovery, decides what
+// may publish.
+//
+// Every Messages model is a chat model, so there is no family filter here:
+// attribution and the request-family gate decide. What the row says about
+// the model is kept as observed metadata (observeAnthropicModel).
+func discoverAnthropicModels(ctx context.Context, client *http.Client, target Provider) ([]DiscoveredModel, error) {
+	if target.Slug != "anthropic" {
+		// The Messages wire belongs to one provider, and the serving process
+		// refuses it under any other slug; a model list read under another
+		// name would publish deployments nothing can serve.
+		return nil, fmt.Errorf("publisher: the Anthropic model list is read only for the anthropic provider, not %q", target.Slug)
+	}
+	seen := make(map[string]struct{})
+	cursors := make(map[string]struct{})
+	models := make([]DiscoveredModel, 0)
+	listed := 0
+	afterID := ""
+	for {
+		endpoint, err := anthropicModelListEndpoint(target, afterID)
+		if err != nil {
+			return nil, err
+		}
+		var list anthropicModelListResponse
+		if err := readModelList(ctx, client, target, endpoint, "Anthropic", &list); err != nil {
+			return nil, err
+		}
+		for _, raw := range list.Data {
+			var entry anthropicModelListEntry
+			if err := json.Unmarshal(raw, &entry); err != nil {
+				return nil, fmt.Errorf("publisher: %s's model list is not the documented Anthropic list shape: %w", target.Slug, err)
+			}
+			if entry.ID == "" || strings.TrimSpace(entry.ID) != entry.ID {
+				return nil, fmt.Errorf("publisher: %s's model list contains a missing or whitespace-normalized model id", target.Slug)
+			}
+			if entry.Type != "model" {
+				return nil, fmt.Errorf("publisher: %s's model list names %q as a %q, not a model", target.Slug, entry.ID, entry.Type)
+			}
+			if _, duplicate := seen[entry.ID]; duplicate {
+				return nil, fmt.Errorf("publisher: %s's model list names %q twice", target.Slug, entry.ID)
+			}
+			seen[entry.ID] = struct{}{}
+			listed++
+			if listed > maxModelListEntries {
+				return nil, fmt.Errorf("publisher: %s's model list exceeds %d entries", target.Slug, maxModelListEntries)
+			}
+			var lifecycle string
+			if json.Unmarshal(entry.Lifecycle, &lifecycle) == nil && lifecycle == "retired" {
+				// Inference naming a retired model fails; Anthropic keeps the
+				// row only as the record of its retirement.
+				continue
+			}
+			models = append(models, DiscoveredModel{UpstreamModelID: entry.ID, Observed: observeAnthropicModel(raw)})
+		}
+		if !list.HasMore {
+			break
+		}
+		if list.LastID == "" {
+			return nil, fmt.Errorf("publisher: %s's model list says it has more but names no cursor", target.Slug)
+		}
+		if _, repeated := cursors[list.LastID]; repeated {
+			return nil, fmt.Errorf("publisher: %s's model list repeated a page cursor", target.Slug)
+		}
+		cursors[list.LastID] = struct{}{}
+		afterID = list.LastID
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("publisher: %s reports serving no models at all", target.Slug)
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })
+	return models, nil
+}
+
+// anthropicModelListEndpoint is `{base}/models?limit=1000[&after_id=...]`.
+func anthropicModelListEndpoint(target Provider, afterID string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSuffix(target.BaseURL, "/") + "/models")
+	if err != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("publisher: provider %s has an invalid model list address", target.Slug)
+	}
+	query := url.Values{}
+	query.Set("limit", fmt.Sprint(anthropicModelListPageSize))
+	if afterID != "" {
+		query.Set("after_id", afterID)
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+// anthropicModelListPageSize is the documented maximum `limit`.
+const anthropicModelListPageSize = 1000
+
+type anthropicModelListResponse struct {
+	Data    []json.RawMessage `json:"data"`
+	HasMore bool              `json:"has_more"`
+	LastID  string            `json:"last_id"`
+}
+
+// anthropicModelListEntry decodes the identity fields strictly; `lifecycle`
+// is read leniently, so a change to its type can only stop Kaana skipping a
+// retired row (which attribution then drops), never fail discovery.
+type anthropicModelListEntry struct {
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	Lifecycle json.RawMessage `json:"lifecycle"`
 }
 
 // cohereModelListPageSize is the documented maximum page.

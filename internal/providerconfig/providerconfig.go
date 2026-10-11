@@ -49,7 +49,12 @@ const (
 	DiscoveryNebiusModels        = "nebius_models"
 	DiscoveryAlibabaModels       = "alibaba_models"
 	DiscoveryCohereModels        = "cohere_models"
-	DiscoveryNotAvailable        = "not_available"
+	// DiscoveryAnthropicModels reads Anthropic's authenticated Models API,
+	// `GET {base}/models` with `x-api-key` and `anthropic-version`, paged on
+	// `has_more`/`last_id` → `after_id`
+	// (https://platform.claude.com/docs/en/api/models/list).
+	DiscoveryAnthropicModels = "anthropic_models"
+	DiscoveryNotAvailable    = "not_available"
 )
 
 // Known is the protocol, discovery contract and, where one exists globally,
@@ -68,7 +73,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
 	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryXAIRealtimeSessions},
-	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: "https://api.anthropic.com/v1", Discovery: DiscoveryNotAvailable},
+	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: AnthropicBaseURL, Discovery: DiscoveryAnthropicModels},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
 	"cerebras":         {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cerebras.ai/v1", Discovery: DiscoveryOpenAIModels},
@@ -95,6 +100,19 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"alibaba":          {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryAlibabaModels},
 	"cloudflare":       {Protocol: ProtocolOpenAICompatible, Discovery: DiscoveryNotAvailable},
 }
+
+// AnthropicBaseURL is Anthropic's API root. The Messages adapter posts to
+// `{root}/messages`; the `anthropic_models` discovery profile lists the
+// account's models at `{root}/models`.
+const AnthropicBaseURL = "https://api.anthropic.com/v1"
+
+// AnthropicAPIVersion is the `anthropic-version` header value every request to
+// Anthropic carries. Anthropic requires the header and uses it to keep
+// response shapes stable (https://platform.claude.com/docs/en/api/versioning),
+// so it is one constant both the Messages adapter and the publisher's model
+// list read: a discovery request sent under another version would read a list
+// shape the serving adapter was never written against.
+const AnthropicAPIVersion = "2023-06-01"
 
 // CohereCompatibilityBaseURL is Cohere's OpenAI-compatible Chat Completions
 // root (https://docs.cohere.com/docs/compatibility-api). The compatibility

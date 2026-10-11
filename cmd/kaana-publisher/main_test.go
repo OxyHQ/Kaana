@@ -7,6 +7,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/publisher"
 )
 
@@ -139,16 +140,59 @@ func TestTwoSlugsFoldingOntoOneVariableAreRefused(t *testing.T) {
 	}
 }
 
-// TestAProviderThatPublishesNoModelListIsRefused: Anthropic answers no
+// TestAProviderThatPublishesNoModelListIsRefused: AI21 documents no account
 // `GET /models`, and the alternative to refusing is a hand-written list — which
 // is the checked-in file this command exists to replace.
 func TestAProviderThatPublishesNoModelListIsRefused(t *testing.T) {
 	_, err := parsePublishableProviders(environmentFrom(map[string]string{
-		"KAANA_PROVIDERS":           "anthropic",
-		"KAANA_DISCOVERY_PROVIDERS": "anthropic",
+		"KAANA_PROVIDERS":           "ai21",
+		"KAANA_DISCOVERY_PROVIDERS": "ai21",
 	}))
 	if err == nil {
 		t.Fatal("a provider with no readable model list was accepted for discovery")
+	}
+}
+
+// TestAnthropicIsDiscoveredThroughItsOwnModelList: the Messages slug reads
+// Anthropic's authenticated Models API and carries its protocol, so the
+// snapshot builder judges request families by the Messages adapter.
+func TestAnthropicIsDiscoveredThroughItsOwnModelList(t *testing.T) {
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":           "cerebras,anthropic",
+		"KAANA_DISCOVERY_PROVIDERS": "anthropic",
+	}))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	if len(providers) != 1 || providers[0].Slug != "anthropic" || providers[0].Protocol != providerconfig.ProtocolAnthropicMessages ||
+		providers[0].Discovery != providerconfig.DiscoveryAnthropicModels || providers[0].BaseURL != "https://api.anthropic.com/v1" {
+		t.Fatalf("anthropic provider = %+v", providers)
+	}
+}
+
+// TestTheMessagesProtocolIsDiscoveredOnlyAsAnthropic: serving refuses the
+// Messages API under any other slug, so the publisher must not list models
+// for one — nor read Anthropic's list for an `anthropic` slug re-declared as
+// another protocol.
+func TestTheMessagesProtocolIsDiscoveredOnlyAsAnthropic(t *testing.T) {
+	for name, environment := range map[string]map[string]string{
+		"another slug speaking messages": {
+			"KAANA_PROVIDERS":                 "bedrock",
+			"KAANA_DISCOVERY_PROVIDERS":       "bedrock",
+			"KAANA_PROVIDER_BEDROCK_PROTOCOL": providerconfig.ProtocolAnthropicMessages,
+			"KAANA_PROVIDER_BEDROCK_BASE_URL": "https://bedrock.example.invalid/v1",
+		},
+		"anthropic re-declared as openai-compatible": {
+			"KAANA_PROVIDERS":                   "anthropic",
+			"KAANA_DISCOVERY_PROVIDERS":         "anthropic",
+			"KAANA_PROVIDER_ANTHROPIC_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parsePublishableProviders(environmentFrom(environment)); err == nil {
+				t.Fatal("a Messages protocol/discovery mismatch was accepted")
+			}
+		})
 	}
 }
 

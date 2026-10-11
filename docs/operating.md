@@ -751,7 +751,14 @@ asks only for `TG` inference rows and retains only exact text-output ids; only
 four separately attributed dated snapshots may publish. Cohere's
 compatibility root has no model list, so it reads the native authenticated
 `/v1/models?endpoint=chat` on the same host, follows `next_page_token` and
-drops fine-tunes. Cloudflare remains
+drops fine-tunes. Anthropic is the one discovery slug outside the
+OpenAI-compatible family: it reads Anthropic's authenticated `GET /v1/models`
+with the Messages adapter's `x-api-key` and `anthropic-version`, follows
+`has_more`/`last_id` → `after_id`, and only the `anthropic` slug under the
+`anthropic_messages` protocol may ask it. Its reviewed discovery identity is
+`30033d0c-3ca8-48c4-be44-8538d81028dd`, and as a single-key provider its
+deployments execute on that key with no binding (`provider-onboarding.md`,
+"Anthropic"). Cloudflare remains
 absent from `KAANA_DISCOVERY_PROVIDERS` because its current official
 model-search schema leaves result rows untyped. Nscale documents an
 organization-scoped OpenAI list.

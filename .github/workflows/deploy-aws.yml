@@ -222,10 +222,10 @@ jobs:
           # than instead of deploying it.
           DISCOVERY_CREDENTIALS=$(jq -ce '
             .discoveryCredentialIds |
-            if (keys == ["cerebras", "groq", "openrouter", "siliconflow", "xai", "xai-realtime"]) and
+            if (keys == ["anthropic", "cerebras", "groq", "openrouter", "siliconflow", "xai", "xai-realtime"]) and
                all(.[]; test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
             then .
-            else error("the publisher discovery credential map is not the exact reviewed six-ID set")
+            else error("the publisher discovery credential map is not the exact reviewed seven-ID set")
             end
           ' .github/credential-admin-operations.json)
 
@@ -258,7 +258,7 @@ jobs:
 
             # Everything except the image comes from the family's current
             # revision — Terraform's shape, carried forward. The publisher is
-            # the one deliberate exception during this cutover: its six exact
+            # the one deliberate exception during this cutover: its seven exact
             # discovery credential IDs are replaced from the same reviewed
             # manifest that owns their stable identities. Serving gets no such
             # mutation. The dropped keys are the ones describe-task-definition
@@ -274,6 +274,7 @@ jobs:
                       .image = $img
                       | .environment = (
                           ((.environment // []) | map(select(
+                            .name != "KAANA_PROVIDER_ANTHROPIC_DISCOVERY_KEY_ID" and
                             .name != "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID" and
                             .name != "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID" and
                             .name != "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID" and
@@ -281,6 +282,7 @@ jobs:
                             .name != "KAANA_PROVIDER_XAI_DISCOVERY_KEY_ID" and
                             .name != "KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID"
                           ))) + [
+                            {name: "KAANA_PROVIDER_ANTHROPIC_DISCOVERY_KEY_ID", value: $ids.anthropic},
                             {name: "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID", value: $ids.cerebras},
                             {name: "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID", value: $ids.groq},
                             {name: "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID", value: $ids.openrouter},
@@ -322,6 +324,7 @@ jobs:
               ')
               EXPECTED_DISCOVERY=$(printf '%s' "$DISCOVERY_CREDENTIALS" | jq -c '
                 [
+                  {name: "KAANA_PROVIDER_ANTHROPIC_DISCOVERY_KEY_ID", value: .anthropic},
                   {name: "KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID", value: .cerebras},
                   {name: "KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID", value: .groq},
                   {name: "KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID", value: .openrouter},
@@ -331,7 +334,7 @@ jobs:
                 ] | sort_by(.name)
               ')
               if [ "$REGISTERED_DISCOVERY" != "$EXPECTED_DISCOVERY" ]; then
-                echo "::error::$ARN did not preserve the exact six publisher discovery credential IDs"
+                echo "::error::$ARN did not preserve the exact seven publisher discovery credential IDs"
                 return 1
               fi
             fi

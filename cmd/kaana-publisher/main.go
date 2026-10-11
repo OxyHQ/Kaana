@@ -350,13 +350,22 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 		if err := providerconfig.ValidateEndpointIdentity(slug, baseURL); err != nil {
 			return nil, fmt.Errorf("%s_BASE_URL for provider %q: %w", prefix, slug, err)
 		}
-		if protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime && protocol != providerconfig.ProtocolXAIRealtime {
-			// Every discovery profile currently registered here belongs to a
+		anthropicMessages := protocol == providerconfig.ProtocolAnthropicMessages
+		if anthropicMessages != (known.Discovery == providerconfig.DiscoveryAnthropicModels) {
+			// The Messages API and Anthropic's model list belong to one
+			// provider together. The serving process refuses the protocol
+			// under any slug but `anthropic`, and the list authenticates with
+			// that adapter's headers, so either half without the other is a
+			// deployment nothing could serve.
+			return nil, fmt.Errorf("provider %q pairs protocol %s with discovery profile %q; only the anthropic slug speaks %s and reads Anthropic's model list", slug, protocol, known.Discovery, providerconfig.ProtocolAnthropicMessages)
+		}
+		if !anthropicMessages && protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime && protocol != providerconfig.ProtocolXAIRealtime {
+			// Every other discovery profile registered here belongs to a
 			// provider served through the OpenAI-compatible adapter, or to
 			// OpenAI's own audio and realtime slugs and xAI's realtime slug,
 			// which read the same account list as their request slug. The list
-			// itself may be native (Alibaba) or OpenAI-shaped; neither fact is
-			// inferred from protocol compatibility.
+			// itself may be native (Alibaba, Cohere) or OpenAI-shaped; neither
+			// fact is inferred from protocol compatibility.
 			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from %s, or its models have to be declared by something that measured them", slug, protocol, providerSetVariable)
 		}
 		if known.Discovery == providerconfig.DiscoveryNotAvailable {

@@ -686,7 +686,7 @@ pins the set and proves each row publishable there and nowhere else.
 - Publish it: `xai-realtime` joins the publisher's `KAANA_DISCOVERY_PROVIDERS`
   through the same switch, with `KAANA_PROVIDER_XAI_REALTIME_DISCOVERY_KEY_ID`.
   The deploy workflow replaces the publisher's discovery key ids from the
-  reviewed six-id map in `.github/credential-admin-operations.json` and reads
+  reviewed id map in `.github/credential-admin-operations.json` and reads
   them back; a key id for a slug the publisher does not discover is ignored,
   so the map may name `xai-realtime` before the switch is applied.
 - Price it: a rate card for each published `xai-realtime` deployment with
