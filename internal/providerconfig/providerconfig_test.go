@@ -109,6 +109,9 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	if endpoint := providerconfig.Known["cohere"]; endpoint.Discovery != providerconfig.DiscoveryCohereModels || endpoint.BaseURL != providerconfig.CohereCompatibilityBaseURL {
 		t.Errorf("Cohere must discover through its native authenticated model list, not a guessed compatibility /models: %+v", endpoint)
 	}
+	if endpoint := providerconfig.Known["anthropic"]; endpoint.Protocol != providerconfig.ProtocolAnthropicMessages || endpoint.BaseURL != "https://api.anthropic.com/v1" || endpoint.Discovery != providerconfig.DiscoveryAnthropicModels {
+		t.Errorf("Anthropic must serve the Messages API and discover through its authenticated Models API: %+v", endpoint)
+	}
 	if endpoint := providerconfig.Known["alibaba"]; endpoint.Protocol != providerconfig.ProtocolOpenAICompatible || endpoint.BaseURL != "" || endpoint.Discovery != providerconfig.DiscoveryAlibabaModels {
 		t.Errorf("Alibaba dynamic endpoint = %+v", endpoint)
 	}

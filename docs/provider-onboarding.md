@@ -144,6 +144,150 @@ Kaana status:
   OpenAI credential remains unavailable to economic routing until Oxy records
   verified usable balance.
 
+## Anthropic
+
+Anthropic is served directly through the Messages adapter
+(`internal/provider/anthropic`, `adapters.md`), not through the shared
+OpenAI-compatible one, so it sits outside the bearer-token matrix above.
+Reviewed 2026-10-11 against Anthropic's own documentation.
+
+**Wire.** `POST https://api.anthropic.com/v1/messages`, authenticated with
+`x-api-key` and the mandatory `anthropic-version: 2023-06-01`
+(`providerconfig.AnthropicAPIVersion`, one constant for the adapter and the
+publisher). The adapter's real-wire fake and the conformance suite cover named
+SSE events, content blocks, the cumulative output count, `input_tokens`
+excluding cached tokens, an `error` event after a 200 and `billing_error` (402)
+retiring the key. `max_tokens` is required by the protocol, so a request
+without `maxOutputTokens` is refused rather than capped; frequency/presence
+penalties, `seed` and a non-text `responseFormat` are refused in `Translate`;
+a reasoning effort is sent as `output_config.effort`.[^anthropic-messages]
+
+**Discovery.** Anthropic publishes an authenticated, account-scoped Models API:
+`GET /v1/models` with the same two headers, paged by `has_more` and `last_id`
+sent back as `after_id`, `limit` 1–1000. Without a `lifecycle` filter it lists
+active and deprecated models; retired ones only on request.[^anthropic-models-api]
+The `anthropic_models` profile (`internal/publisher/discovery.go`) asks with
+`limit=1000`, follows `after_id` until `has_more` is false, refuses a repeated
+cursor or `has_more` without one, refuses a duplicate or blank id or a row whose
+`type` is not `model`, and skips a row that says `lifecycle: retired`.
+Deprecated rows are kept: attribution decides. The publisher reads the list
+only for the `anthropic` slug under the `anthropic_messages` protocol; any
+other pairing refuses startup, as serving refuses the Messages API under any
+other slug.
+
+Each row's own metadata becomes the deployment's `observed` block
+(`observeAnthropicModel`): `display_name`, `created_at` (an epoch value, which
+Anthropic documents for an unknown release date, is absent), `max_input_tokens`
+as `contextTokens`, `max_tokens` as `maxOutputTokens`, and
+`capabilities.effort` as `reasoningEfforts` — the contract's `low`/`medium`/
+`high` that Anthropic marks supported, `[]` when effort itself is unsupported
+(Claude Haiku 4.5), absent when the statement is incomplete. That is the same
+`output_config.effort` the adapter sends, so the catalogue advertises exactly
+what the route accepts. Anthropic's capability tree carries no tool-use,
+sampling-parameter or modality list in the inventory's vocabulary, and the
+Messages list publishes no price, so `supportsTools`, `acceptedParameters`,
+the modalities and `listPrice` stay absent (unknown).
+
+**Attribution.** Anthropic states that every Claude API model id is a pinned
+snapshot, "including the dateless IDs used from the 4.6 generation on", and
+that for earlier models the dateless alias "is a convenience pointer that
+resolves to the dated ID".[^anthropic-overview] Only models its deprecations
+page lists as Active are attributed,[^anthropic-deprecations] each to the line
+OpenRouter's `anthropic/claude-*` row already publishes, so a direct deployment
+is a second endpoint of the same reference:
+
+| Anthropic id | Model line |
+|---|---|
+| `claude-fable-5-1` | `anthropic/claude-fable-5.1` |
+| `claude-fable-5` | `anthropic/claude-fable-5` |
+| `claude-opus-5-5` | `anthropic/claude-opus-5.5` |
+| `claude-opus-5` | `anthropic/claude-opus-5` |
+| `claude-opus-4-8` | `anthropic/claude-opus-4.8` |
+| `claude-opus-4-7` | `anthropic/claude-opus-4.7` |
+| `claude-opus-4-6` | `anthropic/claude-opus-4.6` |
+| `claude-opus-4-5-20251101` | `anthropic/claude-opus-4.5` |
+| `claude-sonnet-5-5` | `anthropic/claude-sonnet-5.5` |
+| `claude-sonnet-5` | `anthropic/claude-sonnet-5` |
+| `claude-sonnet-4-6` | `anthropic/claude-sonnet-4.6` |
+| `claude-haiku-5-5` | `anthropic/claude-haiku-5.5` (new line; OpenRouter does not list it) |
+| `claude-haiku-4-5-20251001` | `anthropic/claude-haiku-4.5` |
+
+Absent on purpose: the pre-4.6 aliases (`claude-opus-4-5`, `claude-haiku-4-5`,
+`claude-sonnet-4-5`, `claude-opus-4-0`, `claude-sonnet-4-0`);
+`claude-sonnet-4-5-20250929`, deprecated on 2026-09-30 for retirement on
+2026-11-30; every retired id (Opus 4 and 4.1, Sonnet 4 and 3.7, Haiku 3 and
+3.5); Claude Mythos 5 and 5.1, limited to Project Glasswing organizations, and
+the deprecated `claude-mythos-preview`. OpenRouter's `-fast` lines are a
+delivery speed of the same weights and take no direct row. Every Claude model
+is text generation through the Messages API, which the adapter executes as
+`chat_completions` and `responses`; `ClassifyModel` does not classify the
+`anthropic` namespace, so attribution decides and the request-family gate
+admits all thirteen (`TestCheckedInAnthropicAttributionHoldsOnlyActivePinnedSnapshots`).
+`claude-opus-4-5-20251101` and `claude-haiku-4-5-20251001` are Active today
+with retirement "not sooner than" 2026-11-24 and 2026-10-15; when Anthropic
+deprecates them their rows leave this table.
+
+**Behaviour Oxy must know about.** Anthropic answers a non-default
+`temperature`/`top_p`/`top_k` on Claude 4.7 and later models with a 400, Claude
+Fable 5.1, Opus 5.5 and Sonnet 5.5 reject forced `tool_choice` (`any`/`tool`),
+and Claude Fable 5/5.1 are not available to an organization under zero data
+retention. Each arrives as Anthropic's own `invalid_request_error`: a
+non-retryable request fault that retires no key and trips no breaker. None is
+in the Models API, so none is published as a refusal Kaana can make before
+sending.[^anthropic-deprecations][^anthropic-overview]
+
+**Cost.** Anthropic's list prices (USD per million tokens, read 2026-10-11)
+differ by cache read multiplier per model and, for Claude Haiku 5.5, by prompt
+length ($0.10/$0.50 up to 100,000 prompt tokens, $0.50/$2.50 above), and add
+cache-write prices the contract has no unit for: the adapter folds cache writes
+into `input_tokens` (`architecture.md`, finding 5).[^anthropic-pricing]
+
+| Model | Input | Cache read | Output |
+|---|---|---|---|
+| Claude Fable 5.1 | 10 | 0.25 | 50 |
+| Claude Fable 5 | 10 | 1 | 50 |
+| Claude Opus 5.5 | 4 | 0.20 | 20 |
+| Claude Opus 5, 4.8, 4.7, 4.6, 4.5 | 5 | 0.50 | 25 |
+| Claude Sonnet 5.5 | 2 | 0.10 | 10 |
+| Claude Sonnet 5 | 2 | 0.20 | 10 |
+| Claude Sonnet 4.6 | 3 | 0.30 | 15 |
+| Claude Haiku 5.5 (≤100,000 prompt tokens) | 0.10 | 0.01 | 0.50 |
+| Claude Haiku 4.5 | 1 | 0.10 | 5 |
+
+US-only inference (`inference_geo: "us"`) multiplies every Claude 4.6-and-later
+price by 1.1; Kaana sends no `inference_geo`, so the global price applies.
+
+A rate card is keyed by the exact deployment
+id, which embeds the line's observation date, so no card is checked in before
+the publisher first names the deployments. Until one is, Kaana records the
+cost of an Anthropic attempt as `unknown`, never zero (`cost.md`). The card
+follows as its own reviewed version once the ids are read back from the
+production inventory, as `rc_xai_realtime_2026_09_30` did; Haiku 5.5's long
+prompt tier and cache writes remain unpriced units on it.
+
+**Enablement.**
+
+- The production key is custodied as KMS ciphertext in Kaana's PostgreSQL
+  store: `anthropic` / `30033d0c-3ca8-48c4-be44-8538d81028dd`, position 1,
+  class unstated, metadata `capacityCategory: promotional`. It is the
+  publisher's reviewed discovery identity
+  (`.github/credential-admin-operations.json`, `discoveryCredentialIds`).
+- `KAANA_PROVIDERS` and `KAANA_DISCOVERY_PROVIDERS` are owned by oxy-infra
+  (`terraform-uswest2/app-kaana.tf`, `kaana_platform_provider_slugs`); its
+  `kaana_anthropic_enabled` switch adds the slug to both, with
+  `KAANA_PROVIDER_ANTHROPIC_PROTOCOL`/`_BASE_URL` stated and the discovery key
+  id above. The credential row already exists, so neither process refuses
+  startup over it.
+- Anthropic is a single-key provider, so every discovered deployment resolves
+  to that key by the provider default (`key-pools.md`): no `bind-deployment`
+  is needed, and serving logs no unbound WARN for it. Adding a second
+  `anthropic` key removes the default; bind every published `anthropic`
+  deployment to its exact key BEFORE adding one.
+- No live scrubbed capture from the production account has been recorded in
+  this repository; the first signed production canary through Oxy is that
+  evidence (`operating.md`, "Schema 0013 staged rollout", Oxy's
+  `Kaana signed production canary`).
+
 ## CheaperInference
 
 CheaperInference publishes the canonical OpenAI-compatible base
@@ -858,6 +1002,11 @@ green:
 
 ## Official sources
 
+[^anthropic-messages]: [Anthropic — Messages API](https://platform.claude.com/docs/en/api/messages); [API versioning](https://platform.claude.com/docs/en/api/versioning)
+[^anthropic-models-api]: [Anthropic — List Models](https://platform.claude.com/docs/en/api/models/list)
+[^anthropic-overview]: [Anthropic — Models overview](https://platform.claude.com/docs/en/about-claude/models/overview)
+[^anthropic-deprecations]: [Anthropic — Model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)
+[^anthropic-pricing]: [Anthropic — Pricing](https://platform.claude.com/docs/en/about-claude/pricing)
 [^mistral-api]: [Mistral API — Chat](https://docs.mistral.ai/api)
 [^mistral-models-api]: [Mistral API — Models endpoints](https://docs.mistral.ai/api/endpoint/models)
 [^mistral-lifecycle]: [Mistral model lifecycle and alias convention](https://docs.mistral.ai/inference/model-lifecycle)

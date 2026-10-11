@@ -37,6 +37,9 @@ import (
 //	pricing.prompt / pricing.completion OpenRouter, USD per token (only when
 //	                                    publishesUSDPerTokenPrices)
 //
+// Anthropic's native Models API uses other spellings and has its own reader,
+// observeAnthropicModel.
+//
 // Every field is decoded independently and LENIENTLY: a field of an
 // unexpected type, a zero, a negative or an empty value is dropped, never
 // defaulted, and never fails discovery. A provider changing the type of a
@@ -122,6 +125,123 @@ func observeModelListEntry(raw json.RawMessage, publishesUSDPerTokenPrices bool)
 		return nil
 	}
 	return &observed
+}
+
+// observeAnthropicModel keeps what one row of Anthropic's Models API
+// (https://platform.claude.com/docs/en/api/models/list) says about a model:
+//
+//	display_name                      displayName
+//	created_at (RFC 3339)             createdAt; Anthropic documents an epoch
+//	                                  value for an unknown release date, which
+//	                                  is absent, not 1970
+//	max_input_tokens                  contextTokens
+//	max_tokens                        maxOutputTokens (the `max_tokens` ceiling)
+//	capabilities.effort               reasoningEfforts: the contract's low,
+//	                                  medium and high that Anthropic marks
+//	                                  supported, `[]` when effort itself is
+//	                                  unsupported. It is the same
+//	                                  `output_config.effort` the Messages
+//	                                  adapter sends, so the list states exactly
+//	                                  what the route will accept.
+//
+// Nothing else is inferred. Anthropic's capability tree names no tool-use,
+// sampling or modality words the inventory vocabulary carries — `image_input`
+// is a boolean, not a modality list that also says text — so supportsTools,
+// acceptedParameters and the modalities stay absent (unknown), and the line's
+// catalogue entry is narrowed only by what Anthropic actually stated. The
+// Messages list publishes no price.
+//
+// Every field is decoded independently and leniently, as for
+// observeModelListEntry: an unreadable value is dropped, never defaulted, and
+// never fails discovery.
+func observeAnthropicModel(raw json.RawMessage) *inventory.Observed {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	observed := inventory.Observed{}
+	kept := false
+
+	if name, ok := stringField(fields, "display_name"); ok && validDisplayName(name) {
+		observed.DisplayName = &name
+		kept = true
+	}
+	if created, ok := stringField(fields, "created_at"); ok {
+		if at, err := time.Parse(time.RFC3339, created); err == nil && at.Unix() > 0 {
+			stamp := contract.NewTimestamp(at)
+			observed.CreatedAt = &stamp
+			kept = true
+		}
+	}
+	if tokens, ok := positiveIntField(fields, "max_input_tokens"); ok {
+		observed.ContextTokens = &tokens
+		kept = true
+	}
+	if tokens, ok := positiveIntField(fields, "max_tokens"); ok {
+		observed.MaxOutputTokens = &tokens
+		kept = true
+	}
+	if capabilities, ok := objectField(fields, "capabilities"); ok {
+		if efforts, ok := anthropicEfforts(capabilities); ok {
+			observed.ReasoningEfforts = &efforts
+			kept = true
+		}
+	}
+
+	if !kept {
+		return nil
+	}
+	if observed.Validate() != nil {
+		return nil
+	}
+	return &observed
+}
+
+// anthropicEfforts reads `capabilities.effort`: `{"supported": bool, "low":
+// {"supported": bool}, "medium": ..., "high": ..., ...}`. A statement is kept
+// only when it is complete for the contract's vocabulary; a level that is
+// missing or unreadable drops the whole field rather than under-report it.
+// Levels the contract does not name (`xhigh`, `max`) are not Kaana's to send.
+func anthropicEfforts(capabilities map[string]json.RawMessage) ([]contract.ReasoningEffort, bool) {
+	effort, ok := objectField(capabilities, "effort")
+	if !ok {
+		return nil, false
+	}
+	supported, ok := supportedFlag(effort)
+	if !ok {
+		return nil, false
+	}
+	efforts := []contract.ReasoningEffort{}
+	if !supported {
+		return efforts, true
+	}
+	for _, level := range contract.ReasoningEfforts() {
+		statement, ok := objectField(effort, string(level))
+		if !ok {
+			return nil, false
+		}
+		levelSupported, ok := supportedFlag(statement)
+		if !ok {
+			return nil, false
+		}
+		if levelSupported {
+			efforts = append(efforts, level)
+		}
+	}
+	return efforts, true
+}
+
+// supportedFlag reads Anthropic's `{"supported": bool}` leaf.
+func supportedFlag(fields map[string]json.RawMessage) (bool, bool) {
+	raw, present := fields["supported"]
+	if !present {
+		return false, false
+	}
+	var value *bool
+	if json.Unmarshal(raw, &value) != nil || value == nil {
+		return false, false
+	}
+	return *value, true
 }
 
 // applySupportedParameters records what a PRESENT `supported_parameters`

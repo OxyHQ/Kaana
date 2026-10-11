@@ -502,3 +502,71 @@ func TestCheckedInCohereAttributionHoldsOnlyLiveDatedIDs(t *testing.T) {
 		}
 	}
 }
+
+// Anthropic says every Claude API id is a pinned snapshot — the dateless ids
+// from the 4.6 generation on included — and that before 4.6 the dateless name
+// is an alias resolving to the dated id. Only Active models are attributed,
+// each to the line OpenRouter's `anthropic/claude-*` row already publishes, so
+// the direct deployment joins that line's failover set rather than minting a
+// second identity for the same weights.
+func TestCheckedInAnthropicAttributionHoldsOnlyActivePinnedSnapshots(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	want := map[string]contract.ModelID{
+		"claude-fable-5-1":          "anthropic/claude-fable-5.1",
+		"claude-fable-5":            "anthropic/claude-fable-5",
+		"claude-opus-5-5":           "anthropic/claude-opus-5.5",
+		"claude-opus-5":             "anthropic/claude-opus-5",
+		"claude-opus-4-8":           "anthropic/claude-opus-4.8",
+		"claude-opus-4-7":           "anthropic/claude-opus-4.7",
+		"claude-opus-4-6":           "anthropic/claude-opus-4.6",
+		"claude-opus-4-5-20251101":  "anthropic/claude-opus-4.5",
+		"claude-sonnet-5-5":         "anthropic/claude-sonnet-5.5",
+		"claude-sonnet-5":           "anthropic/claude-sonnet-5",
+		"claude-sonnet-4-6":         "anthropic/claude-sonnet-4.6",
+		"claude-haiku-5-5":          "anthropic/claude-haiku-5.5",
+		"claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
+	}
+	if got := len(table.byProvider["anthropic"]); got != len(want) {
+		t.Fatalf("Anthropic has %d direct attributions, want exactly the %d reviewed Active snapshots", got, len(want))
+	}
+	anthropic := Provider{Slug: "anthropic", Protocol: providerconfig.ProtocolAnthropicMessages}
+	for upstreamModelID, modelLine := range want {
+		got, ok := table.ModelLine("anthropic", upstreamModelID)
+		if !ok || got != modelLine {
+			t.Errorf("anthropic/%s = %q, %t; want %q", upstreamModelID, got, ok, modelLine)
+			continue
+		}
+		// A row the request-family gate would drop is an attribution that
+		// silently does nothing.
+		if !executable(anthropic, upstreamModelID) {
+			t.Errorf("anthropic/%s is attributed but the Messages adapter cannot execute it", upstreamModelID)
+		}
+		// The same line OpenRouter publishes, so the two are one reference
+		// with two endpoints. Haiku 5.5 is the one line OpenRouter does not
+		// list; it starts its own under the same spelling.
+		if modelLine == "anthropic/claude-haiku-5.5" {
+			continue
+		}
+		if line, ok := table.ModelLine("openrouter", string(modelLine)); !ok || line != modelLine {
+			t.Errorf("anthropic/%s takes line %q, which no OpenRouter row publishes", upstreamModelID, modelLine)
+		}
+	}
+	for _, excluded := range []string{
+		// Pre-4.6 aliases that resolve to a dated id.
+		"claude-opus-4-5", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-0", "claude-sonnet-4-0",
+		"claude-opus-4-1", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest",
+		// Deprecated or retired snapshots.
+		"claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805", "claude-opus-4-20250514",
+		"claude-sonnet-4-20250514", "claude-3-7-sonnet-20250219", "claude-3-5-haiku-20241022",
+		"claude-3-haiku-20240307", "claude-mythos-preview",
+		// Project Glasswing only.
+		"claude-mythos-5-1", "claude-mythos-5",
+	} {
+		if _, ok := table.ModelLine("anthropic", excluded); ok {
+			t.Errorf("anthropic/%s is attributed; it is an alias, a deprecated or retired model, or limited access", excluded)
+		}
+	}
+}

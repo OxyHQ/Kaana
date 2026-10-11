@@ -147,13 +147,13 @@ hand and nothing is defaulted — an absent field means the provider did not say
 
 | `observed` field | Read from |
 |---|---|
-| `displayName` | `name` (OpenRouter, Mistral) |
-| `createdAt` | `created`, unix seconds; `0` is absent |
-| `contextTokens` | `context_length` (OpenRouter), `context_window` (Groq), `max_context_length` (Mistral) |
-| `maxOutputTokens` | `top_provider.max_completion_tokens` (OpenRouter), `max_completion_tokens` (Groq) |
+| `displayName` | `name` (OpenRouter, Mistral); `display_name` (Anthropic) |
+| `createdAt` | `created`, unix seconds; `0` is absent. Anthropic: `created_at`, RFC 3339; its documented epoch placeholder is absent |
+| `contextTokens` | `context_length` (OpenRouter, Cohere), `context_window` (Groq), `max_context_length` (Mistral), `max_input_tokens` (Anthropic) |
+| `maxOutputTokens` | `top_provider.max_completion_tokens` (OpenRouter), `max_completion_tokens` (Groq), `max_tokens` (Anthropic) |
 | `inputModalities`, `outputModalities` | `architecture.*_modalities` (OpenRouter), provider words passed through, sorted |
 | `supportsTools` | `"tools"` in `supported_parameters` (OpenRouter); `capabilities.function_calling` (Mistral) |
-| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]`; for `xai`, the adapter's own per-model set (`providerconfig.ReasoningEfforts`, `adapters.md`), which is what `Translate` enforces — the one field not read from the list |
+| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]`; Anthropic: `capabilities.effort`, the contract efforts whose `supported` is true, `[]` when `effort.supported` is false, absent when a level is unreadable; for `xai`, the adapter's own per-model set (`providerconfig.ReasoningEfforts`, `adapters.md`), which is what `Translate` enforces — the one field not read from the list |
 | `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below) |
 | `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
 
