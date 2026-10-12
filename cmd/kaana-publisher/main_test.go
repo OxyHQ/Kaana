@@ -196,6 +196,42 @@ func TestTheMessagesProtocolIsDiscoveredOnlyAsAnthropic(t *testing.T) {
 	}
 }
 
+// TestElevenLabsIsDiscoveredThroughItsOwnModelList: the speech slug reads
+// ElevenLabs' authenticated model list and carries its protocol; no other
+// pairing of the two is accepted.
+func TestElevenLabsIsDiscoveredThroughItsOwnModelList(t *testing.T) {
+	providers, err := parsePublishableProviders(environmentFrom(map[string]string{
+		"KAANA_PROVIDERS":           "cerebras,elevenlabs",
+		"KAANA_DISCOVERY_PROVIDERS": "elevenlabs",
+	}))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	if len(providers) != 1 || providers[0].Slug != "elevenlabs" || providers[0].Protocol != providerconfig.ProtocolElevenLabsSpeech ||
+		providers[0].Discovery != providerconfig.DiscoveryElevenLabsModels || providers[0].BaseURL != "https://api.elevenlabs.io/v1" {
+		t.Fatalf("elevenlabs provider = %+v", providers)
+	}
+	for name, environment := range map[string]map[string]string{
+		"another slug speaking it": {
+			"KAANA_PROVIDERS":                "voices",
+			"KAANA_DISCOVERY_PROVIDERS":      "voices",
+			"KAANA_PROVIDER_VOICES_PROTOCOL": providerconfig.ProtocolElevenLabsSpeech,
+			"KAANA_PROVIDER_VOICES_BASE_URL": "https://voices.example.invalid/v1",
+		},
+		"elevenlabs re-declared as openai-compatible": {
+			"KAANA_PROVIDERS":                    "elevenlabs",
+			"KAANA_DISCOVERY_PROVIDERS":          "elevenlabs",
+			"KAANA_PROVIDER_ELEVENLABS_PROTOCOL": providerconfig.ProtocolOpenAICompatible,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parsePublishableProviders(environmentFrom(environment)); err == nil {
+				t.Fatal("an ElevenLabs protocol/discovery mismatch was accepted")
+			}
+		})
+	}
+}
+
 // TestOpenAIAudioIsDiscoveredWithItsOwnProtocol: the transcription slug reads
 // OpenAI's account list, and carries its protocol so the snapshot builder can
 // refuse to attach a chat model to it.

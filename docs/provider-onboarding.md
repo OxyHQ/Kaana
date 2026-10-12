@@ -314,6 +314,40 @@ prompt tier and cache writes remain unpriced units on it.
   evidence (`operating.md`, "Schema 0013 staged rollout", Oxy's
   `Kaana signed production canary`).
 
+## ElevenLabs
+
+ElevenLabs is served by its own speech adapter (`internal/provider/elevenlabs`,
+protocol `elevenlabs_speech`), not by the shared Chat Completions adapter, and
+authenticates with `xi-api-key`, so it sits outside the bearer matrix above.
+Reviewed 2026-10-12 against ElevenLabs' own documentation; the full wire,
+error and enablement record is `docs/elevenlabs.md`.
+
+- **Serving:** `audio_speech` only, `POST /v1/text-to-speech/{voice_id}` with
+  the signed `model_id`, MP3 (`mp3_44100_128`), optional speed 0.7–1.2, the
+  product voices `female`/`male` (premade Sarah/George) or an exact voice id.
+  Characters are Kaana-measured (ElevenLabs documents no usage report).
+  402/`insufficient_credits` exhausts the key; 401 and an IP-allowlist or scope
+  403 reject it; a voice or entitlement 403 is a request fault.[^elevenlabs-errors]
+- **Discovery:** the authenticated, workspace-scoped `GET /v1/models` (a bare
+  array), keeping rows with `can_do_text_to_speech: true` and no
+  `requires_alpha_access`. Unauthenticated it answers 404
+  `workspace_not_found`, so presence in the list is account access.[^elevenlabs-models-api]
+- **Publication:** `eleven_multilingual_v2`, `eleven_flash_v2_5` and
+  `eleven_v3`, each under an `elevenlabs/` line. The English-only
+  `eleven_flash_v2` (same price as v2.5, indistinguishable to a catalogue with
+  no language field), the deprecated Turbo ids, the Text to Dialogue v4 ids, realtime, voice-changer,
+  design, sound, music and Scribe ids are absent.[^elevenlabs-models]
+- **Speech-to-text** (Scribe, `POST /v1/speech-to-text`) would map onto
+  `audio_transcriptions`, but the documented model schema carries no
+  transcription capability flag, so the list cannot yet establish Scribe
+  access; it is not served until the first production list read shows what it
+  returns for Scribe.
+- **Enablement:** key `e1ed4df9-3274-4833-8eff-a946d761d36c` (Startup Grant,
+  `capacityCategory: promotional`, IP-restricted to Kaana's NAT egress) is the
+  single enabled `elevenlabs` key and the publisher's discovery identity; the
+  legacy row `6e4abb22-…` is disabled. No rate card yet, so cost is `unknown`
+  until one is reviewed against the published deployment ids.
+
 ## CheaperInference
 
 CheaperInference publishes the canonical OpenAI-compatible base
@@ -1028,6 +1062,9 @@ green:
 
 ## Official sources
 
+[^elevenlabs-errors]: [ElevenLabs — Errors](https://elevenlabs.io/docs/developers/resources/errors); [API keys and IP allowlisting](https://elevenlabs.io/docs/overview/administration/workspaces/api-keys)
+[^elevenlabs-models-api]: [ElevenLabs — List models](https://elevenlabs.io/docs/api-reference/models/list); [Authentication](https://elevenlabs.io/docs/api-reference/authentication)
+[^elevenlabs-models]: [ElevenLabs — Models](https://elevenlabs.io/docs/overview/models); [Create speech](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
 [^anthropic-messages]: [Anthropic — Messages API](https://platform.claude.com/docs/en/api/messages); [API versioning](https://platform.claude.com/docs/en/api/versioning)
 [^anthropic-models-api]: [Anthropic — List Models](https://platform.claude.com/docs/en/api/models/list)
 [^anthropic-overview]: [Anthropic — Models overview](https://platform.claude.com/docs/en/about-claude/models/overview)

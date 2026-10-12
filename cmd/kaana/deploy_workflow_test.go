@@ -129,12 +129,12 @@ func TestPublisherDeployCarriesOnlyTheReviewedDiscoveryCredentialIDs(t *testing.
 	for _, required := range []string{
 		"      - '.github/credential-admin-operations.json'",
 		".discoveryCredentialIds |",
-		`keys == ["anthropic", "cerebras", "groq", "openrouter", "siliconflow", "xai", "xai-realtime"]`,
+		`keys == ["anthropic", "cerebras", "elevenlabs", "groq", "openrouter", "siliconflow", "xai", "xai-realtime"]`,
 		`if [ "$service" = "$PUBLISHER_SERVICE" ]; then`,
 		`--argjson ids "$DISCOVERY_CREDENTIALS"`,
 		"REGISTERED_DISCOVERY=",
 		"EXPECTED_DISCOVERY=",
-		"did not preserve the exact seven publisher discovery credential IDs",
+		"did not preserve the exact eight publisher discovery credential IDs",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("publisher deployment lost required exact-ID boundary %q", required)
@@ -143,6 +143,7 @@ func TestPublisherDeployCarriesOnlyTheReviewedDiscoveryCredentialIDs(t *testing.
 	for _, variable := range []string{
 		"KAANA_PROVIDER_ANTHROPIC_DISCOVERY_KEY_ID",
 		"KAANA_PROVIDER_CEREBRAS_DISCOVERY_KEY_ID",
+		"KAANA_PROVIDER_ELEVENLABS_DISCOVERY_KEY_ID",
 		"KAANA_PROVIDER_GROQ_DISCOVERY_KEY_ID",
 		"KAANA_PROVIDER_OPENROUTER_DISCOVERY_KEY_ID",
 		"KAANA_PROVIDER_SILICONFLOW_DISCOVERY_KEY_ID",

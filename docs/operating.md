@@ -181,6 +181,11 @@ Completions and `/v1/tts`) and `xai-realtime` (the Voice Agent API's WebSocket
 sessions, `realtime.md`, "xAI Voice Agent"). A key row belongs to exactly one
 slug, so the xAI key is imported a second time under `xai-realtime`.
 
+ElevenLabs is served under one locked slug, `elevenlabs`, with the native
+`elevenlabs_speech` protocol (text-to-speech only) and the
+`elevenlabs_models` discovery profile on `https://api.elevenlabs.io/v1`; no
+other origin is accepted (docs/elevenlabs.md).
+
 Two slugs that collapse onto one environment prefix are refused. For example,
 `open-router` and `open.router` would both read `KAANA_PROVIDER_OPEN_ROUTER_*`;
 silently choosing one would configure a provider under another identity.

@@ -1,0 +1,66 @@
+[
+  {
+    "model_id": "eleven_multilingual_v2",
+    "name": "Eleven Multilingual v2",
+    "can_be_finetuned": true,
+    "can_do_text_to_speech": true,
+    "can_do_voice_conversion": false,
+    "can_use_style": true,
+    "can_use_speaker_boost": true,
+    "serves_pro_voices": true,
+    "token_cost_factor": 1.0,
+    "description": "Our most lifelike model with rich emotional expression",
+    "requires_alpha_access": false,
+    "max_characters_request_free_user": 10000,
+    "max_characters_request_subscribed_user": 10000,
+    "maximum_text_length_per_request": 10000,
+    "languages": [{"language_id": "en", "name": "English"}, {"language_id": "es", "name": "Spanish"}],
+    "model_rates": {"character_cost_multiplier": 1.0, "cost_discount_multiplier": 1.0},
+    "concurrency_group": "standard"
+  },
+  {
+    "model_id": "eleven_flash_v2_5",
+    "name": "Eleven Flash v2.5",
+    "can_be_finetuned": true,
+    "can_do_text_to_speech": true,
+    "can_do_voice_conversion": false,
+    "can_use_style": false,
+    "can_use_speaker_boost": false,
+    "serves_pro_voices": true,
+    "token_cost_factor": 0.5,
+    "description": "Our ultra low latency model",
+    "requires_alpha_access": false,
+    "maximum_text_length_per_request": 40000,
+    "languages": [{"language_id": "en", "name": "English"}, {"language_id": "es", "name": "Spanish"}],
+    "model_rates": {"character_cost_multiplier": 0.5, "cost_discount_multiplier": 1.0},
+    "concurrency_group": "turbo"
+  },
+  {
+    "model_id": "eleven_turbo_v2_5",
+    "name": "Eleven Turbo v2.5",
+    "can_do_text_to_speech": true,
+    "can_do_voice_conversion": false,
+    "requires_alpha_access": false,
+    "maximum_text_length_per_request": 40000,
+    "model_rates": {"character_cost_multiplier": 0.5},
+    "concurrency_group": "turbo"
+  },
+  {
+    "model_id": "eleven_multilingual_sts_v2",
+    "name": "Eleven Multilingual v2 (Speech to Speech)",
+    "can_do_text_to_speech": false,
+    "can_do_voice_conversion": true,
+    "requires_alpha_access": false,
+    "model_rates": {"character_cost_multiplier": 1.0},
+    "concurrency_group": "standard"
+  },
+  {
+    "model_id": "eleven_v4_alpha_research",
+    "name": "Alpha research model",
+    "can_do_text_to_speech": true,
+    "can_do_voice_conversion": false,
+    "requires_alpha_access": true,
+    "model_rates": {"character_cost_multiplier": 1.0},
+    "concurrency_group": "standard"
+  }
+]

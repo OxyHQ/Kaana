@@ -161,8 +161,8 @@ workspace/region or account id. Hugging Face, Kilo and LLM7 remain explicit
 because they are provider routers or moving selectors, not direct immutable
 inference providers. **Any other slug is servable by
 declaring protocol and HTTPS root — no Go change.** Discovery and publication
-remain separate gates: Alibaba, Cohere and Anthropic have native authenticated
-catalogue ingestion,
+remain separate gates: Alibaba, Cohere, Anthropic and ElevenLabs have native
+authenticated catalogue ingestion,
 while Cloudflare is serving-only until its model-search response has a stable,
 provider-owned schema. A built-in adapter never invents a model list.
 Provider keys never enter this environment contract. They are ciphertext rows

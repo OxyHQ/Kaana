@@ -16,6 +16,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
+	"github.com/OxyHQ/Kaana/internal/provider/elevenlabs"
 	"github.com/OxyHQ/Kaana/internal/provider/openaiaudio"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
 	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
@@ -37,6 +38,39 @@ func TestDeepgramBuildsNativeVoiceAdapter(t *testing.T) {
 	}
 	if adapters[0].Health(context.Background()).Status != provider.HealthUnconfigured {
 		t.Fatal("configuration invented an account credential")
+	}
+}
+
+// TestElevenLabsBuildsItsSpeechAdapterOnItsOwnOrigin: the slug resolves to the
+// native speech adapter on ElevenLabs' root, and neither half can be borrowed.
+func TestElevenLabsBuildsItsSpeechAdapterOnItsOwnOrigin(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "elevenlabs"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapters, err := buildAdapters(configs)
+	if err != nil || len(adapters) != 1 {
+		t.Fatalf("native adapter construction: %v", err)
+	}
+	if _, ok := adapters[0].(*elevenlabs.Adapter); !ok {
+		t.Fatalf("ElevenLabs built as %T", adapters[0])
+	}
+	if adapters[0].Health(context.Background()).Status != provider.HealthUnconfigured {
+		t.Fatal("configuration invented an account credential")
+	}
+	for name, environment := range map[string]map[string]string{
+		"another slug speaking it": {"KAANA_PROVIDERS": "voices", "KAANA_PROVIDER_VOICES_PROTOCOL": providerconfig.ProtocolElevenLabsSpeech, "KAANA_PROVIDER_VOICES_BASE_URL": "https://api.elevenlabs.io/v1"},
+		"another origin":           {"KAANA_PROVIDERS": "elevenlabs", "KAANA_PROVIDER_ELEVENLABS_BASE_URL": "https://api.eu.residency.elevenlabs.io/v1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configs, err := parseProviders(lookup(environment))
+			if err == nil {
+				_, err = buildAdapters(configs)
+			}
+			if err == nil {
+				t.Fatal("the ElevenLabs protocol or origin was borrowed")
+			}
+		})
 	}
 }
 

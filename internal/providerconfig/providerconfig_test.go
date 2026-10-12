@@ -18,8 +18,19 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 31 {
-		t.Fatalf("built-in providers = %d, want the 31 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 32 {
+		t.Fatalf("built-in providers = %d, want the 32 documented in README.md and docs/operating.md", got)
+	}
+	if endpoint := providerconfig.Known["elevenlabs"]; endpoint.Protocol != providerconfig.ProtocolElevenLabsSpeech || endpoint.Discovery != providerconfig.DiscoveryElevenLabsModels || endpoint.BaseURL != "https://api.elevenlabs.io/v1" {
+		t.Fatalf("ElevenLabs speech configuration = %+v", endpoint)
+	}
+	for _, other := range []string{"https://api.elevenlabs.io/v1/", "https://api.us.elevenlabs.io/v1", "https://api.eu.residency.elevenlabs.io/v1", "https://api.openai.com/v1"} {
+		if err := providerconfig.ValidateEndpointIdentity("elevenlabs", other); err == nil {
+			t.Fatalf("elevenlabs accepted %q, which is not ElevenLabs' reviewed API root", other)
+		}
+	}
+	if formats := providerconfig.ExecutableAPIFormats("elevenlabs", providerconfig.ProtocolElevenLabsSpeech); len(formats) != 1 || formats[0] != contract.APIFormatAudioSpeech {
+		t.Fatalf("the ElevenLabs protocol executes %v, want speech only", formats)
 	}
 	if endpoint := providerconfig.Known["xai-realtime"]; endpoint.Protocol != providerconfig.ProtocolXAIRealtime || endpoint.Discovery != providerconfig.DiscoveryXAIRealtimeSessions || endpoint.BaseURL != "https://api.x.ai/v1" ||
 		providerconfig.XAIRealtimeSessionURL != "wss://api.x.ai/v1/realtime" {
@@ -302,6 +313,7 @@ func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
 		{"anthropic", providerconfig.ProtocolAnthropicMessages, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}},
 		{"deepgram", providerconfig.ProtocolDeepgramVoice, []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}},
 		{"openai-audio", providerconfig.ProtocolOpenAIAudio, []contract.APIFormat{contract.APIFormatAudioTranscriptions, contract.APIFormatChatCompletions}},
+		{"elevenlabs", providerconfig.ProtocolElevenLabsSpeech, []contract.APIFormat{contract.APIFormatAudioSpeech}},
 		{"openai", "not_a_protocol", nil},
 	}
 	for _, c := range cases {

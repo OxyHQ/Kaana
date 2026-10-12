@@ -98,6 +98,9 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	if target.Discovery == providerconfig.DiscoveryAnthropicModels {
 		return discoverAnthropicModels(ctx, client, target)
 	}
+	if target.Discovery == providerconfig.DiscoveryElevenLabsModels {
+		return discoverElevenLabsModels(ctx, client, target)
+	}
 
 	endpoint, err := discoveryEndpoint(target, 1)
 	if err != nil {
@@ -209,13 +212,19 @@ func readModelList(ctx context.Context, client *http.Client, target Provider, en
 	if err != nil {
 		return fmt.Errorf("publisher: building the model list request for %s: %w", target.Slug, err)
 	}
-	if target.Discovery == providerconfig.DiscoveryAnthropicModels {
+	switch target.Discovery {
+	case providerconfig.DiscoveryAnthropicModels:
 		// Anthropic authenticates exactly as its Messages adapter does:
 		// `x-api-key` with the mandatory `anthropic-version`, never a bearer
 		// token (internal/provider/anthropic, authorize).
 		request.Header.Set("x-api-key", target.APIKey)
 		request.Header.Set("anthropic-version", providerconfig.AnthropicAPIVersion)
-	} else {
+	case providerconfig.DiscoveryElevenLabsModels:
+		// ElevenLabs authenticates every request, the model list included,
+		// with `xi-api-key` — the header its speech adapter sends
+		// (internal/provider/elevenlabs, Send).
+		request.Header.Set("xi-api-key", target.APIKey)
+	default:
 		request.Header.Set("Authorization", "Bearer "+target.APIKey)
 	}
 	request.Header.Set("Accept", "application/json")
@@ -478,6 +487,71 @@ func discoverAnthropicModels(ctx context.Context, client *http.Client, target Pr
 	return models, nil
 }
 
+// discoverElevenLabsModels reads ElevenLabs' `GET {base}/models`
+// (https://elevenlabs.io/docs/api-reference/models/list). It is authenticated
+// and workspace-scoped: without a key ElevenLabs answers 404
+// `workspace_not_found` for the anonymous workspace, and with an invalid one
+// 401 `invalid_api_key` (both measured 2026-10-12), so the list names what
+// this credential's workspace can call. The response is a bare JSON array, not
+// an OpenAI-shaped `data` list, and is not paginated.
+//
+// A row is kept only when ElevenLabs states `can_do_text_to_speech: true` —
+// the documented test for a `model_id` the text-to-speech endpoint accepts —
+// and does not state `requires_alpha_access: true`, access this credential
+// was never shown to hold. Voice-conversion, voice-design, dialogue-only and
+// alpha rows are therefore never candidates. Attribution then decides which
+// of the kept ids may publish (docs/elevenlabs.md).
+//
+// What the row says is kept as observed metadata: `name` as the display name,
+// and — because ElevenLabs states the row is text-to-speech — text in, audio
+// out. ElevenLabs' `model_rates` multipliers are credit arithmetic on the
+// account's plan, not a published list price, and are not read.
+func discoverElevenLabsModels(ctx context.Context, client *http.Client, target Provider) ([]DiscoveredModel, error) {
+	if target.Slug != "elevenlabs" {
+		return nil, fmt.Errorf("publisher: the ElevenLabs model list is read only for the elevenlabs provider, not %q", target.Slug)
+	}
+	var list []json.RawMessage
+	if err := readModelList(ctx, client, target, strings.TrimSuffix(target.BaseURL, "/")+"/models", "ElevenLabs", &list); err != nil {
+		return nil, err
+	}
+	if len(list) > maxModelListEntries {
+		return nil, fmt.Errorf("publisher: %s's model list exceeds %d entries", target.Slug, maxModelListEntries)
+	}
+	seen := make(map[string]struct{}, len(list))
+	models := make([]DiscoveredModel, 0, len(list))
+	for _, raw := range list {
+		var entry elevenLabsModelListEntry
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			return nil, fmt.Errorf("publisher: %s's model list is not the documented ElevenLabs list shape: %w", target.Slug, err)
+		}
+		if entry.ModelID == "" || strings.TrimSpace(entry.ModelID) != entry.ModelID {
+			return nil, fmt.Errorf("publisher: %s's model list contains a missing or whitespace-normalized model_id", target.Slug)
+		}
+		if _, duplicate := seen[entry.ModelID]; duplicate {
+			return nil, fmt.Errorf("publisher: %s's model list names %q twice", target.Slug, entry.ModelID)
+		}
+		seen[entry.ModelID] = struct{}{}
+		if !entry.CanDoTextToSpeech || entry.RequiresAlphaAccess {
+			continue
+		}
+		models = append(models, DiscoveredModel{UpstreamModelID: entry.ModelID, Observed: observeElevenLabsModel(raw)})
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("publisher: %s reports serving no text-to-speech models", target.Slug)
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })
+	return models, nil
+}
+
+// elevenLabsModelListEntry decodes the identity and the two capability flags
+// strictly: a flag of another type is a list Kaana cannot read, never a model
+// silently admitted or dropped.
+type elevenLabsModelListEntry struct {
+	ModelID             string `json:"model_id"`
+	CanDoTextToSpeech   bool   `json:"can_do_text_to_speech"`
+	RequiresAlphaAccess bool   `json:"requires_alpha_access"`
+}
+
 // anthropicModelListEndpoint is `{base}/models?limit=1000[&after_id=...]`.
 func anthropicModelListEndpoint(target Provider, afterID string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSuffix(target.BaseURL, "/") + "/models")
@@ -617,6 +691,8 @@ func discoveryEndpoint(target Provider, page int) (string, error) {
 		query.Set("page_size", fmt.Sprint(alibabaModelListPageSize))
 		parsed.RawQuery = query.Encode()
 		return parsed.String(), nil
+	case providerconfig.DiscoveryElevenLabsModels:
+		return "", fmt.Errorf("publisher: provider %s's model list is read by its own profile", target.Slug)
 	case providerconfig.DiscoveryNotAvailable:
 		return "", fmt.Errorf("publisher: provider %s publishes no account model list Kaana can verify", target.Slug)
 	default:

@@ -35,6 +35,9 @@ const (
 	ProtocolOpenAIAudio       = "openai_audio"
 	ProtocolOpenAIRealtime    = "openai_realtime"
 	ProtocolXAIRealtime       = "xai_realtime"
+	// ProtocolElevenLabsSpeech is ElevenLabs' synchronous text-to-speech
+	// REST API (docs/elevenlabs.md).
+	ProtocolElevenLabsSpeech = "elevenlabs_speech"
 
 	DiscoveryOpenAIModels = "openai_models"
 	DiscoveryXAIModels    = "xai_models_and_speech"
@@ -54,7 +57,12 @@ const (
 	// `has_more`/`last_id` → `after_id`
 	// (https://platform.claude.com/docs/en/api/models/list).
 	DiscoveryAnthropicModels = "anthropic_models"
-	DiscoveryNotAvailable    = "not_available"
+	// DiscoveryElevenLabsModels reads ElevenLabs' authenticated,
+	// workspace-scoped `GET {base}/models` with `xi-api-key`: a bare JSON
+	// array of models, kept only where `can_do_text_to_speech` is true and
+	// `requires_alpha_access` is not (https://elevenlabs.io/docs/api-reference/models/list).
+	DiscoveryElevenLabsModels = "elevenlabs_models"
+	DiscoveryNotAvailable     = "not_available"
 )
 
 // Known is the protocol, discovery contract and, where one exists globally,
@@ -69,6 +77,7 @@ const (
 // so only with an operator-supplied credential.
 var Known = map[contract.ProviderSlug]Endpoint{
 	"deepgram":         {Protocol: ProtocolDeepgramVoice, BaseURL: "https://api.deepgram.com/v1", Discovery: DiscoveryNotAvailable},
+	"elevenlabs":       {Protocol: ProtocolElevenLabsSpeech, BaseURL: ElevenLabsBaseURL, Discovery: DiscoveryElevenLabsModels},
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
@@ -113,6 +122,13 @@ const AnthropicBaseURL = "https://api.anthropic.com/v1"
 // list read: a discovery request sent under another version would read a list
 // shape the serving adapter was never written against.
 const AnthropicAPIVersion = "2023-06-01"
+
+// ElevenLabsBaseURL is ElevenLabs' default production API root, the only one
+// the `elevenlabs` slug may name. ElevenLabs' US and data-residency origins
+// (`api.us.elevenlabs.io`, `api.eu.residency.elevenlabs.io`, ...) are separate
+// environments whose keys and workspaces are their own; none is accepted until
+// one is deliberately reviewed.
+const ElevenLabsBaseURL = "https://api.elevenlabs.io/v1"
 
 // CohereCompatibilityBaseURL is Cohere's OpenAI-compatible Chat Completions
 // root (https://docs.cohere.com/docs/compatibility-api). The compatibility
@@ -208,6 +224,8 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 		return []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
 	case ProtocolDeepgramVoice:
 		return []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}
+	case ProtocolElevenLabsSpeech:
+		return []contract.APIFormat{contract.APIFormatAudioSpeech}
 	case ProtocolOpenAIAudio:
 		return []contract.APIFormat{contract.APIFormatAudioTranscriptions, contract.APIFormatChatCompletions}
 	}
@@ -242,6 +260,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 	if slug == "deepgram" {
 		if raw != "https://api.deepgram.com/v1" && raw != "https://api.eu.deepgram.com/v1" {
 			return fmt.Errorf("deepgram requires its canonical US or EU HTTPS API base")
+		}
+		return nil
+	}
+	if slug == "elevenlabs" {
+		if raw != ElevenLabsBaseURL {
+			return fmt.Errorf("elevenlabs requires ElevenLabs' canonical HTTPS API base")
 		}
 		return nil
 	}
