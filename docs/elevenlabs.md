@@ -161,10 +161,10 @@ as for Deepgram and OpenAI audio.
   key is IP-restricted to the NAT egress addresses, so both the serving
   process and the publisher must leave through that NAT. The legacy
   imported row `6e4abb22-af03-46fb-95d9-b2e4286657f2` is disabled.
-  ElevenLabs is therefore a single-key provider: every published deployment
-  resolves to that key by the provider default (`key-pools.md`) and needs no
-  binding. Adding a second enabled `elevenlabs` key removes the default, so
-  bind every published deployment first.
+  Every published deployment executes on the provider's key pool
+  (`key-pools.md`), today that one key, and needs no binding. A second
+  enabled `elevenlabs` key joins the pool in funding order; describe it
+  (`put-credential-metadata`) before enabling it.
 - **Discovery.** The key is the publisher's reviewed discovery identity
   (`.github/credential-admin-operations.json`, `discoveryCredentialIds`).
 - **Capacity evidence.** `GET /v1/user/subscription` (`character_count`,
