@@ -114,13 +114,13 @@ prices (today reviewed in Oxy's `kaanaReviewedProviderRoutes.ts` and the list
 prices Kaana publishes) become Kaana's cost model; Oxy's price list stays what
 it CHARGES.
 
-## Open conflict to resolve before phase 2's power-level step
+## Alia and power levels
 
-The owner's product fact that "in Alia end users pick only levels, never
-concrete models" contradicts Alia's AGENTS.md and ADR 0012, which make the
-picker real `publisher/model` catalogue models with no modes or profiles. It
-does not affect phase 1. It must be settled before Kaana resolves levels for
-Alia.
+Alia's end users choose only power levels: the app's model store
+(`packages/app`, model-store v4) replaced the model picker. Alia's AGENTS.md
+and ADR 0012 wording about a real-model picker is stale and will be fixed in
+Alia. Moving level resolution into Kaana therefore matches what Alia already
+sends.
 
 ## Consequences
 
