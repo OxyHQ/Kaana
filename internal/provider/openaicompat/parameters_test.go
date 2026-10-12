@@ -257,9 +257,81 @@ func TestEveryRequestParameterHasAWireField(t *testing.T) {
 	for _, parameter := range wireParameters {
 		covered[parameter] = true
 	}
+	// A tool choice's VALUE is read from the field's content.
+	for _, value := range []string{`"none"`, `"required"`, `{"type":"function","function":{"name":"lookup"}}`} {
+		covered[wireToolChoiceValue(json.RawMessage(value))] = true
+	}
 	for _, parameter := range provider.RequestParameters() {
 		if !covered[parameter] {
 			t.Errorf("%s has no wire field, so Translate can never refuse it", parameter)
 		}
+	}
+}
+
+// TestAToolChoiceIsCheckedByValueAndAutoIsLeftToTheDefault: what OpenRouter's
+// zero-retention endpoints for Claude Opus 5.5 state (2026-10-12) — tools,
+// `none` and `auto`, no forced choice — and the reading of a set that names
+// the field alone.
+func TestAToolChoiceIsCheckedByValueAndAutoIsLeftToTheDefault(t *testing.T) {
+	adapter, calls := newOpenRouterAgainst(t, completedChat)
+	opus := []provider.RequestParameter{
+		provider.ParameterMaxOutputTokens, provider.ParameterToolChoice, provider.ParameterToolChoiceNone, provider.ParameterTools,
+	}
+	maxTokens := 256
+	request := func(choice *contract.ToolChoice) *contract.Request {
+		r := requestWith([]contract.Message{{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("hi")}}})
+		r.MaxOutputTokens = &maxTokens
+		r.Tools = []contract.ToolDefinition{{Type: "function", Name: "lookup", Parameters: map[string]any{"type": "object"}}}
+		r.ToolChoice = choice
+		return r
+	}
+	mode := func(value contract.ToolChoiceMode) *contract.ToolChoice { return &contract.ToolChoice{Mode: &value} }
+	named := &contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "lookup"}}
+	sent := func(t *testing.T, call *provider.Call) json.RawMessage {
+		t.Helper()
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(call.Body, &wire); err != nil {
+			t.Fatal(err)
+		}
+		return wire["tool_choice"]
+	}
+
+	// auto is the default whenever tools are sent: nothing is sent, so nothing
+	// needs accepting — not even on a route whose set lacks the field.
+	withoutField := []provider.RequestParameter{provider.ParameterMaxOutputTokens, provider.ParameterTools}
+	for _, accepted := range [][]provider.RequestParameter{opus, withoutField} {
+		call, err := adapter.Translate(request(mode(contract.ToolChoiceAuto)), openRouterGeminiRoute(&accepted))
+		if err != nil {
+			t.Fatalf("auto was refused on %v: %v", accepted, err)
+		}
+		if value := sent(t, call); value != nil {
+			t.Errorf("auto was sent as %s; it is the default and requires_parameters would match on it", value)
+		}
+	}
+
+	call, err := adapter.Translate(request(mode(contract.ToolChoiceNone)), openRouterGeminiRoute(&opus))
+	if err != nil || string(sent(t, call)) != `"none"` {
+		t.Fatalf("none = %v", err)
+	}
+	var unsupported provider.ErrUnsupported
+	for _, forced := range []*contract.ToolChoice{mode(contract.ToolChoiceRequired), named} {
+		if _, err := adapter.Translate(request(forced), openRouterGeminiRoute(&opus)); !errors.As(err, &unsupported) ||
+			unsupported.Param != "toolChoice" || unsupported.Code != contract.CodeInvalidRequest {
+			t.Errorf("a forced choice no reachable endpoint takes was translated: %v", err)
+		}
+	}
+	if _, err := adapter.Translate(request(mode(contract.ToolChoiceNone)), openRouterGeminiRoute(&withoutField)); !errors.As(err, &unsupported) {
+		t.Errorf("none was translated for a route that takes no tool choice: %v", err)
+	}
+
+	// Control: a set naming the field and no value states no value — every
+	// value is accepted and sent as given.
+	fieldOnly := []provider.RequestParameter{provider.ParameterMaxOutputTokens, provider.ParameterToolChoice, provider.ParameterTools}
+	call, err = adapter.Translate(request(named), openRouterGeminiRoute(&fieldOnly))
+	if err != nil || !strings.Contains(string(sent(t, call)), `"lookup"`) {
+		t.Errorf("a named tool on a field-only set = %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("Translate reached the upstream %d times", calls.Load())
 	}
 }

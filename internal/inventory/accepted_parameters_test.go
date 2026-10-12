@@ -118,6 +118,31 @@ func TestCatalogueIntersectsAcceptedParametersAcrossReportersOnly(t *testing.T) 
 	}
 }
 
+// TestCatalogueIntersectsToolChoiceValuesNotJustTheField: two routes that
+// each take one tool-choice value share none, so the line takes no tool
+// choice — the field must not survive alone, where it would read as every
+// value. A route stating the field alone (no per-value statement) takes every
+// value and narrows nothing.
+func TestCatalogueIntersectsToolChoiceValuesNotJustTheField(t *testing.T) {
+	document := issued(time.Now(), strings.Join([]string{
+		deploymentWith("dep_none", "openrouter", `{"acceptedParameters":["toolChoice","toolChoice.none","tools"]}`),
+		deploymentWith("dep_required", "anthropic", `{"acceptedParameters":["toolChoice","toolChoice.required","tools"]}`),
+	}, ","))
+	entry := parse(t, document).Catalogue()[0]
+	if entry.AcceptedParameters == nil || !slices.Equal(*entry.AcceptedParameters, []provider.RequestParameter{"tools"}) {
+		t.Errorf("accepted parameters = %v, want tools alone", entry.AcceptedParameters)
+	}
+
+	control := issued(time.Now(), strings.Join([]string{
+		deploymentWith("dep_none", "openrouter", `{"acceptedParameters":["toolChoice","toolChoice.none","tools"]}`),
+		deploymentWith("dep_field", "groq", `{"acceptedParameters":["toolChoice","tools"]}`),
+	}, ","))
+	entry = parse(t, control).Catalogue()[0]
+	if entry.AcceptedParameters == nil || !slices.Equal(*entry.AcceptedParameters, []provider.RequestParameter{"toolChoice", "toolChoice.none", "tools"}) {
+		t.Errorf("control: accepted parameters = %v, want the stated value kept", entry.AcceptedParameters)
+	}
+}
+
 // TestADescriptorStatesItsOwnDeploymentsAcceptedParameters: the catalogue's
 // per-line intersection cannot tell Oxy which of several providers' routes
 // refuses a control, so each descriptor carries its own deployment's set —

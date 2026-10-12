@@ -151,10 +151,10 @@ hand and nothing is defaulted — an absent field means the provider did not say
 | `createdAt` | `created`, unix seconds; `0` is absent. Anthropic: `created_at`, RFC 3339; its documented epoch placeholder is absent |
 | `contextTokens` | `context_length` (OpenRouter, Cohere), `context_window` (Groq), `max_context_length` (Mistral), `max_input_tokens` (Anthropic) |
 | `maxOutputTokens` | `top_provider.max_completion_tokens` (OpenRouter), `max_completion_tokens` (Groq), `max_tokens` (Anthropic) |
-| `inputModalities`, `outputModalities` | `architecture.*_modalities` (OpenRouter), provider words passed through, sorted |
-| `supportsTools` | `"tools"` in `supported_parameters` (OpenRouter); `capabilities.function_calling` (Mistral) |
-| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]`; Anthropic: `capabilities.effort`, the contract efforts whose `supported` is true, `[]` when `effort.supported` is false, absent when a level is unreadable; for `xai`, the adapter's own per-model set (`providerconfig.ReasoningEfforts`, `adapters.md`), which is what `Translate` enforces — the one field not read from the list |
-| `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below) |
+| `inputModalities`, `outputModalities` | `architecture.*_modalities` (OpenRouter), provider words passed through, sorted. Anthropic: `capabilities.image_input`/`pdf_input` → `text` plus `image`/`file` (OpenRouter's word for the same lines' document input) where supported, output `text`; both statements must be readable |
+| `supportsTools` | `"tools"` in `supported_parameters` (OpenRouter); `capabilities.function_calling` (Mistral); Anthropic: whether the adapter's per-model statement takes `tools` |
+| `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]`; Anthropic: `capabilities.effort`, the contract efforts whose `supported` is true, `[]` when `effort.supported` is false, absent when a level is unreadable; for `xai`, the adapter's own per-model set (`providerconfig.ReasoningEfforts`, `adapters.md`), which is what `Translate` enforces — read from the adapter, not the list, as Anthropic's `acceptedParameters` is |
+| `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below); OpenRouter's per-endpoint `supports_tool_choice` for the tool-choice values; Anthropic: the Messages adapter's own per-model statement (`anthropic.AcceptedParameters`), less `reasoning.effort` where `capabilities.effort` is unsupported |
 | `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
 
 A PRESENT `supported_parameters` list is a complete statement, so a parameter it
@@ -176,8 +176,10 @@ endpoint accept every parameter sent, so what a Kaana route accepts is what
 the model's zero-data-retention endpoints accept. The publisher reads
 OpenRouter's public `GET /api/v1/endpoints/zdr` once per cycle and derives
 `supportsTools`, `reasoningEfforts` and `acceptedParameters` from the UNION of
-that model's zero-retention endpoints' `supported_parameters`; if any of those
-endpoints lists none, the three stay absent. A model with NO zero-retention
+that model's zero-retention endpoints' `supported_parameters` (the tool-choice
+values from the union of their `supports_tool_choice`; an endpoint listing
+`tool_choice` without one takes every value); if any of those endpoints lists
+none, the three stay absent. A model with NO zero-retention
 endpoint can never be served under that policy and is dropped (the table
 below). A failed or malformed read of that list fails OpenRouter's discovery
 for the cycle, exactly as a failed `/models` read does
@@ -189,9 +191,24 @@ closed vocabulary: `maxOutputTokens` (`max_tokens` or `max_completion_tokens`
 — one control), `reasoning.effort` (`reasoning` or `reasoning_effort`),
 `responseFormat` (`response_format`), `sampling.frequencyPenalty`,
 `sampling.presencePenalty`, `sampling.seed`, `sampling.stopSequences`
-(`stop`), `sampling.temperature`, `sampling.topP`, `toolChoice`, `tools`.
+(`stop`), `sampling.temperature`, `sampling.topP`, `toolChoice`,
+`toolChoice.function`, `toolChoice.none`, `toolChoice.required`, `tools`.
 `sampling.topK` is deliberately absent: no adapter a discovered provider is
-served through sends it. The same three states as `reasoningEfforts`: absent is
+served through sends it.
+
+A tool choice is stated per value, because providers take the values
+differently (OpenRouter's zero-retention endpoints for Claude Opus 5.5 take
+`none` and `auto` but not a forced choice). `toolChoice` is the field;
+`toolChoice.none`, `.required` and `.function` (one named tool) are the values
+a request can carry, and a request carrying one needs the field and the value
+(`provider.ToolChoiceParameters`). `auto` needs nothing: it is every
+provider's default whenever tools are sent, and adapters that would have to
+spell it out leave it to the default. A set naming `toolChoice` and no value
+does not distinguish values — what a list that names only `tool_choice` says —
+and accepts every value; the publisher therefore writes the field only beside
+at least one value, intersections drop it when no value survives
+(`provider.IntersectParameterSets`), and an endpoint stating no value at all
+(OpenRouter's auto-only endpoints) publishes neither. The same three states as `reasoningEfforts`: absent is
 unknown, `[]` is "reported, takes none of these", a list names them. Only a
 provider whose own list states it gets one; every other provider's is absent.
 
@@ -241,7 +258,8 @@ absent means nobody said. An entry:
   "acceptedParameters": ["maxOutputTokens", "reasoning.effort", "responseFormat",
     "sampling.frequencyPenalty", "sampling.presencePenalty", "sampling.seed",
     "sampling.stopSequences", "sampling.temperature", "sampling.topP",
-    "toolChoice", "tools"],
+    "toolChoice", "toolChoice.function", "toolChoice.none",
+    "toolChoice.required", "tools"],
   "listPrices": [
     {"deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_08_06",
      "provider": "openrouter", "currency": "USD", "input": "0.072", "output": "0.28"}
@@ -545,7 +563,9 @@ reasoning; these are the lines a reviewer holds a change to.
   id for stable snapshots. Never reorder `authorizedRoutes` by health, price or
   inventory preference.
 - **`observed` is what the provider's model list said, never curated, never
-  defaulted.** Absent is unknown. It never enters `snapshotId`, and an
+  defaulted** — except where the adapter itself states what `Translate`
+  enforces (xAI's efforts, Anthropic's accepted controls), which is published
+  verbatim so the catalogue and the request path cannot disagree. Absent is unknown. It never enters `snapshotId`, and an
   unreadable field is dropped rather than failing discovery. Aggregation lets a
   silent deployment abstain and a reporting one only narrow. Only
   `acceptedParameters` reaches a route, and only to let `Translate` refuse.

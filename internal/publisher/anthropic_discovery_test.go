@@ -2,13 +2,18 @@ package publisher_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/publisher"
 )
@@ -54,7 +59,8 @@ const anthropicOpus55Row = `{
 }`
 
 // anthropicHaiku45Row takes no effort: Anthropic documents `effort` as an
-// error on Claude Haiku 4.5.
+// error on Claude Haiku 4.5. Every capability key is present, as the Models
+// API documents ("Keys are always present for all known capabilities").
 const anthropicHaiku45Row = `{
 	"type": "model",
 	"id": "claude-haiku-4-5-20251001",
@@ -67,6 +73,15 @@ const anthropicHaiku45Row = `{
 	"max_input_tokens": 200000,
 	"max_tokens": 64000,
 	"capabilities": {
+		"batch": {"supported": true},
+		"citations": {"supported": true},
+		"code_execution": {"supported": false},
+		"context_management": {
+			"clear_thinking_20251015": {"supported": true},
+			"clear_tool_uses_20250919": {"supported": true},
+			"compact_20260112": null,
+			"supported": true
+		},
 		"effort": {
 			"high": {"supported": false},
 			"low": {"supported": false},
@@ -76,6 +91,9 @@ const anthropicHaiku45Row = `{
 			"xhigh": null
 		},
 		"image_input": {"supported": true},
+		"pdf_input": {"supported": true},
+		"server_tools": {"code_execution": {"supported": true}, "supported": true, "web_search": {"supported": true}},
+		"structured_outputs": {"supported": true},
 		"thinking": {"supported": true, "types": {"adaptive": {"supported": false}, "disabled": {"supported": true}, "enabled": {"supported": true}}}
 	}
 }`
@@ -152,20 +170,79 @@ func TestAnthropicDiscoveryPagesTheAuthenticatedModelsAPI(t *testing.T) {
 	if got, want := *opus.ReasoningEfforts, contract.ReasoningEfforts(); !reflect.DeepEqual(got, want) {
 		t.Errorf("claude-opus-5-5 efforts = %v, want the contract's %v (xhigh and max are not Kaana's to send)", got, want)
 	}
-	// Anthropic states nothing in the inventory's tool, parameter or modality
-	// vocabulary, so nothing is inferred into it.
-	if opus.SupportsTools != nil || opus.AcceptedParameters != nil || opus.InputModalities != nil || opus.OutputModalities != nil || opus.ListPrice != nil {
-		t.Errorf("claude-opus-5-5 observed carries a field Anthropic did not state: %+v", opus)
+	// image_input and pdf_input say what a Messages request may carry beside
+	// text; every Messages model answers in text.
+	if !reflect.DeepEqual(opus.InputModalities, []string{"file", "image", "text"}) || !reflect.DeepEqual(opus.OutputModalities, []string{"text"}) {
+		t.Errorf("claude-opus-5-5 modalities = %v -> %v", opus.InputModalities, opus.OutputModalities)
+	}
+	// The adapter's own statement: everything the Messages API carries except
+	// what Anthropic documents Opus 5.5 as rejecting — non-default sampling
+	// and a forced tool choice.
+	wantOpus := []provider.RequestParameter{
+		provider.ParameterMaxOutputTokens, provider.ParameterReasoningEffort, provider.ParameterStopSequences,
+		provider.ParameterToolChoice, provider.ParameterToolChoiceNone, provider.ParameterTools,
+	}
+	if opus.AcceptedParameters == nil || !reflect.DeepEqual(*opus.AcceptedParameters, wantOpus) || opus.SupportsTools == nil || !*opus.SupportsTools {
+		t.Errorf("claude-opus-5-5 accepted = %v tools = %v, want %v and tools", opus.AcceptedParameters, opus.SupportsTools, wantOpus)
+	}
+	if opus.ListPrice != nil {
+		t.Errorf("claude-opus-5-5 has a list price Anthropic's list does not publish: %+v", opus.ListPrice)
 	}
 
 	haiku := byID["claude-haiku-4-5-20251001"].Observed
 	if haiku == nil || haiku.ReasoningEfforts == nil || len(*haiku.ReasoningEfforts) != 0 {
-		t.Errorf("claude-haiku-4-5-20251001 efforts = %+v, want the stated empty set", haiku)
+		t.Fatalf("claude-haiku-4-5-20251001 efforts = %+v, want the stated empty set", haiku)
+	}
+	// Effort unsupported in Anthropic's own tree narrows the adapter's
+	// statement; the model takes sampling and a forced choice.
+	if haiku.AcceptedParameters == nil || slices.Contains(*haiku.AcceptedParameters, provider.ParameterReasoningEffort) ||
+		!slices.Contains(*haiku.AcceptedParameters, provider.ParameterTemperature) || !slices.Contains(*haiku.AcceptedParameters, provider.ParameterToolChoiceRequired) {
+		t.Errorf("claude-haiku-4-5-20251001 accepted = %v", haiku.AcceptedParameters)
 	}
 
+	// A deprecated row with `capabilities: null` states no modality; it is
+	// unattributed and unreviewed, so the adapter states nothing either.
 	sonnet := byID["claude-sonnet-4-5-20250929"].Observed
-	if sonnet == nil || sonnet.ReasoningEfforts != nil || sonnet.ContextTokens == nil || *sonnet.ContextTokens != 200000 {
-		t.Errorf("claude-sonnet-4-5-20250929 observed = %+v, want limits and no effort statement (capabilities null)", sonnet)
+	if sonnet == nil || sonnet.ReasoningEfforts != nil || sonnet.ContextTokens == nil || *sonnet.ContextTokens != 200000 ||
+		sonnet.InputModalities != nil || sonnet.OutputModalities != nil || sonnet.AcceptedParameters != nil || sonnet.SupportsTools != nil {
+		t.Errorf("claude-sonnet-4-5-20250929 observed = %+v, want limits and nothing else (capabilities null)", sonnet)
+	}
+}
+
+// TestAnthropicModalitiesAreWhatItsCapabilityTreeStates: a model Anthropic
+// marks as taking neither images nor PDFs takes text alone, and a tree with
+// either statement missing says nothing about modalities at all.
+func TestAnthropicModalitiesAreWhatItsCapabilityTreeStates(t *testing.T) {
+	server := anthropicModelListServer(t, map[string]string{
+		"": `{"data":[
+			{"type":"model","id":"claude-text-only","display_name":"Claude Text","created_at":"2026-01-01T00:00:00Z","max_input_tokens":200000,"max_tokens":8192,
+			 "capabilities":{"image_input":{"supported":false},"pdf_input":{"supported":false}}},
+			{"type":"model","id":"claude-images","display_name":"Claude Images","created_at":"2026-01-01T00:00:00Z","max_input_tokens":200000,"max_tokens":8192,
+			 "capabilities":{"image_input":{"supported":true},"pdf_input":{"supported":false}}},
+			{"type":"model","id":"claude-half-stated","display_name":"Claude Half","created_at":"2026-01-01T00:00:00Z","max_input_tokens":200000,"max_tokens":8192,
+			 "capabilities":{"image_input":{"supported":true},"pdf_input":{"supported":"yes"}}}
+		],"has_more":false,"last_id":"claude-half-stated"}`,
+	})
+	models, err := publisher.Discover(context.Background(), server.Client(), anthropicProvider(server.URL+"/v1"))
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	want := map[string][]string{"claude-text-only": {"text"}, "claude-images": {"image", "text"}, "claude-half-stated": nil}
+	for _, model := range models {
+		observed := model.Observed
+		if observed == nil {
+			t.Fatalf("%s observed nothing", model.UpstreamModelID)
+		}
+		if !reflect.DeepEqual(observed.InputModalities, want[model.UpstreamModelID]) {
+			t.Errorf("%s inputs = %v, want %v", model.UpstreamModelID, observed.InputModalities, want[model.UpstreamModelID])
+		}
+		if (observed.OutputModalities == nil) != (want[model.UpstreamModelID] == nil) {
+			t.Errorf("%s outputs = %v", model.UpstreamModelID, observed.OutputModalities)
+		}
+		// None of these ids was reviewed: no parameter statement is invented.
+		if observed.AcceptedParameters != nil || observed.SupportsTools != nil {
+			t.Errorf("%s has a parameter statement nobody reviewed: %+v", model.UpstreamModelID, observed)
+		}
 	}
 }
 
@@ -187,8 +264,15 @@ func TestAnthropicObservationsAreLenient(t *testing.T) {
 		t.Fatalf("models = %+v", models)
 	}
 	for _, model := range models {
-		if model.Observed != nil {
-			t.Errorf("%s observed = %+v, want nothing: an epoch release date, an unreadable limit and an incomplete effort statement are all unknown", model.UpstreamModelID, model.Observed)
+		// Both ids are reviewed, so the adapter's own statement is all that
+		// remains; nothing read from the row survives.
+		observed := model.Observed
+		if observed == nil || observed.AcceptedParameters == nil {
+			t.Fatalf("%s lost the adapter's statement: %+v", model.UpstreamModelID, observed)
+		}
+		observed.AcceptedParameters, observed.SupportsTools = nil, nil
+		if encoded, _ := json.Marshal(observed); string(encoded) != "{}" {
+			t.Errorf("%s observed %s, want nothing from the row: an epoch release date, an unreadable limit and an incomplete effort or modality statement are all unknown", model.UpstreamModelID, encoded)
 		}
 	}
 }
@@ -256,5 +340,73 @@ func TestAnthropicModelListIsReadOnlyForTheAnthropicSlug(t *testing.T) {
 	target.Slug = "bedrock"
 	if _, err := publisher.Discover(context.Background(), server.Client(), target); err == nil {
 		t.Fatal("Anthropic's model list was read for another slug")
+	}
+}
+
+// TestALineOnlyAnthropicServesCarriesEverythingACatalogueReaderNeeds is the
+// production gap this reading closes: OpenRouter's Claude Fable rows are
+// withheld (no zero-retention endpoint) and it does not list Claude Haiku 5.5,
+// so the direct deployment is each line's only reporter. Its catalogue entry
+// must still state the window, the output ceiling, both modality lists, tool
+// support and the accepted controls, or a catalogue consumer that requires
+// them (Oxy's sync) cannot offer the line.
+func TestALineOnlyAnthropicServesCarriesEverythingACatalogueReaderNeeds(t *testing.T) {
+	row := func(id, name, line string) string {
+		replaced := strings.Replace(anthropicOpus55Row, `"id": "claude-opus-5-5"`, `"id": "`+id+`"`, 1)
+		replaced = strings.Replace(replaced, `"display_name": "Claude Opus 5.5"`, `"display_name": "`+name+`"`, 1)
+		return strings.Replace(replaced, `"line": "opus"`, `"line": "`+line+`"`, 1)
+	}
+	server := anthropicModelListServer(t, map[string]string{
+		"": `{"data":[` + row("claude-fable-5-1", "Claude Fable 5.1", "fable") + `,` + row("claude-fable-5", "Claude Fable 5", "fable") + `,` +
+			row("claude-haiku-5-5", "Claude Haiku 5.5", "haiku") + `],"has_more":false,"last_id":"claude-haiku-5-5"}`,
+	})
+	target := anthropicProvider(server.URL + "/v1")
+	models, err := publisher.Discover(context.Background(), server.Client(), target)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	attribution, err := publisher.LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	built, err := publisher.BuildSnapshot([]publisher.Discovery{{Provider: target, Models: models}}, attribution, nil, time.Now())
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+	loaded, err := inventory.Parse(built.Body, inventory.DefaultMaxSnapshotAge)
+	if err != nil {
+		t.Fatalf("the reader refused the snapshot: %v", err)
+	}
+	entries := map[contract.ModelID]inventory.CatalogueEntry{}
+	for _, entry := range loaded.Catalogue() {
+		entries[entry.Model] = entry
+	}
+	for _, line := range []contract.ModelID{"anthropic/claude-fable-5.1", "anthropic/claude-fable-5", "anthropic/claude-haiku-5.5"} {
+		entry, ok := entries[line]
+		if !ok {
+			t.Errorf("%s is not in the catalogue", line)
+			continue
+		}
+		if entry.ContextTokens == nil || entry.MaxOutputTokens == nil {
+			t.Errorf("%s limits = %v / %v", line, entry.ContextTokens, entry.MaxOutputTokens)
+		}
+		if !slices.Contains(entry.InputModalities, "text") || !reflect.DeepEqual(entry.OutputModalities, []string{"text"}) {
+			t.Errorf("%s modalities = %v -> %v", line, entry.InputModalities, entry.OutputModalities)
+		}
+		if entry.SupportsTools == nil || !*entry.SupportsTools || entry.AcceptedParameters == nil ||
+			!slices.Contains(*entry.AcceptedParameters, provider.ParameterTools) || !slices.Contains(*entry.AcceptedParameters, provider.ParameterToolChoiceNone) {
+			t.Errorf("%s tools = %v accepted = %v", line, entry.SupportsTools, entry.AcceptedParameters)
+		}
+		forced := slices.Contains(*entry.AcceptedParameters, provider.ParameterToolChoiceRequired)
+		if wantForced := line != "anthropic/claude-fable-5.1"; forced != wantForced {
+			t.Errorf("%s accepts a forced tool choice = %t, want %t", line, forced, wantForced)
+		}
+	}
+	// The per-deployment descriptor a signed route is built from carries the
+	// same statement.
+	for _, descriptor := range loaded.DeploymentDescriptors() {
+		if descriptor.AcceptedParameters == nil || !slices.Contains(*descriptor.AcceptedParameters, provider.ParameterToolChoiceNone) {
+			t.Errorf("%s descriptor accepted = %v", descriptor.DeploymentID, descriptor.AcceptedParameters)
+		}
 	}
 }

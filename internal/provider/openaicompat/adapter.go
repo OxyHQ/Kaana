@@ -328,6 +328,12 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	}
 	if choice := request.ToolChoice; choice != nil {
 		switch {
+		case choice.Mode != nil && *choice.Mode == contract.ToolChoiceAuto:
+			// `auto` is the documented default whenever tools are sent, so it
+			// is left to the default rather than sent: spelling it out would
+			// make it a parameter OpenRouter's `require_parameters` matches
+			// endpoints against, refusing a request every tool-taking
+			// endpoint serves (provider.ToolChoiceParameters).
 		case choice.Mode != nil:
 			body.ToolChoice = string(*choice.Mode)
 		case choice.Function != nil:
@@ -398,6 +404,9 @@ func (a *Adapter) refuseUnacceptedParameters(encoded []byte, route provider.Rout
 			sent = append(sent, parameter)
 		}
 	}
+	if value, present := fields["tool_choice"]; present && string(value) != "null" {
+		sent = append(sent, wireToolChoiceValue(value))
+	}
 	parameter, refused := route.UnacceptedParameter(sent...)
 	if !refused {
 		return nil
@@ -406,7 +415,25 @@ func (a *Adapter) refuseUnacceptedParameters(encoded []byte, route provider.Rout
 	if a.config.Provider == "openrouter" {
 		detail = fmt.Sprintf("this model's zero-data-retention endpoints on openrouter do not accept %s; omit it to use the model's own behaviour", parameter)
 	}
-	return provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: string(parameter), Detail: detail}
+	return provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: parameter.Field(), Detail: detail}
+}
+
+// wireToolChoiceValue is the value word a sent `tool_choice` carries: the
+// mode string, or an object naming one function. `auto` is never sent (see
+// Translate); a value this adapter does not write reads as the field alone,
+// which a set that takes the field at all accepts.
+func wireToolChoiceValue(value json.RawMessage) provider.RequestParameter {
+	var mode string
+	if json.Unmarshal(value, &mode) == nil {
+		switch contract.ToolChoiceMode(mode) {
+		case contract.ToolChoiceNone:
+			return provider.ParameterToolChoiceNone
+		case contract.ToolChoiceRequired:
+			return provider.ParameterToolChoiceRequired
+		}
+		return provider.ParameterToolChoice
+	}
+	return provider.ParameterToolChoiceFunction
 }
 
 // wireParameters maps the Chat Completions body fields this adapter (and the

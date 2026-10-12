@@ -222,6 +222,9 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 			Detail: fmt.Sprintf("this build does not translate a %q response format for the messages api", request.ResponseFormat.Type),
 		}
 	}
+	if err := refuseUnacceptedParameters(request, route); err != nil {
+		return nil, err
+	}
 
 	for _, tool := range request.Tools {
 		schema := tool.Parameters

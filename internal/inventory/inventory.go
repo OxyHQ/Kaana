@@ -686,7 +686,8 @@ type CatalogueEntry struct {
 	// model takes no effort control; absent means nobody said.
 	ReasoningEfforts *[]contract.ReasoningEffort `json:"reasoningEfforts,omitempty"`
 	// AcceptedParameters is the intersection of the reporting deployments'
-	// accepted-parameter sets, sorted: the controls every reporting route
+	// accepted-parameter sets, sorted and read canonically
+	// (provider.IntersectParameterSets): the controls every reporting route
 	// accepts. `[]` means the reports leave none; absent means nobody said.
 	AcceptedParameters *[]provider.RequestParameter `json:"acceptedParameters,omitempty"`
 	// ListPrices is one entry per deployment whose provider publishes a price,
@@ -746,7 +747,7 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 		createdAt       time.Time
 		inputs, outputs map[string]bool
 		efforts         map[contract.ReasoningEffort]bool
-		parameters      map[provider.RequestParameter]bool
+		parameters      *[]provider.RequestParameter
 	)
 	for _, endpoint := range ordered {
 		observed := endpoint.Observed
@@ -781,15 +782,7 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 			}
 			efforts = reported
 		}
-		if observed.AcceptedParameters != nil {
-			reported := make(map[provider.RequestParameter]bool, len(*observed.AcceptedParameters))
-			for _, parameter := range *observed.AcceptedParameters {
-				if parameters == nil || parameters[parameter] {
-					reported[parameter] = true
-				}
-			}
-			parameters = reported
-		}
+		parameters = provider.IntersectParameterSets(parameters, observed.AcceptedParameters)
 		if observed.ListPrice != nil {
 			entry.ListPrices = append(entry.ListPrices, ListPriceObservation{
 				DeploymentID: endpoint.DeploymentID,
@@ -809,15 +802,7 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 		}
 		entry.ReasoningEfforts = &ordered
 	}
-	if parameters != nil {
-		ordered := make([]provider.RequestParameter, 0, len(parameters))
-		for _, parameter := range provider.RequestParameters() {
-			if parameters[parameter] {
-				ordered = append(ordered, parameter)
-			}
-		}
-		entry.AcceptedParameters = &ordered
-	}
+	entry.AcceptedParameters = parameters
 }
 
 func minimum(current, reported *int) *int {

@@ -31,7 +31,9 @@ import (
 //     policy, so it is marked unservable and BuildSnapshot drops it with a
 //     warning naming it;
 //   - otherwise supportsTools, reasoningEfforts and acceptedParameters are
-//     re-derived from the UNION of its zero-retention endpoints' lists. The
+//     re-derived from the UNION of its zero-retention endpoints' lists, and
+//     the tool-choice values from the union of their `supports_tool_choice`
+//     (an endpoint listing `tool_choice` without one takes every value). The
 //     union is the widest honest statement: a parameter no reachable endpoint
 //     lists is certainly refused. It is not a guarantee that one endpoint takes
 //     a whole COMBINATION; that residue is OpenRouter's 404, classified as a
@@ -57,6 +59,45 @@ type zeroRetentionModel struct {
 	// union missing one endpoint's words is not a complete statement, so the
 	// derived fields stay absent rather than under-report.
 	complete bool
+	// toolChoiceValues is the union of the tool-choice values the endpoints
+	// that list `tool_choice` take: their own `supports_tool_choice`
+	// statement, or every value for an endpoint that publishes none.
+	toolChoiceValues map[provider.RequestParameter]bool
+}
+
+// supportsToolChoiceValues maps OpenRouter's per-endpoint
+// `supports_tool_choice` object onto Kaana's value words. `auto` needs no
+// word (provider.ToolChoiceParameters).
+var supportsToolChoiceValues = map[string]provider.RequestParameter{
+	"none":     provider.ParameterToolChoiceNone,
+	"required": provider.ParameterToolChoiceRequired,
+	"function": provider.ParameterToolChoiceFunction,
+}
+
+// endpointToolChoiceValues reads one endpoint's `supports_tool_choice`:
+// `{"none":bool,"auto":bool,"required":bool,"function":bool}`. A statement
+// with any of the three values missing or not a boolean is no statement, and
+// the endpoint's `tool_choice` then speaks for every value.
+func endpointToolChoiceValues(fields map[string]json.RawMessage) map[provider.RequestParameter]bool {
+	values := make(map[provider.RequestParameter]bool, len(supportsToolChoiceValues))
+	statement, ok := objectField(fields, "supports_tool_choice")
+	if ok {
+		for word, parameter := range supportsToolChoiceValues {
+			var supported *bool
+			raw, present := statement[word]
+			if !present || json.Unmarshal(raw, &supported) != nil || supported == nil {
+				ok = false
+				break
+			}
+			values[parameter] = *supported
+		}
+	}
+	if !ok {
+		for _, parameter := range provider.ToolChoiceValues() {
+			values[parameter] = true
+		}
+	}
+	return values
 }
 
 type zeroRetentionListResponse struct {
@@ -120,7 +161,7 @@ func readZeroRetentionEndpoints(ctx context.Context, client *http.Client, target
 		}
 		model := models[id]
 		if model == nil {
-			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true}
+			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}}
 			models[id] = model
 		}
 		var fields map[string]json.RawMessage
@@ -132,6 +173,11 @@ func readZeroRetentionEndpoints(ctx context.Context, client *http.Client, target
 		}
 		for _, parameter := range parameters {
 			model.parameters[parameter] = true
+			if parameter == "tool_choice" {
+				for value, supported := range endpointToolChoiceValues(fields) {
+					model.toolChoiceValues[value] = model.toolChoiceValues[value] || supported
+				}
+			}
 		}
 	}
 	return models, nil
@@ -156,7 +202,7 @@ func restrictToZeroRetention(models []DiscoveredModel, zeroRetention map[string]
 			for parameter := range reachable.parameters {
 				parameters = append(parameters, parameter)
 			}
-			applySupportedParameters(observed, parameters)
+			applySupportedParameters(observed, parameters, reachable.toolChoiceValues)
 		} else {
 			// The all-endpoint `/models` statement is not about the reachable
 			// endpoints, and the reachable statement is incomplete: say nothing.

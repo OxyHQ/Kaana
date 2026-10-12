@@ -407,7 +407,9 @@ func cohereModelListEndpoint(target Provider, pageToken string) (string, error) 
 //
 // Every Messages model is a chat model, so there is no family filter here:
 // attribution and the request-family gate decide. What the row says about
-// the model is kept as observed metadata (observeAnthropicModel).
+// the model is kept as observed metadata (observeAnthropicModel), and the
+// adapter's own per-model statement of the controls it takes is added to it
+// (applyStatedAcceptedParameters).
 func discoverAnthropicModels(ctx context.Context, client *http.Client, target Provider) ([]DiscoveredModel, error) {
 	if target.Slug != "anthropic" {
 		// The Messages wire belongs to one provider, and the serving process
@@ -471,6 +473,7 @@ func discoverAnthropicModels(ctx context.Context, client *http.Client, target Pr
 	if len(models) == 0 {
 		return nil, fmt.Errorf("publisher: %s reports serving no models at all", target.Slug)
 	}
+	applyStatedAcceptedParameters(target.Slug, models)
 	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })
 	return models, nil
 }
