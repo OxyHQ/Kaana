@@ -79,6 +79,9 @@ var migration0019 string
 //go:embed migrations/0020_scoped_provider_attempt_claims.sql
 var migration0020 string
 
+//go:embed migrations/0021_deployment_binding_unpin.sql
+var migration0021 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool             *pgxpool.Pool
@@ -213,6 +216,7 @@ func schemaMigrations() []schemaMigration {
 		{version: "0018", body: migration0018},
 		{version: "0019", body: migration0019},
 		{version: "0020", body: migration0020},
+		{version: "0021", body: migration0021},
 	}
 }
 
@@ -359,10 +363,15 @@ func (p *Postgres) ListEnabled(ctx context.Context, providers []contract.Provide
 	}
 	rows, err := p.pool.Query(ctx, `
 		SELECT provider_slug, key_id, encrypted_secret, kms_key_arn,
-		       key_class, budget_usd::double precision, position,
-		       runtime.state, runtime.evidence_source, runtime.observed_at, runtime.retired_until, runtime.lease_until
+		       credential.key_class, budget_usd::double precision, position,
+		       runtime.state, runtime.evidence_source, runtime.observed_at, runtime.retired_until, runtime.lease_until,
+		       economics.capacity_category
 		FROM active_provider_credentials AS credential
 		LEFT JOIN provider_credential_runtime_state AS runtime USING (provider_slug, key_id)
+		-- The label-free economics read (migration 0018) is the runtime's
+		-- only window onto a key's protected description: it carries the
+		-- capacity category the pool is ordered by, and no label or email.
+		LEFT JOIN kaana_read_provider_credential_economics() AS economics USING (provider_slug, key_id)
 		WHERE provider_slug = ANY($1::text[])
 		ORDER BY provider_slug, position, key_id`, names)
 	if err != nil {
@@ -382,9 +391,13 @@ func (p *Postgres) ListEnabled(ctx context.Context, providers []contract.Provide
 			observedAt   pgtype.Timestamptz
 			retiredUntil pgtype.Timestamptz
 			leaseUntil   pgtype.Timestamptz
+			category     pgtype.Text
 		)
-		if err := rows.Scan(&providerSlug, &row.KeyID, &row.Ciphertext, &row.KMSKeyARN, &class, &budget, &row.Position, &state, &evidence, &observedAt, &retiredUntil, &leaseUntil); err != nil {
+		if err := rows.Scan(&providerSlug, &row.KeyID, &row.Ciphertext, &row.KMSKeyARN, &class, &budget, &row.Position, &state, &evidence, &observedAt, &retiredUntil, &leaseUntil, &category); err != nil {
 			return nil, err
+		}
+		if category.Valid {
+			row.CapacityCategory = category.String
 		}
 		row.Provider = contract.ProviderSlug(providerSlug)
 		row.Class = provider.KeyClass(class)

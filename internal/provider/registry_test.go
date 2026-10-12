@@ -117,8 +117,13 @@ func TestExactDeploymentBindingNeverWalksTheProviderPool(t *testing.T) {
 	if !ok || key.ID != "paid" {
 		t.Fatalf("selected key %q, ok=%v", key.ID, ok)
 	}
-	if _, _, err := registry.ResolveExecution("dep_missing", "groq", true); err == nil {
-		t.Fatal("missing binding fell back to pool")
+	// An unpinned deployment walks the pool, free key first.
+	_, unpinned, err := registry.ResolveExecution("dep_missing", "groq", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := poolOrder(t, unpinned); len(got) != 2 || got[0] != "free" {
+		t.Fatalf("unpinned deployment walks %v", got)
 	}
 	if _, _, err := registry.ResolveExecution("dep_paid", "openai", true); err == nil {
 		t.Fatal("provider mismatch was accepted")
@@ -197,8 +202,15 @@ func TestAnUnboundDeploymentUsesItsProvidersOnlyKey(t *testing.T) {
 	}
 }
 
-func TestAnUnboundDeploymentOfAMultiKeyProviderIsUnroutable(t *testing.T) {
-	pool, err := NewKeyPool("openrouter", []KeyDeclaration{{KeyID: "a", Secret: "a-secret"}, {KeyID: "b", Secret: "b-secret"}}, KeyPolicy{}, nil)
+// TestAnUnpinnedDeploymentOfAMultiKeyProviderWalksItsPool: a deployment is
+// (provider, upstream model), not a key. With no operator pin it executes on
+// every enabled key of its provider, cheapest stated funding first; its pinned
+// sibling still uses only its pin.
+func TestAnUnpinnedDeploymentOfAMultiKeyProviderWalksItsPool(t *testing.T) {
+	pool, err := NewKeyPool("openrouter", []KeyDeclaration{
+		{KeyID: "a", Secret: "a-secret", Funding: FundingPaid},
+		{KeyID: "b", Secret: "b-secret", Funding: FundingPromotional},
+	}, KeyPolicy{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,19 +219,26 @@ func TestAnUnboundDeploymentOfAMultiKeyProviderIsUnroutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.ReplaceGeneration([]CredentialBinding{{DeploymentID: "dep_bound", Provider: "openrouter", KeyID: "b"}}, adapter); err != nil {
+	if err := registry.ReplaceGeneration([]CredentialBinding{{DeploymentID: "dep_pinned", Provider: "openrouter", KeyID: "a"}}, adapter); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := registry.ResolveExecution("dep_new", "openrouter", true); err == nil {
-		t.Fatal("an unbound deployment of a two-key provider was given one of its keys")
+	_, view, err := registry.ResolveExecution("dep_new", "openrouter", true)
+	if err != nil {
+		t.Fatalf("an unpinned deployment of a two-key provider is unroutable: %v", err)
 	}
-	// The control: its bound sibling resolves, to exactly its key.
-	_, view, err := registry.ResolveExecution("dep_bound", "openrouter", true)
+	if _, exact := view.ExactBinding(); exact {
+		t.Fatal("an unpinned deployment was narrowed to one key")
+	}
+	if got := poolOrder(t, view); len(got) != 2 || got[0] != "b" || got[1] != "a" {
+		t.Fatalf("pool order = %v, want the promotional key before the paid one", got)
+	}
+	// The control: its pinned sibling resolves to exactly its pin.
+	_, pinned, err := registry.ResolveExecution("dep_pinned", "openrouter", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, ok := view.Begin().Next(time.Now()); !ok || key.ID != "b" {
-		t.Fatalf("bound deployment selected %q, ok=%v", key.ID, ok)
+	if got := poolOrder(t, pinned); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("pinned deployment walks %v, want only its pin", got)
 	}
 }
 

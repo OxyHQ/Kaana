@@ -19,10 +19,12 @@ import (
 // about serving it, and withholds the deployment while that evidence says it
 // cannot be served now.
 //
-// Every input is a report Kaana already persisted from real traffic or from an
-// operator; nothing here sends a request of its own:
+// A deployment executes on its provider's key pool (or only on its operator
+// pin), and it is withheld only while EVERY key it may execute on is withheld
+// by this evidence. Every input is a report Kaana already persisted from real
+// traffic or from an operator; nothing here sends a request of its own:
 //
-//   - the exact key the deployment executes on is retired
+//   - the key is retired
 //     (`provider_credential_runtime_state`, written by a provider's own
 //     exhaustion or refusal), until the provider's or Kaana's return time;
 //   - that key carries fresh operator-recorded capacity evidence reading zero
@@ -55,11 +57,12 @@ import (
 type WithholdReason string
 
 const (
-	// WithheldKeyRetired: the exact key is retired by the provider's own
-	// exhaustion or refusal, and serving would refuse the deployment anyway.
+	// WithheldKeyRetired: the key is retired by the provider's own exhaustion
+	// or refusal (for a pool, the key that returns first).
 	WithheldKeyRetired WithholdReason = "key_retired"
-	// WithheldNoUsableKey: the deployment resolves to no single key (serving
-	// refuses it as unbound) and every key its provider holds is retired.
+	// WithheldNoUsableKey: the deployment's operator pin resolves to no
+	// enabled key (serving refuses it) and every key its provider holds is
+	// retired.
 	WithheldNoUsableKey WithholdReason = "no_usable_key"
 	// WithheldCapacityExhausted: fresh operator-recorded capacity evidence says
 	// the exact key has nothing left.
@@ -288,15 +291,40 @@ func NewDecider(evidence Evidence, policy WithholdPolicy, now time.Time) *Decide
 }
 
 // Decide is a Withhold.
+//
+// A deployment executes on its provider's key pool, or only on its operator
+// pin (key-pools.md), so it is withheld only when NO key it may execute on can
+// serve it now. Each key is judged by the same evidence as before; the
+// deployment comes back as soon as one of them does, and is withheld until the
+// earliest moment one of them might.
 func (d *Decider) Decide(deploymentID contract.DeploymentID, slug contract.ProviderSlug) (Withholding, bool) {
 	keys := d.evidence.Keys[slug]
-	key, resolved := d.resolve(deploymentID, slug, keys)
+	pool, resolved := d.pool(deploymentID, slug, keys)
 	if !resolved {
-		// Serving refuses this deployment as unbound whatever is published;
-		// it stays listed so an operator can find the id to bind. Withheld
-		// only when its provider has no key that could serve anything.
+		// A pin naming another provider or a key that is not enabled: serving
+		// refuses this deployment whatever is published, and it stays listed
+		// so an operator can find the id to re-pin. Withheld only when its
+		// provider has no key that could serve anything.
 		return d.noUsableKey(keys)
 	}
+	var (
+		earliest Withholding
+		found    bool
+	)
+	for _, key := range pool {
+		withholding, withheld := d.decideKey(deploymentID, key)
+		if !withheld {
+			return Withholding{}, false
+		}
+		if !found || withholding.Until.Before(earliest.Until) {
+			earliest, found = withholding, true
+		}
+	}
+	return earliest, found
+}
+
+// decideKey applies the evidence about one key the deployment may execute on.
+func (d *Decider) decideKey(deploymentID contract.DeploymentID, key KeyEvidence) (Withholding, bool) {
 	if key.retired(d.now) {
 		return Withholding{Reason: WithheldKeyRetired, KeyID: key.KeyID, Until: key.RetiredUntil}, true
 	}
@@ -306,22 +334,35 @@ func (d *Decider) Decide(deploymentID contract.DeploymentID, slug contract.Provi
 	return d.streak(deploymentID, key)
 }
 
-// resolve mirrors provider.Registry.ResolveExecution: an exact binding, else
-// the provider's only enabled key, else nothing.
-func (d *Decider) resolve(deploymentID contract.DeploymentID, slug contract.ProviderSlug, keys []KeyEvidence) (KeyEvidence, bool) {
-	if binding, bound := d.evidence.Bindings[deploymentID]; bound {
+// pool mirrors provider.Registry.ResolveExecution: an operator pin is the
+// only key; otherwise every enabled key of the provider.
+func (d *Decider) pool(deploymentID contract.DeploymentID, slug contract.ProviderSlug, keys []KeyEvidence) ([]KeyEvidence, bool) {
+	if binding, pinned := d.evidence.Bindings[deploymentID]; pinned {
 		if binding.Provider != slug {
-			return KeyEvidence{}, false
+			return nil, false
 		}
 		for _, key := range keys {
 			if key.KeyID == binding.KeyID {
-				return key, true
+				return []KeyEvidence{key}, true
 			}
 		}
+		return nil, false
+	}
+	return keys, len(keys) > 0
+}
+
+// executesOn reports whether a deployment may execute on one exact key — its
+// pin is that key, or it is unpinned and its provider holds that key — and
+// returns that key's evidence. A scoped execution narrows to exactly that key.
+func (d *Decider) executesOn(deploymentID contract.DeploymentID, slug contract.ProviderSlug, keyID string) (KeyEvidence, bool) {
+	pool, resolved := d.pool(deploymentID, slug, d.evidence.Keys[slug])
+	if !resolved {
 		return KeyEvidence{}, false
 	}
-	if len(keys) == 1 {
-		return keys[0], true
+	for _, key := range pool {
+		if key.KeyID == keyID {
+			return key, true
+		}
 	}
 	return KeyEvidence{}, false
 }

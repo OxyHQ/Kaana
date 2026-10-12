@@ -49,6 +49,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		"list-deployment-bindings":              {"list-deployment-bindings"},
 		"migrate":                               {"migrate"},
 		"bind-deployment":                       {"bind-deployment"},
+		"unpin-deployment":                      {"unpin-deployment"},
 		"apply-production-deployment-bindings":  {"apply-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_37548e4f1f8ec610.json"},
 		"verify-production-deployment-bindings": {"verify-deployment-bindings", "--manifest", "/etc/kaana-cutovers/production-bindings-snap_37548e4f1f8ec610.json"},
 		"deduplicate-groq": {
@@ -133,7 +134,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
 		}
-		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" || strings.Contains(operationName, "production-deployment-bindings") {
+		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" || operationName == "unpin-deployment" || strings.Contains(operationName, "production-deployment-bindings") {
 			continue
 		}
 		if !strings.Contains(runbook, joined) {
@@ -204,7 +205,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			},
 		},
 		OperationTaskProfiles: map[string]string{
-			"list": "admin", "list-deployment-bindings": "admin", "migrate": "migrator", "bind-deployment": "admin", "apply-production-deployment-bindings": "admin", "verify-production-deployment-bindings": "admin",
+			"list": "admin", "list-deployment-bindings": "admin", "migrate": "migrator", "bind-deployment": "admin", "unpin-deployment": "admin", "apply-production-deployment-bindings": "admin", "verify-production-deployment-bindings": "admin",
 			"deduplicate-groq": "admin", "deduplicate-openrouter": "admin", "deduplicate-xai": "admin",
 			"rekey-cerebras-primary": "admin", "rekey-groq-primary": "admin",
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
@@ -237,6 +238,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
           - list-deployment-bindings
           - migrate
           - bind-deployment
+          - unpin-deployment
           - apply-production-deployment-bindings
           - verify-production-deployment-bindings
           - deduplicate-groq

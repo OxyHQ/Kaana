@@ -313,17 +313,19 @@ says it cannot be served now (`internal/publisher/withholding.go`). Publication
 is Kaana's authority; withholding never reorders anything, and order stays
 Oxy's.
 
-Every input is a report Kaana already persisted; the publisher sends nothing
-of its own:
+A deployment executes on its provider's key pool, or on its operator pin
+alone (`key-pools.md`), so it is judged KEY BY KEY over that set and withheld
+only while every key in it is withheld — until the earliest moment one of them
+may return. One key a provider spent no longer takes its deployments out while
+another key can serve them. A pinned deployment whose pin names no enabled key
+is withheld only when every key of its provider is retired: serving refuses it
+whatever is published, and it stays listed so an operator can find the id.
 
-1. **The exact key.** A deployment is judged by the one key it executes on, by
-   the same rules as `provider.Registry.ResolveExecution`: its exact binding,
-   else its provider's only enabled key (`key-pools.md`). That key retired by
-   the provider's own exhaustion or refusal withholds it until the key's return
-   time, because serving would refuse it until then anyway. A deployment that
-   resolves to no key (unbound on a several-key provider) is withheld only when
-   every key of its provider is retired: serving refuses it as unbound whatever
-   is published, and it stays listed so an operator can find the id to bind.
+Every input is a report Kaana already persisted; the publisher sends nothing
+of its own. For each key:
+
+1. **Its retirement.** A key retired by the provider's own exhaustion or
+   refusal is out until its return time, because serving skips it until then.
 2. **Capacity evidence** (migration `0017`, recorded by an operator): the key's
    latest FRESH balance at zero, quota at zero over a `day`, `month` or
    `lifetime` window, or a passed expiry, withholds until the evidence stops
@@ -453,8 +455,8 @@ where a provider lives. Both load their pools from the same PostgreSQL/KMS
 store. The publisher uses one exact key id because listing models is one
 authenticated catalogue question even when the provider paginates its answer;
 rotating or selecting the first pool row would silently change authority.
-Serving resolves each deployment to its exact key binding; pool order is not an
-execution selector.
+Serving executes each deployment on its provider's key pool, or on its
+operator pin (`key-pools.md`).
 
 | Variable | Required | Meaning |
 |---|---|---|

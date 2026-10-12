@@ -138,9 +138,11 @@ change ships as a new version id.
 
 ## The operator feed Oxy reads
 
-Oxy owns balances, grants, spend reservations and deployment ordering. To
-order on evidence it reads Kaana's measurements through two signed operator
-reads on the runtime, each under its own edgeauth purpose
+Oxy owns customer balances, grants and spend reservations, and in phase 1 of
+[ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md) still the
+order of deployments; Kaana orders the keys inside each deployment. To order
+on evidence Oxy reads Kaana's measurements through two signed operator reads
+on the runtime, each under its own edgeauth purpose
 (`oxy-kaana-provider-telemetry:v1`): an inference signature reads nothing here
 and a telemetry signature runs nothing.
 
@@ -160,7 +162,9 @@ and a telemetry signature runs nothing.
   unknown rather than free or permitted.
 
 Both are `SECURITY DEFINER` functions (migration `0018`); the runtime role can
-execute them and still cannot `SELECT` a table.
+execute them and still cannot `SELECT` a table. Serving reads the same
+credential-economics function to order each provider's key pool by funding
+(`key-pools.md`, "Funding"), so the category Oxy sees is the one Kaana walks by.
 
 ## Published list prices
 

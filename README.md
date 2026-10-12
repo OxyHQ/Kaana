@@ -46,8 +46,9 @@ orders them (profile priority, BYOK preference, funding class, score, exact ID)
 is stated once, in [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification). Kaana verifies every signed identity
 against one inventory snapshot and executes the list exactly as received,
 retrying the same route on transient failures and failing over down the list
-before the first output (`docs/routing.md`). It does not recompute the
-control-plane ranking.
+before the first output (`docs/routing.md`). Inside each deployment Kaana
+chooses the key: its provider's pool, free → credits → paid
+(`docs/key-pools.md`, [ADR 0001](docs/adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
 
 Do not confuse the two opaque identity layers: `deploymentId` selects one exact
 authorized deployment, while `(provider, keyId)` selects one exact encrypted

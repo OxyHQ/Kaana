@@ -3,6 +3,7 @@ package kaana_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -964,58 +965,26 @@ func TestPlatformCredentialRefusalCanFailOverToCustomerCredentialOnTheSameProvid
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Unbound deployments degrade per route                                     */
+/*  Unpinned deployments execute on their provider's pool                     */
 /* -------------------------------------------------------------------------- */
 
-// TestAnUnboundDeploymentIsRefusedWhileBoundOnesServe pins what serving relies
-// on when it accepts a snapshot naming a deployment nobody has bound yet: the
-// executor refuses that route without attempting it, and every other signed
-// route serves. If this stopped holding, accepting such a snapshot would put a
-// platform request on an unbound deployment.
-func TestAnUnboundDeploymentIsRefusedWhileBoundOnesServe(t *testing.T) {
-	unbound := succeedingAdapter("stub", 5)
-	bound := succeedingAdapter("backup", 7)
+// TestAnUnpinnedDeploymentServesOnItsProvidersPool: a deployment nobody has
+// pinned is not unroutable any more. It executes on its provider's key pool,
+// so the first signed route serves and the second is never reached.
+func TestAnUnpinnedDeploymentServesOnItsProvidersPool(t *testing.T) {
+	unpinned := succeedingAdapter("stub", 5)
+	backup := succeedingAdapter("backup", 7)
 
 	_, result := harness{
 		deployments: twoDeploymentsOfOneRevision,
-		adapters:    []provider.Adapter{unbound, bound},
+		adapters:    []provider.Adapter{unpinned, backup},
 		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
 	}.run(t, authorizedRequest())
 	if result.Failure != nil {
-		t.Fatalf("a request whose second signed route is bound failed: %v", result.Failure)
+		t.Fatalf("a request on an unpinned deployment failed: %v", result.Failure)
 	}
-	if unbound.attempts() != 0 {
-		t.Errorf("the unbound deployment was attempted %d times", unbound.attempts())
-	}
-	if bound.attempts() != 1 {
-		t.Errorf("the bound deployment was attempted %d times", bound.attempts())
-	}
-
-	// Signed for the unbound deployment alone, the request is refused and
-	// nothing upstream is called.
-	alone := authorizedRequest()
-	alone.AuthorizedRoutes = alone.AuthorizedRoutes[:1]
-	onlyUnbound := succeedingAdapter("stub", 5)
-	_, result = harness{
-		deployments: twoDeploymentsOfOneRevision,
-		adapters:    []provider.Adapter{onlyUnbound, succeedingAdapter("backup", 7)},
-		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
-	}.run(t, alone)
-	if result.Failure == nil {
-		t.Fatal("a request signed only for an unbound deployment was served")
-	}
-	if onlyUnbound.attempts() != 0 {
-		t.Errorf("the unbound deployment was attempted %d times", onlyUnbound.attempts())
-	}
-
-	// The control: bound, the same deployment serves, so the refusal above is
-	// the missing binding and not a broken fixture.
-	control := succeedingAdapter("stub", 5)
-	if _, result := (harness{
-		deployments: twoDeploymentsOfOneRevision,
-		adapters:    []provider.Adapter{control, succeedingAdapter("backup", 7)},
-	}).run(t, alone); result.Failure != nil || control.attempts() != 1 {
-		t.Fatalf("bound, the deployment still did not serve: %v, attempts=%d", result.Failure, control.attempts())
+	if unpinned.attempts() != 1 || backup.attempts() != 0 {
+		t.Errorf("attempts: unpinned=%d backup=%d; the unpinned primary should serve", unpinned.attempts(), backup.attempts())
 	}
 }
 
@@ -1052,4 +1021,62 @@ func TestANewDeploymentOfASingleKeyProviderServesOnItsKey(t *testing.T) {
 	if len(result.UpstreamCost.Attempts) != 1 || result.UpstreamCost.Attempts[0].KeyID != "stub-only" {
 		t.Fatalf("the cost record does not name the key that served: %+v", result.UpstreamCost.Attempts)
 	}
+}
+
+// TestASpentKeyMovesThePlatformRequestToTheNextKeyOfThePool: an unpinned
+// deployment of a two-key provider, its first key's grant spent. The SAME
+// attempt moves to the second key before anything is delivered, the cost
+// record names each key that was tried, and no route switch is announced: the
+// route did not change, only the key.
+func TestASpentKeyMovesThePlatformRequestToTheNextKeyOfThePool(t *testing.T) {
+	pool, err := provider.NewKeyPool("stub", []provider.KeyDeclaration{
+		{KeyID: "key-a", Secret: "kaana-test-platform-secret-a", Funding: provider.FundingPromotional},
+		{KeyID: "key-b", Secret: "kaana-test-platform-secret-b", Funding: provider.FundingPromotional},
+	}, provider.KeyPolicy{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tried []string
+	served := &scriptedAdapter{slug: "stub", platformPool: pool, streamWithCredentials: func(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
+		_, key, err := provider.WalkAttempts(ctx, credentials, call, func(_ context.Context, key provider.Key) (struct{}, provider.CredentialedAttempt) {
+			tried = append(tried, key.ID)
+			if key.ID == "key-a" {
+				return struct{}{}, provider.CredentialedAttempt{Failure: credentialBillingRefused("stub")}
+			}
+			return struct{}{}, provider.CredentialedAttempt{Accepted: true}
+		})
+		if err != nil {
+			return provider.Outcome{KeyID: key.ID}, err
+		}
+		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+		return provider.Outcome{KeyID: key.ID, Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
+	}}
+	request := authorizedRequest()
+	request.AuthorizedRoutes = request.AuthorizedRoutes[:1]
+
+	_, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{served, succeedingAdapter("backup", 7)},
+		unbound:     map[contract.DeploymentID]bool{"dep_a": true},
+	}.run(t, request)
+	if result.Failure != nil {
+		t.Fatalf("a spent first key failed the request: %v", result.Failure)
+	}
+	if strings.Join(tried, ",") != "key-a,key-b" {
+		t.Fatalf("keys tried: %v", tried)
+	}
+	if len(result.UpstreamCost.Attempts) != 1 || result.UpstreamCost.Attempts[0].KeyID != "key-b" || !result.UpstreamCost.Attempts[0].Served {
+		t.Fatalf("the cost record does not name the key that served: %+v", result.UpstreamCost.Attempts)
+	}
+	if health := pool.Projection(time.Now()); health.Usable != 1 || health.Keys[0].State != "exhausted" {
+		t.Fatalf("the spent key was not retired: %+v", health)
+	}
+}
+
+func credentialBillingRefused(slug contract.ProviderSlug) error {
+	return provider.ErrUpstream{Code: contract.CodeProviderBillingRefused, Category: contract.UpstreamQuota, Detail: "credit balance is too low",
+		Passthrough: &contract.ProviderErrorPassthrough{Provider: slug}}
 }

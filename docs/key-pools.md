@@ -19,35 +19,45 @@ The Messages API is refused under any slug but `anthropic`: that adapter reports
 its slug as a constant, so serving it under another name would attribute every
 event and every usage record to a provider the inventory did not route to.
 
-**A provider owns a pool, but a deployment executes on one exact key.** The
-pool is the custody, reload and health container. Execution resolves the signed
-opaque `deploymentId` to one exact `(provider, keyId)`, by the first rule that
-applies (`provider.Registry.ResolveExecution`):
+**A deployment is (provider, upstream model); it executes on its provider's
+key pool.** Kaana owns every provider key and chooses among them
+([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)). Execution
+resolves the signed opaque `deploymentId` by the first rule that applies
+(`provider.Registry.ResolveExecution`):
 
-1. **An exact binding** in `provider_deployment_credential_bindings`. It is
-   final. A binding to a retired or disabled key, or one naming another
-   provider, never falls back to anything.
-2. **The provider default.** With no exact binding, the provider's key, when
-   the provider holds exactly one enabled key. A key belongs to its provider by
-   default, so a newly discovered deployment of a single-key provider is
-   routable without an operator binding it. It is the same exact view as a
-   binding, so attempt, cost and audit records name the key that served.
-3. **Otherwise unroutable.** No key, or two or more keys and no exact binding:
-   the deployment is refused per request and named by serving's
-   `deployments without an exact credential binding are unroutable until bound`
-   WARN. Kaana never picks among several keys.
+1. **An operator pin** — an exact row in
+   `provider_deployment_credential_bindings`. It is final: the deployment uses
+   only that key, and a pin to a retired or disabled key, or one naming another
+   provider, never falls back to the pool. Pins are optional; they exist for a
+   key that must serve one deployment alone (a contract, a test, a scoped
+   permit) and are removed with `kaana-credentials unpin-deployment`.
+2. **The provider's pool.** Every enabled key of the provider, cheapest stated
+   funding first — free, then credits (a promotional or trial grant before a
+   prepaid balance), then paid, then unstated — and within one funding the
+   declared position. A request walks it: a key that is spent (`exhausted`),
+   refused (`rejected`) or, for the same request's retry, failing transiently
+   before any output is passed over for the next key. A request fault never
+   moves.
 
-"Exactly one" counts the enabled keys in the loaded generation. A key the
-provider has temporarily retired still counts. Retirement is a quota state with
-an expiry. If it re-mapped deployments, a retired key's traffic would move to
-its sibling (a pool walk by another name) and flap back when it recovered, and
-the startup gate would depend on a transient exhaustion. A retired default key
-therefore behaves like a retired bound key: the request is refused retryably
-with the key's return time.
+A provider with no enabled key is a startup refusal, so rule 2 always has a key
+to start from. Every attempt, cost and audit record names the exact key that
+served, whichever rule chose it.
 
-Resolution never walks into a second platform key: Oxy exposes that capacity as
-another deployment and orders it explicitly. An unresolvable deployment fails
-before an upstream call.
+**A funding ceiling bounds the walk** (`KeyPool.WithinFunding`). When Oxy
+authorizes a route only on cheaper capacity (Alia Pro and Ultra spend credits
+only, Oxy ADR 0038), Kaana walks only keys at or below that tier; an unstated
+key is never admitted under a ceiling. The signed route field that carries the
+ceiling arrives with the contract change in ADR 0001's step 2; until it is
+deployed no request carries one, so no provider may hold a paid key beside
+the credit keys such a route relies on. A route with no admissible
+key is skipped like an unroutable one, and a route whose admissible keys are
+all retired fails over along the signed routes with the earliest return time —
+it never falls through to a dearer key.
+
+A retired key returns through the same recovery lease as before: once its
+retirement expires, the first real request that reaches it in pool order (the
+cheapest key first) holds the cross-replica lease, and its success writes the
+`usable` watermark. Nothing else probes it.
 
 ### The distinction the design turns on
 
@@ -62,16 +72,22 @@ status:
 | Verdict | What it means | What happens |
 |---|---|---|
 | `healthy` | the failure says nothing about the key — a timeout, a network failure, a provider 5xx, a throttle | the key stays; the request does not move |
-| `exhausted` | the provider reported that this key's account has nothing left | the exact key is retired; a platform request cannot escape its deployment binding |
-| `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the exact key is retired; a platform request cannot escape its deployment binding |
+| `exhausted` | the provider reported that this key's account has nothing left | the exact key is retired and the request moves to the next key of the pool (a pinned deployment has none) |
+| `rejected` | the provider refused this credential: revoked, invalid, or lacking access | the exact key is retired and the request moves to the next key of the pool (a pinned deployment has none) |
 | `request_fault` | the request is what was refused | nothing is retired and nothing is retried |
 
-**An exhausted or refused key retires; a request fault does not.** The generic
-pool walker remains covered for discovery and adapter conformance, but the
-production executor supplies a one-key exact view, so another platform key can
-only be reached through another Oxy-signed deployment. Authentication rejection
-belongs to the credential sent, while a malformed request would fail identically
-on every key.
+**An exhausted or refused key retires; a request fault does not.** The walk
+moves the same request to the next key before anything is delivered, so the
+customer never learns a key was spent. Authentication rejection belongs to the
+credential sent, while a malformed request would fail identically on every key.
+
+**A transient failure retires nothing but is remembered for the request.** A
+throttle, an overload, a timeout, a provider 5xx or a transport failure before
+any output says nothing durable about the key, so the key stays in rotation.
+The executor's same-route retry (`routing.md`) then starts on a different key
+of the pool while one is usable — the request's `CredentialAttemptSequence`
+records which keys failed it transiently — and falls back to the same key only
+when no other can serve. A new request starts on the cheapest key again.
 
 **A request fault is retried nowhere.** The next credential would be refused
 identically, so a rotation turns one customer error into several upstream calls
@@ -142,28 +158,22 @@ alone would be the same guess in a more expensive form.
 
 ### What a key pool is not
 
-**It is not a route.** The pool stores and observes keys; its exact bound view
-contains only the key named by the deployment. Reaching another platform key is
-a route change to another signed deployment and emits `route_switch`, including
-when both deployments use the same provider slug.
+**It is not a route.** Moving to another key keeps the deployment: same
+provider, same upstream model, another credential. It emits no `route_switch`,
+because nothing about the customer's route changed. Choosing among DEPLOYMENTS
+is still permitted only by `authorizedRoutes`; a pin is never escaped for the
+pool, and a funding ceiling is never escaped for a dearer key.
 
-Choosing among deployments is permitted only by `authorizedRoutes`. Kaana
-never uses provider, pool position or class to escape an exact binding. The
-provider default applies only when a deployment has NO exact binding and its
-provider holds exactly one enabled key. It fills an absent binding; it never
-overrides or replaces an existing one, including one whose key is retired.
-
-**A route switch can only happen before anything has been delivered.** Once a
-body is being read, that ATTEMPT is committed to the exact deployment/key that
-opened it; a mid-stream failure never moves to another credential inside the
-walk. What the executor may still do, while no output has reached the
-customer, is start a new attempt (`routing.md`, "Same-route retry"). A retry is
-a fresh `Stream` and so a fresh walk over the same exact binding: a rate limit
-retires nothing, so a single-key pool — every production platform deployment —
-reuses that key, which is correct because a throttle is not exhaustion. Where
-an operator declared `KeyPolicy.OnSeparateAccounts`, each attempt's walk may
-still spend its one throttle rotation before any body is read; the executor's
-attempt cap bounds how many walks one request can make.
+**A key change can only happen before anything has been delivered.** Once a
+body is being read, that ATTEMPT is committed to the exact key that opened it;
+a mid-stream failure never moves to another credential. What the executor may
+still do, while no output has reached the customer, is start a new attempt
+(`routing.md`, "Same-route retry"), which is a fresh walk that prefers keys this
+request has not seen fail. A single-key pool reuses its key, which is correct
+because a throttle is not exhaustion. Where an operator declared
+`KeyPolicy.OnSeparateAccounts`, a walk may also spend its one throttle rotation
+before any body is read; the executor's attempt cap bounds how many walks one
+request can make.
 
 **A request makes at most as many upstream calls as the pool has keys**, because
 a key is never leased twice for one request. Nobody configured that ceiling; it
@@ -187,27 +197,44 @@ until the request that finds it empty.
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
 
-## Key class, and what "free first" is and is not
+## Funding, and what "free first" is and is not
 
-A key carries a `KeyClass` the operator STATES — `free`, `paid`, or unstated.
-It is never inferred, and that is a measurement rather than caution: on
-2026-08-23 no provider this build serves published remaining credit. Groq and
-xAI publish burst limits whose counts refill; OpenRouter publishes no such
-header at all, and its account endpoint answered `total_credits: 0` while a
-completion on the same key really was billed. Nothing observable separates a
-free-tier key from a funded one.
+A key's **funding** orders the pool and is what a funding ceiling admits
+(`internal/provider/funding.go`). It is derived from two STATED facts, never
+inferred: the key row's class (`free`, `paid` or unstated) and its protected
+description's capacity category (`trial`, `promotional`, `prepaid`, `paid`).
+When both are stated the dearer reading wins. That is a measurement rather than
+caution: on 2026-08-23 no provider this build serves published remaining
+credit. Groq and xAI publish burst limits whose counts refill; OpenRouter
+publishes no such header at all, and its account endpoint answered
+`total_credits: 0` while a completion on the same key really was billed.
+Nothing observable separates a free-tier key from a funded one.
 
-Class remains protected operator metadata and every live/cost observation is
-attributed to the exact key. It does not select a key during platform execution:
-Oxy orders compatible free, discounted, promotional and paid deployments, then
-Kaana executes each exact deployment/key binding. Unstated remains distinct
-from paid so telemetry never invents an economic fact.
+| Funding | From | Tier | Order |
+|---|---|---|---|
+| `free` | class `free` | free | 1 |
+| `promotional` | category `promotional` or `trial` | credit | 2 |
+| `prepaid` | category `prepaid` | credit | 3 |
+| `paid` | category `paid`, or class `paid` | paid | 4 |
+| unstated | nothing stated | none | 5 |
+
+The order is the owner's: free, then credits, then paid, for the same model.
+Within the credit tier a grant is spent before a prepaid balance (the grant
+costs nothing and expires). An unstated key is spent last and never under a
+ceiling, because the worst case of what it costs is paid; it is still not
+REPORTED as paid, so telemetry never invents an economic fact.
+
+Every live and cost observation is attributed to the exact key, and Oxy's
+operator feed carries each attempt's key and that key's economics (`cost.md`).
+With ADR 0001's step 2 the usage report Oxy settles from also names the funding
+tier of the key that served (absent when unstated or customer-owned). Neither the key id nor its
+label ever reaches a customer.
 
 `Key.ID` is the immutable opaque identity of one database row and is what a log
 or health projection should use when an operator must act on that exact row.
 It is never a provider/product name and never comes from the secret. `Position`
-is only the explicit pool order copied with the row; it is not identity and no
-admin operation resolves a credential through it.
+is the explicit pool order within one funding; it is not identity and no admin
+operation resolves a credential through it.
 
 ## Protected credential metadata
 
@@ -238,10 +265,11 @@ is what Oxy reads on the operator feed (`cost.md`).
 
 ## What publication reads from a key
 
-The inventory publisher withholds a discovered deployment while the exact key
-it executes on cannot serve it (`inventory.md`, "Withheld from publication").
-It resolves that key by the same three rules as execution, and reads, without
-decrypting anything or taking any lease:
+The inventory publisher withholds a discovered deployment while NO key it may
+execute on can serve it (`inventory.md`, "Withheld from publication"): its pin
+alone, or every enabled key of its provider. It judges each key by the
+following evidence, read without decrypting anything or taking any lease, and
+publishes as soon as one key is clear:
 
 - the key's runtime state: retired until `retired_until` withholds until then;
   an expired retirement does not, because the first real request after it is
@@ -252,6 +280,9 @@ decrypting anything or taking any lease:
 - the deployment's attempts on that key since its last success (`0019`): one
   billing or credential refusal withholds for a quarantine, unless capacity
   evidence reading more than zero was recorded after it.
+
+A deployment every key withholds is withheld until the earliest moment one of
+them may return.
 
 So an exhausted key comes back on its own: its retirement expires, the
 quarantine after its last refusal ends, the deployment is published for a
@@ -343,11 +374,10 @@ change to.
   position is only explicit spending order, never an admin or discovery
   selector. Neither is the secret or a hash of it, since a fingerprint confirms
   a guess.
-- **Class is stated, never inferred**, and **unstated is not paid** — the
-  measurement behind both is in "Key class" above. A pool is walked `free`,
-  then unstated in declared order, then `paid`; an unclassified pool keeps the
-  order it was declared in, so classifying one key moves that key and disturbs
-  no other.
+- **Funding is stated, never inferred**, and **unstated is not reported as
+  paid** — the measurement behind both is in "Funding" above. A pool is walked
+  free, promotional, prepaid, paid, unstated, then by position; an
+  unclassified pool keeps the order it was declared in.
 - **A 402 is the platform's account refusing to be billed**, and it must retire
   the key. It reached the default branch once and became `invalid_request`,
   which told the customer their request was at fault and kept spending an
@@ -365,23 +395,26 @@ change to.
   provider's declared mapping says means remaining credits, reading zero.
   `unknown` is not `exhausted`, `unavailable` is not `exhausted`, and every
   failure nobody classified leaves the key exactly as it was.
-- **An exhausted or REFUSED key is retired.** Production does not walk from its
-  exact deployment binding to another key.
+- **An exhausted or REFUSED key is retired and the request moves to the next
+  key of the pool** — never past a pin, never past a funding ceiling.
 - **An exact view is the pool narrowed to one key, not a pool without a
   policy.** `Bind` copies the provider, retirement window, separate-accounts
   declaration and quota signals; a walk reads them from the view it was given.
   `TestABoundViewRetiresWithItsPoolsPolicy` and its PostgreSQL twin hold this.
-- **A deployment with no exact binding uses its provider's key only when there
-  is exactly one enabled key.** With several it is unroutable, never a choice.
-  An exact binding is never escaped for the default, and runtime retirement
-  never changes which key is the default.
+- **A deployment with no pin executes on its provider's whole pool**, cheapest
+  stated funding first. A pin is never escaped for the pool.
+- **A funding ceiling admits only keys whose stated tier is at or below it**;
+  an unstated key is never admitted under one, and a spent grant never falls
+  through to a paid key.
+- **A transient failure retires nothing; the same request's retry prefers
+  another key** and reuses the failed one only when no other can serve.
 - **A request fault is retried on nothing.** The next credential would be
   refused identically.
 - **The verdict is read from the code the ADAPTER chose, never from a status.**
   `CredentialVerdictFor` is the one function, as `AttributableCategory` is for
   the deployment; the two answer different questions and disagree on purpose.
-- **Another key requires another signed deployment and a route switch.** A
-  shared provider slug does not imply a shared credential identity.
+- **Another key is not another route.** Moving keys keeps the deployment and
+  emits no `route_switch`; moving deployments needs the next signed route.
 - **A rotation happens only before the response body is read**, so a failure
   arriving mid-stream rotates nothing: the request is committed to the key that
   opened the stream.

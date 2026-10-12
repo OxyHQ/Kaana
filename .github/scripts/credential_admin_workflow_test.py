@@ -10,10 +10,10 @@ SOURCE = (pathlib.Path(__file__).parents[1] / "workflows/credential-admin.yml").
 
 class ReviewedMigrationWorkflow(unittest.TestCase):
     def test_image_selection_is_operation_scoped(self):
-        start = SOURCE.index('          if [[ "$OPERATION" == *production-deployment-bindings || "$OPERATION" == migrate ]]; then')
+        start = SOURCE.index('          if [[ "$OPERATION" == *production-deployment-bindings || "$OPERATION" == migrate || "$OPERATION" == unpin-deployment ]]; then')
         end = SOURCE.index('          printf', start)
         fragment = "\n".join(line[10:] for line in SOURCE[start:end].splitlines())
-        for operation, current in [("migrate", True), ("apply-production-deployment-bindings", True), ("verify-production-deployment-bindings", True), ("list", False), ("rekey-openrouter-primary", False), ("deduplicate-groq", False)]:
+        for operation, current in [("migrate", True), ("apply-production-deployment-bindings", True), ("verify-production-deployment-bindings", True), ("unpin-deployment", True), ("list", False), ("bind-deployment", False), ("rekey-openrouter-primary", False), ("deduplicate-groq", False)]:
             with self.subTest(operation=operation):
                 with tempfile.TemporaryDirectory() as folder:
                     path = pathlib.Path(folder) / "config.json"
@@ -30,9 +30,9 @@ class ReviewedMigrationWorkflow(unittest.TestCase):
 
     def test_migration_phase_executes_exact_guarded_command(self):
         start = SOURCE.index('          if [ "$OPERATION" = \'migrate\' ]; then')
-        end = SOURCE.index('          if [ "$OPERATION" = \'bind-deployment\' ]; then', start)
+        end = SOURCE.index('          if [ "$OPERATION" = \'bind-deployment\' ] || [ "$OPERATION" = \'unpin-deployment\' ]; then', start)
         fragment = "\n".join(line[10:] for line in SOURCE[start:end].splitlines())
-        for phase, expected in [('inspect', '["migrate","--reviewed-0020","--inspect-only"]'), ('apply', '["migrate","--reviewed-0020"]')]:
+        for phase, expected in [('inspect', '["migrate","--reviewed-0020","--inspect-only"]'), ('apply', '["migrate","--reviewed-0020"]'), ('inspect-0021', '["migrate","--reviewed-0021","--inspect-only"]'), ('apply-0021', '["migrate","--reviewed-0021"]')]:
             result = subprocess.run(['bash', '-c', 'OPERATION=migrate\nMIGRATION_PHASE=' + phase + '\n' + fragment + '\nprintf "%s" "$command"'], capture_output=True, text=True, check=True)
             self.assertEqual(result.stdout, expected)
         rejected = subprocess.run(['bash', '-c', 'OPERATION=migrate\nMIGRATION_PHASE=wrong\n' + fragment], capture_output=True, text=True)

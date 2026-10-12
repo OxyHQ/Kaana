@@ -420,8 +420,10 @@ Plaintext is accepted only on standard input:
 Set `KAANA_CREDENTIAL_ACTOR` to the non-secret operator or automation identity
 for `put`, `import-ssm` and `disable`; a mutation without one is refused.
 
-Bind every published opaque deployment to exactly one active key before its
-serving candidate is enabled:
+A deployment executes on its provider's key pool, cheapest stated funding
+first ([key-pools](key-pools.md#several-providers-and-a-key-pool-for-each)),
+so a new key needs no binding: it joins the pool on the next credential
+reload. Pin a deployment to one key only when that key must serve it alone:
 
 ```bash
 kaana-credentials bind-deployment \
@@ -432,9 +434,21 @@ kaana-credentials bind-deployment \
 ```
 
 This non-secret mutation is idempotent and conflict-checked. Runtime reloads
-bindings and decrypted pools as one generation. An unbound deployment never
-falls back to the provider pool; exact readback and a real canary gate ambient
-execution.
+pins and decrypted pools as one generation. A pinned deployment never falls back
+to the provider pool. Remove a pin, compare-and-delete and audited (migration
+`0021`), with the pin you expect to remove:
+
+```bash
+kaana-credentials unpin-deployment \
+  --operation-id kdb_0123456789abcdef0123456789abcdef \
+  --deployment-id dep_exact \
+  --provider openrouter \
+  --key-id 123e4567-e89b-42d3-a456-426614174000
+```
+
+In production run it through `credential-admin.yml` with operation
+`unpin-deployment` and the same four inputs; it runs the image built from the
+dispatched `main` commit, like `migrate`. Each call needs a fresh `kdb_*` id.
 
 Read back the protected, non-secret mapping and its immutable operation/database
 actors before the canary:
@@ -452,6 +466,11 @@ The PostgreSQL lifecycle test runs that exact loader as `kaana_runtime` and
 checks both an enabled binding and its exclusion after disabling the key.
 
 ### Schema 0013 staged rollout
+
+*Historical.* This section records the 0013 cutover, when every multi-key
+deployment needed an exact binding. Since ADR 0001 a binding is an optional
+pin and an unpinned deployment executes on its provider's pool; the startup
+gate now refuses only a generation whose served providers hold no key.
 
 Do not turn a schema migration into a serving cutover. The release workflow
 will not update ECS until the repository variable
@@ -540,21 +559,42 @@ partially applied manifest be finished: the database treats a replay of an
 operation ID by a different actor as a conflict, and every workflow run is a
 different actor.
 
-After the cutover the startup gate is also the inventory reload gate, with the
-same rule: a published snapshot is refused (and the previous one keeps serving
-until it passes `KAANA_INVENTORY_MAX_AGE`) only when more than half of its
-served deployments are unresolvable. A newly discovered deployment of a
-single-key provider resolves to that key with no bind at all. A new deployment
-of a provider with two or more keys has no default, and stays unroutable until
-it is bound. A snapshot carrying a few of those is installed. Those
-deployments are refused per request, never attempted, and Oxy moves to the
-next signed route. Every inventory load logs them at WARN as `deployments
-without an exact credential binding are unroutable until bound`, with
-`unbound`, `served`, `deploymentIds`, `providers` and `snapshotId`. Alert on
-that message and bind each ID with `bind-deployment`. There is no deadline.
-Adding a second enabled key to a provider takes away its default. Each of its
-deployments without an exact binding becomes unroutable on the next credential
-reload, and the WARN names them, so bind them before you add the key.
+After the cutover the startup gate is also the inventory reload gate. Since
+ADR 0001 it refuses a published snapshot (the previous one keeps serving until
+it passes `KAANA_INVENTORY_MAX_AGE`) only when more than half of its served
+deployments resolve to no platform credential: their provider holds no enabled
+key, or their pin names a key that is not enabled. A newly discovered
+deployment resolves to its provider's pool with no bind at all, whatever the
+number of keys. Every inventory load logs the unresolvable ones at WARN as
+`deployments without a platform credential are unroutable`, with `unroutable`,
+`served`, `deploymentIds`, `providers` and `snapshotId`; alert on it. Adding a
+second enabled key to a provider never makes a deployment unroutable: it joins
+the pool in funding order.
+
+### Moving a pinned provider onto its pool
+
+The 2026-10 rollout of ADR 0001 for `anthropic` (13 `dep_anthropic_*`
+deployments pinned to one key) is the worked example:
+
+1. Merge and let `main` deploy. Serving and the publisher run the pool rule;
+   the pins still hold, so nothing changes yet.
+2. Run `credential-admin.yml` with operation `migrate`, phase `inspect-0021`,
+   then `apply-0021`. The inspection must report `"pending":["0021"]`; the
+   apply must report `"unpinInstalled":true`.
+3. Read the pins: operation `list-deployment-bindings`. For each
+   `dep_anthropic_*` row run `unpin-deployment` with a fresh `kdb_*` id, the
+   row's deployment id, `anthropic` and the row's key id. Read back again: no
+   `anthropic` row remains.
+4. Describe the new key before enabling it (`put-credential-metadata`, its
+   capacity category), so it joins the pool at its funding and not as
+   unstated. Then enable it with `put` (plaintext on stdin) at the next free
+   position.
+5. Verify on `GET /internal/v1/health`: the provider reports `declared: 2`,
+   both keys with their `funding`. When the first key is retired by a
+   `billing_error`, requests move to the second in the same attempt (cost
+   rows name the key that served); when the first key's retirement expires,
+   the next request returns to it, and its success writes the `usable`
+   watermark.
 
 The gate used to refuse any unbound served deployment. That froze the
 inventory on every new model and, worse, stopped a restarted serving task from

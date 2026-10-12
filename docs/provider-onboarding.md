@@ -304,11 +304,11 @@ prompt tier and cache writes remain unpriced units on it.
   `KAANA_PROVIDER_ANTHROPIC_PROTOCOL`/`_BASE_URL` stated and the discovery key
   id above. The credential row already exists, so neither process refuses
   startup over it.
-- Anthropic is a single-key provider, so every discovered deployment resolves
-  to that key by the provider default (`key-pools.md`): no `bind-deployment`
-  is needed, and serving logs no unbound WARN for it. Adding a second
-  `anthropic` key removes the default; bind every published `anthropic`
-  deployment to its exact key BEFORE adding one.
+- Every discovered `anthropic` deployment executes on the provider's key pool
+  (`key-pools.md`): no `bind-deployment` is needed. A second enabled key joins
+  the pool in funding order; it never makes a deployment unroutable. Remove
+  any old pin first (`kaana-credentials unpin-deployment`), or the pinned
+  deployment keeps using only its pin.
 - No live scrubbed capture from the production account has been recorded in
   this repository; the first signed production canary through Oxy is that
   evidence (`operating.md`, "Schema 0013 staged rollout", Oxy's

@@ -56,8 +56,8 @@ Inventory — docs/inventory.md#rules-a-reviewer-applies
 
 Credentials — docs/key-pools.md#rules-a-reviewer-applies
 - PostgreSQL KMS ciphertext is the only key store; plaintext only on stdin.
-- A platform deployment runs on one exact key: its binding, else its provider's only key; never a pick among several.
-- Retire on reported exhaustion or rejection; a platform request never escapes its exact binding.
+- A deployment runs on its provider's key pool, free → credits → paid → unstated; a pin is its only key — docs/adr/0001-kaana-owns-provider-keys-costs-and-routing.md
+- Retire on reported exhaustion or rejection and move to the next key; never past a pin or a funding ceiling.
 - Verdicts come from the adapter's code, never a status; a 402 retires the key.
 - BYOK: same custody, inverse authorities, one exact operation id —
   docs/customer-provider-credentials.md#rules-a-reviewer-applies
@@ -84,5 +84,5 @@ Cross-cutting — docs/rules.md
 ## Before touching X, read `docs/`
 
 schema→architecture · envelope→contract · executor→routing · publisher→inventory ·
-keys→key-pools, customer-provider-credentials · provider→adapters,
+decisions→adr · keys→key-pools, customer-provider-credentials · provider→adapters,
 provider-onboarding · realtime sessions→realtime · deploy→operating.

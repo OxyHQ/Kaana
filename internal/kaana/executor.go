@@ -306,12 +306,11 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		)
 		if resolveErr != nil {
 			// The inventory routes somewhere this process cannot reach: a
-			// provider it has no adapter for, or a platform deployment with no
-			// exact active credential binding yet (the publisher discovered it
-			// and no operator has bound it). Both are accepted per route and
-			// warned about on every inventory load. This is a configuration
-			// fault, which says nothing about whether the provider is healthy,
-			// so it is skipped rather than attempted or counted against it.
+			// provider it has no adapter or key for, or a deployment pinned to
+			// a key of another provider. Both are accepted per route and warned
+			// about on every inventory load. This is a configuration fault,
+			// which says nothing about whether the provider is healthy, so it
+			// is skipped rather than attempted or counted against it.
 			permit.NotAttributable()
 			customerPermit.NotAttributable()
 			skipped = append(skipped, route.DeploymentID)
@@ -356,14 +355,15 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 				_ = emit.finishWithError(failure)
 				return Result{Failure: failure}
 			}
-			keyID, exact := platformCredentials.ExactBinding()
-			if !exact || keyID != scope.KeyID {
+			exact, ok := exactKeyView(platformCredentials, scope.KeyID)
+			if !ok {
 				permit.NotAttributable()
 				customerPermit.NotAttributable()
 				failure := contract.NewError(requestID, contract.CodePermissionDenied, "scoped exact credential unavailable")
 				_ = emit.finishWithError(failure)
 				return Result{Failure: failure}
 			}
+			platformCredentials = exact
 
 			call.ScopedAttempt = &provider.ScopedCredentialAttempt{KeyID: scope.KeyID, Claim: func(ctx context.Context) error {
 				at := e.now()
@@ -388,17 +388,15 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			}}
 		}
 		if scope := request.PrivateAutoExecution; scope != nil {
-			keyID, exact := "", false
-			if platformCredentials != nil {
-				keyID, exact = platformCredentials.ExactBinding()
-			}
-			if !exact || keyID != scope.KeyID {
+			exact, ok := exactKeyView(platformCredentials, scope.KeyID)
+			if !ok {
 				permit.NotAttributable()
 				customerPermit.NotAttributable()
 				failure := contract.NewError(requestID, contract.CodePermissionDenied, "private Auto exact credential unavailable")
 				_ = emit.finishWithError(failure)
 				return Result{Failure: failure}
 			}
+			platformCredentials = exact
 			call.ScopedAttempt = &provider.ScopedCredentialAttempt{KeyID: scope.KeyID, Claim: func(ctx context.Context) error {
 				at := e.now()
 				if e.privateAutoSource == nil || !scope.MatchesSource(e.privateAutoSource(), at) {
@@ -1349,6 +1347,22 @@ func upstreamFailure(requestID contract.RequestID, slug contract.ProviderSlug, e
 // never falls back to the adapter's
 // platform pool: a missing, stale, revoked or undecryptable generation is the
 // customer's actionable credential failure and no upstream call is made.
+// exactKeyView narrows a deployment's platform credentials to the one key a
+// signed scope names. A deployment pinned to another key refuses it; an
+// unpinned deployment, which executes on its provider's pool, narrows to that
+// key only when the pool holds it. The scope never widens anything: it is
+// always exactly one key.
+func exactKeyView(credentials *provider.KeyPool, keyID string) (*provider.KeyPool, bool) {
+	if credentials == nil || keyID == "" {
+		return nil, false
+	}
+	if pinned, exact := credentials.ExactBinding(); exact {
+		return credentials, pinned == keyID
+	}
+	view, err := credentials.Bind(keyID)
+	return view, err == nil
+}
+
 func (e *Executor) credentialsForRoute(
 	ctx context.Context,
 	requestID contract.RequestID,

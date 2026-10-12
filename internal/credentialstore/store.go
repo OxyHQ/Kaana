@@ -34,6 +34,10 @@ type EncryptedCredential struct {
 	BudgetUSD  *float64
 	Position   int
 	Runtime    provider.CredentialRuntimeState
+	// CapacityCategory is the key's protected description's category
+	// (migration 0017), read through the label-free economics function; empty
+	// when nobody described the key. Only ListEnabled fills it.
+	CapacityCategory string
 }
 
 type runtimeRepository interface {
@@ -100,6 +104,29 @@ func (p *Postgres) BindDeployment(ctx context.Context, operationID string, bindi
 		return outcome, errors.New("credential store: deployment binding is invalid")
 	}
 }
+
+// UnpinDeployment removes one exact operator pin, compare-and-delete: the
+// caller names the pin it expects. The deployment then executes on its
+// provider's key pool from the next credential reload (key-pools.md).
+func (p *Postgres) UnpinDeployment(ctx context.Context, operationID string, binding provider.CredentialBinding, actor string) (string, error) {
+	var outcome string
+	if err := p.pool.QueryRow(ctx, `SELECT kaana_unpin_provider_deployment($1,$2,$3,$4,$5)`, operationID, binding.DeploymentID, binding.Provider, binding.KeyID, actor).Scan(&outcome); err != nil {
+		return "", fmt.Errorf("credential store: unpinning deployment credential: %w", err)
+	}
+	switch outcome {
+	case "applied", "replayed":
+		return outcome, nil
+	case "conflict":
+		return outcome, ErrDeploymentBindingConflict
+	case "absent":
+		return outcome, ErrDeploymentNotPinned
+	default:
+		return outcome, errors.New("credential store: deployment unpin is invalid")
+	}
+}
+
+// ErrDeploymentNotPinned is an unpin of a deployment that has no pin.
+var ErrDeploymentNotPinned = errors.New("credential store: the deployment has no exact credential pin")
 
 type DeploymentBindingMetadata struct {
 	DeploymentID   contract.DeploymentID `json:"deploymentId"`
@@ -219,6 +246,10 @@ func (s *Store) Load(ctx context.Context, requested []contract.ProviderSlug) (ma
 		}
 		seenPosition[row.Provider][row.Position] = row.KeyID
 
+		funding, err := provider.FundingFor(row.Class, row.CapacityCategory)
+		if err != nil {
+			return nil, nil, fmt.Errorf("credential store: provider %q key %q: %w", row.Provider, row.KeyID, err)
+		}
 		plaintext, err := s.cipher.Decrypt(ctx, row.Scope, row.Ciphertext, row.KMSKeyARN)
 		if err != nil {
 			return nil, nil, fmt.Errorf("credential store: decrypting provider %q key %q: %w", row.Provider, row.KeyID, err)
@@ -230,10 +261,11 @@ func (s *Store) Load(ctx context.Context, requested []contract.ProviderSlug) (ma
 		secret := string(plaintext)
 		clear(plaintext)
 		declarations[row.Provider] = append(declarations[row.Provider], provider.KeyDeclaration{
-			KeyID:  row.KeyID,
-			Secret: secret,
-			Class:  row.Class,
-			State:  row.Runtime,
+			KeyID:   row.KeyID,
+			Secret:  secret,
+			Class:   row.Class,
+			Funding: funding,
+			State:   row.Runtime,
 		})
 		if runtime, ok := s.repository.(runtimeRepository); ok {
 			declarations[row.Provider][len(declarations[row.Provider])-1].Runtime = runtime
