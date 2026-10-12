@@ -214,6 +214,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		DiscoveryCredentialIDs: map[string]string{
 			"anthropic":    "30033d0c-3ca8-48c4-be44-8538d81028dd",
 			"cerebras":     "43405cea-a7d1-49c2-ba73-5a84536d3abf",
+			"elevenlabs":   "e1ed4df9-3274-4833-8eff-a946d761d36c",
 			"groq":         "8295090b-86cf-4f1d-ab22-0ceeaf0ba0e1",
 			"openrouter":   "b8090dce-82f2-4077-9fc1-fd831a53ca27",
 			"siliconflow":  "455b2535-a58a-41f9-8b70-51dbf1861333",

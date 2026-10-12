@@ -212,6 +212,24 @@ func observeAnthropicModel(raw json.RawMessage) *inventory.Observed {
 	return &observed
 }
 
+// observeElevenLabsModel keeps what an ElevenLabs model row says: its `name`,
+// and the speech shape its `can_do_text_to_speech` statement implies — text
+// in, audio out. The caller has already required that statement to be true.
+func observeElevenLabsModel(raw json.RawMessage) *inventory.Observed {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	observed := inventory.Observed{InputModalities: []string{"text"}, OutputModalities: []string{"audio"}}
+	if name, ok := stringField(fields, "name"); ok && validDisplayName(name) {
+		observed.DisplayName = &name
+	}
+	if observed.Validate() != nil {
+		return nil
+	}
+	return &observed
+}
+
 // anthropicEfforts reads `capabilities.effort`: `{"supported": bool, "low":
 // {"supported": bool}, "medium": ..., "high": ..., ...}`. A statement is kept
 // only when it is complete for the contract's vocabulary; a level that is

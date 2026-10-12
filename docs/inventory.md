@@ -124,7 +124,7 @@ role could assume it too.
 | Field | Source |
 |---|---|
 | `provider` | `KAANA_DISCOVERY_PROVIDERS`, filtered to the slugs that hold a credential |
-| `upstreamModelId` | that provider's own `GET /models`, verbatim; for the two xAI profiles also xAI's own answer at the endpoint the model is served on ("xAI speech discovery candidate", "xAI voice discovery" below) |
+| `upstreamModelId` | that provider's own `GET /models`, verbatim (ElevenLabs' `model_id`, text-to-speech rows only, `elevenlabs.md`); for the two xAI profiles also xAI's own answer at the endpoint the model is served on ("xAI speech discovery candidate", "xAI voice discovery" below) |
 | `regions` | explicit `KAANA_PROVIDER_<SLUG>_REGIONS`, backed by upstream execution/residency terms; never `AWS_REGION` |
 | `modelReference` | `configs/model-attribution.json` for the publisher namespace, plus the observation date |
 | `current` | true; each model line has exactly one revision, its observation |

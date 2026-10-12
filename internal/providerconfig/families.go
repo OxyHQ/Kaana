@@ -70,6 +70,7 @@ type ModelFamily struct {
 //     OpenRouter's `openai/` rows, which are the same OpenAI models under the
 //     gateway's namespace;
 //   - xAI's own slugs (`xai`, `xai-realtime`);
+//   - ElevenLabs (`elevenlabs`), whose published models are all speech;
 //   - Groq's Llama Prompt Guard ids, and only those (groqClassifierOnly).
 //
 // classified is false everywhere else: the model list says nothing about the
@@ -92,6 +93,11 @@ func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family M
 		}
 	case "xai", "xai-realtime":
 		return xAIFamily(upstreamModelID), true, true
+	case "elevenlabs":
+		// The slug's discovery keeps only rows ElevenLabs marks
+		// `can_do_text_to_speech`, and its adapter executes nothing else, so
+		// every ElevenLabs model it publishes is speech synthesis.
+		return ModelFamily{Format: contract.APIFormatAudioSpeech}, true, true
 	case "groq":
 		if groqClassifierOnly(upstreamModelID) {
 			return ModelFamily{}, true, false

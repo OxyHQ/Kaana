@@ -101,6 +101,7 @@ func TestChatOutputsPerSlug(t *testing.T) {
 		"xai":             {ProtocolOpenAICompatible, ChatOutput{Text: true}},
 		"anthropic":       {ProtocolAnthropicMessages, ChatOutput{Text: true}},
 		"deepgram":        {ProtocolDeepgramVoice, ChatOutput{}},
+		"elevenlabs":      {ProtocolElevenLabsSpeech, ChatOutput{}},
 		"openai-realtime": {ProtocolOpenAIRealtime, ChatOutput{}},
 		"xai-realtime":    {ProtocolXAIRealtime, ChatOutput{}},
 	}
@@ -127,6 +128,21 @@ func TestXAIFamilies(t *testing.T) {
 	}
 	if _, classified, _ := ClassifyModel("groq", "grok-voice-think-fast-2.0"); classified {
 		t.Error("an id is classified outside the namespace that names it")
+	}
+}
+
+// TestElevenLabsModelsAreSpeech: every model the slug publishes is speech
+// synthesis, so the publisher can never attach one as a chat deployment, and
+// the classification stays inside ElevenLabs' own namespace.
+func TestElevenLabsModelsAreSpeech(t *testing.T) {
+	for _, id := range []string{"eleven_multilingual_v2", "eleven_flash_v2_5", "eleven_v3"} {
+		got, classified, expressible := ClassifyModel("elevenlabs", id)
+		if !classified || !expressible || got != (ModelFamily{Format: contract.APIFormatAudioSpeech}) {
+			t.Errorf("elevenlabs/%s = %+v (%t, %t), want speech", id, got, classified, expressible)
+		}
+	}
+	if _, classified, _ := ClassifyModel("openrouter", "eleven_multilingual_v2"); classified {
+		t.Error("an ElevenLabs id is classified outside the elevenlabs slug")
 	}
 }
 
