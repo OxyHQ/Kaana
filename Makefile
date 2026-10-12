@@ -14,7 +14,7 @@
 # Pinned to match .github/workflows/ci.yml. A bump is a change to both.
 GO_VERSION       := 1.26.7
 GOLANGCI_VERSION := v2.13.2
-BUN_VERSION      := 1.3.14
+BUN_VERSION      := 1.4.3
 
 CONTRACT_DIR := tools/contract
 DESCRIPTOR   := internal/contract/descriptor.json
