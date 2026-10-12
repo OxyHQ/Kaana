@@ -49,13 +49,16 @@ func TestWriteWireFixtures(t *testing.T) {
 	// must ACCEPT, plus 38 for contract set 3.2.0 (audio chat, audio tokens,
 	// the transcript channel, two sessions, 11 commands and 22 events), plus 2
 	// for contract set 3.3.0 (session_milliseconds on a usage report and on
-	// session.closed); 12 controls plus the 6 it must REJECT, plus 5 realtime
-	// controls, plus the near-miss session unit.
-	if len(valid) != 80 {
-		t.Fatalf("expected 80 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// session.closed), plus 1 for contract set 3.8.0 (a platform route under a
+	// funding ceiling); 12 controls plus the 6 it must REJECT, plus 5 realtime
+	// controls, plus the near-miss session unit, plus 2 funding-ceiling
+	// controls (a tier the contract does not name, a ceiling beside a customer
+	// credential).
+	if len(valid) != 81 {
+		t.Fatalf("expected 81 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 29 {
-		t.Fatalf("expected 29 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 31 {
+		t.Fatalf("expected 31 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
@@ -237,6 +240,21 @@ func validFixtures(t *testing.T) []fixture {
 		t.Fatalf("the request fixture does not satisfy Kaana's own validation: %v", err)
 	}
 
+	// A platform route under a funding ceiling (Oxy ADR 0038). A ceiling is
+	// refused beside a customer credential, so it is its own fixture.
+	ceilinged := request
+	ceilinged.AuthorizedRoutes = []AuthorizedRoute{{
+		Substitution:   SubstitutionSameModel,
+		DeploymentID:   "dep_openai_gpt5_use1",
+		ModelReference: "openai/gpt-5@2026-05-01",
+		Provider:       "openai",
+		Regions:        []Region{"us-east-1"},
+		MaxFundingTier: pointerTo(FundingTierCredit),
+	}}
+	if err := ceilinged.Validate(); err != nil {
+		t.Fatalf("the funding-ceiling fixture does not satisfy Kaana's own validation: %v", err)
+	}
+
 	textTarget := request
 	textTarget.Target = RoutingTarget{Kind: TargetRoutingProfileID, RoutingProfileID: pointerTo(RoutingProfileID("rpf_01JQZEXACT"))}
 	textTarget.Input = Input{Format: InputText, Text: pointerTo("embed me")}
@@ -270,6 +288,7 @@ func validFixtures(t *testing.T) []fixture {
 		StartedAt:              started,
 		CompletedAt:            completed,
 		TimeToFirstTokenMs:     pointerTo(180),
+		FundingTier:            pointerTo(FundingTierCredit),
 	}
 	if err := usageReport.Validate(); err != nil {
 		t.Fatalf("the usage report fixture does not satisfy Kaana's own validation: %v", err)
@@ -324,6 +343,7 @@ func validFixtures(t *testing.T) []fixture {
 
 	return []fixture{
 		{Schema: "inferenceRequestSchema", Case: "messages-with-every-optional-field", Value: request},
+		{Schema: "inferenceRequestSchema", Case: "platform-route-with-funding-ceiling", Value: ceilinged},
 		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile-id", Value: textTarget},
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
 		{Schema: "inferenceRequestSchema", Case: "speech-with-parameters", Value: speech},
@@ -540,6 +560,17 @@ func invalidFixtures() []fixture {
 	// not the contract's vocabulary; Oxy must refuse it before it is signed.
 	providerEffort := validAuthorizedRouteRequest()
 	providerEffort.Reasoning = &ReasoningParameters{Effort: "minimal"}
+	// A funding ceiling names one of the contract's tiers, never a key class.
+	unknownTier := validAuthorizedRouteRequest()
+	unknownTier.AuthorizedRoutes[0].MaxFundingTier = pointerTo(FundingTier("promotional"))
+	// A customer credential is billed to the customer; a ceiling beside it
+	// would bound nothing.
+	ceilingBesideCredential := validAuthorizedRouteRequest()
+	ceilingBesideCredential.AuthorizedRoutes[0].MaxFundingTier = pointerTo(FundingTierCredit)
+	ceilingBesideCredential.AuthorizedRoutes[0].CustomerProviderCredential = &CustomerProviderCredential{
+		CredentialHandle: "kcred_abcdefghijklmnopqrstuvwxyz", CredentialRevision: 7,
+		OwnerAccountID: "acc_01JQZ", ConnectionID: "conn_01JQZ", Environment: EnvironmentProduction,
+	}
 
 	return []fixture{
 		{Schema: "inferenceRequestSchema", Case: "empty-authorized-routes", Value: emptyAuthorizedRoutes},
@@ -548,6 +579,8 @@ func invalidFixtures() []fixture {
 		{Schema: "inferenceRequestSchema", Case: "cross-model-without-literal-authorization", Value: falseCrossModelAuthorization},
 		{Schema: "inferenceRequestSchema", Case: "refusal-on-user-message", Value: userRefusal},
 		{Schema: "inferenceRequestSchema", Case: "provider-specific-reasoning-effort", Value: providerEffort},
+		{Schema: "inferenceRequestSchema", Case: "funding-ceiling-outside-the-tiers", Value: unknownTier},
+		{Schema: "inferenceRequestSchema", Case: "funding-ceiling-beside-customer-credential", Value: ceilingBesideCredential},
 		{
 			Schema: "inferenceErrorSchema",
 			Case:   "non-retryable-code-marked-retryable",

@@ -14,10 +14,9 @@ const installed = realpathSync(join(dirname(new URL(import.meta.url).pathname), 
 if (
   !realpathSync(packageRoot).startsWith(`${installed}/`) ||
   manifest.name !== '@oxy.so/contracts' ||
-  manifest.version !== pinned ||
-  pinned !== '4.10.0'
+  manifest.version !== pinned
 ) {
-  throw new Error('The exact installed published contracts 4.10.0 package is required.');
+  throw new Error(`The exact installed published contracts ${pinned} package is required.`);
 }
 const contracts = require('@oxy.so/contracts');
 for (const name of [

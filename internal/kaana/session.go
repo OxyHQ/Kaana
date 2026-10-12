@@ -129,6 +129,17 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 			skipped = append(skipped, route.DeploymentID)
 			continue
 		}
+		if authorized.fundingCeiling != provider.FundingTierNone && route.CustomerProviderCredential == nil {
+			// The same ceiling as a one-shot request (Oxy ADR 0038): a pool
+			// with no key at or below it is not this route's to open.
+			bounded, err := boundedPool(credentials, authorized.fundingCeiling)
+			if err != nil {
+				permit.NotAttributable()
+				skipped = append(skipped, route.DeploymentID)
+				continue
+			}
+			credentials = bounded
+		}
 		if !provider.OpensRealtime(adapter, request.Kind) {
 			permit.NotAttributable()
 			return refuse(contract.NewError(requestID, contract.CodeUnsupportedModality,

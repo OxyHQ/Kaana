@@ -25,9 +25,13 @@ type UsageReport struct {
 	ServingProvider        ProviderSlug    `json:"servingProvider"`
 	DeploymentID           DeploymentID    `json:"deploymentId"`
 	RouteSwitches          int             `json:"routeSwitches"`
-	StartedAt              Timestamp       `json:"startedAt"`
-	CompletedAt            Timestamp       `json:"completedAt"`
-	TimeToFirstTokenMs     *int            `json:"timeToFirstTokenMs,omitempty"`
+	// FundingTier is the stated tier of the platform key that served the final
+	// attempt. Nil when its economics were never stated, when a customer
+	// credential served, or when nothing was served. Never a key identity.
+	FundingTier        *FundingTier `json:"fundingTier,omitempty"`
+	StartedAt          Timestamp    `json:"startedAt"`
+	CompletedAt        Timestamp    `json:"completedAt"`
+	TimeToFirstTokenMs *int         `json:"timeToFirstTokenMs,omitempty"`
 }
 
 // MarshalJSON renders an unmeasured request as `"units": []`.

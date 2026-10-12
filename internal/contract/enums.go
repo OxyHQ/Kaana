@@ -18,6 +18,22 @@ const (
 
 var environmentValues = []Environment{EnvironmentDevelopment, EnvironmentStaging, EnvironmentProduction}
 
+// FundingTier is the economic tier of the provider capacity that funds a
+// request, in the order Kaana spends it (Kaana ADR 0001, Oxy ADR 0038). Oxy
+// bounds a route by it; Kaana reports the tier that served.
+type FundingTier string
+
+const (
+	FundingTierFree   FundingTier = "free"
+	FundingTierCredit FundingTier = "credit"
+	FundingTierPaid   FundingTier = "paid"
+)
+
+var fundingTierValues = []FundingTier{FundingTierFree, FundingTierCredit, FundingTierPaid}
+
+// Valid reports whether the tier is one the contract names.
+func (t FundingTier) Valid() bool { return isMember(t, fundingTierValues) }
+
 // Scope is one of the inference capabilities the data plane is told about. A
 // credential may carry many other Oxy scopes; only these cross the boundary.
 type Scope string

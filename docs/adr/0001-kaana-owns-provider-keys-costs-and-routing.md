@@ -80,10 +80,9 @@ be used by duplicating thirteen deployments and teaching Oxy to order them.
 - **Publication withholds a deployment only when no key of its pool can serve
   it** (`internal/publisher/withholding.go`), until the earliest one returns.
 - **A funding ceiling** (`KeyPool.WithinFunding`) bounds a walk to keys whose
-  stated tier is at or below it. The signed field that carries it, and the
-  usage report's served funding tier, are contract fields (`@oxy.so/contracts`
-  4.12.0, contract set 3.8.0, published from Oxy); Kaana adopts them in a
-  follow-up change once that package is published (step 2 below).
+  stated tier is at or below it, carried as `authorizedRoutes[].maxFundingTier`;
+  the usage report states the served `fundingTier` (`@oxy.so/contracts`
+  4.12.0, contract set 3.8.0 — step 2 below).
 
 ### Rollout order
 

@@ -43,13 +43,12 @@ A provider with no enabled key is a startup refusal, so rule 2 always has a key
 to start from. Every attempt, cost and audit record names the exact key that
 served, whichever rule chose it.
 
-**A funding ceiling bounds the walk** (`KeyPool.WithinFunding`). When Oxy
-authorizes a route only on cheaper capacity (Alia Pro and Ultra spend credits
-only, Oxy ADR 0038), Kaana walks only keys at or below that tier; an unstated
-key is never admitted under a ceiling. The signed route field that carries the
-ceiling arrives with the contract change in ADR 0001's step 2; until it is
-deployed no request carries one, so no provider may hold a paid key beside
-the credit keys such a route relies on. A route with no admissible
+**A funding ceiling bounds the walk.** When Oxy authorizes a route only on
+cheaper capacity (Alia Pro and Ultra spend credits only, Oxy ADR 0038), the
+signed route carries `maxFundingTier` (contract set 3.8.0) and Kaana walks
+only keys at or below that tier (`KeyPool.WithinFunding`); an unstated key is
+never admitted under a ceiling. A realtime session's routes obey the same
+ceiling. A route with no admissible
 key is skipped like an unroutable one, and a route whose admissible keys are
 all retired fails over along the signed routes with the earliest return time —
 it never falls through to a dearer key.
@@ -226,8 +225,9 @@ REPORTED as paid, so telemetry never invents an economic fact.
 
 Every live and cost observation is attributed to the exact key, and Oxy's
 operator feed carries each attempt's key and that key's economics (`cost.md`).
-With ADR 0001's step 2 the usage report Oxy settles from also names the funding
-tier of the key that served (absent when unstated or customer-owned). Neither the key id nor its
+The usage report Oxy settles from names the funding tier of the key that
+served (`fundingTier`: absent when unstated, customer-owned or nothing was
+served). Neither carries a key id or label to a customer. Neither the key id nor its
 label ever reaches a customer.
 
 `Key.ID` is the immutable opaque identity of one database row and is what a log

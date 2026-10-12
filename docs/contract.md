@@ -2,6 +2,18 @@
 
 `@oxy.so/contracts` is the authority; `internal/contract` restates it in Go and is answerable to it.
 
+## Funding tiers, contract set 3.8.0 (`@oxy.so/contracts` 4.12.0)
+
+Contract set 3.8.0 adds `inferenceFundingTierSchema` (`free`, `credit`,
+`paid`), an authorized route's optional `maxFundingTier` and the usage
+report's optional `fundingTier` (Oxy ADR 0038, ADR 0001). Until 4.12.0 is
+published from Oxy's reviewed release workflow, `descriptor.json` here is
+generated from the Oxy build named in its `source` field, and the contract
+drift job cannot install the pin. Once it is published: `cd tools/contract &&
+bun install --minimum-release-age=0 && bun run generate` with
+`OXY_CONTRACTS_LOCAL_SOURCE` unset, which drops `source` and must change
+nothing else.
+
 ## Decisions foundation on published 4.7.0
 
 This branch consumes Oxy contract set **3.5.0** / envelope 2 from the published
@@ -20,7 +32,7 @@ The historical rollout notes below predate this foundation.
 
 ## The contract is not re-invented here
 
-`@oxy.so/contracts@4.10.0` (public contract version 3.5.0) is the wire contract, and the Go types in
+`@oxy.so/contracts@4.12.0` (public contract version 3.8.0) is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 
