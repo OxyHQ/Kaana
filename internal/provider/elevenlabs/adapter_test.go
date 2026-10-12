@@ -73,15 +73,18 @@ func (c *capture) Audio(i int, mt string, data []byte) error {
 
 func speech(voice string) (*contract.Request, provider.Route) {
 	text := "Hola, ¿qué tal? 🌍"
-	return &contract.Request{
-			Modality: contract.ModalityAudio,
-			Input:    contract.Input{Format: contract.InputText, Text: &text},
-			Client:   contract.ClientRequestMetadata{APIFormat: contract.APIFormatAudioSpeech},
-			Speech:   &contract.SpeechParameters{Voice: voice, ResponseFormat: "mp3"},
-		}, provider.Route{
-			Provider: Slug, UpstreamModelID: "eleven_flash_v2_5",
-			ModelReference: "elevenlabs/eleven-flash-v2.5@observed-2026-10-12",
-		}
+	request := &contract.Request{
+		Modality: contract.ModalityAudio,
+		Input:    contract.Input{Format: contract.InputText, Text: &text},
+		Client:   contract.ClientRequestMetadata{APIFormat: contract.APIFormatAudioSpeech},
+		Speech:   &contract.SpeechParameters{Voice: voice, ResponseFormat: "mp3"},
+	}
+	route := provider.Route{
+		Provider:        Slug,
+		UpstreamModelID: "eleven_flash_v2_5",
+		ModelReference:  "elevenlabs/eleven-flash-v2.5@observed-2026-10-12",
+	}
+	return request, route
 }
 
 // mp3 is an ID3-tagged body larger than one audio event, so chunking is
