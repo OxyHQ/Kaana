@@ -865,9 +865,9 @@ func TestStatedFreeKeysAreTriedFirst(t *testing.T) {
 	}
 }
 
-// Free, then unstated in declared order, then paid: a key the operator said
-// costs money is never spent ahead of one they did not classify.
-func TestPaidKeysAreTriedAfterUnstatedOnes(t *testing.T) {
+// Free, then paid, then unstated in declared order: a key whose cost nobody
+// stated is spent last, because the worst case of what it costs is paid.
+func TestUnstatedKeysAreTriedAfterPaidOnes(t *testing.T) {
 	pool, err := NewKeyPool("test-provider", []KeyDeclaration{
 		{KeyID: "paid-a", Secret: "secret-1", Class: KeyClassPaid},
 		{KeyID: "unstated-a", Secret: "secret-2"},
@@ -879,7 +879,7 @@ func TestPaidKeysAreTriedAfterUnstatedOnes(t *testing.T) {
 		t.Fatalf("NewKeyPool: %v", err)
 	}
 	got := poolOrder(t, pool)
-	want := []string{"free-a", "unstated-a", "unstated-b", "paid-a", "paid-b"}
+	want := []string{"free-a", "paid-a", "paid-b", "unstated-a", "unstated-b"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("order = %v, want %v", got, want)
 	}

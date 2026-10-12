@@ -124,8 +124,8 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 				return refuse(contract.NewError(requestID, contract.CodeUnsupportedModality,
 					fmt.Sprintf("the %s deployment does not hold realtime sessions", route.Provider)).WithParam("authorizedRoutes"))
 			}
-			// No adapter, or no exact credential binding: a configuration gap
-			// that says nothing about the provider's health.
+			// No adapter, no platform key, or a pin to another provider: a
+			// configuration gap that says nothing about the provider's health.
 			skipped = append(skipped, route.DeploymentID)
 			continue
 		}

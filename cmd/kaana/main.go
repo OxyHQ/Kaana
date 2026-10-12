@@ -233,10 +233,10 @@ func run(logger *slog.Logger) error {
 	if err := registry.ReplaceGeneration(bindings, adapters...); err != nil {
 		return err
 	}
-	if err := requireStartupDeploymentBindings(inventoryStore.Current(), registry); err != nil {
+	if err := requireStartupDeploymentCredentials(inventoryStore.Current(), registry); err != nil {
 		return err
 	}
-	warnAboutUnboundDeployments(logger, inventoryStore.Current(), registry)
+	warnAboutUnroutableDeployments(logger, inventoryStore.Current(), registry)
 
 	// A snapshot naming a provider this process does not serve is a
 	// degradation, not a reason to stop.
@@ -491,7 +491,7 @@ func reloadSnapshots(
 			return
 		case <-ticker.C:
 			if err := store.ReloadValidated(func(candidate *inventory.Inventory) error {
-				return requireStartupDeploymentBindings(candidate, adapters)
+				return requireStartupDeploymentCredentials(candidate, adapters)
 			}); err != nil {
 				// Already logged by the store, together with the snapshot it is
 				// still serving.
@@ -504,10 +504,11 @@ func reloadSnapshots(
 			// routes somewhere this build cannot reach.
 			warnAboutUnroutableProviders(logger, current, adapters)
 			// Also on every tick, not only when the snapshot changes: the
-			// credential reload swaps the binding generation on its own clock,
-			// and a key disabled there unbinds deployments under an unchanged
-			// snapshot. This line is the only thing that says so.
-			warnAboutUnboundDeployments(logger, current, adapters)
+			// credential reload swaps the key and pin generation on its own
+			// clock, and a key disabled there can strand a pinned deployment
+			// under an unchanged snapshot. This line is the only thing that
+			// says so.
+			warnAboutUnroutableDeployments(logger, current, adapters)
 			rotationRegistry.Retain(deploymentIDs(current))
 		}
 	}
@@ -522,29 +523,34 @@ func deploymentIDs(current *inventory.Inventory) []contract.DeploymentID {
 	return ids
 }
 
-// deploymentBindingCoverage partitions the deployments of a snapshot whose
-// provider this process serves into those that resolve to one exact, active
-// platform credential (an exact binding, or the provider's only key) and those
-// that do not. It asks ResolveCredential, the credential half of the question
-// the executor asks per request and per session, so "unbound" here and
+// deploymentCredentialCoverage partitions the deployments of a snapshot whose
+// provider this process serves into those that resolve to platform
+// credentials (an operator pin, or their provider's key pool) and those that
+// do not. It asks ResolveCredential, the credential half of the question the
+// executor asks per request and per session, so "unroutable" here and
 // "refused" there cannot drift apart. Providers this process deliberately does
 // not serve are not counted: they are warnAboutUnroutableProviders' condition.
-type deploymentBindingCoverage struct {
-	served  int
-	unbound []contract.DeploymentID
-	// providers is the distinct provider slugs of the unbound deployments.
+//
+// Since a deployment executes on its provider's pool (key-pools.md), an
+// unpinned deployment is unroutable only when its provider holds no key, and
+// a pinned one only when its pin names another provider or a key that is not
+// enabled (a pin never falls back to the pool).
+type deploymentCredentialCoverage struct {
+	served     int
+	unroutable []contract.DeploymentID
+	// providers is the distinct provider slugs of the unroutable deployments.
 	providers []contract.ProviderSlug
-	// example is the first unbound deployment's resolution error, so a refused
-	// snapshot says WHY without an operator re-deriving it.
+	// example is the first unroutable deployment's resolution error, so a
+	// refused snapshot says WHY without an operator re-deriving it.
 	example error
 }
 
-func bindingCoverage(current *inventory.Inventory, registry *provider.Registry) deploymentBindingCoverage {
+func credentialCoverage(current *inventory.Inventory, registry *provider.Registry) deploymentCredentialCoverage {
 	configured := make(map[contract.ProviderSlug]struct{})
 	for _, adapter := range registry.All() {
 		configured[adapter.Provider()] = struct{}{}
 	}
-	var coverage deploymentBindingCoverage
+	var coverage deploymentCredentialCoverage
 	seen := make(map[contract.ProviderSlug]struct{})
 	for _, deployment := range current.Deployments() {
 		if _, served := configured[deployment.Provider]; !served {
@@ -555,7 +561,7 @@ func bindingCoverage(current *inventory.Inventory, registry *provider.Registry) 
 		if err == nil {
 			continue
 		}
-		coverage.unbound = append(coverage.unbound, deployment.DeploymentID)
+		coverage.unroutable = append(coverage.unroutable, deployment.DeploymentID)
 		if _, duplicate := seen[deployment.Provider]; !duplicate {
 			seen[deployment.Provider] = struct{}{}
 			coverage.providers = append(coverage.providers, deployment.Provider)
@@ -567,63 +573,53 @@ func bindingCoverage(current *inventory.Inventory, registry *provider.Registry) 
 	return coverage
 }
 
-// requireStartupDeploymentBindings is the serving cutover gate for schema
-// 0013, and the inventory reload gate after it. It refuses a snapshot only
-// when the binding generation is effectively UNPOPULATED for it: more than
-// half of the deployments this process serves have no exact active binding.
+// requireStartupDeploymentCredentials is the serving startup gate, and the
+// inventory reload gate after it. It refuses a snapshot only when the
+// credential generation is effectively UNPOPULATED for it: more than half of
+// the deployments this process serves resolve to no platform credential.
 //
-// What it protects against is a freshly migrated, empty or mostly empty
-// binding table (or one pointed at disabled keys) turning a release into an
-// inference outage. ECS keeps the previous healthy revision in service when a
-// candidate cannot start, so refusing there is safe.
+// Bindings are optional operator pins now, so an empty binding table is the
+// normal state and no longer what this protects against. What still turns a
+// release into an outage is a generation whose served providers hold no key,
+// or whose pins all name keys that are not enabled. ECS keeps the previous
+// healthy revision in service when a candidate cannot start, so refusing
+// there is safe.
 //
-// What it deliberately does NOT refuse is a snapshot in which SOME served
-// deployments are unbound. That is the steady state after the cutover: the
-// publisher keeps discovering deployments (OpenRouter adds models weekly, xAI
-// speech appears on its own) that have no binding until an operator binds
-// them. Refusing those snapshots froze the inventory until it aged out, and —
-// worse — a serving task restarted by a crash or a host retirement, with no
-// previous revision beside it, could not start at all: one new model became a
-// total inference outage. Unbound deployments instead degrade per route: the
-// executor's ResolveExecution refuses them and moves to the next signed route,
-// and warnAboutUnboundDeployments reports them on every load.
-//
-// Why a majority of ALL served deployments rather than "a served provider
-// with zero bindings": a provider newly added to serving and discovery has
-// zero bindings by construction until an operator binds its first
-// deployment, so the per-provider rule is the same restart outage for the
-// first model of every new provider. A majority is out of reach of ordinary
-// discovery (it would need the publisher to more than double the served fleet
-// before anyone binds) and squarely inside every unpopulated-table failure.
-func requireStartupDeploymentBindings(current *inventory.Inventory, registry *provider.Registry) error {
-	coverage := bindingCoverage(current, registry)
-	if len(coverage.unbound)*2 <= coverage.served {
+// It deliberately does NOT refuse a snapshot in which SOME served deployments
+// are unroutable: refusing those froze the inventory until it aged out, and a
+// serving task restarted with no previous revision beside it could not start
+// at all. Those degrade per route instead: the executor's ResolveExecution
+// refuses them and moves to the next signed route, and
+// warnAboutUnroutableDeployments reports them on every load.
+func requireStartupDeploymentCredentials(current *inventory.Inventory, registry *provider.Registry) error {
+	coverage := credentialCoverage(current, registry)
+	if len(coverage.unroutable)*2 <= coverage.served {
 		return nil
 	}
-	return fmt.Errorf("startup credential binding gate: %d of %d served deployments in %s have no exact active credential binding, so the binding table is effectively unpopulated; first: %w",
-		len(coverage.unbound), coverage.served, current.SnapshotID(), coverage.example)
+	return fmt.Errorf("startup credential gate: %d of %d served deployments in %s resolve to no platform credential, so the credential generation is effectively unpopulated; first: %w",
+		len(coverage.unroutable), coverage.served, current.SnapshotID(), coverage.example)
 }
 
-// unboundDeploymentsMessage is the string an alarm filters on. It is spelled
-// exactly once; TestUnboundDeploymentsHaveOneMessage holds that.
-const unboundDeploymentsMessage = "deployments without an exact credential binding are unroutable until bound"
+// unroutableDeploymentsMessage is the string an alarm filters on. It is
+// spelled exactly once; TestUnroutableDeploymentsHaveOneMessage holds that.
+const unroutableDeploymentsMessage = "deployments without a platform credential are unroutable"
 
-// warnAboutUnboundDeployments names every served deployment of the installed
-// snapshot that has no exact active credential binding. Startup and reload
-// both call it, on every load, so an alarm on the message sees the condition
-// for as long as it lasts rather than once when it began.
-func warnAboutUnboundDeployments(logger *slog.Logger, current *inventory.Inventory, registry *provider.Registry) {
-	coverage := bindingCoverage(current, registry)
-	if len(coverage.unbound) == 0 {
+// warnAboutUnroutableDeployments names every served deployment of the
+// installed snapshot that resolves to no platform credential. Startup and
+// reload both call it, on every load, so an alarm on the message sees the
+// condition for as long as it lasts rather than once when it began.
+func warnAboutUnroutableDeployments(logger *slog.Logger, current *inventory.Inventory, registry *provider.Registry) {
+	coverage := credentialCoverage(current, registry)
+	if len(coverage.unroutable) == 0 {
 		return
 	}
-	logger.Warn(unboundDeploymentsMessage,
-		"unbound", len(coverage.unbound),
+	logger.Warn(unroutableDeploymentsMessage,
+		"unroutable", len(coverage.unroutable),
 		"served", coverage.served,
-		"deploymentIds", coverage.unbound,
+		"deploymentIds", coverage.unroutable,
 		"providers", coverage.providers,
 		"snapshotId", current.SnapshotID(),
-		"meaning", "requests routed to these deployments are refused and fail over to the next signed route; their provider holds no single default key, so bind each with kaana-credentials bind-deployment")
+		"meaning", "requests routed to these deployments are refused and fail over to the next signed route; their provider holds no enabled key, or their operator pin names a key that is not enabled for that provider")
 }
 
 // Provider configuration.

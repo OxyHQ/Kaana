@@ -59,6 +59,16 @@ func (p *Postgres) ReviewedScopedMigration(ctx context.Context, inspectOnly bool
 	}
 	known := schemaMigrations()
 	for _, migration := range known {
+		if migration.version > "0020" {
+			// A later reviewed migration has its own reviewed path
+			// (ReviewedUnpinMigration); this one neither applies nor
+			// requires it, but never admits it under another checksum.
+			if checksum, ok := applied[migration.version]; ok && checksum != migrationChecksum(migration.body) {
+				return report, fmt.Errorf("credential store: migration %s checksum mismatch", migration.version)
+			}
+			delete(applied, migration.version)
+			continue
+		}
 		checksum, ok := applied[migration.version]
 		if !ok {
 			report.Pending = append(report.Pending, migration.version)
@@ -147,4 +157,88 @@ func reviewedClaimTablePrivate(ctx context.Context, tx pgx.Tx) error {
 		return errors.New("credential store: claim table has non-owner access grants")
 	}
 	return nil
+}
+
+// ReviewedUnpinMigrationReport contains schema metadata only.
+type ReviewedUnpinMigrationReport struct {
+	Pending  []string `json:"pending"`
+	Checksum string   `json:"checksum"`
+	ReadOnly bool     `json:"readOnly"`
+	// UnpinInstalled is true once kaana_unpin_provider_deployment exists and
+	// is executable by kaana_credential_admin and by nobody else.
+	UnpinInstalled bool `json:"unpinInstalled"`
+}
+
+// ReviewedUnpinMigration admits only the reviewed migration 0021, which adds
+// the audited unpin mutation for exact deployment bindings. Every earlier
+// migration must already be applied with its exact checksum. Inspection is a
+// read-only transaction; apply repeats the proof and commits only after the
+// function's grant is exactly the credential-admin role.
+func (p *Postgres) ReviewedUnpinMigration(ctx context.Context, inspectOnly bool) (ReviewedUnpinMigrationReport, error) {
+	report := ReviewedUnpinMigrationReport{Pending: []string{}, Checksum: migrationChecksum(migration0021), ReadOnly: inspectOnly}
+	options := pgx.TxOptions{IsoLevel: pgx.Serializable}
+	if inspectOnly {
+		options.AccessMode = pgx.ReadOnly
+	}
+	tx, err := p.pool.BeginTx(ctx, options)
+	if err != nil {
+		return report, errors.New("credential store: starting reviewed schema transaction")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `SELECT version,checksum FROM public.kaana_schema_migrations ORDER BY version`)
+	if err != nil {
+		return report, errors.New("credential store: reading reviewed migration ledger")
+	}
+	applied := map[string]string{}
+	for rows.Next() {
+		var version, checksum string
+		if err = rows.Scan(&version, &checksum); err != nil {
+			rows.Close()
+			return report, errors.New("credential store: reading reviewed migration metadata")
+		}
+		applied[version] = checksum
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return report, errors.New("credential store: reading reviewed migration metadata")
+	}
+	for _, migration := range schemaMigrations() {
+		checksum, ok := applied[migration.version]
+		if !ok {
+			report.Pending = append(report.Pending, migration.version)
+		} else if checksum != migrationChecksum(migration.body) {
+			return report, fmt.Errorf("credential store: migration %s checksum mismatch", migration.version)
+		}
+		delete(applied, migration.version)
+	}
+	if len(applied) != 0 {
+		return report, errors.New("credential store: unrecognized migration ledger entries")
+	}
+	if len(report.Pending) != 0 && !reflect.DeepEqual(report.Pending, []string{"0021"}) {
+		return report, errors.New("credential store: only reviewed migration 0021 may be pending")
+	}
+	if !inspectOnly && len(report.Pending) != 0 {
+		if err = applyMigration(ctx, tx, "0021", migration0021); err != nil {
+			return report, err
+		}
+	}
+	if inspectOnly && len(report.Pending) != 0 {
+		return report, nil
+	}
+	if err = tx.QueryRow(ctx, `SELECT
+		has_function_privilege('kaana_credential_admin', 'public.kaana_unpin_provider_deployment(text,text,text,text,text)', 'EXECUTE')
+		AND NOT has_function_privilege('kaana_runtime', 'public.kaana_unpin_provider_deployment(text,text,text,text,text)', 'EXECUTE')`).Scan(&report.UnpinInstalled); err != nil {
+		return report, errors.New("credential store: checking the reviewed unpin grant")
+	}
+	if !report.UnpinInstalled {
+		return report, errors.New("credential store: the unpin mutation is not granted exactly to credential administration")
+	}
+	if inspectOnly {
+		return report, nil
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return report, errors.New("credential store: committing reviewed migration")
+	}
+	return report, nil
 }

@@ -26,12 +26,18 @@ impossible.
 
 ## Control-plane selection, data-plane execution
 
-Oxy selects and orders the routes after applying customer policy; the rule
-(profile priority, BYOK preference, funding class, score, exact `deploymentId`)
-is stated once, in [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification). If any otherwise eligible route has
-incomplete identity, price or score evidence, Oxy refuses the whole set before
-reserving spend and before calling Kaana. Kaana receives no score, funding class
-or `optimiseFor` value and does not second-guess the order. What an exact-model
+Kaana owns provider keys, provider costs and routing; Oxy owns customers and
+their limits ([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
+In phase 1 that splits like this: Oxy still selects and orders the
+DEPLOYMENTS after applying customer policy (profile priority, BYOK preference,
+funding class, score, exact `deploymentId` — stated once, in
+[Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)),
+and Kaana chooses the KEY inside each deployment: its provider's pool,
+cheapest stated funding first (`key-pools.md`). If any otherwise eligible route
+has incomplete identity, price or score evidence, Oxy refuses the whole set
+before reserving spend and before calling Kaana. Kaana receives no score or
+`optimiseFor` value and does not second-guess the deployment order. Phase 2
+moves the cross-provider order into Kaana too (ADR 0001). What an exact-model
 request and a power-level request promise the caller is in the
 [Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md).
 
@@ -129,8 +135,10 @@ operator cost record, with its own attempt index, key, measured units and
 outcome; only the terminal attempt can be `served`. A same-route retry is not a
 route switch: nothing is announced and `routeSwitches` does not count it.
 
-Key pools: each attempt is a fresh walk over the same exact binding
-(`key-pools.md`). A rate limit retires nothing, so a single-key pool reuses its
+Key pools: each attempt is a fresh walk over the deployment's pool
+(`key-pools.md`), and it starts on a key this request has not yet seen fail
+transiently, so a retry after a throttle, an overload or a 5xx on one key lands
+on the next one. A rate limit retires nothing, so a single-key pool reuses its
 key — a throttle is not exhaustion. Every walk of one request draws its
 credential attempt indexes from the request's one `CredentialAttemptSequence`
 (`Call.CredentialAttempts`), so a retry on the same deployment is its own
@@ -156,8 +164,9 @@ the two can never drift apart.
 
 There are two state machines in this repository and they are different axes.
 This one takes a DEPLOYMENT out when the deployment is failing. Credential
-health retires the exact key a deployment binds; production execution does not
-escape that binding. Oxy may then attempt the next signed deployment.
+health retires one KEY and moves the request to the next key of the
+deployment's pool; only when no key can serve does the request fail over to the
+next signed deployment.
 
 One breaker and one health score per **deployment**. The unit is the deployment
 rather than the provider because a provider is usually several deployments in

@@ -71,24 +71,34 @@ func TestADeploymentIsJudgedByTheExactKeyItExecutesOn(t *testing.T) {
 	}
 }
 
-// Unbound on a several-key provider, serving refuses the deployment whatever
-// is published, and withholding it would hide the id an operator needs to bind.
-func TestAnUnboundDeploymentIsWithheldOnlyWhenItsProviderHasNoUsableKey(t *testing.T) {
+// An unpinned deployment executes on its provider's whole pool: it is
+// published while ANY key can serve it, and withheld only when every key is
+// out, until the earliest one returns.
+func TestAnUnpinnedDeploymentIsWithheldOnlyWhenNoKeyOfItsPoolCanServe(t *testing.T) {
 	early, late := decideNow.Add(5*time.Minute), decideNow.Add(time.Hour)
 	partly := Evidence{Keys: map[contract.ProviderSlug][]KeyEvidence{decideProvider: {
 		{KeyID: "key-a", Retirement: "exhausted", RetiredUntil: late},
 		{KeyID: "key-b"},
 	}}}
 	if decision, withheld := decide(t, partly); withheld {
-		t.Fatalf("an unbound deployment was withheld while its provider held a usable key: %+v", decision)
+		t.Fatalf("an unpinned deployment was withheld while its pool held a usable key: %+v", decision)
 	}
 	none := Evidence{Keys: map[contract.ProviderSlug][]KeyEvidence{decideProvider: {
 		{KeyID: "key-a", Retirement: "exhausted", RetiredUntil: late},
 		{KeyID: "key-b", Retirement: "rejected", RetiredUntil: early},
 	}}}
 	decision, withheld := decide(t, none)
-	if !withheld || decision.Reason != WithheldNoUsableKey || !decision.Until.Equal(early) {
-		t.Fatalf("decision = %+v, %v; want no_usable_key until the earliest return", decision, withheld)
+	if !withheld || decision.Reason != WithheldKeyRetired || decision.KeyID != "key-b" || !decision.Until.Equal(early) {
+		t.Fatalf("decision = %+v, %v; want key_retired on key-b until the earliest return", decision, withheld)
+	}
+	// One key retired, the other withheld by fresh evidence that its balance
+	// is zero: still nothing can serve.
+	mixed := Evidence{Keys: map[contract.ProviderSlug][]KeyEvidence{decideProvider: {
+		{KeyID: "key-a", Retirement: "exhausted", RetiredUntil: late},
+		{KeyID: "key-b", Capacity: []CapacityEvidence{{Kind: "balance", Empty: true, FreshUntil: decideNow.Add(2 * time.Hour)}}},
+	}}}
+	if decision, withheld := decide(t, mixed); !withheld || decision.KeyID != "key-a" || !decision.Until.Equal(late) {
+		t.Fatalf("decision = %+v, %v; want withheld until key-a returns", decision, withheld)
 	}
 }
 

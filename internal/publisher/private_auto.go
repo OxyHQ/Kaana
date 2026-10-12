@@ -43,11 +43,12 @@ func privateAutoCandidate(discoveries []Discovery, permit *privateAutoPublicatio
 	if permit.Eligibility == nil || !permit.Eligibility.now.Equal(at) {
 		return nil, fmt.Errorf("publisher: fresh publication eligibility unavailable")
 	}
-	key, bound := permit.Eligibility.resolve(scope.DeploymentID, scope.Provider, permit.Eligibility.evidence.Keys[scope.Provider])
-	if !bound || key.KeyID != scope.KeyID {
+	key, bound := permit.Eligibility.executesOn(scope.DeploymentID, scope.Provider, scope.KeyID)
+	if !bound {
 		return nil, fmt.Errorf("publisher: scoped exact execution key is not eligible")
 	}
-	if _, blocked := permit.Eligibility.Decide(scope.DeploymentID, scope.Provider); blocked {
+	// Judged on the scope's one key: serving narrows the deployment to it.
+	if _, blocked := permit.Eligibility.decideKey(scope.DeploymentID, key); blocked {
 		return nil, nil
 	}
 	observation, ok := permit.Cards.ObservationForDeployment(scope.DeploymentID)

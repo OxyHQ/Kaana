@@ -694,15 +694,13 @@ func TestStartupDeploymentBindingsGate(t *testing.T) {
 	if err := registry.ReplaceGeneration(nil, registry.All()...); err != nil {
 		t.Fatalf("enabling exact bindings: %v", err)
 	}
-	if err := requireStartupDeploymentBindings(store.Current(), registry); err == nil || !strings.Contains(err.Error(), `deployment "dep_test"`) {
+	if err := requireStartupDeploymentCredentials(store.Current(), registry); err == nil || !strings.Contains(err.Error(), `deployment "dep_test"`) {
 		t.Fatalf("empty binding table passed startup gate: %v", err)
 	}
 }
 
 // boundTestRegistry is newTestRegistry with TWO platform keys, and each named
-// deployment bound to the first: the binding generation a populated table
-// loads. Two keys, so no key is the provider's default and an unbound
-// deployment really is unroutable.
+// deployment pinned to the first. An unnamed deployment walks both.
 func boundTestRegistry(t *testing.T, slug contract.ProviderSlug, bound ...contract.DeploymentID) *provider.Registry {
 	t.Helper()
 	return keyedTestRegistry(t, slug, []string{"key-test", "key-test-2"}, bound...)
@@ -738,89 +736,95 @@ func keyedTestRegistry(t *testing.T, slug contract.ProviderSlug, keyIDs []string
 	return registry
 }
 
-// TestTheGateRefusesOnlyAnUnpopulatedBindingTable.
-//
-// The gate exists so an empty or mostly empty binding table cannot become an
-// inference outage on release. It must NOT refuse the steady state after the
-// cutover, a publisher that has discovered a deployment nobody bound yet:
-// that refusal froze the inventory on reload and, on a restart with no
-// previous task beside it, stopped serving from starting at all.
-func TestTheGateRefusesOnlyAnUnpopulatedBindingTable(t *testing.T) {
+// TestTheGateNoLongerDependsOnBindings: a deployment is (provider, upstream
+// model) and executes on its provider's key pool, so an empty or partial pin
+// table is the normal state and never refuses a snapshot. What the gate still
+// refuses is a generation whose served providers hold no key at all
+// (TestStartupDeploymentBindingsGate).
+func TestTheGateNoLongerDependsOnBindings(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, testCase := range []struct {
-		name    string
-		bound   []contract.DeploymentID
-		refused bool
+		name  string
+		bound []contract.DeploymentID
 	}{
-		{name: "every deployment bound", bound: []contract.DeploymentID{"dep_1", "dep_2", "dep_3", "dep_new"}},
-		{name: "one newly discovered deployment unbound", bound: []contract.DeploymentID{"dep_1", "dep_2", "dep_3"}},
-		{name: "exactly half unbound", bound: []contract.DeploymentID{"dep_1", "dep_2"}},
-		{name: "a majority unbound", bound: []contract.DeploymentID{"dep_1"}, refused: true},
-		{name: "nothing bound", bound: nil, refused: true},
+		{name: "every deployment pinned", bound: []contract.DeploymentID{"dep_1", "dep_2", "dep_3", "dep_new"}},
+		{name: "a few pinned", bound: []contract.DeploymentID{"dep_1"}},
+		{name: "nothing pinned", bound: nil},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			store := newTestStoreOf(t, "snap_test", "test-provider", logger, "dep_1", "dep_2", "dep_3", "dep_new")
 			registry := boundTestRegistry(t, "test-provider", testCase.bound...)
-			err := requireStartupDeploymentBindings(store.Current(), registry)
-			if (err != nil) != testCase.refused {
-				t.Fatalf("refused=%v, want %v: %v", err != nil, testCase.refused, err)
+			if err := requireStartupDeploymentCredentials(store.Current(), registry); err != nil {
+				t.Fatalf("a two-key provider was refused: %v", err)
 			}
 		})
 	}
 }
 
-// TestANewUnboundDeploymentIsAcceptedAndRefusedPerRequest is the startup side
-// of the degradation: the process starts, says which deployment it cannot
-// route, refuses exactly that one at request time and resolves the rest.
-func TestANewUnboundDeploymentIsAcceptedAndRefusedPerRequest(t *testing.T) {
+// TestAnUnpinnedDeploymentResolvesToItsProvidersPool is the startup side: the
+// process starts, reports nothing, and an unpinned deployment of a two-key
+// provider resolves to both keys while a pinned one resolves to its pin.
+func TestAnUnpinnedDeploymentResolvesToItsProvidersPool(t *testing.T) {
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	store := newTestStoreOf(t, "snap_test", "test-provider", logger, "dep_1", "dep_2", "dep_new")
 	registry := boundTestRegistry(t, "test-provider", "dep_1", "dep_2")
 
-	if err := requireStartupDeploymentBindings(store.Current(), registry); err != nil {
-		t.Fatalf("one newly discovered deployment stopped serving from starting: %v", err)
+	warnAboutUnroutableDeployments(logger, store.Current(), registry)
+	if strings.Contains(logs.String(), unroutableDeploymentsMessage) {
+		t.Errorf("an unpinned deployment of a two-key provider was reported unroutable:\n%s", logs.String())
 	}
-	warnAboutUnboundDeployments(logger, store.Current(), registry)
-	if !strings.Contains(logs.String(), unboundDeploymentsMessage) || !strings.Contains(logs.String(), `"deploymentIds":["dep_new"]`) || !strings.Contains(logs.String(), `"unbound":1`) {
-		t.Errorf("the unbound deployment was not reported; the log reads:\n%s", logs.String())
+	_, pool, err := registry.ResolveExecution("dep_new", "test-provider", true)
+	if err != nil {
+		t.Fatalf("the unpinned deployment is unroutable: %v", err)
 	}
-	if _, _, err := registry.ResolveExecution("dep_new", "test-provider", true); err == nil {
-		t.Error("the unbound deployment resolved to a platform credential")
+	attempt := pool.Begin()
+	first, _ := attempt.Next(time.Now())
+	second, _ := attempt.Next(time.Now())
+	if first.ID != "key-test" || second.ID != "key-test-2" {
+		t.Errorf("the unpinned deployment walks %q then %q", first.ID, second.ID)
 	}
-	for _, id := range []contract.DeploymentID{"dep_1", "dep_2"} {
-		if _, pool, err := registry.ResolveExecution(id, "test-provider", true); err != nil || pool == nil {
-			t.Errorf("bound deployment %s does not resolve: %v", id, err)
-		}
+	if _, pinned, err := registry.ResolveExecution("dep_1", "test-provider", true); err != nil {
+		t.Fatal(err)
+	} else if keyID, exact := pinned.ExactBinding(); !exact || keyID != "key-test" {
+		t.Errorf("the pinned deployment resolves to %q, exact=%v", keyID, exact)
 	}
 
-	// The control: fully bound, nothing is reported.
-	quiet := &syncBuffer{}
-	warnAboutUnboundDeployments(slog.New(slog.NewJSONHandler(quiet, nil)), store.Current(),
-		boundTestRegistry(t, "test-provider", "dep_1", "dep_2", "dep_new"))
-	if quiet.String() != "" {
-		t.Errorf("a fully bound snapshot was reported: %s", quiet.String())
+	// The control: a provider holding no key is reported, on every load.
+	keyless := newTestRegistry(t, "test-provider")
+	if err := keyless.ReplaceGeneration(nil, keyless.All()...); err != nil {
+		t.Fatal(err)
+	}
+	warnAboutUnroutableDeployments(logger, store.Current(), keyless)
+	if !strings.Contains(logs.String(), unroutableDeploymentsMessage) || !strings.Contains(logs.String(), `"unroutable":3`) {
+		t.Errorf("a keyless provider was not reported; the log reads:\n%s", logs.String())
 	}
 }
 
-// TestTheReloadPathInstallsASnapshotWithANewUnboundDeployment runs the real
-// reload loop: a published snapshot adding one unbound deployment is installed
-// and warned about, while one that would leave most deployments unbound is
-// refused and the previous snapshot keeps serving.
-func TestTheReloadPathInstallsASnapshotWithANewUnboundDeployment(t *testing.T) {
+// TestTheReloadPathInstallsASnapshotWithANewDeployment runs the real reload
+// loop: a published snapshot adding one unpinned deployment is installed,
+// while one whose provider holds no key is refused and the previous snapshot
+// keeps serving.
+func TestTheReloadPathInstallsASnapshotWithANewDeployment(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string
-		bound     []contract.DeploymentID
+		keyless   bool
 		installed bool
 	}{
-		{name: "one new deployment unbound", bound: []contract.DeploymentID{"dep_1", "dep_2"}, installed: true},
-		{name: "the binding table is empty", bound: nil, installed: false},
+		{name: "one new unpinned deployment", installed: true},
+		{name: "the provider holds no key", keyless: true, installed: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			logs := &syncBuffer{}
 			logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
 			store, path := newTestStoreAt(t, "snap_before", "test-provider", logger, "dep_1", "dep_2")
-			registry := boundTestRegistry(t, "test-provider", testCase.bound...)
+			registry := boundTestRegistry(t, "test-provider", "dep_1")
+			if testCase.keyless {
+				registry = newTestRegistry(t, "test-provider")
+				if err := registry.ReplaceGeneration(nil, registry.All()...); err != nil {
+					t.Fatal(err)
+				}
+			}
 			writeTestSnapshot(t, path, "snap_after", "test-provider", "dep_1", "dep_2", "dep_new")
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -832,9 +836,9 @@ func TestTheReloadPathInstallsASnapshotWithANewUnboundDeployment(t *testing.T) {
 			}()
 			settled := func() bool {
 				if testCase.installed {
-					return store.Current().SnapshotID() == "snap_after" && strings.Contains(logs.String(), unboundDeploymentsMessage)
+					return store.Current().SnapshotID() == "snap_after"
 				}
-				return strings.Contains(logs.String(), "startup credential binding gate")
+				return strings.Contains(logs.String(), "startup credential gate")
 			}
 			deadline := time.After(10 * time.Second)
 			for !settled() {
@@ -847,16 +851,18 @@ func TestTheReloadPathInstallsASnapshotWithANewUnboundDeployment(t *testing.T) {
 			cancel()
 			<-done
 			if !testCase.installed && store.Current().SnapshotID() != "snap_before" {
-				t.Fatalf("an unpopulated binding table installed %s", store.Current().SnapshotID())
+				t.Fatalf("a keyless generation installed %s", store.Current().SnapshotID())
+			}
+			if testCase.installed && strings.Contains(logs.String(), unroutableDeploymentsMessage) {
+				t.Fatalf("an unpinned deployment was reported unroutable:\n%s", logs.String())
 			}
 		})
 	}
 }
 
-// TestASingleKeyProviderRoutesANewDeploymentByDefault: with no exact binding,
-// a deployment of a provider holding exactly one key resolves to that key, so
-// the gate and the warning count it as routable. With two keys it does not.
-func TestASingleKeyProviderRoutesANewDeploymentByDefault(t *testing.T) {
+// TestASingleKeyProviderRoutesANewDeploymentToItsKey: a single-key pool is
+// the same rule with one key.
+func TestASingleKeyProviderRoutesANewDeploymentToItsKey(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store := newTestStoreOf(t, "snap_test", "test-provider", logger, "dep_1", "dep_new")
 
@@ -866,38 +872,27 @@ func TestASingleKeyProviderRoutesANewDeploymentByDefault(t *testing.T) {
 		t.Fatalf("a new deployment of a single-key provider is unroutable: %v", err)
 	}
 	if key, ok := pool.Begin().Next(time.Now()); !ok || key.ID != "key-only" {
-		t.Fatalf("the provider default resolved to %q, ok=%v", key.ID, ok)
+		t.Fatalf("the pool resolved to %q, ok=%v", key.ID, ok)
 	}
-	logs := &syncBuffer{}
-	warnAboutUnboundDeployments(slog.New(slog.NewJSONHandler(logs, nil)), store.Current(), single)
-	if logs.String() != "" {
-		t.Errorf("a deployment routable by provider default was reported unbound: %s", logs.String())
-	}
-	// Even with nothing bound at all, a single-key provider is populated.
-	if err := requireStartupDeploymentBindings(store.Current(), keyedTestRegistry(t, "test-provider", []string{"key-only"})); err != nil {
-		t.Errorf("a single-key provider with no exact bindings was refused: %v", err)
-	}
-
-	// The control: two keys, and the same deployment is not given either.
-	if _, _, err := boundTestRegistry(t, "test-provider", "dep_1").ResolveExecution("dep_new", "test-provider", true); err == nil {
-		t.Fatal("an unbound deployment of a two-key provider was given a key")
+	if err := requireStartupDeploymentCredentials(store.Current(), keyedTestRegistry(t, "test-provider", []string{"key-only"})); err != nil {
+		t.Errorf("a single-key provider with no pins was refused: %v", err)
 	}
 }
 
-// TestUnboundDeploymentsHaveOneMessage holds the alarm's filter to one
+// TestUnroutableDeploymentsHaveOneMessage holds the alarm's filter to one
 // spelling, asked on both paths, as TestOneConditionHasOneMessage does for
 // unroutable providers.
-func TestUnboundDeploymentsHaveOneMessage(t *testing.T) {
+func TestUnroutableDeploymentsHaveOneMessage(t *testing.T) {
 	source, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatalf("reading the source: %v", err)
 	}
-	if count := strings.Count(string(source), `"deployments without an exact credential binding`); count != 1 {
+	if count := strings.Count(string(source), `"deployments without a platform credential`); count != 1 {
 		t.Errorf("the message an alarm filters on appears %d times", count)
 	}
-	const call = "warnAboutUnboundDeployments("
+	const call = "warnAboutUnroutableDeployments("
 	if calls := strings.Count(string(source), call) - strings.Count(string(source), "func "+call); calls != 2 {
-		t.Errorf("unbound deployments are reported from %d places; startup and reload must both ask", calls)
+		t.Errorf("unroutable deployments are reported from %d places; startup and reload must both ask", calls)
 	}
 }
 
@@ -909,7 +904,7 @@ func TestStartupDeploymentBindingsGateAllowsUnservedProvider(t *testing.T) {
 		t.Fatalf("enabling exact bindings: %v", err)
 	}
 
-	if err := requireStartupDeploymentBindings(store.Current(), registry); err != nil {
+	if err := requireStartupDeploymentCredentials(store.Current(), registry); err != nil {
 		t.Fatalf("an intentionally unserved provider blocked every route: %v", err)
 	}
 }

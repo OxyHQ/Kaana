@@ -300,6 +300,9 @@ type Key struct {
 	ID string
 	// Class is what spending on this key costs, as the operator stated it.
 	Class KeyClass
+	// Funding is the class and the protected capacity category combined: what
+	// orders the pool and what a funding ceiling admits (funding.go).
+	Funding Funding
 
 	secret        string
 	customerOwned bool
@@ -351,7 +354,10 @@ type KeyDeclaration struct {
 	// Secret is the credential.
 	Secret string
 	// Class is what spending on it costs. See KeyClass.
-	Class   KeyClass
+	Class KeyClass
+	// Funding orders the pool. Empty derives it from Class alone; the
+	// credential store derives it from Class and the key's capacity category.
+	Funding Funding
 	Runtime CredentialRuntime
 	State   CredentialRuntimeState
 }
@@ -397,6 +403,32 @@ type CredentialAttempt struct {
 type CredentialAttemptSequence struct {
 	mu   sync.Mutex
 	next int
+	// transient names the keys that failed this request transiently (a
+	// throttle, an overload, a timeout, a 5xx, a transport failure) before
+	// any output. A later walk of the SAME request — the executor's
+	// same-route retry — tries every other usable key first, so a key that is
+	// down for this request is skipped without being retired.
+	transient map[string]struct{}
+}
+
+func transientKey(slug contract.ProviderSlug, keyID string) string {
+	return string(slug) + "\x00" + keyID
+}
+
+func (s *CredentialAttemptSequence) markTransient(slug contract.ProviderSlug, keyID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.transient == nil {
+		s.transient = make(map[string]struct{}, 1)
+	}
+	s.transient[transientKey(slug, keyID)] = struct{}{}
+}
+
+func (s *CredentialAttemptSequence) failedTransiently(slug contract.ProviderSlug, keyID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, failed := s.transient[transientKey(slug, keyID)]
+	return failed
 }
 
 // Take returns the next unused index.
@@ -451,10 +483,13 @@ type KeyPool struct {
 
 	mu   sync.Mutex
 	keys []*pooledKey
-	// root and onlyKeyID form a request-scoped exact view over a platform pool.
-	// The view owns no credential state: all mutations are applied to root.
+	// root, onlyKeyID and ceiling form a request-scoped view over a platform
+	// pool: onlyKeyID is an operator pin (or a scoped permit's exact key),
+	// ceiling the funding tier Oxy authorized for the route. The view owns no
+	// credential state: all mutations are applied to root.
 	root      *KeyPool
 	onlyKeyID string
+	ceiling   FundingTier
 }
 
 func (p *KeyPool) base() *KeyPool {
@@ -484,11 +519,61 @@ func (p *KeyPool) Bind(keyID string) (*KeyPool, error) {
 		if key.keyID == keyID {
 			return &KeyPool{
 				provider: base.provider, policy: base.policy, signals: base.signals, customerOwned: base.customerOwned,
-				root: base, onlyKeyID: keyID,
+				root: base, onlyKeyID: keyID, ceiling: p.ceiling,
 			}, nil
 		}
 	}
 	return nil, fmt.Errorf("provider: credential key id %q is not configured for %s", keyID, base.provider)
+}
+
+// WithinFunding returns a view of this pool that spends only keys a funding
+// ceiling admits (FundingTier.Admits): Oxy authorized the route for that much
+// and no more, so a walk never falls through to a dearer key. No ceiling
+// returns the pool itself.
+//
+// It refuses when no key of this generation is admitted. That is decided on
+// the CONFIGURED keys, never on which are retired right now: a route with no
+// admissible key is not this route's to serve, while a route whose admissible
+// keys are all retired is a capacity state with a return time.
+func (p *KeyPool) WithinFunding(ceiling FundingTier) (*KeyPool, error) {
+	if ceiling == FundingTierNone {
+		return p, nil
+	}
+	if !ceiling.Valid() {
+		return nil, fmt.Errorf("provider: %q is not a funding tier", ceiling)
+	}
+	base := p.base()
+	if base == nil || base.customerOwned {
+		return nil, errors.New("provider: a funding ceiling bounds a platform pool")
+	}
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	for _, key := range base.keys {
+		if (p.onlyKeyID == "" || key.keyID == p.onlyKeyID) && ceiling.Admits(key.funding) {
+			return &KeyPool{
+				provider: base.provider, policy: base.policy, signals: base.signals,
+				root: base, onlyKeyID: p.onlyKeyID, ceiling: ceiling,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("provider: %s holds no key within funding tier %s for this route", base.provider, ceiling)
+}
+
+// FundingOf returns the stated funding of one key of this pool's generation.
+// The executor reads it to report, on the usage report, which tier served.
+func (p *KeyPool) FundingOf(keyID string) (Funding, bool) {
+	base := p.base()
+	if base == nil || keyID == "" {
+		return FundingUnstated, false
+	}
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	for _, key := range base.keys {
+		if key.keyID == keyID {
+			return key.funding, true
+		}
+	}
+	return FundingUnstated, false
 }
 
 // ExactBinding returns the non-secret key identity of an existing bound view.
@@ -501,15 +586,9 @@ func (p *KeyPool) ExactBinding() (string, bool) {
 }
 
 // SoleKeyID returns the id of the pool's only platform credential, and how
-// many the pool holds. It is the provider-default half of deployment
-// resolution: a deployment with no exact binding may use its provider's key
-// only when there is exactly one to use, so the answer is never a choice.
-//
-// The count is of keys configured in this generation, which the credential
-// store loads from ENABLED rows only. A key the provider has temporarily
-// retired still counts: retirement is a quota state with an expiry, and
-// letting it re-map deployments would move a retired key's traffic onto its
-// sibling (a pool walk by another name) and flap back when it recovers.
+// many the pool holds. Execution no longer depends on it — an unpinned
+// deployment walks its provider's whole pool — but a single-key pool's id is
+// still what a test or a diagnostic needs to name that key.
 func (p *KeyPool) SoleKeyID() (string, int) {
 	base := p.base()
 	if base == nil {
@@ -527,6 +606,7 @@ type pooledKey struct {
 	position int
 	keyID    string
 	class    KeyClass
+	funding  Funding
 	secret   string
 	// retiredUntil is the moment this key returns to rotation. Zero means it
 	// never left.
@@ -603,9 +683,7 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 
 	seenSecret := make(map[string]int, len(declarations))
 	seenID := make(map[string]int, len(declarations))
-	free := make([]*pooledKey, 0, len(declarations))
-	unstated := make([]*pooledKey, 0, len(declarations))
-	paid := make([]*pooledKey, 0, len(declarations))
+	keys := make([]*pooledKey, 0, len(declarations))
 
 	for index, declaration := range declarations {
 		position := index + 1
@@ -636,6 +714,17 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 		default:
 			return nil, fmt.Errorf("provider: %s declares key %q with class %q; it is one of %q, %q, or unstated", slug, keyID, declaration.Class, KeyClassFree, KeyClassPaid)
 		}
+		funding := declaration.Funding
+		if funding == FundingUnstated {
+			// Class alone: the environment path and any caller that has no
+			// description to combine it with.
+			funding, _ = FundingFor(declaration.Class, "")
+		}
+		switch funding {
+		case FundingFree, FundingPromotional, FundingPrepaid, FundingPaid, FundingUnstated:
+		default:
+			return nil, fmt.Errorf("provider: %s declares key %q with funding %q", slug, keyID, funding)
+		}
 		switch declaration.State.Reason {
 		case "":
 			if !declaration.State.RetiredUntil.IsZero() || !declaration.State.LeaseUntil.IsZero() {
@@ -655,26 +744,18 @@ func newKeyPool(slug contract.ProviderSlug, declarations []KeyDeclaration, polic
 		if declaration.State.LeaseUntil.After(retiredUntil) {
 			retiredUntil = declaration.State.LeaseUntil
 		}
-		key := &pooledKey{position: position, keyID: keyID, class: declaration.Class, secret: secret,
+		keys = append(keys, &pooledKey{position: position, keyID: keyID, class: declaration.Class, funding: funding, secret: secret,
 			reason: declaration.State.Reason, retiredUntil: retiredUntil, runtime: declaration.Runtime,
-			evidence: declaration.State.Evidence, observedAt: declaration.State.ObservedAt}
-		switch declaration.Class {
-		case KeyClassFree:
-			free = append(free, key)
-		case KeyClassPaid:
-			paid = append(paid, key)
-		default:
-			unstated = append(unstated, key)
-		}
+			evidence: declaration.State.Evidence, observedAt: declaration.State.ObservedAt})
 	}
 
-	// FREE FIRST, PAID LAST, AND ONLY WHAT WAS STATED. Unstated keys sit between
-	// the two in the order they were declared, which is what every deployment
-	// predating KeyClass relies on: a pool of unstated keys comes out exactly as
-	// it went in. Treating unstated as paid instead would reorder a live pool
-	// the first time somebody classified one key; treating it as free would
-	// spend a funded key ahead of one the operator said costs nothing.
-	pool.keys = append(append(free, unstated...), paid...)
+	// CHEAPEST FIRST, AND ONLY WHAT WAS STATED: free, then credits (a
+	// promotional or trial grant before a prepaid balance), then paid, then
+	// unstated; within one funding, the declared order. An unstated key is
+	// spent last because the worst case of what it costs is paid. A pool
+	// nobody classified keeps exactly the order it was declared in.
+	sort.SliceStable(keys, func(a, b int) bool { return keys[a].funding.rank() < keys[b].funding.rank() })
+	pool.keys = keys
 	return pool, nil
 }
 
@@ -692,7 +773,7 @@ func (p *KeyPool) CustomerOwned() bool { return p.base().customerOwned }
 
 // Begin starts one request's walk through the pool.
 func (p *KeyPool) Begin() *KeyAttempt {
-	return &KeyAttempt{pool: p.base(), onlyKeyID: p.onlyKeyID, tried: make(map[int]bool, 2)}
+	return &KeyAttempt{pool: p.base(), onlyKeyID: p.onlyKeyID, ceiling: p.ceiling, tried: make(map[int]bool, 2)}
 }
 
 // Retire takes a key out of rotation until a moment.
@@ -783,7 +864,7 @@ func (p *KeyPool) observe(key Key, header http.Header, at time.Time) (bool, time
 //     returns, because that is a fact rather than a number chosen to look
 //     reasonable.
 func (p *KeyPool) NoUsableCredential(at time.Time) error {
-	onlyKeyID := p.onlyKeyID
+	onlyKeyID, ceiling := p.onlyKeyID, p.ceiling
 	p = p.base()
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -801,7 +882,7 @@ func (p *KeyPool) NoUsableCredential(at time.Time) error {
 	earliest := time.Time{}
 	count := 0
 	for _, key := range p.keys {
-		if onlyKeyID != "" && key.keyID != onlyKeyID {
+		if onlyKeyID != "" && key.keyID != onlyKeyID || !ceiling.Admits(key.funding) {
 			continue
 		}
 		count++
@@ -841,7 +922,11 @@ func (p *KeyPool) NoUsableCredential(at time.Time) error {
 type KeyAttempt struct {
 	pool      *KeyPool
 	onlyKeyID string
-	tried     map[int]bool
+	ceiling   FundingTier
+	// avoid names keys this request already saw fail transiently; they are
+	// leased only once no other usable key is left.
+	avoid func(keyID string) bool
+	tried map[int]bool
 	// throttleRotations counts the rotations spent on a transient throttle,
 	// which retires nothing and would otherwise repeat on every request.
 	throttleRotations int
@@ -869,29 +954,42 @@ func (a *KeyAttempt) next(at time.Time, allowRecovery bool) (Key, bool) {
 	a.pool.mu.Lock()
 	defer a.pool.mu.Unlock()
 
-	for _, key := range a.pool.keys {
-		if a.onlyKeyID != "" && key.keyID != a.onlyKeyID {
-			continue
+	// Two passes over one order: first every key this request has not seen
+	// fail transiently, then those. A key that is down for this request is
+	// skipped while another can serve, and is still tried before the request
+	// gives up.
+	for pass := 0; pass < 2; pass++ {
+		for _, key := range a.pool.keys {
+			if a.onlyKeyID != "" && key.keyID != a.onlyKeyID {
+				continue
+			}
+			if !a.ceiling.Admits(key.funding) {
+				continue
+			}
+			if a.tried[key.position] {
+				continue
+			}
+			if key.retiredUntil.After(at) {
+				continue
+			}
+			if key.reason != "" && !allowRecovery {
+				continue
+			}
+			if pass == 0 && a.avoid != nil && a.avoid(key.keyID) {
+				continue
+			}
+			a.tried[key.position] = true
+			return Key{
+				Position:      key.position,
+				ID:            key.keyID,
+				Class:         key.class,
+				Funding:       key.funding,
+				secret:        key.secret,
+				customerOwned: a.pool.customerOwned,
+				runtime:       key.runtime,
+				recovery:      key.reason != "",
+			}, true
 		}
-		if a.tried[key.position] {
-			continue
-		}
-		if key.retiredUntil.After(at) {
-			continue
-		}
-		if key.reason != "" && !allowRecovery {
-			continue
-		}
-		a.tried[key.position] = true
-		return Key{
-			Position:      key.position,
-			ID:            key.keyID,
-			Class:         key.class,
-			secret:        key.secret,
-			customerOwned: a.pool.customerOwned,
-			runtime:       key.runtime,
-			recovery:      key.reason != "",
-		}, true
 	}
 	return Key{}, false
 }
@@ -1010,6 +1108,7 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 	if sequence == nil {
 		sequence = &CredentialAttemptSequence{}
 	}
+	attempt.avoid = func(keyID string) bool { return sequence.failedTransiently(pool.provider, keyID) }
 	// refused is the last classified failure this request received. When the
 	// pool runs out, THAT is what the customer is told — the provider's own
 	// answer about the last credential tried, with its passthrough — rather
@@ -1066,6 +1165,9 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 			// uncertain and nobody returned a credential verdict. The key still
 			// names the attempted upstream expense for operator reconciliation.
 			recordCredentialAttempt(ctx, call, key, attemptIndex, "transport_failure", "transport", observedAt, time.Time{})
+			// Delivery is uncertain, so this walk does not re-send. A retry of
+			// the request starts on another key while one is usable.
+			sequence.markTransient(pool.provider, key.ID)
 			return none, key, result.Failure
 		}
 
@@ -1136,6 +1238,12 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 				evidence = "quota_header"
 			}
 			recordCredentialAttempt(ctx, call, key, attemptIndex, outcome, evidence, observedAt, retiredUntil)
+			// Nothing is retired, but this request will not come back to this
+			// key while another one can serve it: a same-route retry starts on
+			// the next key (KeyAttempt.avoid).
+			if !customerOwnedPool(pool) {
+				sequence.markTransient(pool.provider, key.ID)
+			}
 			// The failure says nothing about this key, so nothing is retired.
 			// A throttle is the one case another key could survive, and only
 			// where the operator has stated the pool's keys sit on separate
@@ -1153,6 +1261,8 @@ func WalkAttempts[T any](ctx context.Context, pool *KeyPool, call *Call, try fun
 		}
 	}
 }
+
+func customerOwnedPool(pool *KeyPool) bool { return pool.base().customerOwned }
 
 func attemptOutcome(fallback string, headerExhausted bool, retiredUntil time.Time) (string, time.Time) {
 	if headerExhausted {
@@ -1206,6 +1316,8 @@ const credentialAttemptRecordTimeout = 5 * time.Second
 type KeyHealth struct {
 	KeyID    string `json:"keyId"`
 	Position int    `json:"position"`
+	// Funding is the key's stated funding; absent when nobody stated it.
+	Funding Funding `json:"funding,omitempty"`
 	// State is `usable`, or the KeyRetirement that took it out.
 	State string `json:"state"`
 	// RetiredUntil is when it returns, present only while it is out.
@@ -1232,7 +1344,7 @@ func (p *KeyPool) Projection(at time.Time) KeyPoolHealth {
 
 	health := KeyPoolHealth{Declared: len(p.keys), Keys: make([]KeyHealth, 0, len(p.keys))}
 	for _, key := range p.keys {
-		projected := KeyHealth{KeyID: key.keyID, Position: key.position, State: "usable"}
+		projected := KeyHealth{KeyID: key.keyID, Position: key.position, Funding: key.funding, State: "usable"}
 		projected.EvidenceSource = key.evidence
 		if !key.observedAt.IsZero() {
 			observed := contract.NewTimestamp(key.observedAt)

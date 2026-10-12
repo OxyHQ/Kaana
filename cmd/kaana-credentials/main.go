@@ -48,15 +48,23 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		reviewed := flags.Bool("reviewed-0020", false, "restrict to reviewed migration 0020")
+		reviewedUnpin := flags.Bool("reviewed-0021", false, "restrict to reviewed migration 0021")
 		inspectOnly := flags.Bool("inspect-only", false, "read-only migration proof")
-		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 || (*inspectOnly && !*reviewed) {
-			return errors.New("usage: kaana-credentials migrate [--reviewed-0020 [--inspect-only]]")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 || (*inspectOnly && !*reviewed && !*reviewedUnpin) || (*reviewed && *reviewedUnpin) {
+			return errors.New("usage: kaana-credentials migrate [--reviewed-0020|--reviewed-0021 [--inspect-only]]")
 		}
 		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
 		if err != nil {
 			return err
 		}
 		defer repository.Close()
+		if *reviewedUnpin {
+			report, err := repository.ReviewedUnpinMigration(ctx, *inspectOnly)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(stdout).Encode(report)
+		}
 		if *reviewed {
 			report, err := repository.ReviewedScopedMigration(ctx, *inspectOnly)
 			if err != nil {
@@ -216,6 +224,32 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 			return err
 		}
 		_, err = fmt.Fprintf(stdout, "%s %s -> %s/%s\n", outcome, binding.DeploymentID, binding.Provider, binding.KeyID)
+		return err
+
+	case "unpin-deployment":
+		flags := flag.NewFlagSet("unpin-deployment", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		operationID := flags.String("operation-id", "", "exact idempotency id")
+		deploymentID := flags.String("deployment-id", "", "exact opaque deployment id")
+		providerSlug := flags.String("provider", "", "provider slug of the pin being removed")
+		keyID := flags.String("key-id", "", "exact opaque key id of the pin being removed")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+			return errors.New("usage: kaana-credentials unpin-deployment --operation-id <kdb_id> --deployment-id <id> --provider <slug> --key-id <id>")
+		}
+		if mutationActor == "" {
+			return errors.New("KAANA_CREDENTIAL_ACTOR is required")
+		}
+		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		binding := provider.CredentialBinding{DeploymentID: contract.DeploymentID(*deploymentID), Provider: contract.ProviderSlug(*providerSlug), KeyID: *keyID}
+		outcome, err := repository.UnpinDeployment(ctx, *operationID, binding, mutationActor)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "%s unpinned %s (was %s/%s); it now executes on the %s key pool\n", outcome, binding.DeploymentID, binding.Provider, binding.KeyID, binding.Provider)
 		return err
 
 	case "apply-deployment-bindings", "verify-deployment-bindings":
