@@ -332,9 +332,10 @@ error and enablement record is `docs/elevenlabs.md`.
   array), keeping rows with `can_do_text_to_speech: true` and no
   `requires_alpha_access`. Unauthenticated it answers 404
   `workspace_not_found`, so presence in the list is account access.[^elevenlabs-models-api]
-- **Publication:** `eleven_multilingual_v2`, `eleven_flash_v2_5`,
-  `eleven_flash_v2` and `eleven_v3`, each under an `elevenlabs/` line. The
-  deprecated Turbo ids, the Text to Dialogue v4 ids, realtime, voice-changer,
+- **Publication:** `eleven_multilingual_v2`, `eleven_flash_v2_5` and
+  `eleven_v3`, each under an `elevenlabs/` line. The English-only
+  `eleven_flash_v2` (same price as v2.5, indistinguishable to a catalogue with
+  no language field), the deprecated Turbo ids, the Text to Dialogue v4 ids, realtime, voice-changer,
   design, sound, music and Scribe ids are absent.[^elevenlabs-models]
 - **Speech-to-text** (Scribe, `POST /v1/speech-to-text`) would map onto
   `audio_transcriptions`, but the documented model schema carries no

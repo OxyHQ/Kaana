@@ -76,7 +76,6 @@ var voiceIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{20}$`)
 var MaxCharacters = map[string]int{
 	"eleven_multilingual_v2": 10_000,
 	"eleven_flash_v2_5":      40_000,
-	"eleven_flash_v2":        30_000,
 	"eleven_v3":              5_000,
 }
 

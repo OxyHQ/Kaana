@@ -25,14 +25,13 @@ Wire behaviour was reviewed against ElevenLabs' documentation on 2026-10-12
    is not a published list price, so it is not read. A duplicate or blank
    `model_id`, a non-boolean flag, a non-array body or a list with no speech
    row fails that provider's discovery for the cycle.
-3. **Publication.** `configs/model-attribution.json` attributes four ids. Each
-   one names ElevenLabs as the publisher:
+3. **Publication.** `configs/model-attribution.json` attributes three ids.
+   Each one names ElevenLabs as the publisher:
 
    | ElevenLabs id | Model line | Character limit |
    |---|---|---|
    | `eleven_multilingual_v2` | `elevenlabs/eleven-multilingual-v2` | 10,000 |
    | `eleven_flash_v2_5` | `elevenlabs/eleven-flash-v2.5` | 40,000 |
-   | `eleven_flash_v2` | `elevenlabs/eleven-flash-v2` (English only) | 30,000 |
    | `eleven_v3` | `elevenlabs/eleven-v3` | 5,000 |
 
    Each id carries its own version. ElevenLabs documents no alias that
@@ -46,6 +45,10 @@ Wire behaviour was reviewed against ElevenLabs' documentation on 2026-10-12
 
    - `eleven_turbo_v2_5` and `eleven_turbo_v2` are deprecated and
      "functionally equivalent" to Flash.
+   - `eleven_flash_v2` is the English-only subset of `eleven_flash_v2_5` at
+     the same price. Oxy's catalogue carries no language field, so a
+     price-ordered picker could not tell the two apart and would send Spanish
+     to an English-only model.
    - `eleven_v4` and `eleven_v4_turbo` are documented through the Text to
      Dialogue API and its WebSocket, not this endpoint.
    - `eleven_v3_conversational` is a realtime WebSocket model.
