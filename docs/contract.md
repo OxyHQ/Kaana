@@ -6,13 +6,11 @@
 
 Contract set 3.8.0 adds `inferenceFundingTierSchema` (`free`, `credit`,
 `paid`), an authorized route's optional `maxFundingTier` and the usage
-report's optional `fundingTier` (Oxy ADR 0038, ADR 0001). Until 4.12.0 is
-published from Oxy's reviewed release workflow, `descriptor.json` here is
-generated from the Oxy build named in its `source` field, and the contract
-drift job cannot install the pin. Once it is published: `cd tools/contract &&
-bun install --minimum-release-age=0 && bun run generate` with
-`OXY_CONTRACTS_LOCAL_SOURCE` unset, which drops `source` and must change
-nothing else.
+report's optional `fundingTier` (Oxy ADR 0038, ADR 0001). It is pinned from
+the published `@oxy.so/contracts` 4.12.0 and `descriptor.json` was regenerated
+from that installed package with `OXY_CONTRACTS_LOCAL_SOURCE` unset; the only
+change from the earlier local-build descriptor was the removed `source`
+provenance.
 
 ## Decisions foundation on published 4.7.0
 

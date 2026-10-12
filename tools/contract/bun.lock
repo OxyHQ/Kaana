@@ -5,7 +5,7 @@
     "": {
       "name": "@oxy.so/kaana-contract-tools",
       "dependencies": {
-        "@oxy.so/contracts": "4.10.0",
+        "@oxy.so/contracts": "4.12.0",
       },
       "devDependencies": {
         "@biomejs/biome": "2.5.15",
@@ -31,7 +31,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.15", "", { "os": "win32", "cpu": "x64" }, "sha512-yAzh4UqEImV6Hcy0zjUqNfJAsUhoD64FBQCdTG8Md/Z2wQeVP/ZmJ3XRYAs1g8J9fjTFyl2fCtc5FB5til47+g=="],
 
-    "@oxy.so/contracts": ["@oxy.so/contracts@4.10.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-TsVCYxAlcEsXvqH8TQhZpsFU05mCDh+4968xxPZxmk88VPaigaS3uYmLpbaEIV6RB3VHKoFaK4JEYy9jJNRFvg=="],
+    "@oxy.so/contracts": ["@oxy.so/contracts@4.12.0", "", { "dependencies": { "zod": "^3.25.64" } }, "sha512-skfJZOpP/97cs8zCBTlB2m80/MYffxuaVDZ1h6gpvwx7asNB69+sM5biazdOqpZrZ6p/ARZNzrVbZwACW/H+8Q=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
   }
