@@ -46,7 +46,7 @@ func TestCheckedInElevenLabsAttributionHoldsOnlyCurrentSpeechModels(t *testing.T
 	}
 	for _, excluded := range []string{
 		"eleven_turbo_v2_5", "eleven_turbo_v2", // deprecated
-		"eleven_flash_v2", // English-only subset of eleven_flash_v2_5 at the same price
+		"eleven_flash_v2",                                          // English-only subset of eleven_flash_v2_5 at the same price
 		"eleven_v4", "eleven_v4_turbo", "eleven_v3_conversational", // dialogue API / realtime
 		"eleven_multilingual_sts_v2", "eleven_english_sts_v2", "eleven_ttv_v3", "eleven_multilingual_ttv_v2",
 		"eleven_text_to_sound_v2", "music_v2", "scribe_v2", "scribe_v2_realtime", "eleven_monolingual_v1", "eleven_multilingual_v1",
