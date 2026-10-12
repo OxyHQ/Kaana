@@ -111,6 +111,16 @@ That is what the policy above makes necessary on OpenRouter: with `zdr` and
 lists is a guaranteed 404 after the request has crossed the network (in
 production, `temperature` on `google/gemini-3.7-flash` and the GPT Luna rows).
 An unknown set refuses nothing, and a refused control is never dropped.
+A tool choice is checked by value (`toolChoice.none`, `.required`,
+`.function`; `inventory.md`), and `auto` is never sent: it is the documented
+default whenever tools are, so spelling it out would only give
+`require_parameters` a parameter to refuse. The Anthropic Messages adapter
+checks the same set from the contract request, and also its own per-model
+statement (`anthropic.AcceptedParameters`: the controls the Messages API
+carries less what Anthropic documents each model as rejecting — non-default
+sampling on Claude 4.7 and later, a forced tool choice on Fable 5.1, Opus 5.5
+and Sonnet 5.5), so a rejected control is refused before sending even when the
+route's set is unknown.
 OpenRouter's own 404s for "No endpoints found that ..." and "... data
 policy" are classified `invalid_request` (non-retryable, not attributable)
 with its redacted message; only its other 404s are `model_not_found`

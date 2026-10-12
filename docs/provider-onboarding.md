@@ -183,10 +183,30 @@ as `contextTokens`, `max_tokens` as `maxOutputTokens`, and
 `high` that Anthropic marks supported, `[]` when effort itself is unsupported
 (Claude Haiku 4.5), absent when the statement is incomplete. That is the same
 `output_config.effort` the adapter sends, so the catalogue advertises exactly
-what the route accepts. Anthropic's capability tree carries no tool-use,
-sampling-parameter or modality list in the inventory's vocabulary, and the
-Messages list publishes no price, so `supportsTools`, `acceptedParameters`,
-the modalities and `listPrice` stay absent (unknown).
+what the route accepts. `capabilities.image_input` and `pdf_input` state what a
+Messages request may carry beside the text every Claude model takes and
+returns: `inputModalities` is `text` plus `image` and `file` (the word
+OpenRouter publishes for the same lines' document input, so the line's
+intersection keeps it) where supported, `outputModalities` is `text`, and both
+are absent unless both statements are readable. A line Anthropic serves alone
+(the Fable lines, whose OpenRouter rows are withheld, and Claude Haiku 5.5)
+therefore carries every field a catalogue reader needs: window, output
+ceiling, modalities, tools and accepted controls
+(`TestALineOnlyAnthropicServesCarriesEverythingACatalogueReaderNeeds`).
+
+The capability tree carries no tool-use or sampling statement, so
+`acceptedParameters` is the Messages adapter's own per-model statement
+(`anthropic.AcceptedParameters`, `internal/provider/anthropic/parameters.go`):
+every control the Messages API carries — `maxOutputTokens`,
+`reasoning.effort`, `sampling.stopSequences`, `sampling.temperature`,
+`sampling.topP`, every tool-choice value, `tools` — less what Anthropic
+documents the model as rejecting (below), less `reasoning.effort` where
+`capabilities.effort` is unsupported. `supportsTools` is whether that set takes
+`tools`. `Translate` refuses exactly what the statement leaves out, before
+sending, even on a route whose published set is unknown; every attributed id
+has a reviewed row (`TestEveryAttributedAnthropicModelHasAReviewedParameterStatement`),
+and an unreviewed id states nothing. The Messages list publishes no price, so
+`listPrice` stays absent.
 
 **Attribution.** Anthropic states that every Claude API model id is a pinned
 snapshot, "including the dateless IDs used from the 4.6 generation on", and
@@ -228,13 +248,19 @@ with retirement "not sooner than" 2026-11-24 and 2026-10-15; when Anthropic
 deprecates them their rows leave this table.
 
 **Behaviour Oxy must know about.** Anthropic answers a non-default
-`temperature`/`top_p`/`top_k` on Claude 4.7 and later models with a 400, Claude
-Fable 5.1, Opus 5.5 and Sonnet 5.5 reject forced `tool_choice` (`any`/`tool`),
-and Claude Fable 5/5.1 are not available to an organization under zero data
-retention. Each arrives as Anthropic's own `invalid_request_error`: a
-non-retryable request fault that retires no key and trips no breaker. None is
-in the Models API, so none is published as a refusal Kaana can make before
-sending.[^anthropic-deprecations][^anthropic-overview]
+`temperature`/`top_p`/`top_k` on Claude 4.7 and later models with a 400, and
+Claude Fable 5.1, Opus 5.5 and Sonnet 5.5 reject a forced `tool_choice`
+(`any`/`tool`) while taking `auto` and `none` (each model's migration guide,
+read 2026-10-12). Neither is in the Models API; both are in the adapter's
+per-model statement above, so they are published as the deployment's
+`acceptedParameters` (without `sampling.temperature`/`sampling.topP`, and
+without `toolChoice.required`/`toolChoice.function` for those three) and
+refused in `Translate` rather than sent. `auto` needs no accepted value
+(`inventory.md`), so a tool request with an `auto` choice is served by the
+direct route. Claude Fable 5/5.1 are not available to an organization under
+zero data retention. Anthropic's own `invalid_request_error` is a
+non-retryable request fault that retires no key and trips no
+breaker.[^anthropic-deprecations][^anthropic-overview]
 
 **Cost.** Anthropic's list prices (USD per million tokens, read 2026-10-11)
 differ by cache read multiplier per model and, for Claude Haiku 5.5, by prompt

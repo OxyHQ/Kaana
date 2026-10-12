@@ -11,6 +11,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
@@ -94,7 +95,7 @@ func observeModelListEntry(raw json.RawMessage, publishesUSDPerTokenPrices bool)
 		}
 	}
 	if parameters, ok := stringListField(fields, "supported_parameters"); ok {
-		applySupportedParameters(&observed, parameters)
+		applySupportedParameters(&observed, parameters, nil)
 		kept = true
 	} else if capabilities, ok := objectField(fields, "capabilities"); ok {
 		var functionCalling bool
@@ -143,13 +144,22 @@ func observeModelListEntry(raw json.RawMessage, publishesUSDPerTokenPrices bool)
 //	                                  `output_config.effort` the Messages
 //	                                  adapter sends, so the list states exactly
 //	                                  what the route will accept.
+//	capabilities.image_input,         inputModalities: `text`, plus `image`
+//	capabilities.pdf_input            and `file` (the catalogue's word for a
+//	                                  document input, as OpenRouter publishes
+//	                                  it for the same lines) where Anthropic
+//	                                  marks them supported; outputModalities
+//	                                  `text`. The two booleans state what a
+//	                                  Messages request may carry BESIDES the
+//	                                  text every Messages model takes and
+//	                                  returns, so both must be readable; one
+//	                                  that is not drops both lists rather than
+//	                                  under-report.
 //
-// Nothing else is inferred. Anthropic's capability tree names no tool-use,
-// sampling or modality words the inventory vocabulary carries — `image_input`
-// is a boolean, not a modality list that also says text — so supportsTools,
-// acceptedParameters and the modalities stay absent (unknown), and the line's
-// catalogue entry is narrowed only by what Anthropic actually stated. The
-// Messages list publishes no price.
+// Nothing else is inferred from the row. Anthropic's capability tree names no
+// tool-use or sampling words, so supportsTools and acceptedParameters come
+// from the adapter's own per-model statement instead
+// (applyStatedAcceptedParameters). The Messages list publishes no price.
 //
 // Every field is decoded independently and leniently, as for
 // observeModelListEntry: an unreadable value is dropped, never defaulted, and
@@ -184,6 +194,11 @@ func observeAnthropicModel(raw json.RawMessage) *inventory.Observed {
 	if capabilities, ok := objectField(fields, "capabilities"); ok {
 		if efforts, ok := anthropicEfforts(capabilities); ok {
 			observed.ReasoningEfforts = &efforts
+			kept = true
+		}
+		if inputs, ok := anthropicInputModalities(capabilities); ok {
+			observed.InputModalities = inputs
+			observed.OutputModalities = []string{"text"}
 			kept = true
 		}
 	}
@@ -231,6 +246,32 @@ func anthropicEfforts(capabilities map[string]json.RawMessage) ([]contract.Reaso
 	return efforts, true
 }
 
+// anthropicInputModalities reads `capabilities.image_input` and
+// `capabilities.pdf_input` (each `{"supported": bool}`) into a sorted input
+// modality list that always holds `text`. Either statement missing or
+// unreadable drops the list: it would otherwise claim the model takes text
+// alone.
+func anthropicInputModalities(capabilities map[string]json.RawMessage) ([]string, bool) {
+	inputs := []string{}
+	for _, capability := range []struct{ key, modality string }{
+		{"pdf_input", "file"},
+		{"image_input", "image"},
+	} {
+		statement, ok := objectField(capabilities, capability.key)
+		if !ok {
+			return nil, false
+		}
+		supported, ok := supportedFlag(statement)
+		if !ok {
+			return nil, false
+		}
+		if supported {
+			inputs = append(inputs, capability.modality)
+		}
+	}
+	return append(inputs, "text"), true
+}
+
 // supportedFlag reads Anthropic's `{"supported": bool}` leaf.
 func supportedFlag(fields map[string]json.RawMessage) (bool, bool) {
 	raw, present := fields["supported"]
@@ -252,7 +293,13 @@ func supportedFlag(fields map[string]json.RawMessage) (bool, bool) {
 // It sets the three fields that list decides — supportsTools,
 // reasoningEfforts and acceptedParameters — together, so they can never be
 // read from two different lists.
-func applySupportedParameters(observed *inventory.Observed, parameters []string) {
+//
+// `tool_choice` names the field, not its values. toolChoiceValues is the
+// provider's own per-value statement where it publishes one (OpenRouter's
+// `supports_tool_choice`, zdr.go); nil means it published none, and the field
+// then speaks for every value. A statement that leaves no value drops the
+// field too: a route that takes no value has nothing to send in it.
+func applySupportedParameters(observed *inventory.Observed, parameters []string, toolChoiceValues map[provider.RequestParameter]bool) {
 	supported := make(map[string]bool, len(parameters))
 	for _, parameter := range parameters {
 		supported[parameter] = true
@@ -269,13 +316,27 @@ func applySupportedParameters(observed *inventory.Observed, parameters []string)
 	}
 	observed.ReasoningEfforts = &efforts
 
-	accepted := make([]provider.RequestParameter, 0, len(providerParameterWords))
+	stated := make(map[provider.RequestParameter]bool, len(providerParameterWords))
 	for _, parameter := range provider.RequestParameters() {
 		for _, word := range providerParameterWords[parameter] {
 			if supported[word] {
-				accepted = append(accepted, parameter)
+				stated[parameter] = true
 				break
 			}
+		}
+	}
+	if toolChoiceValues != nil && stated[provider.ParameterToolChoice] {
+		anyValue := false
+		for _, value := range provider.ToolChoiceValues() {
+			stated[value] = toolChoiceValues[value]
+			anyValue = anyValue || toolChoiceValues[value]
+		}
+		stated[provider.ParameterToolChoice] = anyValue
+	}
+	accepted := make([]provider.RequestParameter, 0, len(stated))
+	for _, parameter := range provider.RequestParameters() {
+		if stated[parameter] {
+			accepted = append(accepted, parameter)
 		}
 	}
 	observed.AcceptedParameters = &accepted
@@ -305,6 +366,44 @@ func applyStatedReasoningEfforts(slug contract.ProviderSlug, models []Discovered
 	}
 }
 
+// applyStatedAcceptedParameters publishes the Anthropic Messages adapter's own
+// per-model statement of the controls a model takes
+// (anthropic.AcceptedParameters) as the deployment's acceptedParameters, and
+// supportsTools as whether it takes `tools`. Anthropic's Models API carries
+// neither, and that statement is exactly what Translate enforces, so the
+// catalogue cannot advertise a control the route refuses.
+//
+// `reasoning.effort` is narrowed by what Anthropic DID publish: a model whose
+// `capabilities.effort` is unsupported (reasoningEfforts `[]`) does not take
+// the control. A model nobody reviewed keeps both fields absent.
+func applyStatedAcceptedParameters(slug contract.ProviderSlug, models []DiscoveredModel) {
+	if slug != anthropic.Slug {
+		return
+	}
+	for index := range models {
+		model := &models[index]
+		stated, ok := anthropic.AcceptedParameters(model.UpstreamModelID)
+		if !ok {
+			continue
+		}
+		if model.Observed == nil {
+			model.Observed = &inventory.Observed{}
+		}
+		takesEffort := model.Observed.ReasoningEfforts == nil || len(*model.Observed.ReasoningEfforts) > 0
+		accepted := make([]provider.RequestParameter, 0, len(stated))
+		tools := false
+		for _, parameter := range stated {
+			if parameter == provider.ParameterReasoningEffort && !takesEffort {
+				continue
+			}
+			tools = tools || parameter == provider.ParameterTools
+			accepted = append(accepted, parameter)
+		}
+		model.Observed.AcceptedParameters = &accepted
+		model.Observed.SupportsTools = &tools
+	}
+}
+
 // providerParameterWords maps each request control onto the words an
 // OpenAI-compatible `supported_parameters` list uses for it. A control is
 // accepted when ANY of its words is listed:
@@ -317,21 +416,26 @@ func applyStatedReasoningEfforts(slug contract.ProviderSlug, models []Discovered
 //     reasoningEfforts above.
 //   - `response_format` is what Kaana sends for every non-text response
 //     format; `structured_outputs` alone is not read as accepting it.
+//   - `tool_choice` is the field and, unless the provider states its values
+//     one by one (applySupportedParameters), every value it can carry.
 //
 // Every vocabulary member has an entry; `TestEveryRequestParameterHasAProviderWord`
 // keeps a member added to the vocabulary from silently never being accepted.
 var providerParameterWords = map[provider.RequestParameter][]string{
-	provider.ParameterMaxOutputTokens:  {"max_tokens", "max_completion_tokens"},
-	provider.ParameterReasoningEffort:  {"reasoning", "reasoning_effort"},
-	provider.ParameterResponseFormat:   {"response_format"},
-	provider.ParameterFrequencyPenalty: {"frequency_penalty"},
-	provider.ParameterPresencePenalty:  {"presence_penalty"},
-	provider.ParameterSeed:             {"seed"},
-	provider.ParameterStopSequences:    {"stop"},
-	provider.ParameterTemperature:      {"temperature"},
-	provider.ParameterTopP:             {"top_p"},
-	provider.ParameterToolChoice:       {"tool_choice"},
-	provider.ParameterTools:            {"tools"},
+	provider.ParameterMaxOutputTokens:    {"max_tokens", "max_completion_tokens"},
+	provider.ParameterReasoningEffort:    {"reasoning", "reasoning_effort"},
+	provider.ParameterResponseFormat:     {"response_format"},
+	provider.ParameterFrequencyPenalty:   {"frequency_penalty"},
+	provider.ParameterPresencePenalty:    {"presence_penalty"},
+	provider.ParameterSeed:               {"seed"},
+	provider.ParameterStopSequences:      {"stop"},
+	provider.ParameterTemperature:        {"temperature"},
+	provider.ParameterTopP:               {"top_p"},
+	provider.ParameterToolChoice:         {"tool_choice"},
+	provider.ParameterToolChoiceFunction: {"tool_choice"},
+	provider.ParameterToolChoiceNone:     {"tool_choice"},
+	provider.ParameterToolChoiceRequired: {"tool_choice"},
+	provider.ParameterTools:              {"tools"},
 }
 
 func stringField(fields map[string]json.RawMessage, key string) (string, bool) {

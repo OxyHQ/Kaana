@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
@@ -194,3 +195,83 @@ func TestEveryRequestParameterHasAProviderWord(t *testing.T) {
 		}
 	}
 }
+
+// openRouterToolChoiceModels and openRouterToolChoiceZDR are OpenRouter's
+// public lists as captured on 2026-10-12, trimmed. Claude Opus 5.5's
+// zero-retention endpoints list `tool_choice` and state, value by value, that
+// they take `none` and `auto` but not a forced choice; the second model's only
+// endpoint takes `auto` alone; the third's endpoints state nothing per value.
+const openRouterToolChoiceModels = `{"data":[
+ {"id":"anthropic/claude-opus-5.5","canonical_slug":"anthropic/claude-opus-5.5-20260921","name":"Anthropic: Claude Opus 5.5",
+  "supported_parameters":["include_reasoning","max_completion_tokens","max_tokens","reasoning","reasoning_effort","response_format","stop","structured_outputs","tool_choice","tools","verbosity"]},
+ {"id":"example/auto-only","name":"Example: Auto Only","supported_parameters":["max_tokens","tool_choice","tools"]},
+ {"id":"example/unstated","name":"Example: Unstated","supported_parameters":["max_tokens","tool_choice","tools"]}
+]}`
+
+const openRouterToolChoiceZDR = `{"data":[
+ {"name":"Amazon Bedrock | anthropic/claude-opus-5.5-20260921","model_id":"anthropic/claude-opus-5.5","provider_name":"Amazon Bedrock","tag":"amazon-bedrock/eu-west-1",
+  "supported_parameters":["reasoning","include_reasoning","max_tokens","stop","tool_choice","tools","response_format","verbosity","reasoning_effort"],
+  "supports_tool_choice":{"none":true,"auto":true,"required":false,"function":false},"status":0},
+ {"name":"Google | anthropic/claude-opus-5.5-20260921","model_id":"anthropic/claude-opus-5.5","provider_name":"Google","tag":"google-vertex/global",
+  "supported_parameters":["reasoning","include_reasoning","max_tokens","stop","tool_choice","tools","response_format","verbosity","reasoning_effort"],
+  "supports_tool_choice":{"none":true,"auto":true,"required":false,"function":false},"status":0},
+ {"name":"Example | example/auto-only","model_id":"example/auto-only","provider_name":"Example","tag":"example",
+  "supported_parameters":["max_tokens","tool_choice","tools"],
+  "supports_tool_choice":{"none":false,"auto":true,"required":false,"function":false},"status":0},
+ {"name":"Example | example/unstated","model_id":"example/unstated","provider_name":"Example","tag":"example",
+  "supported_parameters":["max_tokens","tool_choice","tools"],"status":0},
+ {"name":"Other | example/unstated","model_id":"example/unstated","provider_name":"Other","tag":"other",
+  "supported_parameters":["max_tokens","tools"],"supports_tool_choice":{"none":true,"auto":"yes","required":false,"function":false},"status":0}
+]}`
+
+// TestOpenRouterToolChoiceValuesAreWhatItsZeroRetentionEndpointsState: a
+// forced choice on Claude Opus 5.5 is not published as accepted, because no
+// reachable endpoint takes it, while `none` is; `auto` needs no word at all.
+func TestOpenRouterToolChoiceValuesAreWhatItsZeroRetentionEndpointsState(t *testing.T) {
+	server := serveOpenRouter(t, openRouterToolChoiceModels, openRouterToolChoiceZDR)
+	models, err := Discover(context.Background(), server.Client(), Provider{Slug: "openrouter", BaseURL: server.URL + "/v1", APIKey: "k"})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	accepted := map[string][]provider.RequestParameter{}
+	for _, model := range models {
+		if model.Observed == nil || model.Observed.AcceptedParameters == nil {
+			t.Fatalf("%s published no accepted set: %+v", model.UpstreamModelID, model)
+		}
+		accepted[model.UpstreamModelID] = *model.Observed.AcceptedParameters
+	}
+
+	opus := accepted["anthropic/claude-opus-5.5"]
+	if !slices.Contains(opus, provider.ParameterToolChoice) || !slices.Contains(opus, provider.ParameterToolChoiceNone) {
+		t.Errorf("Opus 5.5's endpoints take tool_choice none: %v", opus)
+	}
+	if slices.Contains(opus, provider.ParameterToolChoiceRequired) || slices.Contains(opus, provider.ParameterToolChoiceFunction) {
+		t.Errorf("Opus 5.5's endpoints state required and function false, and a forced choice was published: %v", opus)
+	}
+	route := provider.Route{AcceptedParameters: &opus}
+	if _, refused := route.UnacceptedParameter(provider.ToolChoiceParameters(&contract.ToolChoice{Mode: modePointer(contract.ToolChoiceAuto)})...); refused {
+		t.Error("an auto tool choice was refused on a route that takes tools")
+	}
+	if parameter, refused := route.UnacceptedParameter(provider.ToolChoiceParameters(&contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "lookup"}})...); !refused || parameter != provider.ParameterToolChoiceFunction {
+		t.Errorf("a named-tool choice was not refused: %q %v", parameter, refused)
+	}
+
+	// An endpoint that takes auto alone states no value, and the field goes
+	// with them: a set naming the field alone would read as every value.
+	if autoOnly := accepted["example/auto-only"]; slices.Contains(autoOnly, provider.ParameterToolChoice) ||
+		!slices.Equal(autoOnly, []provider.RequestParameter{provider.ParameterMaxOutputTokens, provider.ParameterTools}) {
+		t.Errorf("auto-only = %v", autoOnly)
+	}
+
+	// Control: an endpoint listing tool_choice without a readable per-value
+	// statement takes every value — the word speaks for the field and its
+	// values — and the other endpoint's unreadable statement cannot narrow it.
+	unstated := accepted["example/unstated"]
+	for _, value := range append([]provider.RequestParameter{provider.ParameterToolChoice}, provider.ToolChoiceValues()...) {
+		if !slices.Contains(unstated, value) {
+			t.Errorf("unstated lacks %s: %v", value, unstated)
+		}
+	}
+}
+
+func modePointer(mode contract.ToolChoiceMode) *contract.ToolChoiceMode { return &mode }
