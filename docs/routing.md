@@ -29,7 +29,8 @@ impossible.
 Kaana owns provider keys, provider costs and routing; Oxy owns customers and
 their limits ([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
 In phase 1 that splits like this: Oxy still selects and orders the
-DEPLOYMENTS after applying customer policy (profile priority, BYOK preference,
+DEPLOYMENTS after applying customer policy, and may bound a route by a funding
+tier (`maxFundingTier`, which Kaana never walks past) (profile priority, BYOK preference,
 funding class, score, exact `deploymentId` — stated once, in
 [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)),
 and Kaana chooses the KEY inside each deployment: its provider's pool,

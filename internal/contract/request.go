@@ -285,12 +285,17 @@ var routeSubstitutionValues = []RouteSubstitution{SubstitutionSameModel, Substit
 // control. Cross-model entries can be constructed only with the literal
 // authorizedByPolicy=true.
 type AuthorizedRoute struct {
-	Substitution               RouteSubstitution           `json:"substitution"`
-	DeploymentID               DeploymentID                `json:"deploymentId"`
-	ModelReference             ModelReference              `json:"modelReference"`
-	Provider                   ProviderSlug                `json:"provider"`
-	Regions                    []Region                    `json:"regions"`
-	AuthorizedByPolicy         *bool                       `json:"authorizedByPolicy,omitempty"`
+	Substitution       RouteSubstitution `json:"substitution"`
+	DeploymentID       DeploymentID      `json:"deploymentId"`
+	ModelReference     ModelReference    `json:"modelReference"`
+	Provider           ProviderSlug      `json:"provider"`
+	Regions            []Region          `json:"regions"`
+	AuthorizedByPolicy *bool             `json:"authorizedByPolicy,omitempty"`
+	// MaxFundingTier is the dearest funding tier Kaana may spend on this
+	// route: the walk admits only keys whose STATED tier is at or below it,
+	// and refuses the route rather than fall through to a dearer key. Nil is
+	// no ceiling.
+	MaxFundingTier             *FundingTier                `json:"maxFundingTier,omitempty"`
 	CustomerProviderCredential *CustomerProviderCredential `json:"customerProviderCredential,omitempty"`
 }
 
@@ -580,6 +585,14 @@ func (r AuthorizedRoute) validate() error {
 	if r.CustomerProviderCredential != nil {
 		if err := r.CustomerProviderCredential.validate(); err != nil {
 			return fmt.Errorf("customerProviderCredential: %w", err)
+		}
+	}
+	if r.MaxFundingTier != nil {
+		if !r.MaxFundingTier.Valid() {
+			return fmt.Errorf("maxFundingTier: %q is not a funding tier", *r.MaxFundingTier)
+		}
+		if r.CustomerProviderCredential != nil {
+			return fmt.Errorf("maxFundingTier: a funding ceiling bounds platform keys; a customer credential is billed to the customer")
 		}
 	}
 	switch r.Substitution {

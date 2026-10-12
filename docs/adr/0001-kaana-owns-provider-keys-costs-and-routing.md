@@ -80,10 +80,9 @@ be used by duplicating thirteen deployments and teaching Oxy to order them.
 - **Publication withholds a deployment only when no key of its pool can serve
   it** (`internal/publisher/withholding.go`), until the earliest one returns.
 - **A funding ceiling** (`KeyPool.WithinFunding`) bounds a walk to keys whose
-  stated tier is at or below it. The signed field that carries it, and the
-  usage report's served funding tier, are contract fields (`@oxy.so/contracts`
-  4.12.0, contract set 3.8.0, published from Oxy); Kaana adopts them in a
-  follow-up change once that package is published (step 2 below).
+  stated tier is at or below it, carried as `authorizedRoutes[].maxFundingTier`;
+  the usage report states the served `fundingTier` (`@oxy.so/contracts`
+  4.12.0, contract set 3.8.0 — step 2 below).
 
 ### Rollout order
 
@@ -115,13 +114,13 @@ prices (today reviewed in Oxy's `kaanaReviewedProviderRoutes.ts` and the list
 prices Kaana publishes) become Kaana's cost model; Oxy's price list stays what
 it CHARGES.
 
-## Open conflict to resolve before phase 2's power-level step
+## Alia and power levels
 
-The owner's product fact that "in Alia end users pick only levels, never
-concrete models" contradicts Alia's AGENTS.md and ADR 0012, which make the
-picker real `publisher/model` catalogue models with no modes or profiles. It
-does not affect phase 1. It must be settled before Kaana resolves levels for
-Alia.
+Alia's end users choose only power levels: the app's model store
+(`packages/app`, model-store v4) replaced the model picker. Alia's AGENTS.md
+and ADR 0012 wording about a real-model picker is stale and will be fixed in
+Alia. Moving level resolution into Kaana therefore matches what Alia already
+sends.
 
 ## Consequences
 

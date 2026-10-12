@@ -358,3 +358,27 @@ func TestOnlyAssistantMessagesCarryRefusals(t *testing.T) {
 		t.Fatalf("a user refusal was reported as %v", err)
 	}
 }
+
+// Oxy ADR 0038: Kaana refuses a ceiling it could not honour before anything
+// is executed, exactly as the published schema does.
+func TestAFundingCeilingIsAContractTierOnAPlatformRoute(t *testing.T) {
+	valid := validAuthorizedRouteRequest()
+	valid.AuthorizedRoutes[0].MaxFundingTier = pointerTo(FundingTierCredit)
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("a credit ceiling on a platform route was refused: %v", err)
+	}
+	unknown := validAuthorizedRouteRequest()
+	unknown.AuthorizedRoutes[0].MaxFundingTier = pointerTo(FundingTier("promotional"))
+	if err := unknown.Validate(); err == nil {
+		t.Fatal("a ceiling outside the contract's tiers was accepted")
+	}
+	byok := validAuthorizedRouteRequest()
+	byok.AuthorizedRoutes[0].MaxFundingTier = pointerTo(FundingTierCredit)
+	byok.AuthorizedRoutes[0].CustomerProviderCredential = &CustomerProviderCredential{
+		CredentialHandle: "kcred_abcdefghijklmnopqrstuvwxyz", CredentialRevision: 7,
+		OwnerAccountID: "acc_01JQZ", ConnectionID: "conn_01JQZ", Environment: EnvironmentProduction,
+	}
+	if err := byok.Validate(); err == nil || !strings.Contains(err.Error(), "maxFundingTier") {
+		t.Fatalf("a ceiling beside a customer credential: %v", err)
+	}
+}

@@ -207,6 +207,7 @@ var goShapes = map[string]reflect.Type{
 var goEnums = map[string]enumBinding{
 	"decisionEffortSchema":                        bindEnum(decisionEffortValues),
 	"inferenceEnvironmentSchema":                  bindEnum(environmentValues),
+	"inferenceFundingTierSchema":                  bindEnum(fundingTierValues),
 	"inferenceScopeSchema":                        bindEnum(scopeValues),
 	"inferenceModalitySchema":                     bindEnum(modalityValues),
 	"inferenceMessageRoleSchema":                  bindEnum(messageRoleValues),
@@ -426,6 +427,7 @@ var notApplicable = map[string]string{
 	// emits Inbox-specific wire shapes.
 	"inboxComposeRequestSchema":         "inbox: product-owned compose request translated before the Kaana boundary",
 	"inboxDailyBriefRequestSchema":      "inbox: product-owned daily-brief request translated before the Kaana boundary",
+	"inboxDailyBriefResponseSchema":     "inbox: product-owned daily-brief projection assembled outside Kaana",
 	"inboxInferenceStreamEventSchema":   "inbox: product-owned stream projection assembled outside Kaana",
 	"inboxInferenceTextResponseSchema":  "inbox: product-owned text projection assembled outside Kaana",
 	"inboxMessageInferenceParamsSchema": "inbox: product-owned message parameters translated before the Kaana boundary",
@@ -495,7 +497,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 106
+const expectedNotApplicableCount = 107
 
 type enumBinding struct {
 	goType  reflect.Type

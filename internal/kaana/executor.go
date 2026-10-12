@@ -190,12 +190,18 @@ type attempt struct {
 	// It is decided in the loop, where the request context is in scope, rather
 	// than re-derived at settlement from an error that no longer carries it.
 	cancelled bool
+	// funding is the stated funding of the platform key the attempt spent;
+	// unstated for a customer credential or a key nobody described.
+	funding provider.Funding
 }
 
 // candidate is one destination resolved from the request's signed
 // authorizedRoutes list.
 type candidate struct {
 	route provider.Route
+	// fundingCeiling is the dearest funding tier Oxy signed for this route
+	// (authorizedRoutes[].maxFundingTier); none is no ceiling.
+	fundingCeiling provider.FundingTier
 }
 
 // Execute runs the request, emitting normalized events to sink.
@@ -315,6 +321,21 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			customerPermit.NotAttributable()
 			skipped = append(skipped, route.DeploymentID)
 			continue
+		}
+
+		if ceiling := candidates[index].fundingCeiling; ceiling != provider.FundingTierNone && route.CustomerProviderCredential == nil {
+			// Oxy authorized this route only on capacity at or below the
+			// ceiling (Oxy ADR 0038). A pool with no such key is not this
+			// route's to serve: skipped like an unroutable route, never walked
+			// into a dearer key.
+			bounded, err := boundedPool(platformCredentials, ceiling)
+			if err != nil {
+				permit.NotAttributable()
+				customerPermit.NotAttributable()
+				skipped = append(skipped, route.DeploymentID)
+				continue
+			}
+			platformCredentials = bounded
 		}
 
 		if abandoned != nil && emit.started {
@@ -487,6 +508,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			outcome:   outcome,
 			err:       streamErr,
 			cancelled: streamErr != nil && isCancellation(ctx, streamErr),
+			funding:   attemptFunding(platformCredentials, route, outcome.KeyID),
 		}
 
 		switch {
@@ -894,6 +916,13 @@ func (e *Executor) settle(
 			(last.err == nil && (emit.attemptStarted || last.outcome.Embedding != nil || last.outcome.Decisions != nil))
 	}
 	cost := e.costs.MeasureRequest(requestID, usage)
+	var servedTier *contract.FundingTier
+	if len(usage) > 0 && usage[len(usage)-1].Served {
+		if tier := last.funding.Tier(); tier != provider.FundingTierNone {
+			value := contract.FundingTier(tier)
+			servedTier = &value
+		}
+	}
 
 	report := &contract.UsageReport{
 		SchemaVersion: contract.UsageReportSchemaVersion,
@@ -910,6 +939,7 @@ func (e *Executor) settle(
 		ServingProvider:        last.route.Provider,
 		DeploymentID:           last.route.DeploymentID,
 		RouteSwitches:          switches,
+		FundingTier:            servedTier,
 		StartedAt:              contract.NewTimestamp(startedAt),
 		CompletedAt:            contract.NewTimestamp(completedAt),
 	}
@@ -1199,7 +1229,11 @@ func resolveAuthorizedRoutesPrivate(snapshot *inventory.Inventory, requestID con
 		}
 		resolvedRevisions[line] = resolved.ModelReference
 		resolved.CustomerProviderCredential = authorized.CustomerProviderCredential
-		candidates = append(candidates, candidate{route: *resolved})
+		ceiling := provider.FundingTierNone
+		if authorized.MaxFundingTier != nil {
+			ceiling = provider.FundingTier(*authorized.MaxFundingTier)
+		}
+		candidates = append(candidates, candidate{route: *resolved, fundingCeiling: ceiling})
 	}
 	return candidates, nil
 }
@@ -1347,6 +1381,25 @@ func upstreamFailure(requestID contract.RequestID, slug contract.ProviderSlug, e
 // never falls back to the adapter's
 // platform pool: a missing, stale, revoked or undecryptable generation is the
 // customer's actionable credential failure and no upstream call is made.
+// boundedPool applies a route's funding ceiling to the platform credentials it
+// resolved. Nil credentials cannot be bounded, so the route is refused rather
+// than executed on an adapter's unbounded pool.
+func boundedPool(credentials *provider.KeyPool, ceiling provider.FundingTier) (*provider.KeyPool, error) {
+	if credentials == nil {
+		return nil, errors.New("kaana: a funding ceiling needs resolved platform credentials")
+	}
+	return credentials.WithinFunding(ceiling)
+}
+
+// attemptFunding is the stated funding of the platform key an attempt spent.
+func attemptFunding(credentials *provider.KeyPool, route provider.Route, keyID string) provider.Funding {
+	if credentials == nil || route.CustomerProviderCredential != nil {
+		return provider.FundingUnstated
+	}
+	funding, _ := credentials.FundingOf(keyID)
+	return funding
+}
+
 // exactKeyView narrows a deployment's platform credentials to the one key a
 // signed scope names. A deployment pinned to another key refuses it; an
 // unpinned deployment, which executes on its provider's pool, narrows to that
