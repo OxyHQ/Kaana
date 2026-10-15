@@ -322,6 +322,16 @@ The migration is idempotent. Runtime never applies DDL at startup; granting a
 serving process schema authority to make deployment convenient would make every
 request-serving task a migration principal.
 
+**Every deploy migrates first.** `deploy-aws.yml` runs the candidate image's
+`migrate` as the migrator one-shot before it moves any service, on every push
+to main and every `mode=deploy` dispatch; a failed migration stops the job with
+every service on its previous revision. A binary therefore never serves against
+a schema older than its own, and the `migrate` operation in
+`credential-admin.yml` remains for applying a schema ahead of a release. Until
+2026-10-15 only the historical 0013 gate migrated, so #175 auto-deployed a
+runtime whose settlement worker needed `0022` while the schema stopped at
+`0021`: every claim failed until the migrator was run by hand.
+
 Migration `0011` adds credential runtime state, cross-replica recovery leases
 and append-only attempt evidence. Apply it before deploying a binary that reads
 the joined state. The runtime role receives only `EXECUTE` on the two
@@ -391,8 +401,8 @@ the service only after the required migration succeeds; until the service is
 Migrations `0015`–`0018` (#72) are additive and must be applied before a
 binary that uses them is deployed: the runtime registers its rate-card version
 through `0015` at startup, records attempts through `0016`'s function, and
-serves the operator feed through `0018`'s. They follow the same gate as `0011`:
-pin the release, run `migrate`, then deploy. The previous cost-recording
+serves the operator feed through `0018`'s. The deploy applies them before it
+moves a service (above). The previous cost-recording
 function stays granted, so tasks built before `0016` keep recording during the
 rollout. `0018` builds an index on `provider_cost_events` inside the migration
 transaction; it blocks cost writes for as long as the build takes, which is

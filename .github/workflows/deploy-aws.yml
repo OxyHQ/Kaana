@@ -137,8 +137,20 @@ jobs:
           echo "image=$IMG@$DIGEST" >> "$GITHUB_OUTPUT"
           echo "pushed $IMG@$DIGEST"
 
-      - name: Prepare credential schema 0013 without changing serving traffic
-        if: vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true'
+      # The candidate's own migrator runs before any service is moved to it, on
+      # every run that may deploy. Migrations are additive, idempotent and
+      # checksummed against the ledger, so a run with nothing new applies nothing.
+      # Without this a merged migration reached production only when someone
+      # remembered the manual `migrate` operation: on 2026-10-15 #175 auto-deployed
+      # a runtime that claims settlements through 0022 and every claim failed with
+      # `function kaana_claim_settlements(unknown, interval) does not exist`. A
+      # failed migration stops the job here, so the services keep their revision.
+      # It still runs while the 0013 gate is open, without deploying, which is how
+      # that cutover prepared its schema.
+      - name: Apply the candidate's credential schema before serving it
+        if: >-
+          vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true' ||
+          github.event_name == 'push' || inputs.mode == 'deploy'
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
@@ -156,9 +168,9 @@ jobs:
             del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
                 .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
             | .containerDefinitions |= map(if .name == $container then .image = $image else . end)
-          ' <<<"$base" >/tmp/kaana-0013-migrator.json
+          ' <<<"$base" >/tmp/kaana-migrator.json
           task_definition=$(aws ecs register-task-definition \
-            --cli-input-json file:///tmp/kaana-0013-migrator.json \
+            --cli-input-json file:///tmp/kaana-migrator.json \
             --query taskDefinition.taskDefinitionArn --output text)
           security_group=$(jq -r '.securityGroupId' <<<"$profile")
           network=$(jq -c --arg security_group "$security_group" \
@@ -178,10 +190,10 @@ jobs:
           exit_code=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" \
             --query "tasks[0].containers[?name=='$container'].exitCode | [0]" --output text)
           if [ "$exit_code" != 0 ]; then
-            echo "::error::schema preparation task exited $exit_code"
+            echo "::error::the candidate's migrator exited $exit_code; no service was updated"
             exit 1
           fi
-          echo "schema 0013 prepared with $IMAGE; serving ECS services were not updated"
+          echo "credential schema is current for $IMAGE"
 
       - name: Deploy to ECS (skipped until a service exists)
         # A main push builds an immutable candidate even while the cutover gate
