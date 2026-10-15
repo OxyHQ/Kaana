@@ -199,13 +199,15 @@ func commercialFixtures(t *testing.T) (valid, invalid []fixture) {
 			t.Fatalf("Go accepts %+v", bad)
 		}
 	}
-	return []fixture{
-			{Schema: "deploymentCommercialSchema", Case: "platform-internal", Value: plain},
-			{Schema: "deploymentCommercialSchema", Case: "enterprise-dedicated", Value: reserved},
-		}, []fixture{
-			{Schema: "deploymentCommercialSchema", Case: "byok-scope-without-byok-permission", Value: byokWithoutByok},
-			{Schema: "deploymentCommercialSchema", Case: "public-payg-without-resale", Value: paygWithoutResale},
-		}
+	accepted := []fixture{
+		{Schema: "deploymentCommercialSchema", Case: "platform-internal", Value: plain},
+		{Schema: "deploymentCommercialSchema", Case: "enterprise-dedicated", Value: reserved},
+	}
+	refused := []fixture{
+		{Schema: "deploymentCommercialSchema", Case: "byok-scope-without-byok-permission", Value: byokWithoutByok},
+		{Schema: "deploymentCommercialSchema", Case: "public-payg-without-resale", Value: paygWithoutResale},
+	}
+	return accepted, refused
 }
 
 func grantInvalidFixtures(t *testing.T) []fixture {
