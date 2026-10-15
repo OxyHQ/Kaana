@@ -50,6 +50,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 // Header names. They are Kaana's own, so they are namespaced rather than
@@ -85,14 +87,14 @@ const (
 	// grantDomainSeparator is the domain of a grant Oxy signs in answer to an
 	// authorization (Kaana ADR 0002, decision 3): the same Oxy keys, a purpose
 	// no envelope or telemetry signature can be replayed as.
-	grantDomainSeparator = "oxy-kaana-grant:v1"
+	grantDomainSeparator = contract.GrantSignatureDomain
 	// settlementReadDomainSeparator scopes Oxy's reconciliation read of
 	// Kaana's settlement outbox (GET /internal/v1/settlements). The signed
 	// bytes are the raw query string, which is the whole request.
-	settlementReadDomainSeparator = "oxy-kaana-settlement-read:v1"
+	settlementReadDomainSeparator = contract.SettlementReadSignatureDomain
 	// settlementDomainSeparator is the domain of a settlement KAANA signs with
 	// its own key for Oxy; Kaana never verifies under it.
-	settlementDomainSeparator = "kaana-oxy-settlement:v1"
+	settlementDomainSeparator = contract.SettlementSignatureDomain
 )
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
