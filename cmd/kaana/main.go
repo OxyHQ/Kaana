@@ -315,11 +315,22 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// The public API, https://kaana.ai/v1 (ADR 0002, phase 3). Off unless
+	// KAANA_PUBLIC_API_ENABLED is true, so a merge is not an exposure: it
+	// needs Oxy's authorization and settlement API live first.
+	public, err := buildPublicAPI(publicAPIDependencies{
+		executor: executor, inventory: inventoryStore, registry: registry, sessions: sessions,
+		store: credentialDatabase, keys: keys, token: validationReporter.ServiceToken, logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	address := os.Getenv("KAANA_ADDR")
 	if address == "" {
 		address = ":8080"
 	}
-	handler := server.Handler()
+	handler := public.route(server.Handler())
 	if activity != nil {
 		handler = activity.Middleware(handler)
 	}
@@ -357,6 +368,9 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(lifetimeContext, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if public.settler != nil {
+		go public.settler.Run(ctx)
+	}
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
 		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
 	go reloadCredentialPools(ctx, credentialStore, providerConfigs, registry, logger,
@@ -401,6 +415,13 @@ func run(logger *slog.Logger) error {
 		serverErr := httpServer.Shutdown(shutdownCtx)
 		if sessionErr := <-drained; sessionErr != nil {
 			logger.Error("realtime sessions did not settle within the drain", "error", sessionErr)
+		}
+		if public.server != nil {
+			// Settlements still being written reach the outbox before the
+			// process ends; delivery resumes on any task from there.
+			if drainErr := public.server.Drain(shutdownCtx); drainErr != nil {
+				logger.Error("public settlements were still being written when the drain ended", "error", drainErr)
+			}
 		}
 		return serverErr
 	}

@@ -1,0 +1,232 @@
+package publicapi
+
+import (
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/http"
+	"regexp"
+	"strings"
+
+	"github.com/OxyHQ/Kaana/internal/contract"
+)
+
+// Transcription bounds (`@kaana.ai/contracts` 4.1.0).
+const (
+	maxTranscriptionFileBytes    = 20 << 20
+	maxTranscriptionAudioMs      = 30 * 60 * 1000
+	maxTranscriptionPromptLength = 4096
+	maxTranscriptionFieldBytes   = 16 << 10
+)
+
+var languageTagPattern = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
+
+// transcriptionUpload is one transcription request in either form.
+type transcriptionUpload struct {
+	fields    contract.TranscriptionRequest
+	mediaType contract.AudioInputMediaType
+	audio     []byte
+}
+
+// handleTranscriptions serves POST /v1/audio/transcriptions, as multipart (a
+// `file` part and text fields) or as JSON with the audio inline in base64.
+// Synchronous: the transcription is the response.
+func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
+	requestID, receivedAt := NewRequestID(), s.now()
+	mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	var (
+		body    []byte
+		upload  transcriptionUpload
+		failure *contract.PublicError
+	)
+	switch mediaType {
+	case "multipart/form-data":
+		body, failure = readBody(w, r, requestID, MaxTranscriptionMultipartBytes)
+		if failure == nil {
+			upload, failure = parseTranscriptionMultipart(requestID, body, params["boundary"])
+		}
+	case "application/json":
+		body, failure = readBody(w, r, requestID, MaxTranscriptionJSONBytes)
+		if failure == nil {
+			upload, failure = parseTranscriptionJSON(requestID, body)
+		}
+	default:
+		failure = invalid(requestID, "Content-Type", "the body is multipart/form-data or application/json")
+	}
+	if failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
+	if failure := validateTranscription(requestID, upload); failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
+	facts := contract.GrantRequestFacts{}
+	var durationMs *int
+	if upload.mediaType == "audio/wav" {
+		if measured, ok := wavDurationMilliseconds(upload.audio); ok {
+			if measured > maxTranscriptionAudioMs {
+				writeError(w, requestID, contract.NewPublicError(requestID, "request_too_large",
+					fmt.Sprintf("the audio is %d ms; a transcription takes at most %d", measured, maxTranscriptionAudioMs)).WithParam("file"))
+				return
+			}
+			durationMs = &measured
+			facts.AudioInputMilliseconds = &measured
+		}
+	}
+	target := contract.ModelTarget(upload.fields.Model)
+	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
+		operation: contract.GrantAudioTranscriptions, target: &target, body: body,
+		endpoint: "/v1/audio/transcriptions", facts: facts,
+	})
+	if failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
+	data := base64.StdEncoding.EncodeToString(upload.audio)
+	source := string(upload.mediaType)
+	envelope := admitted.request(contract.ModalityAudio, contract.APIFormatAudioTranscriptions, contract.Input{
+		Format: contract.InputMessages,
+		Messages: []contract.Message{{
+			Role: contract.RoleUser,
+			Content: []contract.ContentPart{{
+				Type:   contract.ContentPartAudio,
+				Source: &contract.ContentSource{Kind: contract.ContentSourceInline, MediaType: &source, Data: &data},
+			}},
+		}},
+	})
+	var text strings.Builder
+	result := s.execute(r.Context(), admitted, &envelope, func(event contract.StreamEvent) error {
+		if delta, isDelta := event.(*contract.StreamDeltaEvent); isDelta && delta.Channel == contract.ChannelOutputText {
+			text.WriteString(delta.Text)
+		}
+		return nil
+	})
+	if result.Failure != nil || result.Report == nil {
+		failure := contract.PublicErrorFrom(result.Failure)
+		if failure == nil {
+			failure = contract.NewPublicError(requestID, "internal_error", contract.PublicMessage("internal_error"))
+		}
+		writeError(w, requestID, failure)
+		return
+	}
+	writeJSON(w, requestID, http.StatusOK, contract.Transcription{
+		SchemaVersion: contract.SchemaVersion, RequestID: requestID, Model: result.Report.ResolvedModelReference,
+		Text: text.String(), DurationMs: durationMs, Usage: nonNilUnits(result.Report.Units),
+	})
+}
+
+// parseTranscriptionMultipart reads the form: exactly one `file` part and at
+// most one of each text field, nothing else.
+func parseTranscriptionMultipart(requestID contract.RequestID, body []byte, boundary string) (transcriptionUpload, *contract.PublicError) {
+	var upload transcriptionUpload
+	if boundary == "" {
+		return upload, invalid(requestID, "Content-Type", "the multipart body names no boundary")
+	}
+	reader := multipart.NewReader(strings.NewReader(string(body)), boundary)
+	seen := make(map[string]bool)
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return upload, invalid(requestID, "", "the multipart body is malformed")
+		}
+		name := part.FormName()
+		if seen[name] {
+			return upload, invalid(requestID, name, name+" appears twice")
+		}
+		seen[name] = true
+		switch name {
+		case "file":
+			declared, _, _ := mime.ParseMediaType(part.Header.Get("Content-Type"))
+			upload.mediaType = contract.AudioInputMediaType(declared)
+			audio, err := io.ReadAll(io.LimitReader(part, maxTranscriptionFileBytes+1))
+			if err != nil {
+				return upload, invalid(requestID, "file", "the file part could not be read")
+			}
+			upload.audio = audio
+		case "model", "language", "prompt", "timestamps":
+			value, err := io.ReadAll(io.LimitReader(part, maxTranscriptionFieldBytes+1))
+			if err != nil || len(value) > maxTranscriptionFieldBytes {
+				return upload, invalid(requestID, name, name+" is too long")
+			}
+			text := string(value)
+			switch name {
+			case "model":
+				upload.fields.Model = contract.ModelReference(text)
+			case "language":
+				tag := contract.LanguageTag(text)
+				upload.fields.Language = &tag
+			case "prompt":
+				upload.fields.Prompt = &text
+			case "timestamps":
+				timestamps := contract.TranscriptionTimestamps(text)
+				upload.fields.Timestamps = &timestamps
+			}
+		default:
+			return upload, invalid(requestID, name, fmt.Sprintf("%q is not a field of a transcription request", name))
+		}
+	}
+	if !seen["file"] {
+		return upload, invalid(requestID, "file", "the audio is the file part, and it is missing")
+	}
+	return upload, nil
+}
+
+// parseTranscriptionJSON reads the JSON form (transcriptionJsonRequestSchema).
+func parseTranscriptionJSON(requestID contract.RequestID, body []byte) (transcriptionUpload, *contract.PublicError) {
+	var request contract.TranscriptionJSONRequest
+	if failure := decodeRequest(body, requestID, &request); failure != nil {
+		return transcriptionUpload{}, failure
+	}
+	if len(request.Audio.Data) > base64.StdEncoding.EncodedLen(maxTranscriptionFileBytes) {
+		return transcriptionUpload{}, contract.NewPublicError(requestID, "request_too_large", "the audio exceeds 20 MiB").WithParam("audio.data")
+	}
+	audio, err := base64.StdEncoding.Strict().DecodeString(request.Audio.Data)
+	if err != nil {
+		return transcriptionUpload{}, invalid(requestID, "audio.data", "audio.data is padded standard base64")
+	}
+	return transcriptionUpload{
+		fields: contract.TranscriptionRequest{
+			Model: request.Model, Language: request.Language, Prompt: request.Prompt, Timestamps: request.Timestamps,
+		},
+		mediaType: request.Audio.MediaType,
+		audio:     audio,
+	}, nil
+}
+
+// validateTranscription applies the contract's bounds and refuses what this
+// build cannot carry to a model rather than dropping it silently: the signed
+// envelope has no language, prompt or timing field, so a request that sets
+// one is refused until it does, never served without it.
+func validateTranscription(requestID contract.RequestID, upload transcriptionUpload) *contract.PublicError {
+	fields := upload.fields
+	switch {
+	case !fields.Model.Valid():
+		return invalid(requestID, "model", "model is a model reference (publisher/model[@revision])")
+	case !upload.mediaType.Valid():
+		return invalid(requestID, "file", "the audio's media type is not one a transcription accepts")
+	case len(upload.audio) == 0:
+		return invalid(requestID, "file", "the audio is empty")
+	case len(upload.audio) > maxTranscriptionFileBytes:
+		return contract.NewPublicError(requestID, "request_too_large", "the audio exceeds 20 MiB").WithParam("file")
+	case fields.Language != nil && !languageTagPattern.MatchString(string(*fields.Language)):
+		return invalid(requestID, "language", "language is a BCP 47 tag")
+	case fields.Prompt != nil && utf16Length(*fields.Prompt) > maxTranscriptionPromptLength:
+		return invalid(requestID, "prompt", "prompt is at most 4096 characters")
+	case fields.Timestamps != nil && !fields.Timestamps.Valid():
+		return invalid(requestID, "timestamps", "timestamps is none, segment or word")
+	case fields.Language != nil:
+		return invalid(requestID, "language", "language is not yet carried to transcription models; omit it")
+	case fields.Prompt != nil:
+		return invalid(requestID, "prompt", "prompt is not yet carried to transcription models; omit it")
+	case fields.Timestamps != nil && *fields.Timestamps != "none":
+		return invalid(requestID, "timestamps", "segment and word timestamps are not yet served; omit timestamps")
+	}
+	return nil
+}
