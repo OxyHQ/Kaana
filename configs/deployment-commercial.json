@@ -1,0 +1,1860 @@
+{
+  "$comment": [
+    "THE DEPLOYMENTS' COMMERCIAL FACTS. Kaana is their only source of truth (ADR 0002, amendment 2026-10-15). Each entry is published as the `commercial` member (deploymentCommercialSchema, contract set 4.4.0) of the deployment descriptor with that exact deploymentId, on the signed POST /internal/v1/deployments/query and /internal/v1/models/query. A deployment NOT listed here is not sold and its descriptor carries no `commercial`; nothing is inherited or defaulted. Changing a line is a reviewed commit. Loaded at start-up by internal/commercial (a bad file refuses to start) and validated against deploymentCommercialSchema by tools/contract/validate.mjs in `make check`. Entries stay sorted by deploymentId, without duplicates.",
+    "RULES: availabilityScope is one of platform_internal, public_payg, enterprise, byok_only, oxy_hosted; commercialPermission one of standard_application_use, public_resale_approved, wholesale_contract, customer_byok, open_weight_hosting. customer_byok if and only if byok_only. public_payg requires public_resale_approved, wholesale_contract or open_weight_hosting. dedicatedCapacity is omitted unless true (absent means shared).",
+    "IDS CARRY THE OBSERVATION DATE (dep_<provider>_<upstream>_observed_<date>): when the publisher re-observes a model under a new date the new deployment id is NOT listed and is unsold until a reviewed commit adds it. That is deliberate: a commercial permission is reviewed per deployment, never inherited.",
+    "MIGRATION: a ONE-TIME seed from a read-only export of Oxy's deployment table taken 2026-10-15 (354 rows), not a second source: from this commit Oxy's copy is retired. Only rows with permissionState approved AND status active or degraded were carried (264); the 88 retired rows and the 2 disabled/pending_review rows are not sold and are dropped. The export's status and permissionState are not carried: whether a deployment can be served now is Kaana's own inventory (withholding), and this file lists only what has been reviewed as sellable. All 264 carried rows were dedicatedCapacity false, scope platform_internal and permission standard_application_use. The legacy scope `internal_alia` (3 rows: the gpt-oss-120b deployments on cerebras, groq and openrouter dated 2026-09-01) does not exist in the contract and was mapped to platform_internal, which is what it meant (served to Oxy's own products only).",
+    "NOT SEEDED, no `commercial` (no evidence): the deployments Kaana serves that Oxy's table never held, notably OpenAI transcription (openai-audio: gpt-4o-transcribe and gpt-4o-mini-transcribe). The OpenAI Services Agreement cited in configs/public-catalogue.json assigns output to the customer (commercial use of outputs) but is not a review of the right to serve them, and their deployment ids are minted by the publisher with an observation date that cannot be known here. They stay unsold until a reviewed commit lists the exact deployment id with its evidence."
+  ],
+  "schemaVersion": 1,
+  "deployments": [
+    {
+      "deploymentId": "dep_anthropic_claude_fable_5_1_observed_2026_10_11",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_fable_5_observed_2026_10_11",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_haiku_4_5_20251001_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_haiku_5_5_observed_2026_10_11",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_opus_4_5_20251101_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_opus_4_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_opus_4_7_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_opus_4_8_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_opus_5_5_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_opus_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_sonnet_4_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_sonnet_5_5_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_anthropic_claude_sonnet_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_groq_openai_gpt_oss_120b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_2_lite_v1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_lite_v1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_micro_v1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_premier_v1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_amazon_nova_pro_v1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthracite_org_magnum_v4_72b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_haiku_4_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_7_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_4_8_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_5_5_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_opus_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_4_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_5_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_1_6_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_1_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_code_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_lite_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_0_mini_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_seed_seed_2_1_turbo_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_bytedance_ui_tars_1_5_7b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_cognitivecomputations_dolphin_mistral_24b_venice_edition_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_cohere_command_a_plus_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_v3_0324_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_chat_v3_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_0528_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_r1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_1_terminus_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_2_exp_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v3_2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_1_flash_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_vision_exp_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_pro_0813_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_deepseek_deepseek_v4_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_fireworks_ember_1_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_lite_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_2_5_pro_preview_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_flash_lite_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_1_pro_preview_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_5_flash_lite_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_5_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_6_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_7_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_8_flash_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemini_3_flash_preview_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_2_27b_it_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3_12b_it_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3_27b_it_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_3_4b_it_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_4_26b_a4b_it_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_google_gemma_4_31b_it_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_gryphe_mythomax_l2_13b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_ibm_granite_granite_4_2_8b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_inception_mercury_2_5_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_inception_mercury_2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_inclusionai_ling_3_0_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_inclusionai_ling_3_0_flash_vl_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_inference_net_schematron_v2_small_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_inference_net_schematron_v2_turbo_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mancer_weaver_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_1_70b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_1_8b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_2_3b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_3_3_70b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_4_maverick_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_4_scout_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_llama_llama_guard_4_12b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_meta_muse_glimmer_30b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_microsoft_phi_4_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_microsoft_wizardlm_2_8x22b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_7_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_minimax_minimax_m3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_codestral_2508_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_devstral_2512_observed_2026_09_24",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_14b_2512_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_3b_2512_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_ministral_8b_2512_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_2407_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_2512_observed_2026_09_24",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_large_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_medium_3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_nemo_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_saba_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_24b_instruct_2501_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_2603_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mistral_small_3_2_24b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_mixtral_8x22b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_mistralai_voxtral_small_24b_2507_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_0905_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_7_code_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k2_thinking_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_moonshotai_kimi_k3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_morph_morph_v3_fast_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_morph_morph_v3_large_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_3_llama_3_1_405b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_3_llama_3_1_70b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nousresearch_hermes_4_405b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_content_safety_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_5_lightning_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_nano_30b_a3b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_super_120b_a12b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_nvidia_nemotron_3_ultra_550b_a55b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_0613_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_3_5_turbo_16k_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_mini_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_nano_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_05_13_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_2024_08_06_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_mini_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_4o_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_max_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_mini_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_codex_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_chat_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_codex_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_3_codex_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_mini_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_nano_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_4_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_luna_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_luna_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_sol_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_sol_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_terra_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_6_terra_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_mini_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_nano_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_1_sol_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_1_sol_pro_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_astra_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_astra_pro_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_luna_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_luna_pro_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_sol_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_6_sol_pro_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_oss_20b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_openai_gpt_oss_safeguard_20b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perceptron_perceptron_mk1_5_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perceptron_perceptron_mk1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_deep_research_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_pro_search_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_perplexity_sonar_reasoning_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen2_5_vl_72b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_14b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_2507_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_235b_a22b_thinking_2507_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_instruct_2507_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_30b_a3b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_32b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_122b_a10b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_27b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_35b_a3b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_397b_a17b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_5_9b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_27b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_6_35b_a3b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_27b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_8_2_4t_a95b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_30b_a3b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_next_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_coder_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_next_80b_a3b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_next_80b_a3b_thinking_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_235b_a22b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_30b_a3b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_30b_a3b_thinking_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen3_vl_8b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_72b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_qwen_qwen_2_5_7b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_rekaai_reka_edge_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_rekaai_reka_flash_3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_relace_relace_apply_3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_relace_relace_search_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_sao10k_l3_1_euryale_70b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_sao10k_l3_3_euryale_70b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_sao10k_l3_lunaris_8b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_stepfun_step_3_5_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_stepfun_step_3_7_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hunyuan_a13b_instruct_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_1_8b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_30b_a3b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_tencent_hy_mt2_7b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_cydonia_24b_v4_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_skyfall_36b_v2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_thedrummer_unslopnemo_12b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_thinkingmachines_inkling_small_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_undi95_remm_slerp_l2_13b_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_upstage_solar_mini4_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_upstage_solar_pro4_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_writer_palmyra_x5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_20_multi_agent_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_20_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_4_7_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_x_ai_grok_build_0_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_5_pro_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_6_flash_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_xiaomi_mimo_v2_6_pro_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5_air_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_5v_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_6_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_6v_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_7_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_4_7_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_1_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_2_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_3_flash_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_3_flashx_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_3_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5_turbo_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_openrouter_z_ai_glm_5v_turbo_observed_2026_09_01",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_xai_tts_observed_2026_09_24",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    }
+  ]
+}

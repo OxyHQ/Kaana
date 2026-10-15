@@ -24,10 +24,10 @@ OPENAPI      := $(PACKAGE_DIR)/openapi.json
 
 .DEFAULT_GOAL := check
 
-.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate sdk-package cloudflare tools help
+.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate sdk-package lockfile cloudflare tools help
 
 ## check: every gate CI runs, in CI's order. The one command to run before a PR.
-check: fmt build vet lint test contract sdk-package cloudflare
+check: lockfile fmt build vet lint test contract sdk-package cloudflare
 	@echo "all gates passed"
 
 ## ci: alias for check, for anyone reaching for the conventional name.
@@ -144,6 +144,12 @@ contract-types:
 # accepts, so a silent no-op cannot pass as a clean run.
 contract-validate:
 	cd $(CONTRACT_DIR) && bun run validate
+
+## lockfile: bun.lock records every workspace's own name and version. A stale
+# entry is what `bun publish` turns a `workspace:*` dependency into, so this runs
+# first. No install, no network.
+lockfile:
+	node tools/check-lockfile-sync.mjs
 
 ## cloudflare: the reconcilers fail closed. Pure Python, no dependencies.
 #

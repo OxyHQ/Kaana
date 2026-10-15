@@ -285,6 +285,11 @@ type DeploymentDescriptor struct {
 	// route Translate would refuse, which the catalogue's per-line intersection
 	// cannot tell it for a line served by several providers.
 	AcceptedParameters *[]provider.RequestParameter `json:"acceptedParameters,omitempty"`
+	// Commercial is who this deployment may be sold to and on what basis
+	// (contract set 4.4.0). The inventory never sets it: it comes from the
+	// reviewed configs/deployment-commercial.json, applied where the descriptors
+	// are served. Absent means the deployment is not sold.
+	Commercial *contract.DeploymentCommercial `json:"commercial,omitempty"`
 }
 
 // RouteSet is every endpoint serving ONE model reference, in the order the

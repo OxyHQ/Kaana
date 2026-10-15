@@ -41,6 +41,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/credentialvalidation"
@@ -92,6 +93,7 @@ type Server struct {
 	inventory           *inventory.Store
 	rotation            *rotation.Registry
 	declaredCatalogue   json.RawMessage
+	commercial          *commercial.Table
 	realtime            http.Handler
 	logger              *slog.Logger
 	maxEnvelopeBytes    int64
@@ -136,6 +138,9 @@ type Config struct {
 	// so Oxy rates grants from Kaana's list prices. Empty carries an empty
 	// catalogue.
 	DeclaredCatalogue json.RawMessage
+	// Commercial is configs/deployment-commercial.json: the `commercial`
+	// member of the deployment descriptors. Nil sells nothing.
+	Commercial *commercial.Table
 	// Realtime serves GET /internal/v1/realtime (internal/realtime). It
 	// authenticates its own first frame, under the inference signature.
 	Realtime http.Handler
@@ -187,6 +192,7 @@ func New(config Config) (*Server, error) {
 		inventory:           config.Inventory,
 		rotation:            config.Rotation,
 		declaredCatalogue:   declaredOrEmpty(config.DeclaredCatalogue),
+		commercial:          config.Commercial,
 		realtime:            config.Realtime,
 		logger:              logger,
 		maxEnvelopeBytes:    limit,
@@ -663,6 +669,7 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		descriptors = current.DeploymentDescriptorsPrivateAutoAt(time.Now(), approval)
 	}
+	s.attachCommercial(descriptors)
 	if err := validateUniqueDeploymentDescriptors(descriptors); err != nil {
 		// Inventory loading already refuses duplicate ids. Keep the read surface's
 		// own gate so a future loader regression cannot publish an ambiguous list.
@@ -1091,6 +1098,7 @@ func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
 		entries = current.CataloguePrivateAuto(now, approval)
 		descriptors = current.DeploymentDescriptorsPrivateAutoAt(now, approval)
 	}
+	s.attachCommercial(descriptors)
 	seenModels := map[contract.ModelID]contract.ModelReference{}
 	for _, entry := range entries {
 		if existing, duplicate := seenModels[entry.Model]; duplicate && existing != entry.Reference {
@@ -1100,6 +1108,14 @@ func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
 		seenModels[entry.Model] = entry.Reference
 	}
 	writeJSON(w, http.StatusOK, modelsResponse{PrivateAutoExecutionContractVersion: query.PrivateAutoExecutionContractVersion, ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: entries, Deployments: descriptors, PinnedOnlyReferences: current.PinnedOnlyReferences()})
+}
+
+// attachCommercial sets `commercial` on each descriptor from the reviewed file.
+// A deployment the file does not list is not sold and keeps none.
+func (s *Server) attachCommercial(descriptors []inventory.DeploymentDescriptor) {
+	for index := range descriptors {
+		descriptors[index].Commercial = s.commercial.For(descriptors[index].DeploymentID)
+	}
 }
 
 func (s *Server) privateAutoApproval() *contract.PrivateAutoSourceApproval {

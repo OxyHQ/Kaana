@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -94,6 +95,64 @@ func TestAGrantsStepsAreTriedInOrderBeforeAnyOutput(t *testing.T) {
 	settlement := h.oxy.settled()["grt_1"]
 	if settlement.ServedStep == nil || *settlement.ServedStep != 1 || settlement.Report.DeploymentID != "dep_fallback" || settlement.Report.RouteSwitches != 1 {
 		t.Errorf("settlement = %+v", settlement)
+	}
+}
+
+// sameModelFailover: absent and true keep every admissible provider of a line
+// behind the best one; false authorizes ONE deployment per admitted line in the
+// step, the best-ranked, so a failure there is not retried on another provider.
+func TestSameModelFailoverFalseAuthorizesOneDeploymentPerLine(t *testing.T) {
+	no, yes := false, true
+	for name, tc := range map[string]struct {
+		flag *bool
+		want []contract.DeploymentID
+	}{
+		"absent": {nil, []contract.DeploymentID{"dep_stub_b", "dep_stub_a"}},
+		"true":   {&yes, []contract.DeploymentID{"dep_stub_b", "dep_stub_a"}},
+		"false":  {&no, []contract.DeploymentID{"dep_stub_b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, harnessOptions{})
+			h.oxy.steps = func(request contract.InferenceAuthorizationRequest) []contract.GrantStep {
+				return []contract.GrantStep{{Target: *request.Target, Limits: contract.GrantStepLimits{
+					SameModelFailover:  tc.flag,
+					AdmittedModelLines: []contract.AdmittedModelLine{{ModelLine: textModel.ModelID(), PriceVersionID: "price-1"}}}}}
+			}
+			response := h.post("/v1/responses", validKey, responsesBody(nil))
+			body := readAll(t, response)
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("%d %s", response.StatusCode, body)
+			}
+			var got []contract.DeploymentID
+			for _, route := range h.adapter.lastCall().AuthorizedRoutes {
+				got = append(got, route.DeploymentID)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("routes = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// With failover off, a failure of the one deployment is final inside the step:
+// the request is not served by the other provider of the same line, and it
+// moves on only to the NEXT step, which here admits another line.
+func TestSameModelFailoverFalseNeverRetriesOnAnotherProviderOfTheLine(t *testing.T) {
+	no := false
+	h := newHarness(t, harnessOptions{})
+	h.adapter.failDeployment = "dep_stub_b"
+	h.oxy.steps = func(request contract.InferenceAuthorizationRequest) []contract.GrantStep {
+		return []contract.GrantStep{{Target: *request.Target, Limits: contract.GrantStepLimits{
+			SameModelFailover:  &no,
+			AdmittedModelLines: []contract.AdmittedModelLine{{ModelLine: textModel.ModelID(), PriceVersionID: "price-1"}}}}}
+	}
+	response := h.post("/v1/responses", validKey, responsesBody(nil))
+	body := readAll(t, response)
+	if response.StatusCode == http.StatusOK {
+		t.Fatalf("served although its only deployment failed: %s", body)
+	}
+	if routes := h.adapter.lastCall().AuthorizedRoutes; len(routes) != 1 || routes[0].DeploymentID != "dep_stub_b" {
+		t.Fatalf("routes = %+v", routes)
 	}
 }
 

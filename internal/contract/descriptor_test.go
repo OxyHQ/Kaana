@@ -204,6 +204,7 @@ var goShapes = map[string]reflect.Type{
 	"grantSchema":                         reflect.TypeOf(Grant{}),
 	"grantStepSchema":                     reflect.TypeOf(GrantStep{}),
 	"grantStepLimitsSchema":               reflect.TypeOf(GrantStepLimits{}),
+	"deploymentCommercialSchema":          reflect.TypeOf(DeploymentCommercial{}),
 	"grantTargetSchema":                   reflect.TypeOf(GrantTarget{}),
 	"grantRequestFactsSchema":             reflect.TypeOf(GrantRequestFacts{}),
 	"grantPrincipalSchema":                reflect.TypeOf(GrantPrincipal{}),
@@ -286,6 +287,9 @@ var goEnums = map[string]enumBinding{
 	"speechFormatSchema":               bindEnum(speechFormatValues),
 	"speechStreamFormatSchema":         bindEnum(speechStreamFormatValues),
 	"audioInputMediaTypeSchema":        bindEnum(audioInputMediaTypeValues),
+	// Contract set 4.4.0: the commercial member of a deployment descriptor.
+	"availabilityScopeSchema":    bindEnum(availabilityScopeValues),
+	"commercialPermissionSchema": bindEnum(commercialPermissionValues),
 }
 
 // goScalars maps a published scalar (a branded id, a constrained string) to the
@@ -455,11 +459,9 @@ var notApplicable = map[string]string{
 	// canonical model ids as opaque strings and holds its own operational
 	// inventory; it neither serves nor stores a customer-facing catalogue
 	// until it serves GET /v1/models (ADR 0002 phase 3).
-	"availabilityScopeSchema":               "catalogue: Oxy owns customer-facing model identity and commercial permission",
 	"catalogueModelSchema":                  "catalogue: Oxy owns customer-facing model identity",
 	"cataloguePublisherSummarySchema":       "catalogue: Oxy owns publisher identity",
 	"catalogueServingProviderSummarySchema": "catalogue: Oxy owns the customer-safe provider projection",
-	"commercialPermissionSchema":            "catalogue: resale permission is an Oxy commercial decision",
 	"inferenceDataPolicySchema":             "catalogue: retention and training policy are published by Oxy",
 	"inferenceProviderSchema":               "catalogue: Oxy owns provider identity; Kaana owns provider health only",
 	"modelCapabilitiesSchema":               "catalogue: Oxy owns capability advertisement",
@@ -526,7 +528,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 58
+const expectedNotApplicableCount = 56
 
 type enumBinding struct {
 	goType  reflect.Type

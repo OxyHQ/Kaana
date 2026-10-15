@@ -862,6 +862,16 @@ over image defaults. The file is loaded at start whether or not
   `audience` says who may see the model on `GET /v1/models`; it does not
   limit who may be rated. Nothing in it is a Kaana cost.
 
+## Deployment commercial facts
+
+`configs/deployment-commercial.json` is the source of the `commercial` member of
+the deployment descriptors (docs/inventory.md, "Commercial facts"). The image
+bakes it at `/etc/kaana-commercial/deployment-commercial.json` and sets
+`KAANA_DEPLOYMENT_COMMERCIAL_PATH`; the oxy-infra task definition restates the
+value. A malformed file stops the process at start-up; an unset path sells
+nothing. To sell a deployment or change its basis: edit the file (entries stay
+sorted by `deploymentId`), cite the evidence in the commit, run `make check`.
+
 ## Container and deployment
 
 The image contains five static binaries:

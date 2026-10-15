@@ -40,11 +40,14 @@ func TestWriteWireFixtures(t *testing.T) {
 	valid = append(valid, realtimeValidFixtures(t)...)
 	valid = append(valid, grantValidFixtures(t)...)
 	valid = append(valid, publicValidFixtures(t)...)
+	commercialValid, commercialInvalid := commercialFixtures(t)
+	valid = append(valid, commercialValid...)
 	invalid := append(invalidFixtures(), credentialTextFixtures(true)...)
 	invalid = append(invalid, decisionsInvalid...)
 	invalid = append(invalid, realtimeInvalidFixtures(t)...)
 	invalid = append(invalid, grantInvalidFixtures(t)...)
 	invalid = append(invalid, publicInvalidFixtures(t)...)
+	invalid = append(invalid, commercialInvalid...)
 
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
@@ -60,12 +63,13 @@ func TestWriteWireFixtures(t *testing.T) {
 	// controls (a tier the contract does not name, a ceiling beside a customer
 	// credential). Contract set 4.1.0 (ADR 0002 phase 3) adds 10 grant-exchange
 	// fixtures and 3 grant-exchange controls, and 16 public-surface fixtures
-	// and 2 public-surface controls.
-	if len(valid) != 108 {
-		t.Fatalf("expected 108 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// and 2 public-surface controls. Contract set 4.4.0 adds 2 deployment
+	// commercial fixtures and 2 controls.
+	if len(valid) != 110 {
+		t.Fatalf("expected 110 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 36 {
-		t.Fatalf("expected 36 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 38 {
+		t.Fatalf("expected 38 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)

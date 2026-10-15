@@ -308,6 +308,16 @@ type GrantStepLimits struct {
 	ProhibitTrainingOnCustomerData bool                `json:"prohibitTrainingOnCustomerData"`
 	AllowedLicenseIDs              []string            `json:"allowedLicenseIds,omitempty"`
 	RequireCommercialUseRights     bool                `json:"requireCommercialUseRights"`
+	// SameModelFailover is whether a request may move, inside this step,
+	// between providers serving the SAME admitted line (contract set 4.4.0).
+	// Absent is true: Oxy that predates the member keeps the failover it
+	// always had. Read it through SameModelFailoverAllowed.
+	SameModelFailover *bool `json:"sameModelFailover,omitempty"`
+}
+
+// SameModelFailoverAllowed is SameModelFailover with its default applied.
+func (l GrantStepLimits) SameModelFailoverAllowed() bool {
+	return l.SameModelFailover == nil || *l.SameModelFailover
 }
 
 // GrantStep is one ordered step: a target and its limits.

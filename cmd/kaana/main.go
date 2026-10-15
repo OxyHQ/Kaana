@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/credentialvalidation"
@@ -307,7 +308,16 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// The deployments' commercial facts (configs/deployment-commercial.json),
+	// published as `commercial` on every deployment descriptor. Unset sells
+	// nothing: no descriptor carries `commercial`.
+	deploymentCommercial, err := commercial.Load(os.Getenv("KAANA_DEPLOYMENT_COMMERCIAL_PATH"))
+	if err != nil {
+		return err
+	}
+
 	server, err := httpapi.New(httpapi.Config{
+		Commercial:          deploymentCommercial,
 		DeclaredCatalogue:   declaredCatalogue.Document(),
 		Executor:            executor,
 		Realtime:            sessions,

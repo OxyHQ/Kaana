@@ -260,6 +260,49 @@ export const modelDeploymentSchema = z
     }
   });
 
+/**
+ * The commercial facts Kaana publishes about ONE deployment on the descriptors
+ * it serves to Oxy (`POST /internal/v1/deployments/query` and
+ * `/internal/v1/models/query`), from the reviewed file
+ * `configs/deployment-commercial.json`. A deployment that is not sold carries
+ * no `commercial` at all, which is why the member is optional on the
+ * descriptor. New in contract set 4.4.0.
+ *
+ * `customer_byok` is the commercial basis of a `byok_only` route and of no
+ * other: the two say the same thing and may not disagree.
+ */
+export const deploymentCommercialSchema = z
+  .object({
+    availabilityScope: availabilityScopeSchema,
+    commercialPermission: commercialPermissionSchema,
+    /** Reserved capacity for one enterprise account; absent means shared. */
+    dedicatedCapacity: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((commercial, ctx) => {
+    const byokScope = commercial.availabilityScope === 'byok_only';
+    const byokPermission = commercial.commercialPermission === 'customer_byok';
+    if (byokScope !== byokPermission) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['commercialPermission'],
+        message: 'customer_byok is the permission of a byok_only route, and only of it',
+      });
+    }
+    if (
+      commercial.availabilityScope === 'public_payg' &&
+      commercial.commercialPermission !== 'public_resale_approved' &&
+      commercial.commercialPermission !== 'wholesale_contract' &&
+      commercial.commercialPermission !== 'open_weight_hosting'
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['commercialPermission'],
+        message: 'a public pay-as-you-go route requires an approved resale permission',
+      });
+    }
+  });
+
 /** One candidate a profile may resolve to, and how strongly it is preferred. */
 export const routingProfileCandidateSchema = z
   .object({
@@ -406,6 +449,7 @@ export type DeclaredModel = z.infer<typeof declaredModelSchema>;
 export type DeclaredCatalogue = z.infer<typeof declaredCatalogueSchema>;
 export type AvailabilityScope = z.infer<typeof availabilityScopeSchema>;
 export type CommercialPermission = z.infer<typeof commercialPermissionSchema>;
+export type DeploymentCommercial = z.infer<typeof deploymentCommercialSchema>;
 export type ModelPublisher = z.infer<typeof modelPublisherSchema>;
 export type CatalogueModel = z.infer<typeof catalogueModelSchema>;
 export type ModelRevision = z.infer<typeof modelRevisionSchema>;

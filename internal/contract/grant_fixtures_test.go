@@ -12,6 +12,7 @@ import (
 func grantValidFixtures(t *testing.T) []fixture {
 	t.Helper()
 	attribution := sampleAttribution()
+	noFailover := false
 	reservation := "rsv_01"
 	metered := "mtr_01"
 	served := 0
@@ -61,6 +62,7 @@ func grantValidFixtures(t *testing.T) []fixture {
 				ProhibitTrainingOnCustomerData: true,
 				AllowedLicenseIDs:              []string{"proprietary"},
 				RequireCommercialUseRights:     true,
+				SameModelFailover:              &noFailover,
 			},
 		}},
 		IdempotencyKey: &idempotency,
@@ -178,6 +180,36 @@ func grantValidFixtures(t *testing.T) []fixture {
 
 // grantInvalidFixtures are values the contract must REFUSE, each also refused
 // by the Go validation that guards the same rule.
+// commercialFixtures are the deployment descriptor's `commercial` member
+// (contract set 4.4.0): two that must parse and two that break its rules.
+func commercialFixtures(t *testing.T) (valid, invalid []fixture) {
+	t.Helper()
+	dedicated := true
+	plain := DeploymentCommercial{AvailabilityScope: ScopePlatformInternal, CommercialPermission: PermissionStandardApplicationUse}
+	reserved := DeploymentCommercial{AvailabilityScope: ScopeEnterprise, CommercialPermission: PermissionWholesaleContract, DedicatedCapacity: &dedicated}
+	byokWithoutByok := DeploymentCommercial{AvailabilityScope: ScopeBYOKOnly, CommercialPermission: PermissionStandardApplicationUse}
+	paygWithoutResale := DeploymentCommercial{AvailabilityScope: ScopePublicPAYG, CommercialPermission: PermissionStandardApplicationUse}
+	for _, ok := range []DeploymentCommercial{plain, reserved} {
+		if err := ok.Validate(); err != nil {
+			t.Fatalf("a valid commercial fixture fails Go's own validation: %v", err)
+		}
+	}
+	for _, bad := range []DeploymentCommercial{byokWithoutByok, paygWithoutResale} {
+		if bad.Validate() == nil {
+			t.Fatalf("Go accepts %+v", bad)
+		}
+	}
+	accepted := []fixture{
+		{Schema: "deploymentCommercialSchema", Case: "platform-internal", Value: plain},
+		{Schema: "deploymentCommercialSchema", Case: "enterprise-dedicated", Value: reserved},
+	}
+	refused := []fixture{
+		{Schema: "deploymentCommercialSchema", Case: "byok-scope-without-byok-permission", Value: byokWithoutByok},
+		{Schema: "deploymentCommercialSchema", Case: "public-payg-without-resale", Value: paygWithoutResale},
+	}
+	return accepted, refused
+}
+
 func grantInvalidFixtures(t *testing.T) []fixture {
 	t.Helper()
 	valid := grantValidFixtures(t)
