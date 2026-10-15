@@ -128,6 +128,14 @@ type Observed struct {
 	// observation of a public catalogue, not Kaana's cost and not a customer
 	// price; its type is providercost's, the only package that holds an amount.
 	ListPrice *providercost.ListPrice `json:"listPrice,omitempty"`
+	// Realtime and Audio are what a realtime deployment serves as a session
+	// and the voices and languages it speaks (contract set 4.1.0). Like
+	// ReasoningEfforts they come from the adapter's reviewed statement
+	// (providerconfig.RealtimeCapabilities), not from a model list, because
+	// the session adapter enforces exactly that statement. Absent: not a
+	// realtime deployment, or one nobody has stated.
+	Realtime *RealtimeObservation `json:"realtime,omitempty"`
+	Audio    *AudioObservation    `json:"audio,omitempty"`
 }
 
 // MaxDisplayNameLength bounds a provider-reported display name.
@@ -200,6 +208,16 @@ func (o Observed) Validate() error {
 	if o.ListPrice != nil {
 		if err := o.ListPrice.Validate(); err != nil {
 			return err
+		}
+	}
+	if o.Realtime != nil {
+		if err := o.Realtime.Validate(); err != nil {
+			return fmt.Errorf("realtime: %w", err)
+		}
+	}
+	if o.Audio != nil {
+		if err := o.Audio.Validate(); err != nil {
+			return fmt.Errorf("audio: %w", err)
 		}
 	}
 	return nil
@@ -695,6 +713,11 @@ type CatalogueEntry struct {
 	// prices are two observations, and a single number would hide which one
 	// Oxy is pricing against.
 	ListPrices []ListPriceObservation `json:"listPrices,omitempty"`
+	// Realtime and Audio are the intersection of the reporting deployments'
+	// statements (aggregateRealtime, aggregateAudio): what every route of the
+	// line serves, so a session that passes them is servable on any of them.
+	Realtime *RealtimeObservation `json:"realtime,omitempty"`
+	Audio    *AudioObservation    `json:"audio,omitempty"`
 }
 
 // ListPriceObservation attributes one provider-published list price to the
@@ -783,6 +806,8 @@ func aggregateObservations(entry *CatalogueEntry, endpoints []Endpoint) {
 			efforts = reported
 		}
 		parameters = provider.IntersectParameterSets(parameters, observed.AcceptedParameters)
+		entry.Realtime = aggregateRealtime(entry.Realtime, observed.Realtime)
+		entry.Audio = aggregateAudio(entry.Audio, observed.Audio)
 		if observed.ListPrice != nil {
 			entry.ListPrices = append(entry.ListPrices, ListPriceObservation{
 				DeploymentID: endpoint.DeploymentID,

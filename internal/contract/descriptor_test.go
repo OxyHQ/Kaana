@@ -367,7 +367,7 @@ var notApplicable = map[string]string{
 	"inferenceDataPolicySchema":             "catalogue: retention and training policy are published by Oxy",
 	"inferenceProviderSchema":               "catalogue: Oxy owns provider identity; Kaana owns provider health only",
 	"modelCapabilitiesSchema":               "catalogue: Oxy owns capability advertisement",
-	"modelRealtimeCapabilitiesSchema":       "catalogue: Oxy owns capability advertisement, including which session kinds a model serves",
+	"modelRealtimeCapabilitiesSchema":       "catalogue: served as GET /v1/models in phase 3; until then the same facts are inventory.RealtimeObservation on the internal catalogue",
 	"modelCatalogueEntrySchema":             "catalogue: the assembled customer view is served by Oxy",
 	"modelDeploymentSchema":                 "catalogue: carries Oxy commercial fields and no upstream model id; Kaana's own inventory is internal/inventory",
 	"modelDeprecationSchema":                "catalogue: deprecation is an Oxy product decision",
@@ -414,7 +414,7 @@ var notApplicable = map[string]string{
 	"imageGenerationsSchema":                  "public api (phase 3): POST /v1/images/generations response",
 	"languageTagSchema":                       "public api (phase 3): BCP 47 tags of voices and transcription",
 	"meteredGenerationRecordSchema":           "public api (phase 3): GET /v1/generations record",
-	"modelAudioCapabilitiesSchema":            "public api (phase 3): voice limits; the publisher publishes them in phase 1.2",
+	"modelAudioCapabilitiesSchema":            "public api (phase 3): voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
 	"modelListSchema":                         "public api (phase 3): GET /v1/models",
 	"modelSchema":                             "public api (phase 3): GET /v1/models entry",
 	"modelTargetSchema":                       "public api (phase 3): a model reference or a power level",
@@ -446,7 +446,7 @@ var notApplicable = map[string]string{
 	"transcriptionRequestSchema":              "public api (phase 3): POST /v1/audio/transcriptions fields",
 	"transcriptionSchema":                     "public api (phase 3): POST /v1/audio/transcriptions response",
 	"usageSchema":                             "public api (phase 3): public usage partition",
-	"voiceSchema":                             "public api (phase 3): one voice of a speech model",
+	"voiceSchema":                             "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
 
 	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
 	// authorizations and settlements endpoints in phase 2 and Kaana calls them
