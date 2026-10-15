@@ -4,7 +4,7 @@
   "description": "Kaana inference contract: the Zod schemas of the public API at https://kaana.ai/v1 and, under /internal, of the Oxy-Kaana grant, settlement and signed lane.",
   "type": "module",
   "sideEffects": false,
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://kaana.ai",
   "repository": {
     "type": "git",
@@ -28,6 +28,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "NOTICE",
     "dist",
     "openapi.json"
   ],
