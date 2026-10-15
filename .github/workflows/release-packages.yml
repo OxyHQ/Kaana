@@ -128,7 +128,11 @@ jobs:
             echo "expected exactly one tarball, found ${#tarballs[@]}"
             exit 1
           fi
-          sha512sum "${tarballs[0]}" | tee release/SHA512SUMS
+          # Summed from inside release/, so the file names the tarball by its bare
+          # name: the artifact is downloaded flat into trusted/, where a
+          # `release/…` path does not exist and the check fails before publishing
+          # (the first run, for contracts 4.4.1, failed exactly that way).
+          (cd release && sha512sum "$(basename "${tarballs[0]}")" | tee SHA512SUMS)
 
       - name: the version is not on the registry yet (anonymous preflight)
         run: |
