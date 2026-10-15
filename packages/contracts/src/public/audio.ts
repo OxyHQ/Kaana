@@ -9,7 +9,12 @@
  */
 
 import { z } from 'zod';
-import { languageTagSchema, speechFormatSchema, speechMediaType } from './audioFormats.js';
+import {
+  audioInputMediaTypeSchema,
+  languageTagSchema,
+  speechFormatSchema,
+  speechMediaType,
+} from './audioFormats.js';
 import type { ModelAudioCapabilities } from './catalogue.js';
 import { publicErrorSchema } from './errors.js';
 import { modelReferenceSchema, PADDED_BASE64_PATTERN, requestIdSchema } from './identifiers.js';
@@ -195,6 +200,43 @@ export const transcriptionRequestSchema = z
   })
   .strict();
 
+/**
+ * The longest audio one transcription request may carry, when its container
+ * states a duration (WAV, raw PCM at a known rate). A file whose container does
+ * not state one is bounded by {@link MAX_TRANSCRIPTION_FILE_BYTES} alone: Kaana
+ * never guesses a duration from a byte count. New in contract set 4.1.0.
+ */
+export const MAX_TRANSCRIPTION_AUDIO_MILLISECONDS = 30 * 60 * 1000;
+
+/**
+ * The longest padded base64 the JSON form may carry: exactly the encoding of
+ * {@link MAX_TRANSCRIPTION_FILE_BYTES}.
+ */
+export const MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH =
+  Math.ceil(MAX_TRANSCRIPTION_FILE_BYTES / 3) * 4;
+
+/**
+ * The JSON form of `POST /v1/audio/transcriptions` (`Content-Type:
+ * application/json`): the same fields as the multipart form, with the audio
+ * inline as padded base64. For runtimes where building a multipart body from
+ * bytes is unreliable (React Native); the two forms mean the same request and
+ * hash the same way. New in contract set 4.1.0.
+ */
+export const transcriptionJsonRequestSchema = transcriptionRequestSchema
+  .extend({
+    audio: z
+      .object({
+        mediaType: audioInputMediaTypeSchema,
+        data: z
+          .string()
+          .min(4)
+          .max(MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH)
+          .regex(PADDED_BASE64_PATTERN),
+      })
+      .strict(),
+  })
+  .strict();
+
 const timedSpanFields = {
   startMs: z.number().int().nonnegative().safe(),
   endMs: z.number().int().nonnegative().safe(),
@@ -237,4 +279,5 @@ export type SpeechAudioDoneEvent = z.infer<typeof speechAudioDoneEventSchema>;
 export type SpeechStreamErrorEvent = z.infer<typeof speechStreamErrorEventSchema>;
 export type SpeechStreamEvent = z.infer<typeof speechStreamEventSchema>;
 export type TranscriptionRequestFields = z.infer<typeof transcriptionRequestSchema>;
+export type TranscriptionJsonRequest = z.infer<typeof transcriptionJsonRequestSchema>;
 export type Transcription = z.infer<typeof transcriptionSchema>;

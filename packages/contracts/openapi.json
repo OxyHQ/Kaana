@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "4.0.0",
+    "version": "4.1.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -615,7 +615,7 @@
     },
     "/audio/transcriptions": {
       "post": {
-        "summary": "Transcribe an uploaded audio file (synchronous).",
+        "summary": "Transcribe an uploaded audio file (synchronous), as multipart or as JSON with inline base64.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -663,6 +663,11 @@
                     }
                   }
                 ]
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranscriptionJsonRequest"
               }
             }
           }
@@ -6635,6 +6640,53 @@
           "type",
           "name",
           "parameters"
+        ],
+        "additionalProperties": false
+      },
+      "TranscriptionJsonRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelReference"
+          },
+          "language": {
+            "$ref": "#/components/schemas/LanguageTag"
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "timestamps": {
+            "type": "string",
+            "enum": [
+              "none",
+              "segment",
+              "word"
+            ]
+          },
+          "audio": {
+            "type": "object",
+            "properties": {
+              "mediaType": {
+                "$ref": "#/components/schemas/AudioInputMediaType"
+              },
+              "data": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 27962028,
+                "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+              }
+            },
+            "required": [
+              "mediaType",
+              "data"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "model",
+          "audio"
         ],
         "additionalProperties": false
       },

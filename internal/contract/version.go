@@ -24,9 +24,10 @@ package contract
 // Asserted against the contract's INFERENCE_CONTRACT_VERSION by
 // descriptor_test.go, so changing the contract set without revisiting this
 // constant fails the build. 4.0.0 is the set first published as
-// `@kaana.ai/contracts`; Oxy reads it from the health handshake but compares
-// no version against it.
-const ContractVersion = "4.0.0"
+// `@kaana.ai/contracts`; 4.1.0 adds what https://kaana.ai/v1 speaks beyond
+// it (the JSON transcription upload and the public response headers). Oxy
+// reads it from the health handshake but compares no version against it.
+const ContractVersion = "4.1.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set
