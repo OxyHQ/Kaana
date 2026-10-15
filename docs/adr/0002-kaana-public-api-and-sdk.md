@@ -1,8 +1,7 @@
 # ADR 0002 — Kaana sirve su API pública `https://kaana.ai/v1`, resuelve los niveles de potencia y publica su propio SDK; Oxy Console gestiona, Oxy autoriza, reserva y liquida
 
-- Status: proposed (borrador; las preguntas del primer borrador las respondió
-  el dueño el 2026-10-15 y están incorporadas como decisiones; nada
-  implementado)
+- Status: accepted (el dueño lo aceptó el 2026-10-15; sus respuestas al
+  primer borrador están incorporadas como decisiones)
 - Date: 2026-10-15
 - Decided by: el dueño de Oxy (decisión de 2026-10-15 y sus respuestas del
   mismo día; este documento las desarrolla, no las reabre)
