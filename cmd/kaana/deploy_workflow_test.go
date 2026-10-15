@@ -43,24 +43,33 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 	if strings.Count(workflow, deployGate) != 1 {
 		t.Fatal("the ECS step does not require both the exact cutover gate and an explicit deploy-capable event")
 	}
-	between := workflow[build:deploy]
-	if strings.Contains(between, "KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE") ||
-		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE") ||
-		strings.Contains(between, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE") || strings.Contains(between, "inputs.mode") {
+	migrate := strings.Index(workflow, "      - name: Apply the candidate's credential schema before serving it")
+	if migrate < 0 || build >= migrate || migrate >= deploy {
+		t.Fatal("the candidate's migrator must run after the build and before any service moves")
+	}
+	buildStep := workflow[build:migrate]
+	if strings.Contains(buildStep, "KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE") ||
+		strings.Contains(buildStep, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE") ||
+		strings.Contains(buildStep, "KAANA_CREDENTIAL_RUNTIME_SCHEMA_0012_COMPLETE") || strings.Contains(buildStep, "inputs.mode") {
 		t.Fatal("the immutable build is incorrectly hidden behind the deployment gate")
 	}
-	for _, preparationBoundary := range []string{
-		"Prepare credential schema 0013 without changing serving traffic",
-		"vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true'",
+	// Every run that may deploy migrates first; a build-only run touches no
+	// schema, except while the historical 0013 gate is open.
+	migrateStep := workflow[migrate:deploy]
+	for _, migrationBoundary := range []string{
+		`        if: >-
+          vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true' ||
+          github.event_name == 'push' || inputs.mode == 'deploy'`,
 		`command:["migrate"]`,
-		"schema 0013 prepared with $IMAGE; serving ECS services were not updated",
+		`if [ "$exit_code" != 0 ]; then`,
+		"the candidate's migrator exited $exit_code; no service was updated",
 	} {
-		if !strings.Contains(between, preparationBoundary) {
-			t.Errorf("schema-only preparation lost boundary %q", preparationBoundary)
+		if !strings.Contains(migrateStep, migrationBoundary) {
+			t.Errorf("the pre-deploy migration lost boundary %q", migrationBoundary)
 		}
 	}
-	if strings.Contains(between, "aws ecs update-service") {
-		t.Fatal("schema preparation can change serving traffic")
+	if strings.Contains(migrateStep, "aws ecs update-service") {
+		t.Fatal("the migration step can change serving traffic")
 	}
 	for _, bypass := range []string{
 		"KAANA_PROVIDER_CREDENTIAL_ID_CUTOVER_COMPLETE != 'false'",
