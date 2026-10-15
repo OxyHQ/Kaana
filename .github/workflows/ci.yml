@@ -19,9 +19,17 @@ env:
   GO_VERSION: "1.26.7"
 
 jobs:
+  # Every job is bounded: without `timeout-minutes` a hung job holds one of the
+  # org's 20 shared Actions job slots for GitHub's 6-hour default. No path
+  # filter: the jobs cannot be separated by area. The Go service embeds the
+  # descriptor that `contract drift` regenerates from the TypeScript contracts,
+  # and that job's fixtures come from the Go types, so a change on either side
+  # is a change to both.
   cloudflare-guardrail:
     name: Cloudflare guardrail tests
     runs-on: ubuntu-latest
+    # Measured 5-7 s.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +46,9 @@ jobs:
   go:
     name: build, vet, lint, test
     runs-on: ubuntu-latest
+    # Measured 2-3 min with a warm module cache; a cold cache rebuilds the
+    # dependency graph twice (with and without -race).
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17-alpine
@@ -117,6 +128,8 @@ jobs:
   contract:
     name: contract drift
     runs-on: ubuntu-latest
+    # Measured about 1 min.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 

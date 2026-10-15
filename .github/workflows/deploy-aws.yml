@@ -94,6 +94,13 @@ jobs:
     # credential-admin manifest before any serving task is restarted.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
+    # Above the job's own worst case, never below it: killing it mid-rollout
+    # leaves exactly the unmonitored rollout the concurrency comment warns
+    # about. Four services each polled for up to 20 minutes, plus the migration
+    # one-shot's waiter and the image build; measured runs take about 8 min.
+    # Without a bound a hang holds a runner, and the deploy lane, for GitHub's
+    # 6-hour default.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
