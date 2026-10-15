@@ -178,9 +178,9 @@ func TestWhatOpenAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 		"transcription session": {func(r *provider.RealtimeOpenRequest) { r.Kind = contract.RealtimeTranscription }, contract.CodeUnsupportedModality, "kind"},
 		"translation session":   {func(r *provider.RealtimeOpenRequest) { r.Kind = contract.RealtimeTranslation }, contract.CodeUnsupportedModality, "kind"},
 		"temperature":           {func(r *provider.RealtimeOpenRequest) { r.Config.Temperature = pointer(0.8) }, contract.CodeInvalidRequest, "config.temperature"},
-		"input transcription": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("en")}
-		}, contract.CodeInvalidRequest, "config.inputAudioTranscription"},
+		"a regional transcription language": {func(r *provider.RealtimeOpenRequest) {
+			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("es-ES")}
+		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.language"},
 		"text and audio together": {func(r *provider.RealtimeOpenRequest) {
 			r.Config.OutputModalities = []contract.RealtimeOutputModality{contract.RealtimeOutputText, contract.RealtimeOutputAudio}
 		}, contract.CodeInvalidRequest, "config.outputModalities"},

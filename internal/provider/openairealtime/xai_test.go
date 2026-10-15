@@ -168,9 +168,12 @@ func TestWhatXAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 		}, contract.CodeInvalidRequest, "config.toolChoice"},
 		"output token limit": {func(r *provider.RealtimeOpenRequest) { r.Config.MaxOutputTokens = pointer(100) }, contract.CodeInvalidRequest, "config.maxOutputTokens"},
 		"temperature":        {func(r *provider.RealtimeOpenRequest) { r.Config.Temperature = pointer(0.5) }, contract.CodeInvalidRequest, "config.temperature"},
-		"input transcription": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("en")}
-		}, contract.CodeInvalidRequest, "config.inputAudioTranscription"},
+		"a transcription prompt": {func(r *provider.RealtimeOpenRequest) {
+			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Prompt: pointer("names: Kaana, Alia")}
+		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.prompt"},
+		"a transcription language xAI does not document": {func(r *provider.RealtimeOpenRequest) {
+			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("es")}
+		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.language"},
 		"transcription kind": {func(r *provider.RealtimeOpenRequest) { r.Kind = contract.RealtimeTranscription }, contract.CodeUnsupportedModality, "kind"},
 		"another slug":       {func(r *provider.RealtimeOpenRequest) { r.Route.Provider = "xai" }, contract.CodeInvalidRequest, "authorizedRoutes"},
 	}

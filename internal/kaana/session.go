@@ -25,6 +25,21 @@ import (
 // the session made, the opened one included, and writing that operator record
 // exactly once.
 
+// EnvelopeInputTranscriptionRefused is why the signed-envelope lane
+// (`/internal/v1/realtime`, retired in Kaana ADR 0002 phase 5) refuses input
+// transcription inside a session, at open and on a session.update. The
+// adapters serve it (contract set 4.1.0), billed where the provider bills it
+// as `input_transcription_milliseconds`; the lane's consumer, the Oxy edge,
+// settles with `@oxy.so/contracts`, whose closed unit set has no such unit,
+// so a report carrying it would be one the edge cannot parse and the session
+// one nobody can settle. It is served on `kaana.ai/v1`, whose grant and
+// settlement speak 4.1.0 (docs/realtime.md, "Input transcription").
+func EnvelopeInputTranscriptionRefused(requestID contract.RequestID) *contract.Error {
+	return contract.NewError(requestID, contract.CodeInvalidRequest,
+		"input transcription inside a realtime session is settled in a unit the signed-envelope lane cannot carry; it is served on kaana.ai/v1").
+		WithParam("config.inputAudioTranscription")
+}
+
 // SessionOpening is what opening a realtime session produced.
 type SessionOpening struct {
 	// Upstream is the open provider session. Nil when no route opened.
@@ -83,6 +98,9 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 	}
 	if !request.Attribution.HasScope(contract.ScopeInvoke) {
 		return refuse(contract.NewError(requestID, contract.CodeInsufficientScope, "the session request does not carry inference:invoke"))
+	}
+	if request.Config.InputAudioTranscription != nil {
+		return refuse(EnvelopeInputTranscriptionRefused(requestID))
 	}
 	for index, route := range request.AuthorizedRoutes {
 		if route.CustomerProviderCredential != nil {

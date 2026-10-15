@@ -324,12 +324,75 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 
 	case "response.done":
 		return s.responseDone(event)
+
+	case "conversation.item.input_audio_transcription.delta":
+		if !s.transcribingInput() || event.Delta == "" {
+			return nil, nil
+		}
+		return one(&contract.RealtimeTranscriptDeltaEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, Text: event.Delta}), nil
+	case "conversation.item.input_audio_transcription.completed":
+		return s.inputTranscript(event)
+	case "conversation.item.input_audio_transcription.failed":
+		return s.inputTranscriptionFailed(event)
 	}
 	// session.created after open, conversation.created, rate_limits.updated,
 	// content parts, output_text.done (the deltas already carried it),
 	// input_audio_buffer.timeout_triggered, WebRTC-only output buffer events,
-	// MCP events: nothing in the contract names them.
+	// MCP events, OpenAI's diarized transcription segments and xAI's
+	// cumulative `input_audio_transcription.updated` (a running transcript
+	// that may rewrite what it said, where the contract's delta only appends):
+	// nothing in the contract names them.
 	return nil, nil
+}
+
+// transcribingInput is whether the caller has asked for its input to be
+// transcribed: at open, or by a session.update the provider has confirmed
+// (the effective configuration). Only then is an input transcript relayed; a
+// transcription the provider bills is settled either way.
+func (s *session) transcribingInput() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.config.InputAudioTranscription != nil
+}
+
+// inputTranscript is one turn of the caller's speech, transcribed. Its units
+// are what the provider bills the transcription model for (transcriptionUnits)
+// and are settled whether or not the transcript is relayed: a charge the
+// provider made is never dropped. xAI's event carries no content_index; the
+// item it names is the caller's audio item, whose one part is index 0.
+func (s *session) inputTranscript(event serverEvent) ([]provider.RealtimeUpstreamEvent, error) {
+	units, err := s.dialect.transcriptionUnits(event)
+	if err != nil {
+		return nil, err
+	}
+	if !s.transcribingInput() {
+		if len(units) == 0 {
+			return nil, nil
+		}
+		return []provider.RealtimeUpstreamEvent{{Units: units}}, nil
+	}
+	if event.ItemID == "" {
+		return nil, s.dialect.invalidEvent(event.Type, "item_id is absent")
+	}
+	done := &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, Transcript: event.Transcript}
+	return []provider.RealtimeUpstreamEvent{{Event: done, Units: units}}, nil
+}
+
+// inputTranscriptionFailed reports that one turn could not be transcribed. It
+// refuses nothing the caller sent and leaves the conversation running, so it
+// is a non-fatal error naming no command, and it is not the session's own
+// failure.
+func (s *session) inputTranscriptionFailed(event serverEvent) ([]provider.RealtimeUpstreamEvent, error) {
+	if !s.transcribingInput() {
+		return nil, nil
+	}
+	reported := wireError{}
+	if event.Error != nil {
+		reported = *event.Error
+	}
+	failure := provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
+		Detail: s.dialect.name + " could not transcribe the caller's speech for one turn", Passthrough: s.dialect.passthroughFor(reported, s.key)}
+	return one(&contract.RealtimeErrorEvent{Fatal: false, Error: *failure.ContractError(s.requestID)}), nil
 }
 
 func itemID(value *string) *contract.RealtimeItemID {

@@ -3,6 +3,7 @@ package openairealtime
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -25,6 +26,17 @@ type audioInput struct {
 	// TurnDetection is raw so that `null` — OpenAI's spelling of "the client
 	// commits its own turns" — is sent explicitly rather than dropped.
 	TurnDetection json.RawMessage `json:"turn_detection,omitempty"`
+	// Transcription is input transcription inside the conversation: OpenAI's
+	// `audio.input.transcription {model, language, prompt}` and xAI's
+	// `audio.input.transcription {model, language_hint}`.
+	Transcription *transcriptionConfig `json:"transcription,omitempty"`
+}
+
+type transcriptionConfig struct {
+	Model        string  `json:"model"`
+	Language     *string `json:"language,omitempty"`
+	LanguageHint *string `json:"language_hint,omitempty"`
+	Prompt       *string `json:"prompt,omitempty"`
 }
 
 type audioOutput struct {
@@ -153,6 +165,11 @@ type serverEvent struct {
 	CallID         string     `json:"call_id"`
 	Name           string     `json:"name"`
 	Arguments      string     `json:"arguments"`
+	// Usage is raw because two events carry a top-level `usage` of different
+	// shapes: an input transcription's (OpenAI: tokens or duration, read by
+	// transcriptionUnits) and xAI's response.done (tokens it does not bill,
+	// never read).
+	Usage json.RawMessage `json:"usage"`
 }
 
 /* -------------------------------------------------------------------------- */
@@ -334,13 +351,6 @@ func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 		// from xAI's.
 		return nil, refused("config.temperature", d.name+"'s Realtime API has no temperature")
 	}
-	if f.inputAudioTranscription != nil {
-		// OpenAI runs a second, separately billed ASR model; xAI documents
-		// transcription settings but not what enabling `grok-transcribe`
-		// costs. Either way the session's units could not keep that charge
-		// apart from the session model's.
-		return nil, refused("config.inputAudioTranscription", "input transcription runs a second, separately billed model whose charge the contract's session units cannot keep apart from the session model's; it is not served")
-	}
 	config := &sessionConfig{Type: d.sessionType, Instructions: f.instructions}
 	var err error
 	modalities, err := d.wireModalities("config.outputModalities", f.outputModalities)
@@ -360,8 +370,15 @@ func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 		if d.flatSession {
 			config.TurnDetection = detection
 		} else {
-			config.Audio = &audioConfig{Input: &audioInput{TurnDetection: detection}}
+			config.input().TurnDetection = detection
 		}
+	}
+	if f.inputAudioTranscription != nil {
+		transcription, err := d.wireTranscription(*f.inputAudioTranscription)
+		if err != nil {
+			return nil, err
+		}
+		config.input().Transcription = transcription
 	}
 	if config.Tools, err = d.wireTools(f.tools); err != nil {
 		return nil, err
@@ -373,6 +390,48 @@ func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 		return nil, err
 	}
 	return config, nil
+}
+
+// input is the session's `audio.input`, created on first use.
+func (c *sessionConfig) input() *audioInput {
+	if c.Audio == nil {
+		c.Audio = &audioConfig{}
+	}
+	if c.Audio.Input == nil {
+		c.Audio.Input = &audioInput{}
+	}
+	return c.Audio.Input
+}
+
+// wireTranscription is input transcription on the provider's wire, with the
+// transcription model the dialect declares for the deployment (the contract:
+// "the deployment's own, declared where the deployment is, never chosen by a
+// string here"). A language the provider cannot take, and a prompt where it
+// has none, are refused rather than dropped.
+func (d *dialect) wireTranscription(value contract.RealtimeInputTranscription) (*transcriptionConfig, error) {
+	t := d.transcription
+	if t == nil {
+		return nil, refused("config.inputAudioTranscription", d.name+"'s Realtime API does not transcribe the caller's input inside a conversation")
+	}
+	wire := &transcriptionConfig{Model: t.model}
+	if value.Prompt != nil {
+		if !t.prompt {
+			return nil, refused("config.inputAudioTranscription.prompt", d.name+"'s input transcription takes no prompt")
+		}
+		wire.Prompt = value.Prompt
+	}
+	if value.Language != nil {
+		language, ok := t.language(*value.Language)
+		if !ok {
+			return nil, refused("config.inputAudioTranscription.language", t.languageRule)
+		}
+		if t.languageHint {
+			wire.LanguageHint = &language
+		} else {
+			wire.Language = &language
+		}
+	}
+	return wire, nil
 }
 
 // wireSession is the session.update that configures a new conversation.
@@ -393,10 +452,7 @@ func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionCo
 	if err != nil {
 		return nil, refused("config.inputAudioFormat", err.Error())
 	}
-	if session.Audio == nil {
-		session.Audio = &audioConfig{Input: &audioInput{}}
-	}
-	session.Audio.Input.Format = input
+	session.input().Format = input
 	voice := config.Voice
 	if d.flatSession {
 		session.Voice, voice = config.Voice, nil
@@ -431,6 +487,9 @@ func mergeUpdate(config contract.RealtimeSessionConfig, update contract.Realtime
 	}
 	if update.TurnDetection != nil {
 		config.TurnDetection = *update.TurnDetection
+	}
+	if update.InputAudioTranscription != nil {
+		config.InputAudioTranscription = update.InputAudioTranscription
 	}
 	if update.Tools != nil {
 		config.Tools = update.Tools
@@ -602,6 +661,49 @@ func (u usage) units() ([]contract.UsageQuantity, bool) {
 		{Unit: contract.UnitOutputTokens, Quantity: output},
 		{Unit: contract.UnitAudioOutputTokens, Quantity: audioOutput},
 	}, true
+}
+
+// maxTranscriptionSeconds bounds a reported transcription duration: more than
+// a day of audio in one turn of a session that lasts at most an hour is a
+// report this adapter cannot have read correctly.
+const maxTranscriptionSeconds = 86_400
+
+// transcriptionUnits is what one completed input transcription is billed:
+// nothing on a provider whose session price includes it, and on OpenAI the
+// ASR model's own usage. A `duration` usage is `input_transcription_milliseconds`,
+// read to the microsecond and rounded up to a whole millisecond. A `tokens`
+// usage is a charge the declared transcription model is not billed in and the
+// contract's unit does not express: the session ends rather than settle a
+// guess. A completed event without usage reports none, never zero.
+func (d *dialect) transcriptionUnits(event serverEvent) ([]contract.UsageQuantity, error) {
+	t := d.transcription
+	if t == nil || !t.billed || len(event.Usage) == 0 || string(event.Usage) == "null" {
+		return nil, nil
+	}
+	var usage struct {
+		Type    string   `json:"type"`
+		Seconds *float64 `json:"seconds"`
+	}
+	if err := json.Unmarshal(event.Usage, &usage); err != nil {
+		return nil, d.invalidEvent(event.Type, "usage"+unreadableKind(err))
+	}
+	switch usage.Type {
+	case "duration":
+		if usage.Seconds == nil || math.IsNaN(*usage.Seconds) || *usage.Seconds < 0 || *usage.Seconds > maxTranscriptionSeconds {
+			return nil, d.invalidEvent(event.Type, "usage.seconds is not a duration")
+		}
+		microseconds := int64(math.Round(*usage.Seconds * 1e6))
+		milliseconds := int((microseconds + 999) / 1000)
+		if milliseconds == 0 {
+			return nil, nil
+		}
+		return []contract.UsageQuantity{{Unit: contract.UnitInputTranscriptionMilliseconds, Quantity: milliseconds}}, nil
+	case "tokens":
+		return nil, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown,
+			Detail:      fmt.Sprintf("%s billed its input transcription in tokens; %s is declared as billed by duration and a token charge has no unit here", d.name, t.model),
+			Passthrough: &contract.ProviderErrorPassthrough{Provider: d.slug}}
+	}
+	return nil, d.invalidEvent(event.Type, "usage.type is not one this adapter knows")
 }
 
 func responseStatus(status string) (contract.RealtimeResponseStatus, bool) {

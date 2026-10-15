@@ -671,3 +671,49 @@ func TestACustomerCredentialIsRefusedForASession(t *testing.T) {
 		t.Fatalf("control = %v", created)
 	}
 }
+
+// TestTheSignedEnvelopeLaneRefusesInputTranscription: the adapters serve
+// input transcription (contract set 4.1.0), but this lane's consumer settles
+// with a unit set that has no input_transcription_milliseconds. It is refused
+// by name at open, before anything is dialled, and on a session.update, which
+// is not acknowledged and never reaches the provider. The same session
+// without it opens and takes an ordinary update (the controls).
+func TestTheSignedEnvelopeLaneRefusesInputTranscription(t *testing.T) {
+	h := newHarness(t, options{})
+	request := sessionRequest("req_transcribe", primary)
+	request.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("en")}
+	ws := h.open(request)
+	frames := readUntil(t, ws, "session.closed")
+	failure, _ := frames[0]["error"].(map[string]any)
+	if frames[0].kind() != "error" || failure["code"] != "invalid_request" || failure["param"] != "config.inputAudioTranscription" ||
+		frames[1]["reason"] != "no_route_available" {
+		t.Fatalf("frames = %v", frames)
+	}
+	if h.upstream.Dials() != 0 {
+		t.Fatalf("a refused session dialled the provider %d times", h.upstream.Dials())
+	}
+
+	const requestID = contract.RequestID("req_transcribe_later")
+	control := h.open(sessionRequest(requestID, primary))
+	if created := read(t, control); created.kind() != "session.created" {
+		t.Fatalf("control = %v", created)
+	}
+	command(t, control, &contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_transcribe",
+		Config: contract.RealtimeSessionConfigUpdate{InputAudioTranscription: &contract.RealtimeInputTranscription{}}})
+	refusal := read(t, control)
+	refused, _ := refusal["error"].(map[string]any)
+	if refusal.kind() != "error" || refusal["fatal"] != false || refusal["commandId"] != "cmd_transcribe" || refused["param"] != "config.inputAudioTranscription" {
+		t.Fatalf("the enabling update = %v", refusal)
+	}
+	command(t, control, &contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_instructions",
+		Config: contract.RealtimeSessionConfigUpdate{Instructions: pointer("be brief")}})
+	if accepted := read(t, control); accepted.kind() != "command.accepted" || accepted["commandId"] != "cmd_instructions" {
+		t.Fatalf("the ordinary update = %v", accepted)
+	}
+	command(t, control, closeCommand(requestID, "cmd_close"))
+	readUntil(t, control, "session.closed")
+	h.upstream.WaitClosed(t)
+	if got := h.upstream.ReceivedTypes(); !reflect.DeepEqual(got, []string{"session.update", "session.update"}) {
+		t.Errorf("the provider received %v; the refused update must not reach it", got)
+	}
+}

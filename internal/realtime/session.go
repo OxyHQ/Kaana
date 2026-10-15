@@ -304,6 +304,12 @@ func (s *session) receive(ctx context.Context, frame inbound) {
 			"session.resume is only ever the first frame of a new connection")}, &commandID)
 		return
 	}
+	if update, ok := command.(*contract.RealtimeSessionUpdateCommand); ok && update.Config.InputAudioTranscription != nil {
+		// Refused like a frame this lane cannot take, before it is
+		// acknowledged: nothing is applied (kaana.EnvelopeInputTranscriptionRefused).
+		s.emit(ctx, &contract.RealtimeErrorEvent{Fatal: false, Error: *kaana.EnvelopeInputTranscriptionRefused(s.requestID)}, &commandID)
+		return
+	}
 	if _, duplicate := s.seen[commandID]; duplicate {
 		s.emit(ctx, &contract.RealtimeCommandAcceptedEvent{Duplicate: true}, &commandID)
 		return
