@@ -1,5 +1,6 @@
 /**
- * Parses Kaana-produced wire fixtures with the PUBLISHED Zod schemas.
+ * Parses Kaana-produced wire fixtures with the contract's own Zod schemas, from
+ * the `@kaana.ai/contracts` workspace source.
  *
  * The Go descriptor test proves Kaana's structure matches the contract. This
  * proves its values do — a timestamp spelling, a model-reference grammar, a
@@ -27,7 +28,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import * as contracts from '@oxy.so/contracts';
+import * as internalContract from '../../packages/contracts/src/internal.ts';
+import * as publicContract from '../../packages/contracts/src/index.ts';
+
+const contracts = { ...publicContract, ...internalContract };
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, '..', '..');
 const TEMP_ROOT = mkdtempSync(join(tmpdir(), 'kaana-contract-'));
@@ -70,7 +74,7 @@ function readFixtures(kind) {
 function schemaFor(name) {
   const schema = contracts[name];
   if (schema === undefined || typeof schema.safeParse !== 'function') {
-    throw new Error(`the published package exports no schema named ${name}`);
+    throw new Error(`the contract exports no schema named ${name}`);
   }
   return schema;
 }
@@ -115,7 +119,7 @@ try {
 
   process.stdout.write(
     `validated ${valid.length} produced shapes and ${invalid.length} rejection controls ` +
-      `against @oxy.so/contracts ${contracts.INFERENCE_CONTRACT_VERSION}\n`,
+      `against @kaana.ai/contracts ${contracts.INFERENCE_CONTRACT_VERSION}\n`,
   );
 
   if (failures.length > 0) {

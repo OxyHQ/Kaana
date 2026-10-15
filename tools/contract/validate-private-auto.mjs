@@ -1,24 +1,16 @@
-/** Validate private Auto values and signed negotiation against the pinned published schemas. */
-import { createRequire } from 'node:module';
-import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+/** Validate private Auto values and signed negotiation against the workspace contract's schemas. */
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const require = createRequire(import.meta.url);
-const packageRoot = dirname(require.resolve('@oxy.so/contracts/package.json'));
-const manifest = require('@oxy.so/contracts/package.json');
-const pinned = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
-  .dependencies['@oxy.so/contracts'];
-const installed = realpathSync(join(dirname(new URL(import.meta.url).pathname), 'node_modules'));
-if (
-  !realpathSync(packageRoot).startsWith(`${installed}/`) ||
-  manifest.name !== '@oxy.so/contracts' ||
-  manifest.version !== pinned
-) {
-  throw new Error(`The exact installed published contracts ${pinned} package is required.`);
-}
-const contracts = require('@oxy.so/contracts');
+import * as internalContract from '../../packages/contracts/src/internal.ts';
+import * as publicContract from '../../packages/contracts/src/index.ts';
+
+const manifest = JSON.parse(
+  readFileSync(new URL('../../packages/contracts/package.json', import.meta.url), 'utf8'),
+);
+const contracts = { ...publicContract, ...internalContract };
 for (const name of [
   'privateAutoSourceApprovalSchema',
   'privateAutoExecutionSchema',
@@ -27,7 +19,7 @@ for (const name of [
   'privateAutoInferenceRequestSchema',
 ]) {
   if (typeof contracts[name]?.safeParse !== 'function')
-    throw new Error(`Published contract omits ${name}`);
+    throw new Error(`The contract omits ${name}`);
 }
 const temporary = mkdtempSync(join(tmpdir(), 'kaana-private-contract-'));
 const wire = join(temporary, 'wire');
@@ -40,7 +32,7 @@ const run = (args, extraEnv) => {
     stdio: 'inherit',
   });
   if (result.error || result.status !== 0)
-    throw new Error(`Published contract fixture command failed: ${result.status}`);
+    throw new Error(`Contract fixture command failed: ${result.status}`);
 };
 try {
   run(['test', './internal/contract', '-run', '^TestWritePrivateAutoWireFixtures$', '-count=1'], {
@@ -67,9 +59,7 @@ try {
       const parsed = contracts[fixture.schema]?.safeParse(fixture.value);
       if (!parsed || parsed.success !== (kind === 'valid')) {
         // Only schema/case names are diagnostic; transient input is never printed.
-        throw new Error(
-          `Published contract ${kind} control disagrees: ${fixture.schema}/${fixture.case}`,
-        );
+        throw new Error(`Contract ${kind} control disagrees: ${fixture.schema}/${fixture.case}`);
       }
     }
   }
@@ -96,13 +86,13 @@ try {
   }
   console.log(
     JSON.stringify({
-      kind: 'published-private-auto-shared-contract-validation',
+      kind: 'private-auto-shared-contract-validation',
+      package: manifest.name,
       packageVersion: manifest.version,
       privateContractVersion: '3.7.0',
       valid: 6,
       rejected: 8,
       actualSignedNegotiatedDescriptor: 1,
-      published: true,
     }),
   );
 } finally {

@@ -1,6 +1,41 @@
 # The wire contract
 
-`@oxy.so/contracts` is the authority; `internal/contract` restates it in Go and is answerable to it.
+`@kaana.ai/contracts` — `packages/contracts` in this repository — is the
+authority; `internal/contract` restates it in Go and is answerable to it. The
+direction is **Zod → descriptor → Go** (ADR 0002, decision 10).
+
+## Contract set 4.0.0: `@kaana.ai/contracts` (ADR 0002, phase 1)
+
+The inference contract moved here from `@oxy.so/contracts` 4.12.0 (set 3.8.0)
+and is the first set published as `@kaana.ai/contracts`, version 4.0.0. Two
+entry points:
+
+- **The root** is the public API of `https://kaana.ai/v1`: requests and
+  responses of every endpoint, the response and speech streams, the public error
+  vocabulary (the internal one minus `provider_credential_invalid`,
+  `provider_billing_refused` and `deployment_unavailable`), the catalogue with
+  prices, power classes and per-model audio capabilities (voices, languages,
+  formats, `speed` range, maximum characters), power levels, transcription,
+  realtime and generation records. No public shape names a provider, a key or a
+  deployment; `publicSurface.test.ts` walks every one to hold that.
+- **`@kaana.ai/contracts/internal`** is what Oxy and Kaana exchange: the grant
+  and its authorization request, the settlement, the canonical input hash, the
+  operational catalogue, customer-credential control, and the signed v1–v4
+  envelope with its stream and usage report, which stays the only wire until
+  phase 3.
+
+Billing, the ledger (reservations, receipts, refunds), price versions, the
+routing policy as a Console resource, entitlements, Inbox and model-release
+ingestion stayed in `@oxy.so/contracts`. Every shape that moved parses the same
+bytes as before — the regenerated descriptor matches 4.12.0 shape for shape,
+the moved Oxy suites pass, and every Go fixture parses — with two deliberate
+changes: the envelope admits `audio_speech` with `stream: true` (decision 8; an
+adapter still refuses what its provider cannot stream) and the economic
+treatment gains `platform_fee_only`.
+
+Zod is held below 4.5: from 4.5 Zod measures string bounds in code points,
+while the contract, Go and the frozen cross-language fixtures measure UTF-16
+code units (`zodSemantics.test.ts` fails if that changes).
 
 ## Funding tiers, contract set 3.8.0 (`@oxy.so/contracts` 4.12.0)
 
@@ -30,7 +65,7 @@ The historical rollout notes below predate this foundation.
 
 ## The contract is not re-invented here
 
-`@oxy.so/contracts@4.12.0` (public contract version 3.8.0) is the wire contract, and the Go types in
+`@kaana.ai/contracts` (contract set 4.0.0) is the wire contract, and the Go types in
 `internal/contract` are hand-written against it. Hand-writing is only safe
 because two independent gates fail when the two sides diverge.
 
@@ -49,8 +84,9 @@ reviewed source authority, exact caller and route. Any other envelope version is
 refused whole before the body is interpreted.
 
 **1. A generated descriptor, compared field by field.**
-`tools/contract/generate.mjs` imports every module under the published package's
-`inference/` directory and emits `internal/contract/descriptor.json`: every
+`tools/contract/generate.mjs` imports every module under the workspace
+package's `src/public/` and `src/internal/` and emits
+`internal/contract/descriptor.json`: every
 shape, field, optionality, kind, enum member, literal value and string
 constraint. The shape list is **discovered, not listed**, so a shape added
 upstream appears on the next regeneration.
@@ -85,7 +121,7 @@ Structure is not values. `go test ./internal/contract/...` marshals one fixture
 per wire shape using the same Go types the server uses — with **every optional
 field populated**, because an optional field that drifted is invisible in a
 minimal fixture — and `tools/contract/validate.mjs` parses each with the
-published schema itself. It also feeds deliberately invalid fixtures that
+contract's own schema. It also feeds deliberately invalid fixtures that
 the schemas must **reject**, and fails if it saw no fixtures at all: a validator
 with a broken schema lookup would otherwise report the same clean run.
 
@@ -94,27 +130,33 @@ private source approval, execution, principal, input and v4 envelope. The strict
 private input has its own Go wire type; the public input union remains unchanged.
 `bun run validate` checks both the ordinary wire fixtures and private Auto's six
 produced fixtures, eight rejection controls and actual signed deployment
-negotiation against the exact installed package. The earlier provisional
+negotiation against the workspace contract. The earlier provisional
 candidate evidence remains in dated audits; it is not the release dependency.
 
-Regenerate after a version bump:
+Regenerate after any change to `packages/contracts/src` (it also writes
+`packages/contracts/openapi.json`, OpenAPI 3.1 from `z.toJSONSchema`):
 
 ```bash
-cd tools/contract && bun install --frozen-lockfile --minimum-release-age=0 && bun run generate
+bun install --frozen-lockfile && (cd tools/contract && bun run generate)
 ```
 
 ## Rules a reviewer applies
 
-- **Never edit `internal/contract/descriptor.json` by hand.** Regenerate with
-  the command above. CI regenerates and fails on any diff.
+- **Never edit `internal/contract/descriptor.json` or
+  `packages/contracts/openapi.json` by hand.** Regenerate with the command
+  above. CI regenerates and fails on any diff.
 - **Never add a field to a produced shape that the contract does not have.**
   The descriptor test fails on it, and that failure is correct: Oxy's parse would
   strip it silently, so the field would appear to work here and do nothing there.
 - **A published shape Kaana does not exchange goes in `notApplicable` with a
   reason naming the owner**, and `expectedNotApplicableCount` moves in the same
   change. The count is exact so a shape cannot be excused by appending a line.
-- **Bumping the pinned contracts version is its own change.** Regenerate the
-  descriptor, read the diff, then make the Go side agree — in that order.
+- **A contract change is Zod first.** Change `packages/contracts/src`,
+  regenerate, read the descriptor diff, then make the Go side agree — in that
+  order — and bump `INFERENCE_CONTRACT_VERSION` and the package version by the
+  rule in `src/public/version.ts`.
+- **Nothing that names a provider, key or deployment enters the package
+  root.** It goes under `/internal`; `publicSurface.test.ts` refuses it.
 - **Do not decode ordinary inbound envelopes strictly.** Adding an optional field is
   additive under the contract, so `DisallowUnknownFields` would turn every
   additive Oxy change into an outage here. What *is* refused is an unimplemented

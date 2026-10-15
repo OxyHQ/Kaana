@@ -1,0 +1,19 @@
+{
+  "name": "@kaana.ai/workspace",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "bun@1.4.3",
+  "type": "module",
+  "description": "Kaana's TypeScript workspace: the published @kaana.ai/contracts package and the tool that derives the Go contract descriptor from it.",
+  "workspaces": ["packages/*", "tools/*"],
+  "scripts": {
+    "lint": "biome ci .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/bun": "1.4.3",
+    "typescript": "5.9.3"
+  }
+}

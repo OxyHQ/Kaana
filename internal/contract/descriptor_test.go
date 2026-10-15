@@ -10,11 +10,11 @@ import (
 	"testing"
 )
 
-// descriptor.json is generated from the pinned, published @oxy.so/contracts
-// package by tools/contract/generate.mjs. It is embedded into the test binary
-// rather than the shipped one because nothing at runtime reads it: the runtime
-// authority is the Go types, and this file exists to prove they still say what
-// the published package says.
+// descriptor.json is generated from the @kaana.ai/contracts workspace source
+// (packages/contracts) by tools/contract/generate.mjs. It is embedded into the
+// test binary rather than the shipped one because nothing at runtime reads it:
+// the runtime authority is the Go types, and this file exists to prove they
+// still say what the contract says.
 //
 //go:embed descriptor.json
 var descriptorJSON []byte
@@ -349,18 +349,16 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 // A shape leaves this list only by being implemented, and joins it only with a
 // reason that names the owner.
 var notApplicable = map[string]string{
-	"costCenterUsageSchema":            "Oxy owns the cost-center usage projection and customer ledger",
 	"inferenceEconomicTreatmentSchema": "Oxy owns economic treatment; Kaana only executes the signed private authority",
-	"meteredGenerationSchema":          "Oxy owns the metered generation receipt returned to product clients",
-	"providerCostSourceSchema":         "Oxy owns provider-cost source attribution on product receipts",
 	"inferenceOutputModalitySchema":    "Oxy owns catalogue output capabilities; Kaana receives execution modality on the request",
-	"powerLevelSchema":                 "Oxy control-plane power-level selection; not exchanged with Kaana.",
-	"modelPowerClassSchema":            "Oxy control-plane model classification; not exchanged with Kaana.",
-	"decisionRequestSchema":            "Oxy public request; Kaana receives the signed inference envelope.",
-	"decisionSuccessSchema":            "Oxy public response; Kaana returns DecisionResult with technical usage.",
+	"powerLevelSchema":                 "Oxy control-plane power-level selection; not exchanged with Kaana until ADR 0002 phase 1.2.",
+	"modelPowerClassSchema":            "Oxy control-plane model classification; not exchanged with Kaana until ADR 0002 phase 1.2.",
+	"decisionRequestSchema":            "public request; Kaana receives the signed inference envelope until ADR 0002 phase 3.",
+	"decisionSuccessSchema":            "public response; Kaana returns DecisionResult with technical usage until ADR 0002 phase 3.",
 	// Catalogue identity and pricing are Oxy's (ADR 0006). Kaana consumes
 	// canonical model ids as opaque strings and holds its own operational
-	// inventory; it neither serves nor stores a customer-facing catalogue.
+	// inventory; it neither serves nor stores a customer-facing catalogue
+	// until it serves GET /v1/models (ADR 0002 phase 3).
 	"availabilityScopeSchema":               "catalogue: Oxy owns customer-facing model identity and commercial permission",
 	"catalogueModelSchema":                  "catalogue: Oxy owns customer-facing model identity",
 	"cataloguePublisherSummarySchema":       "catalogue: Oxy owns publisher identity",
@@ -387,117 +385,97 @@ var notApplicable = map[string]string{
 	"routingProfileSlugSchema":              "catalogue: Oxy owns the display slug; signed Kaana targets carry only the exact profile id",
 	"inferenceDateSchema":                   "catalogue: calendar dates appear only on catalogue descriptors",
 	"inferenceHttpsUrlSchema":               "catalogue: documentation links appear only on catalogue descriptors",
+	"sha256DigestSchema":                    "catalogue: artifact digests appear only on Oxy's revision descriptors",
 
 	// Money and the ledger are Oxy's. Kaana measures units and never prices
 	// them; there is deliberately no Money type in this package.
-	"currencyCodeSchema":            "ledger: Kaana never quotes an amount",
-	"exactDecimalSchema":            "ledger: Kaana never quotes an amount",
-	"moneySchema":                   "ledger: Kaana never quotes an amount",
-	"unitPriceSchema":               "ledger: Oxy owns pricing",
-	"priceSnapshotSchema":           "ledger: Oxy owns pricing",
-	"priceVersionSchema":            "ledger: Oxy owns pricing",
-	"priceVersionStatusSchema":      "ledger: Oxy owns pricing",
-	"usageReceiptSchema":            "ledger: settlement is Oxy's; Kaana emits normalizedUsageReport",
-	"usageRefundSchema":             "ledger: reversal is Oxy's",
-	"usageRefundReasonSchema":       "ledger: reversal is Oxy's",
-	"usageRefundSubjectSchema":      "ledger: reversal is Oxy's",
-	"usageReservationSchema":        "ledger: reservation happens at the edge, before the envelope is forwarded",
-	"usageReservationRequestSchema": "ledger: reservation happens at the edge, before the envelope is forwarded",
-	"usageReservationStatusSchema":  "ledger: reservation happens at the edge, before the envelope is forwarded",
+	"currencyCodeSchema":  "ledger: Kaana never quotes an amount",
+	"exactDecimalSchema":  "ledger: Kaana never quotes an amount",
+	"moneySchema":         "ledger: Kaana never quotes an amount",
+	"unitPriceSchema":     "ledger: Oxy owns pricing",
+	"priceSnapshotSchema": "ledger: Oxy owns pricing",
 
-	// Routing policy is configured and resolved in Oxy. The envelope carries
-	// only routingPolicyReferenceSchema, which Kaana does implement.
-	"routingPolicySchema":         "policy: the envelope carries a reference, not a snapshot (see README)",
-	"routingPolicyScopeSchema":    "policy: policy scoping is an Oxy control-plane concern",
-	"routingFallbackPolicySchema": "policy: fallback controls arrive only inside a snapshot Kaana is not sent",
+	// The public API of https://kaana.ai/v1 (ADR 0002, decisions 7-10). Defined
+	// in contract set 4.0.0 and served by internal/publicapi in ADR 0002 phase
+	// 3; until then no Kaana code exchanges these shapes. Each leaves this list
+	// by being implemented there.
+	"audioInputMediaTypeSchema":               "public api (phase 3): transcription upload media types",
+	"chargedGenerationRecordSchema":           "public api (phase 3): GET /v1/generations record",
+	"chatCompletionChunkSchema":               "public api (phase 3): POST /v1/chat/completions stream chunk",
+	"chatCompletionErrorSchema":               "public api (phase 3): POST /v1/chat/completions error body",
+	"chatCompletionMessageSchema":             "public api (phase 3): POST /v1/chat/completions message",
+	"chatCompletionSchema":                    "public api (phase 3): POST /v1/chat/completions response",
+	"chatCompletionUsageSchema":               "public api (phase 3): POST /v1/chat/completions usage",
+	"chatCompletionsRequestSchema":            "public api (phase 3): POST /v1/chat/completions request",
+	"embeddingsRequestSchema":                 "public api (phase 3): POST /v1/embeddings request",
+	"embeddingsResponseSchema":                "public api (phase 3): POST /v1/embeddings response",
+	"generationRecordSchema":                  "public api (phase 3): GET /v1/generations record",
+	"imageGenerationsRequestSchema":           "public api (phase 3): POST /v1/images/generations request",
+	"imageGenerationsSchema":                  "public api (phase 3): POST /v1/images/generations response",
+	"languageTagSchema":                       "public api (phase 3): BCP 47 tags of voices and transcription",
+	"meteredGenerationRecordSchema":           "public api (phase 3): GET /v1/generations record",
+	"modelAudioCapabilitiesSchema":            "public api (phase 3): voice limits; the publisher publishes them in phase 1.2",
+	"modelListSchema":                         "public api (phase 3): GET /v1/models",
+	"modelSchema":                             "public api (phase 3): GET /v1/models entry",
+	"modelTargetSchema":                       "public api (phase 3): a model reference or a power level",
+	"powerLevelEntrySchema":                   "public api (phase 3): GET /v1/power-levels entry",
+	"powerLevelListSchema":                    "public api (phase 3): GET /v1/power-levels",
+	"publicErrorCodeSchema":                   "public api (phase 3): the public error vocabulary",
+	"publicErrorSchema":                       "public api (phase 3): the public error body",
+	"realtimeOpenLimitsSchema":                "public api (phase 3): GET /v1/realtime open limits",
+	"realtimePublicErrorEventSchema":          "public api (phase 3): GET /v1/realtime error event",
+	"realtimePublicResponseDoneEventSchema":   "public api (phase 3): GET /v1/realtime response.done",
+	"realtimePublicServerEventSchema":         "public api (phase 3): GET /v1/realtime server events",
+	"realtimePublicSessionClosedEventSchema":  "public api (phase 3): GET /v1/realtime session.closed",
+	"realtimePublicSessionCreatedEventSchema": "public api (phase 3): GET /v1/realtime session.created",
+	"realtimeSessionOpenSchema":               "public api (phase 3): GET /v1/realtime first frame",
+	"requestLabelsSchema":                     "public api (phase 3): cost-attribution labels",
+	"responseSchema":                          "public api (phase 3): POST /v1/responses response",
+	"responseStreamErrorEventSchema":          "public api (phase 3): POST /v1/responses stream error",
+	"responseStreamEventSchema":               "public api (phase 3): POST /v1/responses stream",
+	"responseStreamStartEventSchema":          "public api (phase 3): POST /v1/responses stream start",
+	"responseStreamUsageEventSchema":          "public api (phase 3): POST /v1/responses stream usage",
+	"responsesRequestSchema":                  "public api (phase 3): POST /v1/responses request",
+	"speechAudioDeltaEventSchema":             "public api (phase 3): POST /v1/audio/speech sse delta",
+	"speechAudioDoneEventSchema":              "public api (phase 3): POST /v1/audio/speech sse done",
+	"speechFormatSchema":                      "public api (phase 3): POST /v1/audio/speech response_format",
+	"speechRequestSchema":                     "public api (phase 3): POST /v1/audio/speech request",
+	"speechStreamErrorEventSchema":            "public api (phase 3): POST /v1/audio/speech sse error",
+	"speechStreamEventSchema":                 "public api (phase 3): POST /v1/audio/speech sse frames",
+	"speechStreamFormatSchema":                "public api (phase 3): POST /v1/audio/speech stream_format",
+	"transcriptionRequestSchema":              "public api (phase 3): POST /v1/audio/transcriptions fields",
+	"transcriptionSchema":                     "public api (phase 3): POST /v1/audio/transcriptions response",
+	"usageSchema":                             "public api (phase 3): public usage partition",
+	"voiceSchema":                             "public api (phase 3): one voice of a speech model",
 
-	// Oxy owns provider-connection metadata and Kaana owns only ciphertext plus
-	// an opaque handle. The whole Console/control-plane record is never exchanged
-	// with this data plane; an exact handle binding belongs on an authorized route.
-	"providerConnectionSchema":                     "byok metadata: owned and rendered by Oxy, not exchanged with Kaana",
-	"providerConnectionScopeSchema":                "byok metadata: Oxy resolves scope before signing an exact route",
-	"providerConnectionStatusSchema":               "byok metadata: Oxy resolves eligibility before signing an exact route",
-	"providerConnectionValidationSchema":           "byok metadata: Oxy validates and retains the result",
-	"providerCredentialCustodyStateSchema":         "byok metadata: Oxy owns connection custody lifecycle; Kaana receives an exact handle generation",
-	"providerCredentialValidationDeploymentSchema": "byok metadata: Oxy owns the application-deployment selector used to bootstrap validation",
-	"providerCredentialValidationOperationSchema":  "byok metadata: Oxy owns validation-operation lifecycle metadata; Kaana exchanges the narrower exact task and outcome",
-
-	// Inbox owns these product-facing request and response DTOs. Inbox sends an
-	// already-authorized inference envelope to Kaana; Kaana never accepts or
-	// emits Inbox-specific wire shapes.
-	"inboxComposeRequestSchema":         "inbox: product-owned compose request translated before the Kaana boundary",
-	"inboxDailyBriefRequestSchema":      "inbox: product-owned daily-brief request translated before the Kaana boundary",
-	"inboxDailyBriefResponseSchema":     "inbox: product-owned daily-brief projection assembled outside Kaana",
-	"inboxInferenceStreamEventSchema":   "inbox: product-owned stream projection assembled outside Kaana",
-	"inboxInferenceTextResponseSchema":  "inbox: product-owned text projection assembled outside Kaana",
-	"inboxMessageInferenceParamsSchema": "inbox: product-owned message parameters translated before the Kaana boundary",
-	"inboxNaturalSearchRequestSchema":   "inbox: product-owned natural-search request translated before the Kaana boundary",
-	"inboxNaturalSearchResponseSchema":  "inbox: product-owned search projection assembled outside Kaana",
-	"inboxSmartRepliesResponseSchema":   "inbox: product-owned smart-replies projection assembled outside Kaana",
-	"inboxThreadSummaryResponseSchema":  "inbox: product-owned summary projection assembled outside Kaana",
-
-	// Account billing. Balances, invoices, payment providers and auto-recharge
-	// are the control plane's by definition: AGENTS.md forbids a customer
-	// balance or a billing ledger in this repository, so these shapes are not
-	// merely unimplemented here — implementing one would be the boundary
-	// breach. Published in @oxy.so/contracts 0.28.0.
-	"accountBillingStateSchema":     "billing: customer balances are Oxy's; a balance here is a second ledger",
-	"autoRechargeSchema":            "billing: recharging a customer's balance is a control-plane action",
-	"autoRechargeAttemptSchema":     "billing: recharging a customer's balance is a control-plane action",
-	"autoRechargeStatusSchema":      "billing: recharging a customer's balance is a control-plane action",
-	"billingInvoiceSchema":          "billing: invoicing a customer is Oxy's",
-	"billingInvoiceStatusSchema":    "billing: invoicing a customer is Oxy's",
-	"billingModeSchema":             "billing: prepaid or invoiced is a customer-account property",
-	"billingProfileSchema":          "billing: a customer's billing profile is an Oxy entity",
-	"billingProfileStatusSchema":    "billing: a customer's billing profile is an Oxy entity",
-	"externalPaymentSchema":         "billing: payment processing is Oxy's, and Kaana holds no payment credential",
-	"externalPaymentKindSchema":     "billing: payment processing is Oxy's",
-	"externalPaymentProviderSchema": "billing: payment processing is Oxy's",
-
-	// Reconciliation compares what Oxy charged against what a provider
-	// invoiced. Kaana measures its own upstream cost (internal/providercost)
-	// and deliberately does not reconcile it — see the README's out-of-scope
-	// list. Published in @oxy.so/contracts 0.28.0.
-	"reconciliationReportSchema":          "reconciliation: a finance process with no home in a data plane",
-	"reconciliationRunSchema":             "reconciliation: a finance process with no home in a data plane",
-	"reconciliationRunStatusSchema":       "reconciliation: a finance process with no home in a data plane",
-	"reconciliationDiscrepancySchema":     "reconciliation: a finance process with no home in a data plane",
-	"reconciliationDiscrepancyKindSchema": "reconciliation: a finance process with no home in a data plane",
-
-	// Entitlements, plans and cost centres are what a customer bought and how
-	// they attribute it. Kaana is told the outcome of that decision — an
-	// already-authorized envelope — and never re-derives it (ADR 0006).
-	// Published in @oxy.so/contracts 0.28.0.
-	"costCenterSchema":            "entitlement: cost attribution is an Oxy account structure",
-	"costCenterSpendSchema":       "entitlement: cost attribution is an Oxy account structure",
-	"costCenterStatusSchema":      "entitlement: cost attribution is an Oxy account structure",
-	"planAllowanceSchema":         "entitlement: what a customer bought is resolved at the edge",
-	"payAsYouGoEntitlementSchema": "entitlement: what a customer bought is resolved at the edge",
-	"productEntitlementSchema":    "entitlement: what a customer bought is resolved at the edge",
-	"productPlanSchema":           "entitlement: plans are an Oxy product concern",
-	"productPlanStatusSchema":     "entitlement: plans are an Oxy product concern",
-
-	// Model-release declarations and compliance documentation are authored and
-	// ingested by Oxy. Kaana executes an already-resolved model reference and
-	// never accepts publisher release material at its serving boundary.
-	"aliaModelReleaseManifestSchema":     "model release: Oxy owns publisher release ingestion",
-	"aliaReleaseArtifactSchema":          "model release: Oxy owns publisher artifact declarations",
-	"aliaReleaseSignatureSchema":         "model release: Oxy owns publisher signature verification",
-	"modelDistributionMethodSchema":      "model documentation: Oxy owns distribution declarations",
-	"modelDocumentationSchema":           "model documentation: Oxy owns assembled compliance documentation",
-	"modelDownstreamDocumentationSchema": "model documentation: Oxy owns downstream documentation",
-	"modelGpaiDocumentationSchema":       "model documentation: Oxy owns GPAI compliance metadata",
-	"modelLineDeclarationSchema":         "model release: Oxy owns model-line declarations",
-	"modelReleaseIngestionRequestSchema": "model release: Oxy owns release ingestion commands",
-	"modelReleaseIngestionResultSchema":  "model release: Oxy owns release ingestion results",
-	"modelSystemicRiskTierSchema":        "model documentation: Oxy owns systemic-risk classification",
-	"sha256DigestSchema":                 "model release: Oxy owns artifact integrity declarations",
-	"trainingComputeFlopsSchema":         "model documentation: Oxy owns training-compute declarations",
+	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
+	// authorizations and settlements endpoints in phase 2 and Kaana calls them
+	// from internal/publicapi in phase 3; the signed envelope above remains the
+	// only wire until then.
+	"admittedModelLineSchema":             "grant (phase 3): one admitted model line and its price",
+	"authorizationRequestSchema":          "grant (phase 3): POST /internal/kaana/v1/authorizations",
+	"catalogueAccessSchema":               "grant (phase 3): catalogue.read answer",
+	"catalogueAuthorizationRequestSchema": "grant (phase 3): catalogue.read request",
+	"grantExactRouteSchema":               "grant (phase 3): the exact route of an approval-bound operation",
+	"grantLaneSchema":                     "grant (phase 3): the lane that decides who pays",
+	"grantOperationSchema":                "grant (phase 3): the operation a grant authorizes",
+	"grantPrincipalSchema":                "grant (phase 3): the paying principal",
+	"grantRequestFactsSchema":             "grant (phase 3): content-free facts the hold is sized from",
+	"grantSchema":                         "grant (phase 3): the signed grant",
+	"grantStepLimitsSchema":               "grant (phase 3): the limits of one step",
+	"grantStepSchema":                     "grant (phase 3): one ordered step",
+	"grantTargetSchema":                   "grant (phase 3): a model line or a power level",
+	"inferenceAuthorizationRequestSchema": "grant (phase 3): inference authorization request",
+	"receiptAccessSchema":                 "grant (phase 3): receipt.read answer",
+	"receiptAuthorizationRequestSchema":   "grant (phase 3): receipt.read request",
+	"settlementAcknowledgementSchema":     "settlement (phase 3): Oxy's acknowledgement",
+	"settlementPageSchema":                "settlement (phase 3): GET /internal/v1/settlements page",
+	"settlementSchema":                    "settlement (phase 3): the outbox delivery",
 }
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 107
+const expectedNotApplicableCount = 105
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -516,10 +494,10 @@ func bindEnum[T ~string](values []T) enumBinding {
 /*  Gates                                                                     */
 /* -------------------------------------------------------------------------- */
 
-func TestDescriptorIsTheePinnedPublishedPackage(t *testing.T) {
+func TestDescriptorIsTheContractPackage(t *testing.T) {
 	file := loadDescriptor(t)
-	if file.Package != "@oxy.so/contracts" {
-		t.Errorf("descriptor was generated from %q, not @oxy.so/contracts", file.Package)
+	if file.Package != "@kaana.ai/contracts" {
+		t.Errorf("descriptor was generated from %q, not @kaana.ai/contracts", file.Package)
 	}
 	if file.PackageVersion == "" {
 		t.Error("descriptor records no package version, so nothing pins what it describes")

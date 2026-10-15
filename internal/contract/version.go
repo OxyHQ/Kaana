@@ -1,11 +1,12 @@
 // Package contract holds Kaana's Go representation of the Oxy↔data-plane
-// inference contract published as `@oxy.so/contracts`.
+// inference contract, `@kaana.ai/contracts` (`packages/contracts` in this
+// repository, Kaana ADR 0002).
 //
 // The types here are not a convenience mirror. They are the wire, and the
-// authority for what the wire says is the published package, never this
-// package: `descriptor.json` is generated from it by `tools/contract` and
-// `contract_test.go` compares every type below against that descriptor field by
-// field. A field renamed, added, removed or made optional on either side is a
+// authority for what the wire says is the Zod source, never this package:
+// `descriptor.json` is generated from it by `tools/contract` and
+// `descriptor_test.go` compares every type below against that descriptor field
+// by field. A field renamed, added, removed or made optional on either side is a
 // failing test, which is the only reason it is safe to write these structs by
 // hand.
 //
@@ -20,10 +21,12 @@ package contract
 // the health handshake so the two sides establish they were built against
 // compatible definitions before a single request is served.
 //
-// Asserted against the published package's INFERENCE_CONTRACT_VERSION by
-// contract_test.go, so bumping the pinned package without revisiting this
-// constant fails the build.
-const ContractVersion = "3.8.0"
+// Asserted against the contract's INFERENCE_CONTRACT_VERSION by
+// descriptor_test.go, so changing the contract set without revisiting this
+// constant fails the build. 4.0.0 is the set first published as
+// `@kaana.ai/contracts`; Oxy reads it from the health handshake but compares
+// no version against it.
+const ContractVersion = "4.0.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

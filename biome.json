@@ -9,7 +9,9 @@
   "files": {
     "ignoreUnknown": true,
     "includes": [
-      "tools/contract/**",
+      "packages/**",
+      "tools/**",
+      "!packages/contracts/openapi.json",
       "!**/node_modules",
       "!.worktrees",
       "!**/dist",

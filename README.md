@@ -181,7 +181,7 @@ cmd/kaana-credentials/          migrate and administer encrypted provider keys
 cmd/kaana-credential-control/   signed customer-BYOK create/rotate/revoke task
 cmd/kaana-platform-credential-control/ signed platform-pool import/rotate task
 cmd/kaana-platform-credential-import/ host client; signed HTTPS, secret on stdin
-internal/contract/              Go types for @oxy.so/contracts' inference module
+internal/contract/              Go types for the @kaana.ai/contracts wire (packages/contracts)
 internal/credentialcontrol/     mutation and exact-outcome BYOK HTTP boundary
 internal/credentialstore/       PostgreSQL ciphertext store and KMS boundary
 internal/edgeauth/              Ed25519 verification of the Oxy edge's signature

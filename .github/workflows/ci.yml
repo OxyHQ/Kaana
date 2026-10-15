@@ -132,33 +132,36 @@ jobs:
         with:
           bun-version: "1.4.3"
 
-      - name: install the pinned contracts package
+      - name: install the TypeScript workspace
         run: bun install --frozen-lockfile
-        working-directory: tools/contract
 
-      - name: Biome formats and lints the contract tool
-        # Biome's root biome.json includes ONLY tools/contract/**, so this never
-        # reads configs/**, .github/*.json or the generated descriptor.
+      - name: Biome formats and lints the TypeScript workspace
+        # The root biome.json includes ONLY packages/** and tools/** (Kaana ADR
+        # 0002), so this never reads configs/**, .github/*.json, the descriptor
+        # or openapi.json.
         run: bunx biome ci .
-        working-directory: tools/contract
 
-      - name: the committed descriptor is what the pinned package produces
-        # Catches a hand-edited descriptor and a version bump nobody
-        # re-derived. The package version is pinned exactly, so regeneration is
-        # deterministic and any diff is a real change.
+      - name: "@kaana.ai/contracts typechecks, passes its suites and builds"
+        run: bun run typecheck && bun run test && bun run build
+        working-directory: packages/contracts
+
+      - name: the committed descriptor and openapi.json are what the source produces
+        # Both derive from the @kaana.ai/contracts workspace source, so the
+        # input is the commit: any diff is a contract change nobody re-derived,
+        # or a hand edit.
         run: |
           bun run generate
-          if ! git diff --exit-code -- ../../internal/contract/descriptor.json; then
-            echo "descriptor.json does not match the pinned @oxy.so/contracts package."
+          if ! git diff --exit-code -- ../../internal/contract/descriptor.json ../../packages/contracts/openapi.json; then
+            echo "descriptor.json or openapi.json does not match the @kaana.ai/contracts source."
             echo "Run 'bun install --frozen-lockfile && bun run generate' in tools/contract and review the diff."
             exit 1
           fi
         working-directory: tools/contract
 
-      - name: the Go types match the published contract
+      - name: the Go types match the contract
         run: go test -count=1 ./internal/contract/...
 
-      - name: the shapes Kaana produces parse under the published Zod schemas
+      - name: the shapes Kaana produces parse under the contract's Zod schemas
         # Reads the fixtures the step above wrote. It fails on an empty fixture
         # directory and on any rejection control it accepts, so a silent no-op
         # cannot pass as a clean run.

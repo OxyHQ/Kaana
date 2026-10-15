@@ -14,3 +14,7 @@ node_modules/
 # Coverage
 *.out
 coverage.txt
+
+# Built packages and their tarballs (packages/*/dist is rebuilt by `bun run build`)
+dist/
+*.tgz

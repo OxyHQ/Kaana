@@ -435,8 +435,11 @@ func (r *Request) Validate() error {
 		}
 	}
 	if r.Speech != nil {
-		if r.Client.APIFormat != APIFormatAudioSpeech || r.Modality != ModalityAudio || r.Input.Format != InputText || r.Stream {
-			return fmt.Errorf("contract: speech requires non-streaming audio_speech with text input")
+		// Contract set 4.0.0 (ADR 0002, decision 8) admits a streamed speech
+		// request; each adapter still refuses in Translate what its provider
+		// cannot stream.
+		if r.Client.APIFormat != APIFormatAudioSpeech || r.Modality != ModalityAudio || r.Input.Format != InputText {
+			return fmt.Errorf("contract: speech requires audio_speech with text input")
 		}
 		if len(r.Speech.Voice) == 0 || utf16Length(r.Speech.Voice) > 64 || !r.Speech.ResponseFormat.Valid() {
 			return fmt.Errorf("contract: invalid speech voice or response format")
