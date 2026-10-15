@@ -1,4 +1,4 @@
-package httpapi
+package contract
 
 import (
 	"encoding/json"
@@ -6,10 +6,10 @@ import (
 	"unicode/utf8"
 )
 
-// validateDecisionJSONUnicode refuses strings encoding/json would silently
+// ValidateDecisionJSONUnicode refuses strings encoding/json would silently
 // replace with U+FFFD. It inspects signed bytes, never rewrites them. Only the
 // decisions endpoint uses this gate; unrelated inference families are unchanged.
-func validateDecisionJSONUnicode(body []byte) error {
+func ValidateDecisionJSONUnicode(body []byte) error {
 	if !utf8.Valid(body) {
 		return errors.New("the decisions envelope contains invalid UTF-8")
 	}

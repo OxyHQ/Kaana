@@ -23,7 +23,7 @@
  *
  * Usage: `bun install --frozen-lockfile && bun run validate`.
  */
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -37,26 +37,32 @@ const REPOSITORY_ROOT = resolve(import.meta.dirname, '..', '..');
 const TEMP_ROOT = mkdtempSync(join(tmpdir(), 'kaana-contract-'));
 const FIXTURE_ROOT = join(TEMP_ROOT, 'wire');
 
-function generateFixtures() {
-  const result = spawnSync(
-    'go',
-    ['test', './internal/contract', '-run', '^TestWriteWireFixtures$', '-count=1'],
-    {
-      cwd: REPOSITORY_ROOT,
-      env: { ...process.env, KAANA_CONTRACT_FIXTURE_DIR: FIXTURE_ROOT },
-      stdio: 'inherit',
-    },
-  );
+/**
+ * The producers. The contract package writes one fixture per wire shape from
+ * its Go types; the public server writes what it actually answered real
+ * requests with (internal/publicapi). Each writes into its own fresh root.
+ */
+const PRODUCERS = [
+  { name: 'contract', pkg: './internal/contract', test: '^TestWriteWireFixtures$' },
+  { name: 'publicapi', pkg: './internal/publicapi', test: '^TestWritePublicWireFixtures$' },
+];
+
+function generateFixtures(producer) {
+  const result = spawnSync('go', ['test', producer.pkg, '-run', producer.test, '-count=1'], {
+    cwd: REPOSITORY_ROOT,
+    env: { ...process.env, KAANA_CONTRACT_FIXTURE_DIR: join(FIXTURE_ROOT, producer.name) },
+    stdio: 'inherit',
+  });
   if (result.error) {
-    throw new Error(`cannot generate contract fixtures: ${result.error.message}`);
+    throw new Error(`cannot generate ${producer.name} fixtures: ${result.error.message}`);
   }
   if (result.status !== 0) {
-    throw new Error(`contract fixture generation exited with status ${result.status}`);
+    throw new Error(`${producer.name} fixture generation exited with status ${result.status}`);
   }
 }
 
-function readFixtures(kind) {
-  const dir = join(FIXTURE_ROOT, kind);
+function readFixtures(producer, kind) {
+  const dir = join(FIXTURE_ROOT, producer.name, kind);
   let entries;
   try {
     entries = readdirSync(dir)
@@ -65,8 +71,11 @@ function readFixtures(kind) {
   } catch (error) {
     throw new Error(`cannot read generated fixtures from ${dir}: ${error.message}`);
   }
+  if (entries.length === 0) {
+    throw new Error(`${producer.name} wrote no ${kind} fixtures; its checks would pass vacuously`);
+  }
   return entries.map((name) => ({
-    file: join(kind, name),
+    file: join(producer.name, kind, name),
     ...JSON.parse(readFileSync(join(dir, name), 'utf8')),
   }));
 }
@@ -80,11 +89,12 @@ function schemaFor(name) {
 }
 
 try {
-  generateFixtures();
+  mkdirSync(FIXTURE_ROOT);
+  for (const producer of PRODUCERS) generateFixtures(producer);
 
   const failures = [];
-  const valid = readFixtures('valid');
-  const invalid = readFixtures('invalid');
+  const valid = PRODUCERS.flatMap((producer) => readFixtures(producer, 'valid'));
+  const invalid = PRODUCERS.flatMap((producer) => readFixtures(producer, 'invalid'));
 
   if (valid.length === 0) {
     throw new Error('no valid fixtures were found; every check below would pass vacuously');

@@ -127,8 +127,13 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		}
 		rate = publicapi.RateLimit{PerSecond: perSecond, Burst: max(1, int(perSecond*2))}
 	}
+	catalogue, err := publicapi.LoadPublicCatalogue(getenv("KAANA_PUBLIC_CATALOGUE_PATH"))
+	if err != nil {
+		return publicAPI{}, err
+	}
 	server, err := publicapi.New(publicapi.Config{
-		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
+		Catalogue: catalogue,
+		Executor:  deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
 		Funding: publicapi.RegistryFunding{Registry: deps.registry}, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})

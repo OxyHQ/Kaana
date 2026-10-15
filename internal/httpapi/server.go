@@ -289,7 +289,7 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	// every Kaana executor, adapter and provider operation.
 	if r.URL.Path == "/internal/v1/decisions" {
 		w.Header().Set("Cache-Control", "no-store")
-		if err := validateDecisionJSONUnicode(body); err != nil {
+		if err := contract.ValidateDecisionJSONUnicode(body); err != nil {
 			s.writeRejection(w, http.StatusBadRequest,
 				contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
 			return

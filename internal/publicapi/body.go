@@ -46,6 +46,10 @@ func decodeRequest(body []byte, requestID contract.RequestID, destination any) *
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
+		var refused fieldError
+		if errors.As(err, &refused) {
+			return invalid(requestID, refused.field, refused.message)
+		}
 		var typeError *json.UnmarshalTypeError
 		if errors.As(err, &typeError) && typeError.Field != "" {
 			return invalid(requestID, typeError.Field, fmt.Sprintf("%s has the wrong type", typeError.Field))
