@@ -66,6 +66,26 @@ export const settlementAcknowledgementSchema = z
   })
   .strict();
 
+/**
+ * The signature domain of Oxy's reconciliation read, under the Oxy edge key
+ * (`KAANA_EDGE_PUBLIC_KEYS`). New in package 4.4.1; Kaana has verified under it
+ * since contract set 4.2.0.
+ */
+export const SETTLEMENT_READ_SIGNATURE_DOMAIN = 'oxy-kaana-settlement-read:v1';
+
+/** Where Oxy reads the outbox, on `https://kaana.ai`. */
+export const SETTLEMENT_READ_PATH = '/internal/v1/settlements';
+
+/**
+ * The query string of a reconciliation read, without its `?`: both what Oxy
+ * sends and the exact bytes it signs. Kaana verifies the raw query and nothing
+ * else — the path is fixed by the domain — so signing `path?query`, or encoding
+ * the cursor differently from what is sent, is refused as unsigned.
+ */
+export function settlementReadQuery(cursor: string | null): string {
+  return cursor === null ? '' : `cursor=${encodeURIComponent(cursor)}`;
+}
+
 /** `GET /internal/v1/settlements?cursor=`: what Oxy reconciles against. */
 export const settlementPageSchema = z
   .object({

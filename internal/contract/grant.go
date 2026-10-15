@@ -28,6 +28,11 @@ const GrantSignatureDomain = "oxy-kaana-grant:v1"
 // own settlement key.
 const SettlementSignatureDomain = "kaana-oxy-settlement:v1"
 
+// SettlementReadSignatureDomain is the domain of Oxy's reconciliation read of
+// the settlement outbox (GET /internal/v1/settlements), signed with the Oxy edge
+// key over the raw query string and nothing else.
+const SettlementReadSignatureDomain = "oxy-kaana-settlement-read:v1"
+
 // GrantExecutionWindow is how long after issuedAt Kaana may START executing a
 // grant.
 const GrantExecutionWindow = 60 * time.Second

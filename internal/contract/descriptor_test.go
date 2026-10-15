@@ -647,6 +647,25 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 	assertStringList("USAGE_UNITS", stringsOf(usageUnitValues))
 	assertStringList("USAGE_SOURCES", stringsOf(usageSourceValues))
 	assertStringList("INFERENCE_SCOPES", stringsOf(scopeValues))
+
+	// The signature domains: a domain Oxy signs under and Kaana verifies under
+	// that differ by one letter is every read refused as unsigned, which is what
+	// the reconciliation read was until 2026-10-15.
+	for constant, got := range map[string]string{
+		"GRANT_SIGNATURE_DOMAIN":           GrantSignatureDomain,
+		"SETTLEMENT_SIGNATURE_DOMAIN":      SettlementSignatureDomain,
+		"SETTLEMENT_READ_SIGNATURE_DOMAIN": SettlementReadSignatureDomain,
+	} {
+		raw, present := file.Constants[constant]
+		if !present {
+			t.Errorf("published constant %s is gone", constant)
+			continue
+		}
+		var want string
+		if err := json.Unmarshal(raw.Value, &want); err != nil || want != got {
+			t.Errorf("%s is %s upstream, its Go declaration is %q", constant, raw.Value, got)
+		}
+	}
 }
 
 func TestGoTypesMatchPublishedShapes(t *testing.T) {

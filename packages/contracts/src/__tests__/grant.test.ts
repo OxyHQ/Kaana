@@ -10,7 +10,10 @@ import {
   GRANT_SIGNATURE_DOMAIN,
   grantSchema,
   grantStepLimitsSchema,
+  SETTLEMENT_READ_PATH,
+  SETTLEMENT_READ_SIGNATURE_DOMAIN,
   SETTLEMENT_SIGNATURE_DOMAIN,
+  settlementReadQuery,
   settlementSchema,
   signatureInput,
 } from '../internal.js';
@@ -288,10 +291,18 @@ describe('signing and the canonical input hash', () => {
   it('signs the scheme every Oxy↔Kaana body already uses, under its own domains', () => {
     expect(GRANT_SIGNATURE_DOMAIN).toBe('oxy-kaana-grant:v1');
     expect(SETTLEMENT_SIGNATURE_DOMAIN).toBe('kaana-oxy-settlement:v1');
+    expect(SETTLEMENT_READ_SIGNATURE_DOMAIN).toBe('oxy-kaana-settlement-read:v1');
     expect(
       signatureInput(GRANT_SIGNATURE_DOMAIN, 'oxy-2026-10', 1760521260000, 'd'.repeat(64)),
     ).toBe(`oxy-kaana-grant:v1\noxy-2026-10\n1760521260000\n${'d'.repeat(64)}`);
     expect(() => signatureInput(GRANT_SIGNATURE_DOMAIN, 'k', 1, 'D'.repeat(64))).toThrow();
+  });
+
+  it('signs a reconciliation read over its raw query, never its path', () => {
+    expect(SETTLEMENT_READ_PATH).toBe('/internal/v1/settlements');
+    expect(settlementReadQuery(null)).toBe('');
+    expect(settlementReadQuery('42')).toBe('cursor=42');
+    expect(settlementReadQuery('a b/c')).toBe('cursor=a%20b%2Fc');
   });
 
   it('hashes the canonical JSON of the input, as Oxy and Go compute it', async () => {
