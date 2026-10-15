@@ -37,6 +37,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/publicapi"
 	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 	"github.com/OxyHQ/Kaana/internal/scopedpermit"
@@ -297,7 +298,17 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// The declared catalogue (configs/public-catalogue.json): identity,
+	// licence, data policy, capabilities and list prices, Kaana's alone (ADR
+	// 0002, amendment 2026-10-15). Loaded whether or not the public API is
+	// enabled, because Oxy reads it from the internal surface to rate grants.
+	declaredCatalogue, err := publicapi.LoadPublicCatalogue(os.Getenv("KAANA_PUBLIC_CATALOGUE_PATH"))
+	if err != nil {
+		return err
+	}
+
 	server, err := httpapi.New(httpapi.Config{
+		DeclaredCatalogue:   declaredCatalogue.Document(),
 		Executor:            executor,
 		Realtime:            sessions,
 		Verifier:            verifier,
@@ -319,7 +330,7 @@ func run(logger *slog.Logger) error {
 	// KAANA_PUBLIC_API_ENABLED is true, so a merge is not an exposure: it
 	// needs Oxy's authorization and settlement API live first.
 	public, err := buildPublicAPI(publicAPIDependencies{
-		executor: executor, inventory: inventoryStore, registry: registry, sessions: sessions,
+		catalogue: declaredCatalogue, executor: executor, inventory: inventoryStore, registry: registry, sessions: sessions,
 		store: credentialDatabase, keys: keys, token: validationReporter.ServiceToken, logger: logger,
 	})
 	if err != nil {

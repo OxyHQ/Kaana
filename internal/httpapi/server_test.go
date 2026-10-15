@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -294,6 +295,7 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 		Inventory:           store,
 		Rotation:            rotationRegistry,
 		Logger:              logger,
+		DeclaredCatalogue:   json.RawMessage(declaredCatalogueFixture),
 	})
 	if err != nil {
 		t.Fatalf("building the server: %v", err)
@@ -1429,6 +1431,10 @@ func jsonHasKey(t *testing.T, payload []byte, key string) bool {
 	return present
 }
 
+// declaredCatalogueFixture stands for the whole of configs/public-catalogue.json:
+// the server relays it without reading it.
+const declaredCatalogueFixture = `{"schemaVersion":1,"models":[{"modelId":"stub/model","audience":"public","pricing":{"priceVersionId":"p1","currency":"USD","unitPrices":[{"unit":"input_tokens","amount":"1.000000000000","per":1000000,"currency":"USD"}]}}]}`
+
 // The catalogue route exists so a consumer stops keeping its own copy of this
 // list. It is signed like health and unlike livez: which models Oxy has
 // contracted for is commercial information, and the body names the providers.
@@ -1459,9 +1465,10 @@ func TestModelsIsSignedAndNamesTheLineRatherThanTheRevision(t *testing.T) {
 	}
 
 	var catalogue struct {
-		ContractVersion      string   `json:"contractVersion"`
-		ServesUnpinned       bool     `json:"servesUnpinned"`
-		PinnedOnlyReferences []string `json:"pinnedOnlyReferences"`
+		ContractVersion      string          `json:"contractVersion"`
+		ServesUnpinned       bool            `json:"servesUnpinned"`
+		PinnedOnlyReferences []string        `json:"pinnedOnlyReferences"`
+		DeclaredCatalogue    json.RawMessage `json:"declaredCatalogue"`
 		Models               []struct {
 			Model     string   `json:"model"`
 			Reference string   `json:"modelReference"`
@@ -1494,6 +1501,18 @@ func TestModelsIsSignedAndNamesTheLineRatherThanTheRevision(t *testing.T) {
 	}
 	if len(catalogue.PinnedOnlyReferences) != 0 {
 		t.Errorf("a snapshot with no superseded revision reports %v", catalogue.PinnedOnlyReferences)
+	}
+	// Oxy rates grants from Kaana's declared catalogue: it must arrive whole,
+	// prices included, and not re-shaped on the way.
+	var sent, want any
+	if err := json.Unmarshal(catalogue.DeclaredCatalogue, &sent); err != nil {
+		t.Fatalf("the declared catalogue does not decode: %v", err)
+	}
+	if err := json.Unmarshal([]byte(declaredCatalogueFixture), &want); err != nil {
+		t.Fatalf("the fixture does not decode: %v", err)
+	}
+	if !reflect.DeepEqual(sent, want) {
+		t.Errorf("the declared catalogue was relayed as %s", catalogue.DeclaredCatalogue)
 	}
 }
 

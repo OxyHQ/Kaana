@@ -37,6 +37,11 @@
 !configs/provider-rates-jev-scoped.json
 !configs/provider-rates-jev-private-auto.json
 
+# The declared catalogue (identity, licence, data policy, capabilities and list
+# prices; docs/operating.md), by exact name. It is what the image serves on
+# GET /v1/models and relays to Oxy; configs/inventory.example.json stays out.
+!configs/public-catalogue.json
+
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the
 # builder on every build.

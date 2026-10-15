@@ -85,8 +85,11 @@ type Config struct {
 	// order within each step.
 	Funding FundingRanker
 	// Audio publishes each speech model's voice limits (ADR 0002, decision 9);
-	// nil checks only the contract's own bounds before a grant.
+	// nil takes them from Catalogue.
 	Audio AudioCatalogue
+	// Catalogue is the declared half of GET /v1/models (identity, licence,
+	// data policy, power class, prices); nil lists nothing.
+	Catalogue *PublicCatalogue
 	// Realtime serves GET /v1/realtime; nil answers it unavailable.
 	Realtime http.Handler
 	// AllowedOrigins may call /v1 from a browser (CORS): Oxy Console's
@@ -108,6 +111,7 @@ type Server struct {
 	funding    FundingRanker
 	audio      AudioCatalogue
 	realtime   http.Handler
+	catalogue  *PublicCatalogue
 	origins    map[string]struct{}
 	limiter    *limiter
 	logger     *slog.Logger
@@ -147,13 +151,21 @@ func New(config Config) (*Server, error) {
 		}
 		origins[origin] = struct{}{}
 	}
+	catalogue := config.Catalogue
+	if catalogue == nil {
+		catalogue = &PublicCatalogue{models: make(map[contract.ModelID]declaredModel)}
+	}
+	audio := config.Audio
+	if audio == nil {
+		audio = catalogue
+	}
 	rate := config.RateLimit
 	if rate == (RateLimit{}) {
 		rate = DefaultRateLimit
 	}
 	return &Server{
 		executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
-		inventory: config.Inventory, funding: config.Funding, audio: config.Audio, realtime: config.Realtime,
+		inventory: config.Inventory, funding: config.Funding, audio: audio, realtime: config.Realtime, catalogue: catalogue,
 		origins: origins, limiter: newLimiter(rate, now), logger: logger, now: now,
 	}, nil
 }

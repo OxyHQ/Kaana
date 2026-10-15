@@ -827,6 +827,108 @@ Publicación: `@kaana.ai/contracts@4.0.0` (1.3) → `@kaana.ai/sdk@1.0.0` (3.2)
 → consumidores (fase 4) → `@oxy.so/core@5.0.0` y `@oxy.so/contracts@5.0.0`
 (5.1).
 
+## Enmienda 2026-10-15: el catálogo es de Kaana
+
+Decisión del dueño, vinculante: «corte limpio, nada de tricky things». El
+catálogo de modelos es de Kaana, y de nadie más. Esta enmienda corrige las
+decisiones de arriba que daban a Oxy la identidad de catálogo y los precios
+(decisión 7, «catálogo con … **precios** (la lista de Oxy)», y la fila «Se
+queda en Oxy: … las listas de precios por línea de modelo»).
+
+### Qué cambia
+
+- **Fuente única.** Identidad (`modelId`, publisher, nombre), licencia,
+  procedencia, política de datos, capacidades, voces, deprecación y **precio de
+  lista por unidad** de cada modelo viven en un fichero revisado del repo de
+  Kaana, `configs/public-catalogue.json`, igual que ya lo es
+  `configs/model-attribution.json`. Un cambio es un commit revisado. Nada lo
+  deriva y no existe una segunda copia.
+- **Forma.** `declaredCatalogueSchema` / `declaredModelSchema` en
+  `@kaana.ai/contracts/internal` (conjunto 4.3.0, aditivo): `modelSchema`
+  menos lo que Kaana rellena al servir (`schemaVersion`, `currentRevision`,
+  `availableRevisions`), más `audience`, y **estricto**. Un modelo declarado no
+  lleva `servingProviders`, `availabilityScope` ni `commercialPermission`: son
+  propiedades de una ruta, no del modelo, y las decide el inventario firmado y
+  la concesión de Oxy. `ParsePublicCatalogue` los rechaza y
+  `tools/contract/validate.mjs` parsea el fichero entero con el esquema Zod.
+- **Dónde se sirve.** `GET /v1/models` y `/v1/power-levels` (como antes, el
+  fichero ∩ lo que sirve el inventario) y, **entero y con precios**, como
+  miembro `declaredCatalogue` de la firmada `GET /internal/v1/models`. Es
+  todo lo declarado, esté servido ahora o no: el inventario dice qué se sirve y
+  este miembro dice qué es y cuánto cuesta.
+- **Imagen.** El Dockerfile hornea el fichero en `/etc/kaana-catalogue/` y fija
+  `KAANA_PUBLIC_CATALOGUE_PATH` por defecto; la tarea de oxy-infra lo repite.
+  Kaana lo carga siempre, esté o no habilitada la API pública, porque Oxy lo
+  lee de la superficie interna.
+- **Los precios son de lista.** Son el precio por unidad al que Oxy tasa una
+  concesión, no el coste de Kaana (eso sigue siendo `providercost` y las
+  tarifas de `provider-rates.json`) ni un importe de cliente. Ninguna respuesta
+  de inferencia lleva un importe.
+
+### Qué deja de hacer Oxy
+
+- Deja de ser autoridad del catálogo: no tiene tabla de modelos, publishers,
+  licencias, políticas de datos, capacidades, voces ni precios de lista, ni
+  publica `GET /v1/models`.
+- **Pone precio a las concesiones LEYENDO el catálogo de Kaana**
+  (`declaredCatalogue` en `GET /internal/v1/models`, firmada, que ya consume
+  para `admittedModelLines`). El `priceVersionId` de cada modelo declarado es
+  el identificador de esa lista de precios: Oxy lo copia a la concesión. Un precio nuevo es un
+  `priceVersionId` nuevo; uno publicado nunca cambia.
+- Conserva lo económico y la gestión: holds, recibos, política y topes de
+  Console, BYOK, descuentos y márgenes sobre el precio de lista. Una concesión
+  para un modelo sin `pricing` declarado no se puede tasar por unidad: Oxy la
+  rechaza (es el caso BYOK-only), nunca la tasa a cero.
+
+### Cómo se migran los datos
+
+El volcado del catálogo de Oxy (252 modelos, tomado el 2026-10-15) es una
+**migración de una sola vez**, no una segunda fuente: se hizo una exportación,
+se corrigió para ajustarse al contrato y se revisó como un commit. Desde ese
+commit el fichero de Kaana es el único que se edita. Correcciones hechas en la
+migración (están en el `$comment` del fichero):
+
+- se quitan `servingProviders`, `availabilityScope` y `commercialPermission`
+  (describen la ruta; `servingProviders` nombraría al operador en la superficie
+  pública);
+- el id de licencia `LicenseRef-Oxy-Serving-Provider-Terms` pasa a
+  `LicenseRef-Kaana-Serving-Provider-Terms`;
+- todas las entradas exportadas conservan `audience: platform_internal` hasta
+  una revisión comercial; `public` es una decisión del dueño por modelo.
+
+Después de la exportación se declaran, con fuente primaria citada, los modelos
+de transcripción que Kaana ya sirve: `openai/gpt-4o-transcribe`,
+`openai/gpt-4o-mini-transcribe-2025-03-20` y `…-2025-12-15` (precio por
+tokens, política de datos de OpenAI, deprecaciones publicadas). Quedan
+**fuera por falta de evidencia de un campo obligatorio**: `openai/gpt-transcribe`
+y `openai/whisper-1` (el precio por minuto está publicado, pero el contrato
+exige `maxContextTokens`/`maxOutputTokens` y OpenAI no los declara) y todo
+Deepgram (el adaptador no publica inventario y `model-attribution.json` no lo
+atribuye). `x-ai/grok-voice-think-fast-2.0` lleva precio por las cuatro
+unidades que mide su adaptador realtime (`audio_input_milliseconds`,
+`audio_output_milliseconds`, `session_milliseconds`, `requests`).
+
+### Qué se retira de Oxy en la fase 5
+
+Se añade a la lista de la fase 5, punto 1 (OxyHQServices):
+
+- el servicio de catálogo (`services/inferenceCatalogue.service.ts`) y sus
+  tablas de modelos, publishers, revisiones, despliegues comerciales y
+  **versiones de precio por línea de modelo**, tras importar los
+  `priceVersionId` ya usados por recibos vigentes (la historia de facturación
+  conserva su copia; el catálogo vivo no);
+- la exportación del volcado y cualquier tarea de sincronización que copie
+  catálogo desde Kaana a tablas propias de modelos: Oxy lee `declaredCatalogue`
+  al tasar y lo cachea en memoria con la versión de contrato, no lo persiste;
+- los esquemas de catálogo de `@oxy.so/contracts` que `@kaana.ai/contracts`
+  ya posee (`modelCatalogueEntrySchema` y vecinos);
+- las pantallas de Console que editan identidad, licencia o precio de lista
+  de un modelo: Console muestra el catálogo de Kaana y gestiona clientes,
+  facturación y límites.
+
+Lo que Oxy necesita para leer los precios está en `docs/operating.md`, «El
+catálogo declarado».
+
 ## Consumidores del corte en `origin/main` (2026-10-15)
 
 `git grep` de `OxyInferenceClient|createInferenceClient|@oxy.so/core/inference`

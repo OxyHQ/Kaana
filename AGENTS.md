@@ -42,6 +42,8 @@ Contract — docs/contract.md#rules-a-reviewer-applies
 - `@kaana.ai/contracts` (`packages/contracts`, Zod) is the source: Zod →
   descriptor → Go. Public `/v1` shapes at the root, Oxy↔Kaana under `/internal`.
 - Never edit `internal/contract/descriptor.json` or `openapi.json` by hand; regenerate them.
+- The model catalogue (identity, licence, data policy, capabilities, list prices) is
+  `configs/public-catalogue.json`, Kaana's alone; no field without primary evidence — docs/operating.md#the-declared-catalogue
 - Never add a field the contract lacks; unexchanged shapes go in `notApplicable`.
 
 Routing — docs/routing.md#rules-a-reviewer-applies

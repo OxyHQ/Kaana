@@ -1,4 +1,4 @@
-package httpapi
+package contract
 
 import "testing"
 
@@ -26,7 +26,7 @@ func TestDecisionJSONUnicode(t *testing.T) {
 		{"truncated-escape", "\"\\uD800", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateDecisionJSONUnicode([]byte(tc.body))
+			err := ValidateDecisionJSONUnicode([]byte(tc.body))
 			if (err == nil) != tc.valid {
 				t.Fatalf("valid=%v, error=%v", tc.valid, err)
 			}

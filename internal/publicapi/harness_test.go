@@ -45,6 +45,13 @@ const (
 	oxyKeyID   = "oxy-grant-test"
 )
 
+// chargedRecord is the generation record Oxy answers receipt.read with.
+const chargedRecord = `{"schemaVersion":1,"kind":"charge","requestId":"req_1","generationId":"gen_1","applicationId":"app_1","credentialId":"cred_1",
+"environment":"production","outcome":"completed","usageSource":"provider_reported","units":[{"unit":"output_tokens","quantity":3}],
+"model":"stub/model@2026-05-01","settledAt":"2026-10-15T10:00:00.000Z","receiptId":"rcpt_1",
+"priceSnapshot":{"priceVersionId":"price-1","currency":"USD","unitPrices":[{"unit":"output_tokens","amount":"0.000002","per":1,"currency":"USD"}]},
+"billedAmount":"0.000006","currency":"USD","platformFeeOnly":false}`
+
 // realtimeObserved is what the realtime deployment publishes: a conversation
 // over WebSocket, input transcription, two voices and two languages.
 const realtimeObserved = `{"realtime":{"transports":["websocket"],"sessionKinds":["conversation","transcription"],"inputAudioTranscription":true,
@@ -200,6 +207,9 @@ type fakeOxy struct {
 	// steps overrides the steps of every grant.
 	steps  func(request contract.InferenceAuthorizationRequest) []contract.GrantStep
 	grants int
+	// audience and allowedLevels answer catalogue.read.
+	audience      contract.CatalogueAudience
+	allowedLevels []contract.PowerLevel
 }
 
 func newFakeOxy(t *testing.T, settlementKey ed25519.PublicKey) *fakeOxy {
@@ -254,7 +264,30 @@ func (o *fakeOxy) authorize(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusUnauthorized, "authentication_failed")
 		return
 	}
-	if probe.Kind != contract.AuthorizationKindInference {
+	switch probe.Kind {
+	case contract.AuthorizationKindCatalogue:
+		o.mu.Lock()
+		audience := o.audience
+		o.mu.Unlock()
+		if audience == "" {
+			audience = contract.AudiencePublic
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(contract.CatalogueAccess{SchemaVersion: 1, Kind: contract.AuthorizationKindCatalogue,
+			Audience: audience, AllowedLevels: o.allowedLevels, ExpiresAt: contract.NewTimestamp(time.Now().Add(time.Minute))})
+		return
+	case contract.AuthorizationKindReceipt:
+		var request contract.ReceiptAuthorizationRequest
+		_ = json.Unmarshal(body, &request)
+		if request.GenerationID != nil && *request.GenerationID == "gen_unknown" {
+			refuse(w, http.StatusNotFound, "model_not_found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"schemaVersion":1,"kind":"receipt.read","record":` + chargedRecord + `}`))
+		return
+	case contract.AuthorizationKindInference:
+	default:
 		w.WriteHeader(http.StatusNotImplemented)
 		return
 	}
@@ -500,6 +533,7 @@ type harness struct {
 }
 
 type harnessOptions struct {
+	catalogue *publicapi.PublicCatalogue
 	audio     publicapi.AudioCatalogue
 	rate      publicapi.RateLimit
 	origins   []string
@@ -634,7 +668,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	api, err := publicapi.New(publicapi.Config{
 		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store,
-		Funding: publicapi.RegistryFunding{Registry: registry}, Audio: options.audio,
+		Funding: publicapi.RegistryFunding{Registry: registry}, Audio: options.audio, Catalogue: options.catalogue,
 		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger,
 	})
 	if err != nil {
@@ -750,7 +784,7 @@ func publicError(t *testing.T, response *reply, status int) contract.PublicError
 
 // forbiddenOnPublicSurface are strings a public response must never contain:
 // providers, deployments, keys and the operator.
-var forbiddenOnPublicSurface = []string{"dep_", "deploymentId", "servingProvider", "openai-realtime", "\"stub\"", "key_rt", "acct_secret_detail", "providerError"}
+var forbiddenOnPublicSurface = []string{"dep_", "deploymentId", "servingProvider", "openai-realtime", "\"provider\"", "key_rt", "acct_secret_detail", "providerError"}
 
 func assertNoProviderLeak(t *testing.T, where string, body []byte) {
 	t.Helper()
@@ -764,4 +798,32 @@ func assertNoProviderLeak(t *testing.T, where string, body []byte) {
 func sha256Hex(body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
+}
+
+// reconciliation serves GET /internal/v1/settlements over the outbox, read
+// with a query signed (or not) by the fake Oxy's key.
+func (h *harness) reconciliation() func(query string, sign bool) *reply {
+	verifier, err := edgeauth.NewSettlementReadVerifier(map[string]ed25519.PublicKey{oxyKeyID: h.oxy.publicKey()}, time.Minute)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	server := httptest.NewServer(publicapi.ReconciliationHandler{Store: h.outbox, Verifier: verifier})
+	h.t.Cleanup(server.Close)
+	return func(query string, sign bool) *reply {
+		request, _ := http.NewRequest(http.MethodGet, server.URL+"/internal/v1/settlements?"+query, nil)
+		if sign {
+			milliseconds := time.Now().UnixMilli()
+			request.Header.Set(edgeauth.HeaderKeyID, oxyKeyID)
+			request.Header.Set(edgeauth.HeaderTimestamp, strconv.FormatInt(milliseconds, 10))
+			request.Header.Set(edgeauth.HeaderSignature, "v1="+base64.StdEncoding.EncodeToString(
+				ed25519.Sign(h.oxy.key, edgeauth.SettlementReadSigningInput(oxyKeyID, milliseconds, []byte(query)))))
+		}
+		response, err := server.Client().Do(request)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, readErr := io.ReadAll(response.Body)
+		return &reply{StatusCode: response.StatusCode, Header: response.Header, Body: body, ReadErr: readErr}
+	}
 }

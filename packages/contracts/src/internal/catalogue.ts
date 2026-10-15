@@ -16,6 +16,7 @@ import {
   modelPowerClassSchema,
   modelProvenanceSchema,
   modelSafetyMetadataSchema,
+  modelSchema,
   powerLevelSchema,
   reasoningEffortSchema,
 } from '../public/catalogue.js';
@@ -369,6 +370,40 @@ export const modelCatalogueEntrySchema = z.object({
   powerClass: modelPowerClassSchema.optional(),
 });
 
+/**
+ * One model as Kaana DECLARES it in `configs/public-catalogue.json` (Kaana ADR
+ * 0002, amendment 2026-10-15): the public `modelSchema` without the three
+ * fields Kaana fills from its inventory when it serves `GET /v1/models`
+ * (`schemaVersion`, `currentRevision`, `availableRevisions`), plus the audience
+ * allowed to see it.
+ *
+ * Strict on purpose. A declared model carries no serving provider, no
+ * availability scope and no commercial permission: those are properties of a
+ * route, decided by the signed inventory and by Oxy's grant, and a file that
+ * named them would publish an operator on the customer surface.
+ */
+export const declaredModelSchema = modelSchema
+  .omit({ schemaVersion: true, currentRevision: true, availableRevisions: true })
+  .extend({ audience: z.enum(['public', 'platform_internal']) })
+  .strict();
+
+/**
+ * The declared catalogue: identity, publisher, licence, provenance, data
+ * policy, capabilities, voices and the LIST PRICE per unit of every model
+ * Kaana may serve. Kaana is its only source of truth. It is the file
+ * `configs/public-catalogue.json`, and the `declaredCatalogue` member of the
+ * signed `GET /internal/v1/models` response (contract set 4.3.0), from which
+ * Oxy reads the price it rates a grant at. New in contract set 4.3.0.
+ */
+export const declaredCatalogueSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    models: z.array(declaredModelSchema),
+  })
+  .strict();
+
+export type DeclaredModel = z.infer<typeof declaredModelSchema>;
+export type DeclaredCatalogue = z.infer<typeof declaredCatalogueSchema>;
 export type AvailabilityScope = z.infer<typeof availabilityScopeSchema>;
 export type CommercialPermission = z.infer<typeof commercialPermissionSchema>;
 export type ModelPublisher = z.infer<typeof modelPublisherSchema>;

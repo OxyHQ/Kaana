@@ -22,6 +22,7 @@ import (
 
 // publicAPIDependencies is what the public API is built from.
 type publicAPIDependencies struct {
+	catalogue *publicapi.PublicCatalogue
 	executor  *kaana.Executor
 	inventory *inventory.Store
 	registry  *provider.Registry
@@ -127,8 +128,13 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		}
 		rate = publicapi.RateLimit{PerSecond: perSecond, Burst: max(1, int(perSecond*2))}
 	}
+	catalogue := deps.catalogue
+	if catalogue == nil {
+		return publicAPI{}, errors.New("the declared catalogue is required when KAANA_PUBLIC_API_ENABLED is true")
+	}
 	server, err := publicapi.New(publicapi.Config{
-		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
+		Catalogue: catalogue,
+		Executor:  deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
 		Funding: publicapi.RegistryFunding{Registry: deps.registry}, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})

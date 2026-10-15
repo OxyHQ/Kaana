@@ -140,6 +140,14 @@ RUN mkdir -p /out/etc/kaana-cutovers \
 RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json configs/provider-rates-jev-scoped.json configs/provider-rates-jev-private-auto.json /out/etc/kaana-rates/ \
     && chown -R 65532:65532 /out/etc/kaana-rates
 
+# The declared catalogue (docs/operating.md, "The declared catalogue"): identity,
+# licence, data policy, capabilities and list prices of every model, Kaana's
+# alone (ADR 0002, amendment 2026-10-15). It carries no secret and changes with
+# a reviewed commit, so it is baked, in a directory of its own because
+# /etc/kaana is a mount point.
+RUN mkdir -p /out/etc/kaana-catalogue && cp configs/public-catalogue.json /out/etc/kaana-catalogue/ \
+    && chown -R 65532:65532 /out/etc/kaana-catalogue
+
 RUN mkdir -p /out/etc/ssl/certs \
     && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
@@ -159,6 +167,7 @@ COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
 COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publisher
 COPY --from=build --chown=65532:65532 /out/etc/kaana-cutovers /etc/kaana-cutovers
 COPY --from=build --chown=65532:65532 /out/etc/kaana-rates /etc/kaana-rates
+COPY --from=build --chown=65532:65532 /out/etc/kaana-catalogue /etc/kaana-catalogue
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own
@@ -175,6 +184,11 @@ ENV KAANA_INVENTORY_PATH=/etc/kaana/inventory.json
 # statement of who released which weights — so unlike the snapshot it is baked
 # in: it changes when a human adds a model, which is a commit, not a cadence.
 ENV KAANA_PUBLISHER_ATTRIBUTION_PATH=/etc/kaana-publisher/model-attribution.json
+
+# The declared catalogue. Baked, so every task of this image serves and relays
+# the same reviewed file; the task definition restates it (container
+# environment wins over image defaults).
+ENV KAANA_PUBLIC_CATALOGUE_PATH=/etc/kaana-catalogue/public-catalogue.json
 
 # Documentation only, and it matches cmd/kaana's default KAANA_ADDR.
 EXPOSE 8080
