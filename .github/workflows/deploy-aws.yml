@@ -37,6 +37,16 @@ on:
       - 'go.sum'
       - 'Dockerfile'
       - '.dockerignore'
+      # Every configs/ file the image bakes (.dockerignore admits each by exact
+      # name). A reviewed change to one is a change to the image: without these
+      # it merged and never ran, the declared-but-not-delivered trap.
+      - 'configs/model-attribution.json'
+      - 'configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json'
+      - 'configs/provider-rates.json'
+      - 'configs/provider-rates-jev-scoped.json'
+      - 'configs/provider-rates-jev-private-auto.json'
+      - 'configs/public-catalogue.json'
+      - 'configs/deployment-commercial.json'
       - '.github/credential-admin-operations.json'
       - '.github/workflows/deploy-aws.yml'
   workflow_dispatch:
