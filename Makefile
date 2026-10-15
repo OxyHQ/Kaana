@@ -17,11 +17,13 @@ GOLANGCI_VERSION := v2.13.2
 BUN_VERSION      := 1.4.3
 
 CONTRACT_DIR := tools/contract
+PACKAGE_DIR  := packages/contracts
 DESCRIPTOR   := internal/contract/descriptor.json
+OPENAPI      := $(PACKAGE_DIR)/openapi.json
 
 .DEFAULT_GOAL := check
 
-.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-generate contract-types contract-validate cloudflare tools help
+.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate cloudflare tools help
 
 ## check: every gate CI runs, in CI's order. The one command to run before a PR.
 check: fmt build vet lint test contract cloudflare
@@ -91,33 +93,41 @@ endif
 	go test -race -count=1 ./internal/credentialstore/...
 
 ## contract: the full contract-drift gate.
-contract: contract-lint contract-generate contract-types contract-validate
+contract: contract-lint contract-package contract-generate contract-types contract-validate
 
-## contract-lint: Biome over the contract tool, and nothing else.
+## contract-lint: Biome over the TypeScript workspace (packages/** and tools/**).
 #
-# The root biome.json includes ONLY tools/contract/**: configs/**, .github/*.json
-# and $(DESCRIPTOR) are byte-exact inputs that a formatter must never touch.
+# The root biome.json includes ONLY packages/** and tools/** (Kaana ADR 0002):
+# configs/**, .github/*.json, $(DESCRIPTOR) and $(OPENAPI) are byte-exact
+# inputs or outputs that a formatter must never touch.
 contract-lint:
-	cd $(CONTRACT_DIR) && bun install --frozen-lockfile && bunx biome ci .
+	bun install --frozen-lockfile
+	bunx biome ci .
 
-## contract-generate: regenerate the descriptor and fail on any diff.
+## contract-package: @kaana.ai/contracts typechecks, passes its suites and builds.
+contract-package:
+	bun install --frozen-lockfile
+	cd $(PACKAGE_DIR) && bun run typecheck && bun run test && bun run build
+
+## contract-generate: regenerate the descriptor and openapi.json and fail on any diff.
 #
-# Catches a hand-edited descriptor and a version bump nobody re-derived. The
-# package version is pinned exactly, so regeneration is deterministic and any
-# diff is a real change. Never edit $(DESCRIPTOR) by hand.
+# Both derive from the @kaana.ai/contracts workspace source, so the input is the
+# commit and regeneration is deterministic: any diff is a contract change
+# nobody re-derived, or a hand edit. Never edit either file by hand.
 contract-generate:
-	cd $(CONTRACT_DIR) && bun install --frozen-lockfile && bun run generate
-	@if ! git diff --exit-code -- $(DESCRIPTOR); then \
-		echo "$(DESCRIPTOR) does not match the pinned @oxyhq/contracts package."; \
+	bun install --frozen-lockfile
+	cd $(CONTRACT_DIR) && bun run generate
+	@if ! git diff --exit-code -- $(DESCRIPTOR) $(OPENAPI); then \
+		echo "$(DESCRIPTOR) or $(OPENAPI) does not match the @kaana.ai/contracts source."; \
 		echo "Run 'bun install --frozen-lockfile && bun run generate' in $(CONTRACT_DIR) and review the diff."; \
 		exit 1; \
 	fi
 
-## contract-types: the Go types match the published contract.
+## contract-types: the Go types match the contract.
 contract-types:
 	go test -count=1 ./internal/contract/...
 
-## contract-validate: the shapes Kaana produces parse under the published Zod schemas.
+## contract-validate: the shapes Kaana produces parse under the contract's Zod schemas.
 #
 # Reads the fixtures contract-types wrote, so it runs after it and not before.
 # It fails on an empty fixture directory and on any rejection control it

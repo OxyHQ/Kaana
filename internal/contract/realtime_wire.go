@@ -1,4 +1,4 @@
-// Code in this file mirrors the realtime session family of @oxy.so/contracts
+// Code in this file mirrors the realtime session family of @kaana.ai/contracts
 // (contract set 3.2.0). See descriptor_test.go for the gate that holds it to
 // the published shapes.
 

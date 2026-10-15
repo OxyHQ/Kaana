@@ -1,21 +1,15 @@
 {
-  "name": "@oxy.so/kaana-contract-tools",
+  "name": "@kaana.ai/contract-tools",
   "private": true,
   "version": "0.0.0",
-  "packageManager": "bun@1.4.3",
   "type": "module",
-  "description": "Derives internal/contract/descriptor.json from the published @oxy.so/contracts inference module, and validates Kaana-produced fixtures against the published Zod schemas.",
+  "description": "Derives internal/contract/descriptor.json and packages/contracts/openapi.json from the @kaana.ai/contracts workspace source, and validates Kaana-produced fixtures against its Zod schemas.",
   "scripts": {
-    "generate": "bun generate.mjs",
-    "validate": "bun validate.mjs && bun validate-private-auto.mjs",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "generate": "bun generate.mjs && bun openapi.mjs",
+    "validate": "bun validate.mjs && bun validate-private-auto.mjs"
   },
   "dependencies": {
-    "@oxy.so/contracts": "4.12.0"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.5.15"
+    "@kaana.ai/contracts": "workspace:*",
+    "zod": ">=4.4.3 <4.5.0"
   }
 }

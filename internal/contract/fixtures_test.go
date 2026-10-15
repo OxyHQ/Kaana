@@ -16,7 +16,7 @@ import (
 //
 // So this file writes one fixture per wire shape to an isolated temporary
 // directory, marshalled by the same Go types the server uses, and
-// `tools/contract/validate.mjs` parses each with the published Zod schema
+// `tools/contract/validate.mjs` parses each with the contract's own Zod schema
 // itself. Nothing about the round trip is re-implemented: the acceptance
 // decision is made by the contract's own code.
 //
@@ -50,12 +50,13 @@ func TestWriteWireFixtures(t *testing.T) {
 	// the transcript channel, two sessions, 11 commands and 22 events), plus 2
 	// for contract set 3.3.0 (session_milliseconds on a usage report and on
 	// session.closed), plus 1 for contract set 3.8.0 (a platform route under a
-	// funding ceiling); 12 controls plus the 6 it must REJECT, plus 5 realtime
+	// funding ceiling), plus 1 for contract set 4.0.0 (streamed speech); 12
+	// controls plus the 6 it must REJECT, plus 5 realtime
 	// controls, plus the near-miss session unit, plus 2 funding-ceiling
 	// controls (a tier the contract does not name, a ceiling beside a customer
 	// credential).
-	if len(valid) != 81 {
-		t.Fatalf("expected 81 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 82 {
+		t.Fatalf("expected 82 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
 	if len(invalid) != 31 {
 		t.Fatalf("expected 31 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
@@ -270,6 +271,13 @@ func validFixtures(t *testing.T) []fixture {
 		t.Fatalf("invalid speech fixture: %v", err)
 	}
 
+	// Contract set 4.0.0 (ADR 0002, decision 8): speech may stream on the wire.
+	streamedSpeech := speech
+	streamedSpeech.Stream = true
+	if err := streamedSpeech.Validate(); err != nil {
+		t.Fatalf("invalid streamed speech fixture: %v", err)
+	}
+
 	batch := textTarget
 	batch.Input = Input{Format: InputTextBatch, Texts: []string{"a", "b"}}
 
@@ -347,6 +355,7 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile-id", Value: textTarget},
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
 		{Schema: "inferenceRequestSchema", Case: "speech-with-parameters", Value: speech},
+		{Schema: "inferenceRequestSchema", Case: "speech-streamed", Value: streamedSpeech},
 		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
 		{Schema: "normalizedUsageReportSchema", Case: "failed-with-nothing-measured", Value: failedReport},
 		{Schema: "inferenceErrorSchema", Case: "retryable-with-upstream", Value: failure},
