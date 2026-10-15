@@ -204,6 +204,16 @@ func (p *Postgres) ReviewedUnpinMigration(ctx context.Context, inspectOnly bool)
 		return report, errors.New("credential store: reading reviewed migration metadata")
 	}
 	for _, migration := range schemaMigrations() {
+		if migration.version > "0021" {
+			// A later migration is applied by the ordinary migrate path; this
+			// reviewed path neither applies nor requires it, but never admits
+			// it under another checksum.
+			if checksum, ok := applied[migration.version]; ok && checksum != migrationChecksum(migration.body) {
+				return report, fmt.Errorf("credential store: migration %s checksum mismatch", migration.version)
+			}
+			delete(applied, migration.version)
+			continue
+		}
 		checksum, ok := applied[migration.version]
 		if !ok {
 			report.Pending = append(report.Pending, migration.version)

@@ -294,7 +294,7 @@ func (e *Executor) SettleSession(ctx context.Context, opening *SessionOpening, e
 		settlement.Report = report
 	}
 
-	if e.costRecorder != nil && len(settlement.UpstreamCost.Attempts) > 0 {
+	if e.costRecorder != nil && len(settlement.UpstreamCost.Attempts) > 0 && !costRecordingDeferred(ctx) {
 		recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), providerCostPersistenceTimeout)
 		defer cancel()
 		settlement.CostRecordError = e.costRecorder.Record(recordContext, settlement.UpstreamCost)

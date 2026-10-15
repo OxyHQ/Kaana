@@ -602,37 +602,9 @@ func NewRecorder(writer Writer) (*Recorder, error) {
 // storage receives one atomic batch and is retried as a whole; no prefix of a
 // multi-attempt request can become durable by itself.
 func (r *Recorder) Record(ctx context.Context, record Record) error {
-	if len(record.Attempts) > maxPersistenceBatchEvents {
-		return fmt.Errorf("providercost: request %s has more than %d attempts", record.RequestID, maxPersistenceBatchEvents)
-	}
-	events := make([]Event, 0, len(record.Attempts))
-	seenAttemptIndexes := make(map[int]struct{}, len(record.Attempts))
-	for _, attempt := range record.Attempts {
-		// No key identity means no credential was leased and no upstream call
-		// was made (for example, an entirely retired pool). It is an execution
-		// refusal rather than a provider-cost event.
-		if attempt.AttemptUsage.ProviderBilledCustomer || attempt.KeyID == "" {
-			continue
-		}
-		event := Event{
-			RequestID: record.RequestID, AttemptIndex: attempt.AttemptIndex,
-			Provider: attempt.Provider, KeyID: attempt.KeyID,
-			DeploymentID: attempt.DeploymentID, ModelReference: attempt.ModelReference,
-			Cost: attempt.Cost, Source: attempt.Source, RateCardVersionID: attempt.RateCardVersionID, Complete: attempt.Complete(),
-			Served: attempt.Served, OccurredAt: attempt.OccurredAt,
-			Units: sortedUnits(attempt.Units), Telemetry: attempt.Telemetry,
-		}
-		if err := validateEvent(event); err != nil {
-			return err
-		}
-		if _, duplicate := seenAttemptIndexes[event.AttemptIndex]; duplicate {
-			return fmt.Errorf("providercost: request %s repeats attempt index %d", record.RequestID, event.AttemptIndex)
-		}
-		seenAttemptIndexes[event.AttemptIndex] = struct{}{}
-		events = append(events, event)
-	}
-	if len(events) == 0 {
-		return nil
+	events, err := Events(record)
+	if err != nil || len(events) == 0 {
+		return err
 	}
 	if writer, supported := r.writer.(BatchWriter); supported {
 		var err error
@@ -660,6 +632,44 @@ func (r *Recorder) Record(ctx context.Context, record Record) error {
 		}
 	}
 	return nil
+}
+
+// Events validates a request's platform-funded attempts and returns the
+// events that persist them, the same ones Record writes. A caller that must
+// record them atomically beside something else (the settlement outbox) writes
+// these itself. No key identity means no credential was leased and no upstream
+// call was made; such an attempt, and a customer-billed one, has no event.
+func Events(record Record) ([]Event, error) {
+	if len(record.Attempts) > maxPersistenceBatchEvents {
+		return nil, fmt.Errorf("providercost: request %s has more than %d attempts", record.RequestID, maxPersistenceBatchEvents)
+	}
+	events := make([]Event, 0, len(record.Attempts))
+	seenAttemptIndexes := make(map[int]struct{}, len(record.Attempts))
+	for _, attempt := range record.Attempts {
+		// No key identity means no credential was leased and no upstream call
+		// was made (for example, an entirely retired pool). It is an execution
+		// refusal rather than a provider-cost event.
+		if attempt.AttemptUsage.ProviderBilledCustomer || attempt.KeyID == "" {
+			continue
+		}
+		event := Event{
+			RequestID: record.RequestID, AttemptIndex: attempt.AttemptIndex,
+			Provider: attempt.Provider, KeyID: attempt.KeyID,
+			DeploymentID: attempt.DeploymentID, ModelReference: attempt.ModelReference,
+			Cost: attempt.Cost, Source: attempt.Source, RateCardVersionID: attempt.RateCardVersionID, Complete: attempt.Complete(),
+			Served: attempt.Served, OccurredAt: attempt.OccurredAt,
+			Units: sortedUnits(attempt.Units), Telemetry: attempt.Telemetry,
+		}
+		if err := validateEvent(event); err != nil {
+			return nil, err
+		}
+		if _, duplicate := seenAttemptIndexes[event.AttemptIndex]; duplicate {
+			return nil, fmt.Errorf("providercost: request %s repeats attempt index %d", record.RequestID, event.AttemptIndex)
+		}
+		seenAttemptIndexes[event.AttemptIndex] = struct{}{}
+		events = append(events, event)
+	}
+	return events, nil
 }
 
 func validateEvent(event Event) error {

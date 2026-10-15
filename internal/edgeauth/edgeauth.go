@@ -82,6 +82,17 @@ const (
 	// an inference signature cannot read upstream costs, and a telemetry read
 	// signature cannot run inference.
 	providerTelemetryDomainSeparator = "oxy-kaana-provider-telemetry:v1"
+	// grantDomainSeparator is the domain of a grant Oxy signs in answer to an
+	// authorization (Kaana ADR 0002, decision 3): the same Oxy keys, a purpose
+	// no envelope or telemetry signature can be replayed as.
+	grantDomainSeparator = "oxy-kaana-grant:v1"
+	// settlementReadDomainSeparator scopes Oxy's reconciliation read of
+	// Kaana's settlement outbox (GET /internal/v1/settlements). The signed
+	// bytes are the raw query string, which is the whole request.
+	settlementReadDomainSeparator = "oxy-kaana-settlement-read:v1"
+	// settlementDomainSeparator is the domain of a settlement KAANA signs with
+	// its own key for Oxy; Kaana never verifies under it.
+	settlementDomainSeparator = "kaana-oxy-settlement:v1"
 )
 
 // DefaultMaxSkew bounds how far a signature's timestamp may be from now.
@@ -141,6 +152,18 @@ func NewCredentialValidationVerifier(keys map[string]ed25519.PublicKey, maxSkew 
 // operator telemetry: attempt costs and credential economics.
 func NewProviderTelemetryVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
 	return newVerifier(keys, maxSkew, providerTelemetryDomainSeparator)
+}
+
+// NewGrantVerifier builds the verifier for the grants Oxy signs in answer to
+// an authorization. Same public keys as the envelope, a different domain.
+func NewGrantVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, grantDomainSeparator)
+}
+
+// NewSettlementReadVerifier builds the verifier for Oxy's reconciliation read
+// of the settlement outbox.
+func NewSettlementReadVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, settlementReadDomainSeparator)
 }
 
 func newVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration, domain string) (*Verifier, error) {
@@ -228,6 +251,67 @@ func CredentialValidationSigningInput(keyID string, timestampMillis int64, body 
 // telemetry.
 func ProviderTelemetrySigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	return signingInput(providerTelemetryDomainSeparator, keyID, timestampMillis, body)
+}
+
+// GrantSigningInput is the exact input Oxy signs for a grant body.
+func GrantSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(grantDomainSeparator, keyID, timestampMillis, body)
+}
+
+// SettlementReadSigningInput is the exact input Oxy signs to read the
+// settlement outbox; body is the raw query string.
+func SettlementReadSigningInput(keyID string, timestampMillis int64, rawQuery []byte) []byte {
+	return signingInput(settlementReadDomainSeparator, keyID, timestampMillis, rawQuery)
+}
+
+// SettlementSigningInput is the exact input Kaana signs for a settlement body,
+// published so Oxy's verifier cannot frame it differently.
+func SettlementSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(settlementDomainSeparator, keyID, timestampMillis, body)
+}
+
+// Signer signs Kaana's own messages to Oxy under one domain with one private
+// key. It is the inverse of Verifier: Kaana holds the private half, Oxy the
+// public one, so Oxy can verify a settlement and cannot mint one.
+type Signer struct {
+	keyID  string
+	key    ed25519.PrivateKey
+	domain string
+	now    func() time.Time
+}
+
+// NewSettlementSigner builds the signer of Kaana's settlements from the
+// `<key-id>:<base64 Ed25519 seed>` configuration form.
+func NewSettlementSigner(spec string) (*Signer, error) {
+	id, encoded, found := strings.Cut(strings.TrimSpace(spec), ":")
+	id = strings.TrimSpace(id)
+	if !found || id == "" {
+		return nil, errors.New("edgeauth: the settlement signing key is not <key-id>:<base64 seed>")
+	}
+	seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		// The value is a private key: neither it nor the decoder's error,
+		// which can quote it, is repeated.
+		return nil, fmt.Errorf("edgeauth: the settlement signing key %q is not a base64 %d-byte Ed25519 seed", id, ed25519.SeedSize)
+	}
+	key := ed25519.NewKeyFromSeed(seed)
+	clear(seed)
+	return &Signer{keyID: id, key: key, domain: settlementDomainSeparator, now: time.Now}, nil
+}
+
+// KeyID is the id Oxy looks the public key up by.
+func (s *Signer) KeyID() string { return s.keyID }
+
+// PublicKey is the half Oxy stores; logging it is harmless.
+func (s *Signer) PublicKey() ed25519.PublicKey { return s.key.Public().(ed25519.PublicKey) }
+
+// Sign stamps the three signature headers over body onto header.
+func (s *Signer) Sign(header http.Header, body []byte) {
+	timestamp := s.now().UnixMilli()
+	signature := ed25519.Sign(s.key, signingInput(s.domain, s.keyID, timestamp, body))
+	header.Set(HeaderKeyID, s.keyID)
+	header.Set(HeaderTimestamp, strconv.FormatInt(timestamp, 10))
+	header.Set(HeaderSignature, signaturePrefix+base64.StdEncoding.EncodeToString(signature))
 }
 
 func signingInput(domain, keyID string, timestampMillis int64, body []byte) []byte {
