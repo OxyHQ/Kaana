@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/OxyHQ/Kaana/internal/audioprobe"
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
@@ -64,19 +65,21 @@ func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, failure)
 		return
 	}
-	facts := contract.GrantRequestFacts{}
-	var durationMs *int
-	if upload.mediaType == "audio/wav" {
-		if measured, ok := wavDurationMilliseconds(upload.audio); ok {
-			if measured > maxTranscriptionAudioMs {
-				writeError(w, requestID, contract.NewPublicError(requestID, "request_too_large",
-					fmt.Sprintf("the audio is %d ms; a transcription takes at most %d", measured, maxTranscriptionAudioMs)).WithParam("file"))
-				return
-			}
-			durationMs = &measured
-			facts.AudioInputMilliseconds = &measured
-		}
+	// The duration is measured from the container before anything is held:
+	// it sizes Oxy's hold, and an upload whose duration cannot be read is
+	// refused rather than guessed from its byte count.
+	measured, err := audioprobe.Milliseconds(string(upload.mediaType), upload.audio)
+	if err != nil {
+		writeError(w, requestID, invalid(requestID, "file", "the audio's duration cannot be read from its container; send a container that states it (WAV, FLAC, MP3, AAC, Ogg, WebM or MP4)"))
+		return
 	}
+	if measured > maxTranscriptionAudioMs {
+		writeError(w, requestID, contract.NewPublicError(requestID, "request_too_large",
+			fmt.Sprintf("the audio is %d ms; a transcription takes at most %d", measured, maxTranscriptionAudioMs)).WithParam("file"))
+		return
+	}
+	durationMs := &measured
+	facts := contract.GrantRequestFacts{AudioInputMilliseconds: &measured}
 	target := contract.ModelTarget(upload.fields.Model)
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
 		operation: contract.GrantAudioTranscriptions, target: &target, body: body,

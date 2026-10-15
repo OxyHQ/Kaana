@@ -188,6 +188,22 @@ func DeferCostRecording(ctx context.Context) context.Context {
 	return context.WithValue(ctx, costRecordingDeferral{}, true)
 }
 
+type grantSettlement struct{}
+
+// SettledByGrant marks ctx as a session or request that settles through an
+// Oxy grant and Kaana's settlement outbox (kaana.ai/v1, contract set 4.1.0 and
+// later), whose usage report may carry every unit 4.1.0 names. The signed
+// envelope lane is never so marked, and keeps refusing what its consumer
+// cannot settle (EnvelopeInputTranscriptionRefused).
+func SettledByGrant(ctx context.Context) context.Context {
+	return context.WithValue(ctx, grantSettlement{}, true)
+}
+
+func settledByGrant(ctx context.Context) bool {
+	settled, _ := ctx.Value(grantSettlement{}).(bool)
+	return settled
+}
+
 func costRecordingDeferred(ctx context.Context) bool {
 	deferred, _ := ctx.Value(costRecordingDeferral{}).(bool)
 	return deferred

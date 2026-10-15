@@ -1,7 +1,6 @@
 package publicapi
 
 import (
-	"encoding/binary"
 	"fmt"
 	"slices"
 
@@ -86,41 +85,4 @@ func speechMediaType(format contract.SpeechFormat) contract.AudioMediaType {
 		return "audio/wav"
 	}
 	return "audio/pcm"
-}
-
-// wavDurationMilliseconds reads the duration a RIFF/WAVE container states:
-// its data chunk over the fmt chunk's byte rate. ok is false when the bytes
-// are not a WAV whose header states both, in which case nothing is guessed.
-func wavDurationMilliseconds(audio []byte) (int, bool) {
-	if len(audio) < 12 || string(audio[0:4]) != "RIFF" || string(audio[8:12]) != "WAVE" {
-		return 0, false
-	}
-	var byteRate uint32
-	for offset := 12; offset+8 <= len(audio); {
-		id := string(audio[offset : offset+4])
-		size := int(binary.LittleEndian.Uint32(audio[offset+4 : offset+8]))
-		body := offset + 8
-		switch id {
-		case "fmt ":
-			if size < 16 || body+16 > len(audio) {
-				return 0, false
-			}
-			byteRate = binary.LittleEndian.Uint32(audio[body+8 : body+12])
-		case "data":
-			if byteRate == 0 {
-				return 0, false
-			}
-			if body+size > len(audio) || size < 0 {
-				// A streamed WAV states 0 or an oversized length; measure what
-				// is there.
-				size = len(audio) - body
-			}
-			return int(int64(size) * 1000 / int64(byteRate)), true
-		}
-		if size < 0 || body+size < body {
-			return 0, false
-		}
-		offset = body + size + size%2
-	}
-	return 0, false
 }

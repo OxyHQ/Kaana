@@ -2,11 +2,14 @@ package publicapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/realtime"
 )
@@ -94,6 +97,9 @@ func (g *RealtimeGate) Admit(ctx context.Context, r *http.Request, frame []byte)
 	}
 	// Everything the session asks for is checked before Oxy is asked to hold
 	// anything for it; the attribution is the grant's and is filled after.
+	if failure := s.checkRealtimeOpen(requestID, model, open); failure != nil {
+		return nil, failure
+	}
 	provisional := *request
 	provisional.Attribution = contract.Attribution{RequestID: requestID, Principal: contract.AuthenticatedPrincipal{Billing: contract.BillingPrincipal{AccountID: "pending"}}}
 	if err := provisional.ValidateSession(); err != nil {
@@ -145,6 +151,60 @@ func (g *RealtimeGate) Admit(ctx context.Context, r *http.Request, frame []byte)
 			_ = s.settler.Settle(ctx, admitted.grant, *report, admitted.plan.stepOf(report.DeploymentID), settlement.UpstreamCost)
 		},
 	}, nil
+}
+
+// checkRealtimeOpen is `checkRealtimeSessionOpen` of `@kaana.ai/contracts`,
+// restated against the inventory's catalogue entry for the line (what every
+// route of it serves): the first issue refuses the open with invalid_request
+// BEFORE a grant is asked for. A field the catalogue leaves undeclared is not
+// checked, except input transcription in a conversation, which a model must
+// declare to be asked for because asking for it starts a charge.
+func (s *Server) checkRealtimeOpen(requestID contract.RequestID, model contract.ModelReference, open contract.RealtimeSessionOpen) *contract.PublicError {
+	var entry *inventory.CatalogueEntry
+	for _, candidate := range s.inventory.Current().Catalogue() {
+		if candidate.Model == model.ModelID() {
+			entry = &candidate
+			break
+		}
+	}
+	if entry == nil {
+		return contract.NewPublicError(requestID, "model_not_found", contract.PublicMessage("model_not_found")).WithParam("model")
+	}
+	issue := func(param, message string) *contract.PublicError { return invalid(requestID, param, message) }
+	served := entry.Realtime
+	if served == nil {
+		return issue("kind", "this model holds no realtime session")
+	}
+	if !slices.Contains(served.SessionKinds, open.Kind) {
+		return issue("kind", fmt.Sprintf("this model holds no %s session", open.Kind))
+	}
+	transport := contract.RealtimeSessionTransport("websocket")
+	if open.Transport != nil {
+		transport = *open.Transport
+	}
+	if !slices.Contains(served.Transports, transport) {
+		return issue("transport", fmt.Sprintf("this model is not served over %s", transport))
+	}
+	config := open.Config
+	formats := served.AudioFormats
+	if len(formats.Input) > 0 && !slices.Contains(formats.Input, config.InputAudioFormat) {
+		return issue("config.inputAudioFormat", fmt.Sprintf("this model does not take %s input", config.InputAudioFormat))
+	}
+	if len(formats.Output) > 0 && config.OutputAudioFormat != nil && !slices.Contains(formats.Output, *config.OutputAudioFormat) {
+		return issue("config.outputAudioFormat", fmt.Sprintf("this model does not produce %s", *config.OutputAudioFormat))
+	}
+	audio := entry.Audio
+	if audio != nil && config.Voice != nil && !slices.ContainsFunc(audio.Voices, func(voice inventory.VoiceObservation) bool { return voice.ID == *config.Voice }) {
+		return issue("config.voice", "this model has no voice "+*config.Voice)
+	}
+	transcription := config.InputAudioTranscription
+	if transcription != nil && open.Kind == contract.RealtimeConversation && !served.InputAudioTranscription {
+		return issue("config.inputAudioTranscription", "this model does not transcribe its input inside a conversation")
+	}
+	if transcription != nil && transcription.Language != nil && audio != nil && !slices.Contains(audio.Languages, *transcription.Language) {
+		return issue("config.inputAudioTranscription.language", "this model does not declare the language "+*transcription.Language)
+	}
+	return nil
 }
 
 // realtimeLimits signs the session for the defaults, or for less when the

@@ -45,6 +45,12 @@ const (
 	oxyKeyID   = "oxy-grant-test"
 )
 
+// realtimeObserved is what the realtime deployment publishes: a conversation
+// over WebSocket, input transcription, two voices and two languages.
+const realtimeObserved = `{"realtime":{"transports":["websocket"],"sessionKinds":["conversation","transcription"],"inputAudioTranscription":true,
+  "audioFormats":{"input":["g711_alaw","g711_ulaw","pcm16_24khz"],"output":["g711_alaw","g711_ulaw","pcm16_24khz"]}},
+  "audio":{"languages":["en","es"],"voices":[{"id":"marin","name":"Marin","languages":["en","es"]}]}}`
+
 const (
 	textModel     = contract.ModelReference("stub/model@2026-05-01")
 	fallbackModel = contract.ModelReference("stub/fallback@2026-05-01")
@@ -534,7 +540,8 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_fallback", "provider": "stub", "modelReference": fallbackModel, "upstreamModelId": "stub-fallback", "current": true},
 		{"deploymentId": "dep_speech", "provider": "stub", "modelReference": speechModel, "upstreamModelId": "stub-voice", "current": true},
 		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true},
-		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true},
+		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true,
+			"observed": json.RawMessage(realtimeObserved)},
 	}
 	document, _ := json.Marshal(map[string]any{"snapshotId": "snap_public", "issuedAt": contract.NewTimestamp(time.Now()), "deployments": deployments})
 	path := filepath.Join(t.TempDir(), "inventory.json")

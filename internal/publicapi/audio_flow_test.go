@@ -381,6 +381,12 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusRequestEntityTooLarge); failure.Code != "request_too_large" {
 		t.Errorf("31 minutes = %+v", failure)
 	}
+	// Raw PCM states no rate: its duration cannot be measured, so nothing is
+	// held for it and it is refused rather than guessed.
+	jsonBody["audio"] = map[string]any{"mediaType": "audio/pcm", "data": base64.StdEncoding.EncodeToString(make([]byte, 3200))}
+	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); failure.Param == nil || *failure.Param != "file" {
+		t.Errorf("unmeasurable audio = %+v", failure)
+	}
 	jsonBody["audio"] = map[string]any{"mediaType": "video/mp4", "data": "AAAA"}
 	publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest)
 	if len(h.oxy.authorizationBodies()) != before {

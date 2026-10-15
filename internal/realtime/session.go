@@ -108,7 +108,13 @@ func (s *session) run(ctx context.Context, first *websocket.Conn) {
 	s.idle, s.expiry, s.resumeTimer = stoppedTimer(), stoppedTimer(), stoppedTimer()
 	s.connect(ctx, first)
 
-	s.opening = s.manager.opener.OpenSession(ctx, s.request)
+	openContext := ctx
+	if s.public {
+		// A public session settles through its grant, in contract set 4.1.0
+		// units: input transcription is served on it.
+		openContext = kaana.SettledByGrant(ctx)
+	}
+	s.opening = s.manager.opener.OpenSession(openContext, s.request)
 	if !s.opening.Opened() {
 		reason := contract.RealtimeNoRouteAvailable
 		if s.shuttingDown(ctx) {
@@ -315,7 +321,7 @@ func (s *session) receive(ctx context.Context, frame inbound) {
 			"session.resume is only ever the first frame of a new connection")}, &commandID)
 		return
 	}
-	if update, ok := command.(*contract.RealtimeSessionUpdateCommand); ok && update.Config.InputAudioTranscription != nil {
+	if update, ok := command.(*contract.RealtimeSessionUpdateCommand); ok && update.Config.InputAudioTranscription != nil && !s.public {
 		// Refused like a frame this lane cannot take, before it is
 		// acknowledged: nothing is applied (kaana.EnvelopeInputTranscriptionRefused).
 		s.emit(ctx, &contract.RealtimeErrorEvent{Fatal: false, Error: *kaana.EnvelopeInputTranscriptionRefused(s.requestID)}, &commandID)

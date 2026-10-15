@@ -99,7 +99,7 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 	if !request.Attribution.HasScope(contract.ScopeInvoke) {
 		return refuse(contract.NewError(requestID, contract.CodeInsufficientScope, "the session request does not carry inference:invoke"))
 	}
-	if request.Config.InputAudioTranscription != nil {
+	if request.Config.InputAudioTranscription != nil && !settledByGrant(ctx) {
 		return refuse(EnvelopeInputTranscriptionRefused(requestID))
 	}
 	for index, route := range request.AuthorizedRoutes {
