@@ -25,9 +25,11 @@ package contract
 // descriptor_test.go, so changing the contract set without revisiting this
 // constant fails the build. 4.0.0 is the set first published as
 // `@kaana.ai/contracts`; 4.1.0 adds input transcription inside a realtime
-// session (its usage unit and catalogue flag). Oxy reads it from the health
-// handshake but compares no version against it.
-const ContractVersion = "4.1.0"
+// session (its usage unit and catalogue flag); 4.2.0 adds what
+// https://kaana.ai/v1 speaks beyond it (the JSON transcription upload and the
+// public response headers and realtime subprotocols). Oxy reads it from the
+// health handshake but compares no version against it.
+const ContractVersion = "4.2.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

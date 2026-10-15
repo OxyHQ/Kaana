@@ -407,6 +407,7 @@ var notApplicable = map[string]string{
 	"chatCompletionSchema":                    "public api (phase 3): POST /v1/chat/completions response",
 	"chatCompletionUsageSchema":               "public api (phase 3): POST /v1/chat/completions usage",
 	"chatCompletionsRequestSchema":            "public api (phase 3): POST /v1/chat/completions request",
+	"transcriptionJsonRequestSchema":          "public api (phase 3): POST /v1/audio/transcriptions JSON upload",
 	"embeddingsRequestSchema":                 "public api (phase 3): POST /v1/embeddings request",
 	"embeddingsResponseSchema":                "public api (phase 3): POST /v1/embeddings response",
 	"generationRecordSchema":                  "public api (phase 3): GET /v1/generations record",
@@ -475,7 +476,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 105
+const expectedNotApplicableCount = 106
 
 type enumBinding struct {
 	goType  reflect.Type
