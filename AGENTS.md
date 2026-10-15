@@ -24,11 +24,14 @@ gofmt -l .                      # prints nothing
 go build ./... && go vet ./...
 golangci-lint run               # v2.13.2
 go test -race -count=1 ./...
-cd tools/contract && bun install --frozen-lockfile && bunx biome ci . && bun run generate && bun run validate
+bun install --frozen-lockfile && bunx biome ci .
+(cd packages/contracts && bun run typecheck && bun run test && bun run build)
+(cd tools/contract && bun run generate && bun run validate)
 ```
 
-Biome (root `biome.json`) covers ONLY `tools/contract/**`. Never widen it:
-`configs/**`, `.github/*.json` and the descriptor are byte-exact inputs.
+Biome (root `biome.json`) covers ONLY `packages/**` and `tools/**` (ADR 0002).
+Never widen it further: `configs/**`, `.github/*.json`, the descriptor and
+`packages/contracts/openapi.json` are byte-exact inputs or outputs.
 
 ## Rules
 
@@ -36,7 +39,9 @@ Boundary — docs/architecture.md#rules-a-reviewer-applies
 - An Oxy id is opaque: never parsed, joined or a primary key.
 
 Contract — docs/contract.md#rules-a-reviewer-applies
-- Never edit `internal/contract/descriptor.json` by hand; regenerate it.
+- `@kaana.ai/contracts` (`packages/contracts`, Zod) is the source: Zod →
+  descriptor → Go. Public `/v1` shapes at the root, Oxy↔Kaana under `/internal`.
+- Never edit `internal/contract/descriptor.json` or `openapi.json` by hand; regenerate them.
 - Never add a field the contract lacks; unexchanged shapes go in `notApplicable`.
 
 Routing — docs/routing.md#rules-a-reviewer-applies
