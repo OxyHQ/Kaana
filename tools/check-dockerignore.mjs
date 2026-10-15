@@ -8,6 +8,11 @@
  * Go test and `make check`, and fails only in the deploy, at `docker build`
  * (configs/deployment-commercial.json, 2026-10-15). This compares the two files
  * directly, without Docker.
+ *
+ * It also fails when the deploy workflow's `push.paths` omits one of them: a
+ * reviewed change to a baked file is a change to the image, and without the
+ * path it merges and never deploys (configs/deployment-commercial.json,
+ * 2026-10-15, the second time).
  */
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -29,4 +34,21 @@ if (missing.length > 0) {
   );
   process.exit(1);
 }
-console.log(`.dockerignore admits every configs/ file the Dockerfile copies (${copied.size}).`);
+const workflow = readFileSync(join(root, '.github/workflows/deploy-aws.yml'), 'utf8');
+const pushPaths =
+  /\n {2}push:\n {4}branches: \[main\]\n {4}paths:\n((?: {6}(?:- '[^']+'|#.*)\n)+)/.exec(workflow);
+if (pushPaths === null) {
+  console.error('.github/workflows/deploy-aws.yml has no push.paths list this check can read.');
+  process.exit(1);
+}
+const deployed = new Set([...pushPaths[1].matchAll(/- '([^']+)'/g)].map((match) => match[1]));
+const undeployed = [...copied].filter((path) => !deployed.has(path)).sort();
+if (undeployed.length > 0) {
+  console.error(
+    `The Dockerfile bakes configuration a merge to main does not deploy:\n  - ${undeployed.join('\n  - ')}\n\nAdd "- '<path>'" to push.paths in .github/workflows/deploy-aws.yml, by exact name.`,
+  );
+  process.exit(1);
+}
+console.log(
+  `.dockerignore admits, and a merge deploys, every configs/ file the Dockerfile copies (${copied.size}).`,
+);
