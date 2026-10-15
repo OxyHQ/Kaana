@@ -4,6 +4,21 @@
 authority; `internal/contract` restates it in Go and is answerable to it. The
 direction is **Zod → descriptor → Go** (ADR 0002, decision 10).
 
+## Contract set 4.3.0: the declared catalogue (ADR 0002, amendment 2026-10-15)
+
+MINOR, `@kaana.ai/contracts` 4.3.0. Additive; everything 4.2.0 parses still parses.
+
+- **`declaredModelSchema` / `declaredCatalogueSchema`** (`/internal`): the
+  catalogue Kaana declares in `configs/public-catalogue.json` — `modelSchema`
+  without `schemaVersion`, `currentRevision` and `availableRevisions` (Kaana
+  fills those from its inventory), plus `audience`, and strict. A declared model
+  carries its list price per unit and never `servingProviders`,
+  `availabilityScope` or `commercialPermission`.
+- **`declaredCatalogue`** is a new member of the signed `GET /internal/v1/models`
+  response: the whole file, so Oxy rates grants from Kaana's prices. Both
+  schemas are `notApplicable` to the Go descriptor test: Go relays the file as
+  raw JSON and `tools/contract validate` parses it with the Zod schema.
+
 ## Contract set 4.1.0: input transcription inside a realtime session (Alia ADR 0017, phase 1)
 
 MINOR, `@kaana.ai/contracts` 4.1.0. Everything 4.0.0 parses still parses; a

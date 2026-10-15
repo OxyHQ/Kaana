@@ -22,6 +22,7 @@ there is no provider-key fallback outside its database.
 | `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent means cost is not measured |
 | `KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` | no | how long an upstream may take to send response HEADERS, default `90s` |
 | `KAANA_PROVIDER_STREAM_IDLE_TIMEOUT` | no | how long a streamed response may go without one real frame once its headers are in, default `300s`; keep-alive comments do not count. A stall ends the attempt as a retryable `provider_timeout`. The body's total length is never bounded |
+| `KAANA_PUBLIC_CATALOGUE_PATH` | no | the declared catalogue (`configs/public-catalogue.json`). The image sets `/etc/kaana-catalogue/public-catalogue.json` and the task restates it; unset (a process outside the image) is an empty catalogue: `/v1/models` lists nothing and `declaredCatalogue` carries no model. See "The declared catalogue" |
 | `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon, default `1h` |
 | `KAANA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
 | `KAANA_CREDENTIAL_RELOAD_INTERVAL` | no | atomic database/KMS pool reload, default `1m` |
@@ -829,6 +830,37 @@ routers; a downstream-provider selector is not a direct provider deployment.
 The publisher's S3 permission stays separate from serving. Writing the
 inventory decides routing, so a request-serving role must not acquire it merely
 because the two binaries ship in one image.
+
+## The declared catalogue
+
+`configs/public-catalogue.json` is Kaana's catalogue and nobody else's (ADR 0002,
+amendment 2026-10-15): identity, publisher, licence, provenance, data policy,
+capabilities, voices, deprecation and the list price per unit of every model.
+A change is a reviewed commit; the image bakes the file at
+`/etc/kaana-catalogue/` (a directory of its own, because `/etc/kaana` is a mount
+point) and sets `KAANA_PUBLIC_CATALOGUE_PATH` to it. The task definition in
+oxy-infra (`app-kaana.tf`) restates the value, since container environment wins
+over image defaults. The file is loaded at start whether or not
+`KAANA_PUBLIC_API_ENABLED` is true.
+
+- **To add or reprice a model:** edit the file, give a changed price a NEW
+  `priceVersionId` (a UUID; a published one never changes), cite the provider's
+  primary source in the commit, and run `make check`. A model with no price is
+  allowed (BYOK-only), never one with a guessed field: if a required field has
+  no primary evidence the model is not declared.
+- **Gates:** `publicapi.ParsePublicCatalogue` (Go) and
+  `declaredCatalogueSchema` (Zod, in `tools/contract validate`) both parse the
+  whole file; a model may not carry `servingProviders`, `availabilityScope`,
+  `commercialPermission`, `currentRevision` or `availableRevisions`.
+- **What Oxy reads to rate a grant:** the signed `GET /internal/v1/models`
+  (inference signature, the same call it already makes) returns
+  `declaredCatalogue`, a `declaredCatalogueSchema` document (`@kaana.ai/contracts`
+  4.3.0, `/internal`). For the model line of a grant, Oxy takes
+  `pricing.priceVersionId`, `currency` and `unitPrices` (`unit`, `amount`
+  per `per` units), multiplies each measured usage unit, and rejects a
+  grant whose model has no `pricing` or whose settled unit has no price.
+  `audience` says who may see the model on `GET /v1/models`; it does not
+  limit who may be rated. Nothing in it is a Kaana cost.
 
 ## Container and deployment
 
