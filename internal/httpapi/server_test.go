@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/httpapi"
@@ -227,6 +228,11 @@ func newHarness(t *testing.T, adapter *stubAdapter) *harness {
 
 func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments []map[string]any) *harness {
 	t.Helper()
+	return newHarnessWithCommercial(t, adapter, deployments, nil)
+}
+
+func newHarnessWithCommercial(t *testing.T, adapter *stubAdapter, deployments []map[string]any, table *commercial.Table) *harness {
+	t.Helper()
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("generating an edge key: %v", err)
@@ -296,6 +302,7 @@ func newHarnessWithDeployments(t *testing.T, adapter *stubAdapter, deployments [
 		Rotation:            rotationRegistry,
 		Logger:              logger,
 		DeclaredCatalogue:   json.RawMessage(declaredCatalogueFixture),
+		Commercial:          table,
 	})
 	if err != nil {
 		t.Fatalf("building the server: %v", err)

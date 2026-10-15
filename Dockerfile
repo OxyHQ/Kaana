@@ -152,6 +152,13 @@ RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json configs/prov
 RUN mkdir -p /out/etc/kaana-catalogue && cp configs/public-catalogue.json /out/etc/kaana-catalogue/ \
     && chown -R 65532:65532 /out/etc/kaana-catalogue
 
+# The deployments' commercial facts (docs/inventory.md, "Commercial facts"):
+# who each deployment may be sold to and on what basis, published as
+# `commercial` on the deployment descriptors. A reviewed file, baked like the
+# catalogue, in a directory of its own for the same reason.
+RUN mkdir -p /out/etc/kaana-commercial && cp configs/deployment-commercial.json /out/etc/kaana-commercial/ \
+    && chown -R 65532:65532 /out/etc/kaana-commercial
+
 RUN mkdir -p /out/etc/ssl/certs \
     && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
@@ -172,6 +179,7 @@ COPY --from=build --chown=65532:65532 /out/etc/kaana-publisher /etc/kaana-publis
 COPY --from=build --chown=65532:65532 /out/etc/kaana-cutovers /etc/kaana-cutovers
 COPY --from=build --chown=65532:65532 /out/etc/kaana-rates /etc/kaana-rates
 COPY --from=build --chown=65532:65532 /out/etc/kaana-catalogue /etc/kaana-catalogue
+COPY --from=build --chown=65532:65532 /out/etc/kaana-commercial /etc/kaana-commercial
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own
@@ -193,6 +201,10 @@ ENV KAANA_PUBLISHER_ATTRIBUTION_PATH=/etc/kaana-publisher/model-attribution.json
 # the same reviewed file; the task definition restates it (container
 # environment wins over image defaults).
 ENV KAANA_PUBLIC_CATALOGUE_PATH=/etc/kaana-catalogue/public-catalogue.json
+
+# The deployments' commercial facts. Baked for the same reason; the task
+# definition restates it too.
+ENV KAANA_DEPLOYMENT_COMMERCIAL_PATH=/etc/kaana-commercial/deployment-commercial.json
 
 # Documentation only, and it matches cmd/kaana's default KAANA_ADDR.
 EXPOSE 8080

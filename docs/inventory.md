@@ -494,12 +494,48 @@ refuses to boot without a snapshot, so the mistake is loud.
 `internal/awssig` remains the narrow S3 signer and is checked against AWS's
 published `get-vanilla` test vector. The AWS SDK is used only for KMS.
 
+### Commercial facts
+
+Each descriptor may carry `commercial` (`deploymentCommercialSchema`, contract
+set 4.4.0): `availabilityScope`, `commercialPermission` and, when true,
+`dedicatedCapacity`. The source is `configs/deployment-commercial.json`, Kaana's
+alone, a reviewed commit per change; the inventory publisher never writes it
+(the inventory says what can be served, this file says what may be sold and to
+whom). It sits in its own file, not inside `public-catalogue.json`, because the
+catalogue describes MODELS and rejects route fields on purpose, while these facts
+belong to a deployment id and the catalogue is relayed whole to Oxy.
+
+- **Shape.** `{ "$comment", "schemaVersion": 1, "deployments": [{ "deploymentId",
+  "commercial" }] }`, sorted by `deploymentId`, unique, strict. A deployment NOT
+  listed is not sold and its descriptor has no `commercial`: nothing is
+  inherited, defaulted or matched by prefix. Deployment ids carry the
+  observation date, so a re-observed model gets a new id that is unsold until a
+  commit lists it.
+- **Gates.** `internal/commercial.Load` at start-up (the process refuses to
+  start on a bad file; an unset `KAANA_DEPLOYMENT_COMMERCIAL_PATH` sells
+  nothing), its tests, and `tools/contract validate` (parses every entry with
+  `deploymentCommercialSchema`) in `make check`. The image bakes the file at
+  `/etc/kaana-commercial/` and sets the variable; oxy-infra's task definition
+  restates it.
+- **The seed.** A one-time read-only export of Oxy's deployment table
+  (2026-10-15, 354 rows). Only `permissionState=approved` with `status`
+  active or degraded were carried (264, all `platform_internal` /
+  `standard_application_use`, none dedicated); the 90 others are not sold. The
+  legacy scope `internal_alia` (3 gpt-oss-120b deployments) does not exist in
+  the contract and became `platform_internal`. Deployments Oxy never held
+  (OpenAI transcription, etc.) stay unlisted until a commit adds the exact id with
+  evidence; the Services Agreement cited for them in the catalogue covers output
+  ownership, not a review of the right to sell. Oxy's `status` and
+  `legalReviewStatus` are not carried.
+
 ## Rules a reviewer applies
 
 `cmd/kaana-publisher` builds the snapshot and re-issues it. `internal/publisher`
 holds the logic; `internal/awssig` is the signer. The sections above carry the
 reasoning; these are the lines a reviewer holds a change to.
 
+- **`commercial` comes only from `configs/deployment-commercial.json`.** Never
+  from the inventory, never by default; an unlisted deployment has none.
 - **It re-issues on a cadence INSIDE the horizon even when nothing changed.**
   That is `inventory.Store`'s requirement, not a preference: an unchanged
   snapshot with an old `issuedAt` is indistinguishable from a publisher that has

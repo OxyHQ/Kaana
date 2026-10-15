@@ -130,6 +130,57 @@ function validateDeclaredCatalogue() {
   return problems;
 }
 
+/**
+ * configs/deployment-commercial.json: every entry's `commercial` parses under
+ * deploymentCommercialSchema, every id is a deploymentId, ids are unique and
+ * sorted, and the schema is not vacuous (it refuses a controlled violation).
+ */
+function validateDeploymentCommercial() {
+  const problems = [];
+  const file = JSON.parse(
+    readFileSync(join(REPOSITORY_ROOT, 'configs', 'deployment-commercial.json'), 'utf8'),
+  );
+  if (file.$comment === undefined)
+    problems.push('configs/deployment-commercial.json carries no $comment provenance note');
+  if (file.schemaVersion !== 1)
+    problems.push('configs/deployment-commercial.json declares no schemaVersion 1');
+  const commercialSchema = schemaFor('deploymentCommercialSchema');
+  const idSchema = schemaFor('deploymentIdSchema');
+  let previous = '';
+  const seen = new Set();
+  for (const [index, entry] of file.deployments.entries()) {
+    const where = `configs/deployment-commercial.json deployments[${index}] ${entry.deploymentId}`;
+    if (!idSchema.safeParse(entry.deploymentId).success)
+      problems.push(`${where}: not a deploymentId`);
+    if (seen.has(entry.deploymentId)) problems.push(`${where}: duplicated`);
+    if (entry.deploymentId <= previous && index > 0) problems.push(`${where}: out of order`);
+    seen.add(entry.deploymentId);
+    previous = entry.deploymentId;
+    const result = commercialSchema.safeParse(entry.commercial);
+    if (!result.success) {
+      problems.push(
+        `REJECTED ${where}\n` +
+          result.error.issues
+            .map((issue) => `      ${issue.path.join('.')}: ${issue.message}`)
+            .join('\n'),
+      );
+    }
+  }
+  if (file.deployments.length < 264) {
+    problems.push(
+      `configs/deployment-commercial.json sells ${file.deployments.length} deployments; the seed was 264`,
+    );
+  }
+  const control = { ...file.deployments[0].commercial, availabilityScope: 'internal_alia' };
+  if (commercialSchema.safeParse(control).success) {
+    problems.push('ACCEPTED an availabilityScope the contract does not name');
+  }
+  process.stdout.write(
+    `validated configs/deployment-commercial.json: ${file.deployments.length} sold deployments\n`,
+  );
+  return problems;
+}
+
 function schemaFor(name) {
   const schema = contracts[name];
   if (schema === undefined || typeof schema.safeParse !== 'function') {
@@ -178,6 +229,7 @@ try {
   }
 
   failures.push(...validateDeclaredCatalogue());
+  failures.push(...validateDeploymentCommercial());
 
   process.stdout.write(
     `validated ${valid.length} produced shapes and ${invalid.length} rejection controls ` +
