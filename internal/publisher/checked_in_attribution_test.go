@@ -278,8 +278,8 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attribution: %v", err)
 	}
-	if got := len(table.byProvider["openrouter"]); got != 383 {
-		t.Fatalf("OpenRouter attributions = %d, want the 383 entries whose provenance the checked-in file declares", got)
+	if got := len(table.byProvider["openrouter"]); got != 384 {
+		t.Fatalf("OpenRouter attributions = %d, want the 383 transcribed entries plus the reviewed embedding model, as the checked-in file declares", got)
 	}
 
 	supported := map[contract.ProviderSlug]map[string]contract.ModelID{
@@ -302,6 +302,8 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 			"qwen/qwen3.8-27b:free":                 "qwen/qwen3.8-27b",
 			"qwen/qwen3.8-max-0902":                 "qwen/qwen3.8-max-0902",
 			"x-ai/grok-4.7":                         "x-ai/grok-4.7",
+			// The 2026-10-15 embeddings review.
+			"qwen/qwen3-embedding-8b": "qwen/qwen3-embedding-8b",
 		},
 		"cerebras": {"qwen-3.8-27b": "qwen/qwen3.8-27b"},
 		"mistral": {

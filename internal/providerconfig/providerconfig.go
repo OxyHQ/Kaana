@@ -204,6 +204,14 @@ func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.R
 // build speaks, or it holds realtime sessions instead (RealtimeSessionKinds).
 // The lists are what each adapter's Translate actually builds a call for —
 // never what the upstream might also accept.
+//
+// `embeddings` is listed for the OpenAI-compatible slugs whose provider
+// documents the OpenAI-shaped `POST {base}/embeddings` (`dimensions` accepted)
+// for the models Kaana attributes there: SiliconFlow
+// (https://docs.siliconflow.cn/en/api-reference/embeddings/create-embeddings)
+// and OpenRouter (https://openrouter.ai/docs/api/api-reference/embeddings/create-embeddings).
+// The adapter reads this table to decide whether it builds an embeddings call
+// at all, so adding a slug here is the whole of enabling it.
 func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contract.APIFormat {
 	switch protocol {
 	case ProtocolOpenAICompatible:
@@ -213,7 +221,7 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 		formats := []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
 		switch slug {
 		case "openrouter":
-			formats = append(formats, contract.APIFormatDecisions)
+			formats = append(formats, contract.APIFormatEmbeddings, contract.APIFormatDecisions)
 		case "siliconflow":
 			formats = append(formats, contract.APIFormatEmbeddings)
 		case "xai":

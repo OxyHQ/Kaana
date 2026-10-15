@@ -780,6 +780,28 @@ them, and it does not guess from names or descriptions: completing the
 verification on the platform account, or leaving the line unattributed, are
 the two remedies.
 
+**Embeddings.** OpenRouter serves embedding models through the OpenAI-shaped
+`POST /api/v1/embeddings`, which takes `dimensions` and the same `provider`
+routing object as chat.[^openrouter-embeddings] Its model list omits them unless
+asked, so discovery requests `output_modalities=text,decisions,embeddings`
+(`inventory.md`), and `openrouter` lists `embeddings` in the capability table
+(`providerconfig.ExecutableAPIFormats`), which is what lets the adapter build an
+embeddings call for it at all. The request carries the fixed policy above and
+Kaana's fixed 1024 dimensions; an answer of any other dimension is a provider
+error. Only `qwen/qwen3-embedding-8b` is attributed (2026-10-15): its model card
+names Qwen, Apache-2.0 and output dimensions from 32 to 4096, and OpenRouter
+lists three zero-retention endpoints for it (Nebius, DeepInfra, SiliconFlow).
+Every other embedding row is dropped as unattributed.
+
+Not verified by a request, for the reason `openai-audio.md` gives for
+`modalities`: whether `require_parameters: true` counts `dimensions`. It is not
+in OpenRouter's "LLM parameters" list, and every zero-retention endpoint of the
+model publishes an EMPTY `supported_parameters`, so nothing documented says it
+counts. If it does, the answer is OpenRouter's "No endpoints found that ..."
+404, reported as a non-retryable `invalid_request`; and if an endpoint ignored
+`dimensions`, its 4096-dimension answer is refused. Neither can store a wrong
+vector. The first production request settles it.
+
 ## Live OpenRouter, Groq and xAI catalogue delta
 
 The publisher task's authenticated 2026-09-01 run exposed a useful trap: an
@@ -1111,6 +1133,7 @@ green:
 [^openrouter-zdr]: [OpenRouter zero-data-retention endpoint list](https://openrouter.ai/api/v1/endpoints/zdr); per model: `https://openrouter.ai/api/v1/models/{id}/endpoints`
 [^openrouter-errors]: [OpenRouter API errors](https://openrouter.ai/docs/api-reference/errors)
 [^openrouter-routing]: [OpenRouter provider selection: `require_parameters`, `zdr`](https://openrouter.ai/docs/guides/routing/provider-selection)
+[^openrouter-embeddings]: [OpenRouter create embeddings](https://openrouter.ai/docs/api/api-reference/embeddings/create-embeddings); [embeddings guide](https://openrouter.ai/docs/api/reference/embeddings)
 [^groq-systems]: [Groq Compound systems](https://console.groq.com/docs/compound/systems)
 [^groq-speech]: [Groq Orpheus text-to-speech](https://console.groq.com/docs/text-to-speech/orpheus)
 [^groq-transcription]: [Groq API reference — audio transcription](https://console.groq.com/docs/api-reference)

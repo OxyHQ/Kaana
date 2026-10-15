@@ -74,6 +74,9 @@ type embeddingRequest struct {
 	Model      string `json:"model"`
 	Input      any    `json:"input"`
 	Dimensions int    `json:"dimensions"`
+	// Provider is OpenRouter's routing policy and is sent to OpenRouter only;
+	// every other slug receives no `provider` field.
+	Provider *openRouterProviderPolicy `json:"provider,omitempty"`
 }
 
 type embeddingResponse struct {

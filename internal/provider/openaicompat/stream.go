@@ -98,7 +98,9 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		}
 		return outcome, err
 	}
-	if call.Route.Provider == "siliconflow" && !call.Stream && strings.HasSuffix(call.URL, "/embeddings") {
+	// Only Translate's embeddings branch builds this URL, and it builds it only
+	// for a slug whose capability table lists embeddings.
+	if !call.Stream && strings.HasSuffix(call.URL, "/embeddings") {
 		outcome, err = a.readEmbedding(response.Body, key)
 		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
 		return outcome, err
@@ -135,11 +137,11 @@ func (a *Adapter) readEmbedding(body io.Reader, key provider.Key) (provider.Outc
 		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "embedding response has no vectors"}
 	}
 	for index := range response.Data {
-		if response.Data[index].Index != index || len(response.Data[index].Embedding) != 1024 {
+		if response.Data[index].Index != index || len(response.Data[index].Embedding) != provider.EmbeddingDimension {
 			return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: fmt.Sprintf("embedding %d has invalid index or dimension", index)}
 		}
 	}
-	outcome.Embedding = &provider.EmbeddingResult{Dimension: 1024, Data: response.Data, InputTokens: response.Usage.PromptTokens, TotalTokens: response.Usage.TotalTokens}
+	outcome.Embedding = &provider.EmbeddingResult{Dimension: provider.EmbeddingDimension, Data: response.Data, InputTokens: response.Usage.PromptTokens, TotalTokens: response.Usage.TotalTokens}
 	outcome.Units = []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: response.Usage.PromptTokens}, {Unit: contract.UnitEmbeddings, Quantity: len(response.Data)}}
 	return outcome, nil
 }

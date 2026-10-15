@@ -12,6 +12,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
@@ -641,7 +642,7 @@ func (s *Server) chatStream(ctx context.Context, w http.ResponseWriter, admitted
 /* -------------------------------------------------------------------------- */
 
 // embeddingDimension is the one dimension Kaana's embedding adapters request.
-const embeddingDimension = 1024
+const embeddingDimension = provider.EmbeddingDimension
 
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	requestID, receivedAt := NewRequestID(), s.now()

@@ -95,7 +95,7 @@ func TestDecisionDiscoveryAuthenticatedListToPrivateSnapshot(t *testing.T) {
 						w.WriteHeader(401)
 						return
 					}
-					if r.URL.Query().Get("output_modalities") == "text,decisions" {
+					if r.URL.Query().Get("output_modalities") == "text,decisions,embeddings" {
 						_, _ = w.Write(expanded)
 					} else {
 						_, _ = w.Write(text)

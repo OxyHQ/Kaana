@@ -66,7 +66,7 @@ boundary independent of either provider's wire format.
 Kaana's OpenAI Chat Completions implementation is protocol-shaped rather than
 provider-shaped. Every compatible provider is a `Config` and a conformance
 registration, while provider-specific request policy remains explicit. Every
-OpenRouter chat request carries exactly
+OpenRouter chat and embeddings request carries exactly
 `provider: {zdr: true, data_collection: "deny", require_parameters: true}` as
 documented by [OpenRouter's provider-routing API][openrouter-routing]. Kaana
 constructs that typed object internally; it is neither an Oxy contract field nor
