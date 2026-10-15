@@ -71,6 +71,14 @@ type session struct {
 	expiry        *time.Timer
 	resumeTimer   *time.Timer
 	closed        bool
+
+	// public marks a session opened on https://kaana.ai/v1: its events are
+	// projected onto the public shapes, it sends no usage report frame, and
+	// its settlement goes to settlePublic (the outbox) instead. credential is
+	// the digest a resume must present.
+	public       bool
+	credential   [32]byte
+	settlePublic func(context.Context, kaana.SessionSettlement, *kaana.SessionOpening)
 }
 
 func newSession(cancel context.CancelFunc, manager *Manager, request *contract.RealtimeSessionRequest) *session {
@@ -238,6 +246,9 @@ func (s *session) detach(conn *connection, code websocket.StatusCode) {
 // emit numbers one event, buffers it for replay and sends it to the attached
 // connection, if any.
 func (s *session) emit(ctx context.Context, event contract.RealtimeServerEvent, commandID *contract.RealtimeCommandID) {
+	if s.public {
+		event = contract.PublicRealtimeEvent(event)
+	}
 	event.Stamp(contract.RealtimeEventHeader{SchemaVersion: contract.RealtimeSchemaVersion, RequestID: s.requestID, Sequence: s.sequence, CommandID: commandID})
 	encoded, err := json.Marshal(event)
 	if err != nil {
@@ -520,11 +531,18 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 	case reason == contract.RealtimeResumeExpired || reason == contract.RealtimeClosedByClient && failure != nil:
 		end.Outcome = providercost.AttemptCancelled
 	}
-	settlement := s.manager.opener.SettleSession(ctx, s.opening, end)
+	settleContext := ctx
+	if s.public {
+		settleContext = kaana.DeferCostRecording(ctx)
+	}
+	settlement := s.manager.opener.SettleSession(settleContext, s.opening, end)
 	s.log(reason, failure, settlement)
+	if s.public && s.settlePublic != nil {
+		s.settlePublic(context.WithoutCancel(ctx), settlement, s.opening)
+	}
 
 	if s.attached != nil {
-		if settlement.Report != nil {
+		if settlement.Report != nil && !s.public {
 			if encoded, err := json.Marshal(settlement.Report); err == nil {
 				s.write(ctx, encoded)
 			}

@@ -525,6 +525,16 @@ func validateTuning(tools []ToolDefinition, temperature *float64, maxOutputToken
 // per-kind configuration rules, the limit ordering and the rule that a session
 // is never substituted.
 func (r *RealtimeSessionRequest) Validate() error {
+	if err := r.ValidateSession(); err != nil {
+		return err
+	}
+	return r.validateRoutes()
+}
+
+// ValidateSession checks everything but the routes: what a session asks for,
+// before anything has been granted or routed. The public server runs it on a
+// session.open before asking Oxy for a grant.
+func (r *RealtimeSessionRequest) ValidateSession() error {
 	if r.SchemaVersion != 1 {
 		return fmt.Errorf("contract: realtime session schemaVersion must be 1")
 	}
@@ -586,6 +596,12 @@ func (r *RealtimeSessionRequest) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateRoutes holds the route rules of a session: every route serves the
+// model it named, at the revision it pinned.
+func (r *RealtimeSessionRequest) validateRoutes() error {
 	if err := validateRouteList(r.AuthorizedRoutes); err != nil {
 		return err
 	}
