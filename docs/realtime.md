@@ -5,7 +5,9 @@ session request opens a long-lived WebSocket conversation, the client keeps
 sending commands, and Kaana keeps sending events, for up to an hour. It is one
 request for attribution, metering and settlement, and it settles exactly once.
 Contract: `@oxy.so/contracts` 4.5.0 (inference set 3.3.0: 3.2.0's session
-family plus the `session_milliseconds` unit), `inference/realtime.ts`;
+family plus the `session_milliseconds` unit), `inference/realtime.ts`; input
+transcription and the realtime catalogue fields are `@kaana.ai/contracts`
+4.1.0 ("Input transcription");
 Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 
 | Piece | Where |
@@ -277,7 +279,7 @@ on this key and is classified like a refused request. The open is bounded at
 | `toolChoice` | `tool_choice`: the mode string, or `{type:"function", name}` |
 | `maxOutputTokens` | `max_output_tokens`; above 4096 is refused (GA schema: 1..4096 or `"inf"`) |
 | `temperature` | refused: absent from the GA session and response schemas |
-| `inputAudioTranscription` | refused (see findings) |
+| `inputAudioTranscription` | `audio.input.transcription {model: "gpt-transcribe", language?, prompt?}`; `language` is a two-letter ISO 639-1 code, anything else refused (see "Input transcription") |
 
 ### Commands
 
@@ -308,6 +310,8 @@ on this key and is classified like a refused request. The open is bounded at
 | `response.output_text.delta` | `text.delta` |
 | `response.function_call_arguments.delta` / `.done` | `tool_call`: the name (from `response.output_item.added`) on the first increment, argument text as it streams, and the arguments on completion only if none were streamed |
 | `response.done` | `response.done` with status, finish reason and the units below |
+| `conversation.item.input_audio_transcription.delta` / `.completed` | `transcript.delta` / `.done`, `source: input_audio`; `.completed` carries the ASR model's units (see "Input transcription") |
+| `conversation.item.input_audio_transcription.failed` | `error{fatal:false}`, naming no command: one turn was not transcribed, the session continues |
 | `error` | `error{fatal:false}`, `commandId` from `error.event_id`; the session stays open, as OpenAI states most errors leave it |
 | `session.created` (after open), `conversation.created`, `rate_limits.updated`, `response.output_item.*`, `response.content_part.*`, `response.output_text.done`, `input_audio_buffer.timeout_triggered`, `output_audio_buffer.*` (WebRTC/SIP only), MCP events | dropped: the contract has no event for them |
 
@@ -417,8 +421,8 @@ shared code, and every documented difference is a dialect field.
 | Handshake refusal body | `{"error": {type, code, message}}` | `{"code": "<status text>", "error": "<message>"}` (probed, see below) |
 | Usage | `response.done.usage` tokens, billed | tokens reported but NOT billed: never settled; the session is metered instead |
 
-Input transcription (`grok-transcribe`) is refused for the reason OpenAI's is,
-and because xAI does not document what enabling it costs. xAI's extensions
+Input transcription is `audio.input.transcription {model: "grok-transcribe",
+language_hint?}` (see "Input transcription"). xAI's extensions
 (server-side `web_search`/`x_search`/`file_search`/`mcp` tools, `force_message`,
 resumption, `replace`, binary transport, `idle_timeout_ms`,
 `reasoning.effort`) have no contract field and are never sent; `reasoning.effort`
@@ -591,6 +595,83 @@ stream text (relayed if they do) and that a caller's speech interrupts them
 without an `interrupt_response` field; and how closely `session_milliseconds`
 (handshake to close, measured by Kaana) matches the duration xAI bills.
 
+## Input transcription
+
+Contract set 4.1.0 (Alia ADR 0017, Kaana phase 1). A conversation that sets
+`config.inputAudioTranscription` (at open, or by a `session.update` the
+provider confirms) receives the caller's speech, turn by turn, as
+`transcript.delta` / `transcript.done` with `source: input_audio`, on the
+caller's own item. The contract says the transcription model is "the
+deployment's own, declared where the deployment is"; every conversation model
+of a slug shares it, so the dialect declares it (`openairealtime/dialect.go`,
+`transcriptionDialect`), with its evidence, and changing it is a reviewed
+change to what the slug's sessions are billed for.
+
+| | OpenAI (`openai-realtime`) | xAI (`xai-realtime`) |
+|---|---|---|
+| Wire | `session.audio.input.transcription {model, language, prompt}` | `session.audio.input.transcription {model, language_hint}` |
+| Model | `gpt-transcribe` (per-minute priced, $0.0045/min, read 2026-10-15) | `grok-transcribe` |
+| `language` | two-letter ISO 639-1 code, lowercased; a regional tag is refused, never cut down | exactly one of xAI's documented codes (`providerconfig.XAIRealtimeLanguages`); Spanish and Portuguese need a region; anything else refused (xAI silently ignores an unknown hint) |
+| `prompt` | sent | refused: xAI has key terms, not a prompt |
+| Events | `.delta` relayed; `.completed` → `transcript.done`; `.failed` → non-fatal error; `.segment` (diarize) dropped | `.completed` → `transcript.done` (no `content_index`: the caller's audio item has one part, index 0); cumulative `.updated` dropped, because it may rewrite what it said and the contract's delta only appends |
+| Charge | the ASR model's own usage on each `.completed`: `duration` → `input_transcription_milliseconds`, read to the microsecond and rounded up per turn | none: xAI's Voice Agent bills "duration and text events sent without audio", with no transcription line, so the session meter is unchanged |
+
+**Units.** OpenAI bills input transcription "according to the ASR model's
+pricing rather than the realtime model's". Reporting that as
+`audio_input_milliseconds` beside the session model's `audio_input_tokens`
+would be the same audio read twice under the unit rule, and folding it into the
+tokens would price it at the wrong model. Contract set 4.1.0 therefore adds
+`input_transcription_milliseconds`: a second model's reading, a charge no other
+unit counts (`money.ts`). It is `provider_reported`, like the rest of an
+OpenAI session's units. A `tokens` usage (the 4o transcribers) is a charge that
+unit does not express: the declared model is duration-billed, and a session
+whose provider reports tokens for it ends (`upstream_error`) rather than settle
+a guess. A transcript is relayed only once asked for, but a charge the provider
+reports is settled either way. UNVERIFIED until the first signed canary: that
+OpenAI's in-session usage for `gpt-transcribe` is `duration`, as it is for its
+file transcriptions; that xAI's invoice shows no transcription line.
+
+**Price.** A rate card for an `openai-realtime` deployment prices
+`input_transcription_milliseconds` at `gpt-transcribe`'s rate: $0.0045 / 60 000
+ms = `75000` in 10⁻¹² USD per ms. Oxy's price version for the route prices it
+for the customer. Neither exists today (no `openai-realtime` rate card is
+checked in; "Operating it").
+
+**The signed-envelope lane refuses it.** `/internal/v1/realtime` is consumed
+by the Oxy edge, which settles with `@oxy.so/contracts`: its closed unit set
+has no `input_transcription_milliseconds`, so a report carrying it would be
+one the edge cannot parse. `kaana.Executor.OpenSession` refuses
+`config.inputAudioTranscription` at open (`invalid_request`, before anything is
+dialled) and `internal/realtime` refuses a `session.update` carrying it without
+acknowledging it (`kaana.EnvelopeInputTranscriptionRefused`). It is served on
+`kaana.ai/v1`, whose grant and settlement speak 4.1.0; the lane and its
+refusal are deleted together in ADR 0002 phase 5.
+
+## What the catalogue says about a realtime model
+
+The publisher writes the adapter's reviewed statement
+(`providerconfig.RealtimeCapabilities`) into each session deployment's
+`observed` block, as it does reasoning efforts, because neither provider's
+model list says anything about sessions; `inventory.Parse` validates it and
+`GET /internal/v1/models` serves the line's intersection across its routes
+(`realtime`, `audio` on the catalogue entry). Contract shapes:
+`capabilities.realtime {transports, sessionKinds, inputAudioTranscription,
+audioFormats}` and `audio {voices, languages}`.
+
+| | OpenAI | xAI |
+|---|---|---|
+| Transports, kinds | `websocket`; `conversation` | `websocket`; `conversation` |
+| `inputAudioTranscription` | `true` | `true` |
+| Encodings in and out | `pcm16_24khz`, `g711_ulaw`, `g711_alaw` | the same |
+| Voices | the 10 documented (`alloy` … `marin`, `cedar`), no gender | the 26 built-in ids xAI documents; gender only for `eve` (female) and `rex` (male), Kaana's reviewed product voices |
+| Languages | none: OpenAI documents no language list for its Realtime models | xAI's 20 documented codes; every voice speaks every one |
+
+`gender` is never inferred from a name, and an empty language list is
+published rather than guessed. A consequence for Alia ADR 0017 §2, which picks
+a model whose `audio.languages` covers the session language and which has a
+voice of the product gender: only xAI qualifies until someone states OpenAI's
+languages and voice genders from reviewed evidence.
+
 ## Publishing
 
 `configs/model-attribution.json` attributes `grok-voice-think-fast-2.0` to
@@ -643,7 +724,9 @@ pins the set and proves each row publishable there and nowhere else.
   has been validated.
 - Rate cards price the audio-token units per deployment
   (`audio_input_tokens`, `cached_audio_input_tokens`, `audio_output_tokens`
-  beside the text units); without one, every attempt says its cost is unknown.
+  beside the text units) and `input_transcription_milliseconds` at
+  `gpt-transcribe`'s rate (`75000`, "Input transcription"); without one,
+  every attempt says its cost is unknown.
   OpenAI Realtime never reports `session_milliseconds`, so its card needs no
   rate for it (Oxy's price version still prices it, at zero).
 - Sessions live in the memory of the task that opened them. A resume that the
@@ -720,15 +803,11 @@ pins the set and proves each row publishable there and nowhere else.
    OpenAI documents transcription sessions (`session.type: "transcription"`)
    but no WebSocket endpoint for them — only a beta-shaped REST route that
    mints a token. Both would be guesses from documentation.
-2. **Input transcription in a conversation is refused.** It runs a second
-   model (billed "according to the ASR model's pricing rather than the realtime
-   model's"), and the contract gives a session one set of units. Reporting the
-   ASR model's audio as `audio_input_milliseconds` beside the session model's
-   `audio_input_tokens` is exactly the "same audio as tokens and as
-   milliseconds" the contract's unit rule forbids; folding its tokens into the
-   session's prices them at the wrong model's rate. The contract also says the
-   transcription model is "the deployment's own, declared where the deployment
-   is", and the inventory has no field for it. Both need a contract decision.
+2. **Input transcription in a conversation is served** since contract set
+   4.1.0 (it was refused before): the ASR model's charge is its own unit,
+   `input_transcription_milliseconds`, and the transcription model is declared
+   per slug by the dialect ("Input transcription"). The signed-envelope lane
+   still refuses it.
 3. **`temperature` has no GA field** and is refused; the contract still carries
    it.
 4. **Text and audio output together** is refused: GA takes exactly one output
@@ -740,12 +819,10 @@ pins the set and proves each row publishable there and nowhere else.
    as the adapter classifies) or in-band (an `error` event, also classified);
    the codes it uses in-band for quota and rate limits; what it sends when its
    own 60-minute session limit elapses (treated as whatever close follows).
-7. **The models catalogue does not surface realtime capability.** The
-   contract's `modelRealtimeCapabilities` is Oxy-owned catalogue metadata, and
-   the inventory's `observed` block holds only what a provider's model list
-   reported, which says nothing about sessions. Oxy can read the capability
-   from the `openai-realtime` slug of a deployment; a first-class field needs an
-   inventory decision.
+7. **The catalogue surfaces realtime capability** from Kaana's own inventory
+   since contract set 4.1.0: the adapter's reviewed statement, in each session
+   deployment's `observed` block ("What the catalogue says about a realtime
+   model").
 8. **xAI substitutes an unknown model silently, and the serving open does not
    check.** Measured 2026-09-30: `?model=<bogus>` is answered with a
    `session.created` naming `grok-voice-think-fast-2.0`. The publisher
@@ -760,6 +837,12 @@ pins the set and proves each row publishable there and nowhere else.
    second session under a settled request id is the edge's idempotency to
    refuse, exactly as a replayed one-shot envelope is (`architecture.md`,
    "Replay protection beyond the signature time window").
+10. **xAI lists `grok-voice-2.0` as deprecated** beside `grok-voice-3.0`, at
+    the same $0.08/min (pricing page, read 2026-10-15), and its session schema
+    now names `grok-voice-latest`, `grok-voice-3.0` and `grok-voice-2.0`. The
+    attributed `grok-voice-think-fast-2.0` is not re-reviewed here; attributing
+    `grok-voice-3.0` is a reviewed attribution change with its own discovery
+    probe and rate card.
 
 ## Rules a reviewer applies
 
@@ -790,6 +873,13 @@ pins the set and proves each row publishable there and nowhere else.
   never approximated under another unit. A session billed by its wall clock
   (xAI `server_vad`) reports `session_milliseconds` and never an audio unit for
   the same span, and never changes billing mode once open.
+- **Input transcription is the deployment's declared model, billed under its
+  own unit or not at all**: `input_transcription_milliseconds` where the
+  provider bills the ASR model apart, nothing where the session price
+  includes it, and a session ends on a transcription charge that unit cannot
+  express. A transcript is relayed only once asked for; a reported charge is
+  always settled. The catalogue's realtime statement is the one the dialect
+  enforces (`TestTheCatalogueStatementIsWhatTheAdapterServes`).
 - **A provider speaking the OpenAI Realtime shape is a dialect of
   `internal/provider/openairealtime`, not a copy**: its differences are
   `dialect` fields, each from the provider's documentation, and it gets its own
