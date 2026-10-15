@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/OxyHQ/Kaana/internal/awssig"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 const (
@@ -237,7 +238,7 @@ func TestMintExchangesAnAttestationOxyAndSTSAccept(t *testing.T) {
 	fake := newOxy(t)
 	client := newTestClient(t, taskRoleCredentials())
 
-	token, lifetime, err := client.Mint(context.Background(), fake.origin(t))
+	token, lifetime, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -252,12 +253,31 @@ func TestMintExchangesAnAttestationOxyAndSTSAccept(t *testing.T) {
 	}
 }
 
+// The audience is named on every exchange: Oxy's grant API refuses an oxy-api
+// token, so a control token minted under Oxy's default is an outage.
+func TestMintNamesTheAudienceItWasAskedFor(t *testing.T) {
+	for _, audience := range []contract.OxyAudience{contract.OxyAPIAudience, contract.OxyKaanaControlAudience} {
+		fake := newOxy(t)
+		client := newTestClient(t, taskRoleCredentials())
+		if _, _, err := client.Mint(context.Background(), fake.origin(t), audience); err != nil {
+			t.Fatalf("Mint(%s): %v", audience, err)
+		}
+		var presented attestationRequest
+		if err := json.Unmarshal([]byte(fake.rawExchange), &presented); err != nil {
+			t.Fatalf("decoding the presented body: %v", err)
+		}
+		if presented.Audience != audience {
+			t.Fatalf("audience = %q, want %q", presented.Audience, audience)
+		}
+	}
+}
+
 // The attestation must carry the signature and nothing that is not part of it.
 func TestAttestationCarriesExactlyTheSignedHeaders(t *testing.T) {
 	fake := newOxy(t)
 	client := newTestClient(t, taskRoleCredentials())
 
-	if _, _, err := client.Mint(context.Background(), fake.origin(t)); err != nil {
+	if _, _, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience); err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
 
@@ -266,8 +286,8 @@ func TestAttestationCarriesExactlyTheSignedHeaders(t *testing.T) {
 		t.Fatalf("decoding the presented body: %v", err)
 	}
 	keys := sortedKeys(presented)
-	if strings.Join(keys, ",") != "attestation,nonce,provider" {
-		t.Fatalf("exchange body keys = %v; Oxy accepts exactly provider, nonce and attestation", keys)
+	if strings.Join(keys, ",") != "attestation,audience,nonce,provider" {
+		t.Fatalf("exchange body keys = %v; Oxy accepts exactly provider, nonce, attestation and audience", keys)
 	}
 
 	var envelope attestationRequest
@@ -307,7 +327,7 @@ func TestAttestationOmitsTheSecurityTokenWhenThereIsNone(t *testing.T) {
 		return aws.Credentials{AccessKeyID: testAccessKeyID, SecretAccessKey: testSecretAccessKey}, nil
 	}))
 
-	if _, _, err := client.Mint(context.Background(), fake.origin(t)); err != nil {
+	if _, _, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience); err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
 	var envelope attestationRequest
@@ -345,7 +365,7 @@ func TestAttestationIsRefusedWhenItIsTamperedWith(t *testing.T) {
 			fake.tamper = tamper
 			client := newTestClient(t, taskRoleCredentials())
 
-			_, _, err := client.Mint(context.Background(), fake.origin(t))
+			_, _, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience)
 			if err == nil {
 				t.Fatal("a tampered attestation was accepted")
 			}
@@ -363,7 +383,7 @@ func TestMintNeverCallsAWS(t *testing.T) {
 	fake := newOxy(t)
 	client := newTestClient(t, taskRoleCredentials())
 
-	if _, _, err := client.Mint(context.Background(), fake.origin(t)); err != nil {
+	if _, _, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience); err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
 	for _, host := range fake.hosts {
@@ -429,7 +449,7 @@ func TestMintRefusals(t *testing.T) {
 			if testCase.origin != nil {
 				origin = testCase.origin(t, fake)
 			}
-			_, _, err := client.Mint(context.Background(), origin)
+			_, _, err := client.Mint(context.Background(), origin, contract.OxyAPIAudience)
 			if err == nil {
 				t.Fatalf("Mint succeeded; want %q", testCase.wantError)
 			}
@@ -451,7 +471,7 @@ func TestMintAcceptsAnUnwrappedResponse(t *testing.T) {
 	fake.exchangeBody = `{"token":"flat-token","expiresIn":900,"appName":"Kaana"}`
 	client := newTestClient(t, taskRoleCredentials())
 
-	token, lifetime, err := client.Mint(context.Background(), fake.origin(t))
+	token, lifetime, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -480,7 +500,7 @@ func TestMintReportsOxysRefusalWithoutEchoingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, _, err = client.Mint(context.Background(), origin)
+	_, _, err = client.Mint(context.Background(), origin, contract.OxyAPIAudience)
 	if err == nil {
 		t.Fatal("an unbound workload was accepted")
 	}
@@ -498,7 +518,7 @@ func TestMintCarriesTheCallersDeadline(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, _, err := client.Mint(ctx, fake.origin(t)); !errors.Is(err, context.Canceled) {
+	if _, _, err := client.Mint(ctx, fake.origin(t), contract.OxyAPIAudience); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want a wrapped context.Canceled", err)
 	}
 }

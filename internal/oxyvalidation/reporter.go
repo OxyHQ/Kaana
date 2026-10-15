@@ -82,7 +82,7 @@ type Submitter interface {
 // not issue its nonce can be relayed into a Kaana token) and this package must
 // stay the only place that decides it.
 type Minter interface {
-	Mint(ctx context.Context, origin *url.URL) (token string, expiresIn time.Duration, err error)
+	Mint(ctx context.Context, origin *url.URL, audience contract.OxyAudience) (token string, expiresIn time.Duration, err error)
 }
 
 // Config provides Kaana's exact Oxy service principal. APISecret is an Oxy
@@ -124,9 +124,13 @@ type Reporter struct {
 	pending   map[Verdict]struct{}
 	delivered map[verdictSelector]verdictState
 
-	tokenMu        sync.Mutex
-	token          string
-	tokenExpiresAt time.Time
+	tokenMu sync.Mutex
+	tokens  map[contract.OxyAudience]cachedToken
+}
+
+type cachedToken struct {
+	token     string
+	expiresAt time.Time
 }
 
 type verdictSelector struct {
@@ -305,7 +309,7 @@ func stateFor(verdict Verdict) verdictState {
 }
 
 func (r *Reporter) report(ctx context.Context, verdict Verdict) error {
-	token, err := r.serviceToken(ctx, false)
+	token, err := r.serviceToken(ctx, contract.OxyAPIAudience, false)
 	if err != nil {
 		return err
 	}
@@ -314,7 +318,7 @@ func (r *Reporter) report(ctx context.Context, verdict Verdict) error {
 		return err
 	}
 	if status == http.StatusUnauthorized {
-		token, err = r.serviceToken(ctx, true)
+		token, err = r.serviceToken(ctx, contract.OxyAPIAudience, true)
 		if err != nil {
 			return err
 		}
@@ -329,31 +333,42 @@ func (r *Reporter) report(ctx context.Context, verdict Verdict) error {
 	return nil
 }
 
-// ServiceToken shares the dedicated Kaana principal with operational publishers.
+// ServiceToken shares the dedicated Kaana principal with operational publishers:
+// a token for Oxy's own API (oxy-api).
 func (r *Reporter) ServiceToken(ctx context.Context) (string, error) {
-	return r.serviceToken(ctx, false)
+	return r.serviceToken(ctx, contract.OxyAPIAudience, false)
 }
 
-// serviceToken returns the cached token, or mints one.
+// ControlToken is the same principal's token for Oxy's /internal/kaana/v1/*,
+// the grant and settlement API behind https://kaana.ai/v1. Oxy refuses an
+// oxy-api token there, so the public API never borrows ServiceToken.
+func (r *Reporter) ControlToken(ctx context.Context) (string, error) {
+	return r.serviceToken(ctx, contract.OxyKaanaControlAudience, false)
+}
+
+// serviceToken returns the cached token for an audience, or mints one.
 //
 // One cache for both identities, and it is here rather than in either minter: a
 // token is a token whichever way it was proved, `tokenMu` is what stops two
 // verdicts minting two of them at once, and the one-minute margin is for clock
 // drift between this process and Oxy — serving a token that expires in the next
-// second is the same outage as serving an expired one.
-func (r *Reporter) serviceToken(ctx context.Context, force bool) (string, error) {
+// second is the same outage as serving an expired one. Keyed by audience,
+// because a token for one of Oxy's resource servers is refused by the other.
+func (r *Reporter) serviceToken(ctx context.Context, audience contract.OxyAudience, force bool) (string, error) {
 	r.tokenMu.Lock()
 	defer r.tokenMu.Unlock()
-	if !force && r.token != "" && time.Now().Add(time.Minute).Before(r.tokenExpiresAt) {
-		return r.token, nil
+	if cached, ok := r.tokens[audience]; ok && !force && time.Now().Add(time.Minute).Before(cached.expiresAt) {
+		return cached.token, nil
 	}
-	token, lifetime, err := r.mint(ctx)
+	token, lifetime, err := r.mint(ctx, audience)
 	if err != nil {
 		return "", err
 	}
-	r.token = token
-	r.tokenExpiresAt = time.Now().Add(lifetime)
-	return r.token, nil
+	if r.tokens == nil {
+		r.tokens = make(map[contract.OxyAudience]cachedToken)
+	}
+	r.tokens[audience] = cachedToken{token: token, expiresAt: time.Now().Add(lifetime)}
+	return token, nil
 }
 
 // mint proves this process's identity: the key pair first, the attested workload
@@ -389,28 +404,29 @@ func (r *Reporter) serviceToken(ctx context.Context, force bool) (string, error)
 // must not do is fail quietly, so every fallback is logged: a run whose primary
 // identity never works and whose fallback always does looks identical to a
 // healthy one in every other signal.
-func (r *Reporter) mint(ctx context.Context) (string, time.Duration, error) {
+func (r *Reporter) mint(ctx context.Context, audience contract.OxyAudience) (string, time.Duration, error) {
 	switch {
 	case r.apiKey != "" && r.workload != nil:
-		token, lifetime, err := r.mintFromKeyPair(ctx)
+		token, lifetime, err := r.mintFromKeyPair(ctx, audience)
 		if err == nil {
 			return token, lifetime, nil
 		}
 		r.logger.Error("the Kaana service key pair could not mint a token; falling back to this task's workload identity",
-			"errorType", "oxy_service_token", "reason", err.Error())
-		return r.workload.Mint(ctx, r.baseURL)
+			"errorType", "oxy_service_token", "audience", audience, "reason", err.Error())
+		return r.workload.Mint(ctx, r.baseURL, audience)
 	case r.apiKey != "":
-		return r.mintFromKeyPair(ctx)
+		return r.mintFromKeyPair(ctx, audience)
 	default:
-		return r.workload.Mint(ctx, r.baseURL)
+		return r.workload.Mint(ctx, r.baseURL, audience)
 	}
 }
 
-func (r *Reporter) mintFromKeyPair(ctx context.Context) (string, time.Duration, error) {
+func (r *Reporter) mintFromKeyPair(ctx context.Context, audience contract.OxyAudience) (string, time.Duration, error) {
 	body, err := json.Marshal(struct {
-		APIKey    string `json:"apiKey"`
-		APISecret string `json:"apiSecret"`
-	}{APIKey: r.apiKey, APISecret: r.apiSecret})
+		APIKey    string               `json:"apiKey"`
+		APISecret string               `json:"apiSecret"`
+		Audience  contract.OxyAudience `json:"audience"`
+	}{APIKey: r.apiKey, APISecret: r.apiSecret, Audience: audience})
 	if err != nil {
 		return "", 0, err
 	}
