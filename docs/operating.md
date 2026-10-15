@@ -951,26 +951,28 @@ balancer. Oxy's edge-to-data-plane traffic uses the same Cloudflare-proxied
 apex (oxy-infra `app-kaana.tf`: the private Route 53 alias was removed), so it
 is counted by the `/internal` rule below too.
 
-`.github/workflows/cloudflare-rate-limit.yml` owns three zone-level
-`http_ratelimit` rules, each identified by a stable ref, each counting by
-Cloudflare data center and source IP. They are origin-abuse ceilings, not
-customer quotas or Kaana routing policy: per-credential and per-application
-rate limits on `/v1` are Oxy's, applied when Kaana asks for a grant.
+`.github/workflows/cloudflare-rate-limit.yml` owns ONE zone-level
+`http_ratelimit` rule, identified by a stable ref and counting by Cloudflare
+data center and source IP. The `kaana.ai` zone's plan allows exactly one
+rate-limiting rule, with a 10-second period and mitigation: on 2026-10-15 a
+second rule was refused ("exceeded the maximum number of rules in the phase
+http_ratelimit: 2 out of 1"). It is an origin-abuse ceiling, not a customer
+quota or Kaana routing policy: per-credential and per-application rate limits
+on `/v1` are Oxy's, applied when Kaana asks for a grant.
 
 | Ref | Paths | Ceiling | Mitigation |
 |---|---|---|---|
-| `kaana_public_inference_per_ip` | `/internal/v1/inference` | 20 / 10 s | 10 s |
-| `kaana_public_api_per_ip` | `/v1/*` except `/v1/realtime` | 600 / 60 s | 60 s |
-| `kaana_public_realtime_per_ip` | `/v1/realtime` (WebSocket upgrades, resumes included) | 30 / 60 s | 60 s |
+| `kaana_public_inference_per_ip` | `/internal/v1/inference` and `/v1/*` (realtime upgrades and resumes included) | 125 / 10 s | 10 s |
 
-The `/v1` ceilings are generous because many SDK callers share one IP behind a
-NAT; they bound what a stranger can make Kaana read before Oxy has said whose
-request it is (a JSON transcription upload is up to ~28 MiB). Realtime upgrades
-count separately and more strictly: each holds a session for up to an hour.
-The `/internal/v1/inference` rule is removed with the envelope in ADR 0002
-phase 5. The 60-second periods need Pro or higher, and Business allows five
-rate-limiting rules in the zone: these three plus the two credential-control
-rules (oxy-infra runbook 38) use all five until phase 5 frees one.
+The ceiling is the sum of the three per-path budgets the design asked for, each
+brought to 10 seconds: `/internal/v1/inference` 20, `/v1` 600 a minute (100),
+`/v1/realtime` 30 a minute (5). It is generous because many callers share one IP
+behind a NAT (every Alia voice call leaves from Alia's NAT); it bounds what a
+stranger can make Kaana read before Oxy has said whose request it is (a JSON
+transcription upload is up to ~28 MiB). The ref is the one the zone already
+held for the `/internal`-only rule, so the reconciler updates that rule in place.
+Separate counters per lane (a stricter one for realtime upgrades, 60-second
+periods) need a plan that allows more rules; they come back with it.
 
 Run the workflow with `action=check` first. Check mode performs GET requests
 only and fails on missing or drifted state. `action=apply` additionally requires

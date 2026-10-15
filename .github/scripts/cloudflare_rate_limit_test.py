@@ -77,9 +77,23 @@ class FakeAPI:
         raise AssertionError(f"unexpected API call: {method} {path}")
 
 
-INTERNAL = rate_limit.INTERNAL_INFERENCE_RULE
-PUBLIC = rate_limit.PUBLIC_API_RULE
-REALTIME = rate_limit.PUBLIC_REALTIME_RULE
+RULE = rate_limit.KAANA_RULE
+
+# What the live zone held on 2026-10-15: the /internal-only rule this one
+# replaces in place, under the same ref.
+TODAY: dict[str, Any] = {
+    "ref": "kaana_public_inference_per_ip",
+    "description": "Kaana public inference: 20 requests per 10 seconds per IP",
+    "expression": '(http.request.uri.path eq "/internal/v1/inference")',
+    "action": "block",
+    "ratelimit": {
+        "characteristics": ["cf.colo.id", "ip.src"],
+        "period": 10,
+        "requests_per_period": 20,
+        "mitigation_timeout": 10,
+    },
+    "enabled": True,
+}
 
 
 def ruleset_with(*rules: dict[str, Any]) -> dict[str, Any]:
@@ -104,167 +118,98 @@ def writes(api: FakeAPI) -> list[tuple[str, str]]:
 
 
 class DesiredRulesTests(unittest.TestCase):
-    def test_the_internal_rule_is_unchanged_until_phase_5(self) -> None:
+    def test_the_zone_plan_holds_one_rule_so_exactly_one_is_owned(self) -> None:
+        self.assertEqual(rate_limit.DESIRED_RULES, (RULE,))
+
+    def test_the_rule_is_pinned(self) -> None:
         self.assertEqual(
-            INTERNAL,
+            RULE,
             {
                 "ref": "kaana_public_inference_per_ip",
-                "description": "Kaana public inference: 20 requests per 10 seconds per IP",
-                "expression": '(http.request.uri.path eq "/internal/v1/inference")',
+                "description": "Kaana /internal/v1/inference and /v1: 125 requests per 10 seconds per IP",
+                "expression": (
+                    '(http.request.uri.path eq "/internal/v1/inference")'
+                    ' or starts_with(http.request.uri.path, "/v1/")'
+                ),
                 "action": "block",
                 "ratelimit": {
                     "characteristics": ["cf.colo.id", "ip.src"],
                     "period": 10,
-                    "requests_per_period": 20,
+                    "requests_per_period": 125,
                     "mitigation_timeout": 10,
                 },
                 "enabled": True,
             },
         )
 
-    def test_the_public_api_rule_is_pinned(self) -> None:
-        self.assertEqual(PUBLIC["ref"], "kaana_public_api_per_ip")
-        self.assertEqual(
-            PUBLIC["expression"],
-            '(starts_with(http.request.uri.path, "/v1/") and http.request.uri.path ne "/v1/realtime")',
-        )
-        self.assertEqual(
-            PUBLIC["ratelimit"],
-            {
-                "characteristics": ["cf.colo.id", "ip.src"],
-                "period": 60,
-                "requests_per_period": 600,
-                "mitigation_timeout": 60,
-            },
-        )
-        self.assertEqual((PUBLIC["action"], PUBLIC["enabled"]), ("block", True))
+    def test_the_budget_is_the_sum_of_the_per_path_budgets_it_replaces(self) -> None:
+        # /internal/v1/inference 20 per 10 s; /v1 600 per 60 s; realtime 30 per 60 s.
+        per_ten_seconds = 20 + 600 * 10 // 60 + 30 * 10 // 60
+        self.assertEqual(RULE["ratelimit"]["requests_per_period"], per_ten_seconds)
+        self.assertEqual(RULE["ratelimit"]["period"], 10)
 
-    def test_realtime_upgrades_have_their_own_stricter_counter(self) -> None:
-        self.assertEqual(REALTIME["ref"], "kaana_public_realtime_per_ip")
-        self.assertEqual(REALTIME["expression"], '(http.request.uri.path eq "/v1/realtime")')
-        self.assertEqual(
-            REALTIME["ratelimit"],
-            {
-                "characteristics": ["cf.colo.id", "ip.src"],
-                "period": 60,
-                "requests_per_period": 30,
-                "mitigation_timeout": 60,
-            },
-        )
-        # Negative control: the general /v1 rule excludes exactly the realtime
-        # path, so one upgrade is never counted twice.
-        self.assertIn('http.request.uri.path ne "/v1/realtime"', PUBLIC["expression"])
-        self.assertLess(
-            REALTIME["ratelimit"]["requests_per_period"], PUBLIC["ratelimit"]["requests_per_period"]
-        )
+    def test_it_keeps_the_live_ref_so_apply_updates_instead_of_adding(self) -> None:
+        self.assertEqual(RULE["ref"], TODAY["ref"])
 
-    def test_no_owned_rule_names_a_method_or_an_internal_path_it_does_not_own(self) -> None:
-        for rule in (PUBLIC, REALTIME):
-            self.assertNotIn("http.request.method", rule["expression"])
-            self.assertNotIn("/internal/", rule["expression"])
-            self.assertNotIn("/livez", rule["expression"])
-        self.assertNotIn("/v1/", INTERNAL["expression"].replace("/internal/v1/", ""))
-
-    def test_refs_and_descriptions_are_unique(self) -> None:
-        refs = [rule["ref"] for rule in rate_limit.DESIRED_RULES]
-        descriptions = [rule["description"] for rule in rate_limit.DESIRED_RULES]
-        self.assertEqual(len(set(refs)), len(refs))
-        self.assertEqual(len(set(descriptions)), len(descriptions))
+    def test_it_counts_the_lanes_and_nothing_else(self) -> None:
+        expression = RULE["expression"]
+        self.assertIn('"/internal/v1/inference"', expression)
+        self.assertIn('starts_with(http.request.uri.path, "/v1/")', expression)
+        self.assertNotIn("http.request.method", expression)
+        self.assertNotIn("/livez", expression)
+        self.assertNotIn('"/internal/"', expression)
 
 
 class ReconcileTests(unittest.TestCase):
+    def test_check_reports_todays_rule_as_drift_read_only(self) -> None:
+        api = FakeAPI(ruleset_with(TODAY))
+        self.assertEqual(rate_limit.reconcile(api, "check"), 2)
+        self.assertEqual(methods(api), ["GET", "GET"])
+
+    def test_apply_on_todays_state_patches_the_one_rule_in_place(self) -> None:
+        api = FakeAPI(ruleset_with(TODAY))
+        self.assertEqual(rate_limit.reconcile(api, "apply"), 0)
+        self.assertEqual(writes(api), [("PATCH", "/zones/zone-1/rulesets/ruleset-1/rules/rule-1")])
+        self.assertEqual(methods(api)[-1], "GET")
+        self.assertEqual(len(api.ruleset["rules"]), 1)
+
     def test_check_missing_entrypoint_is_read_only(self) -> None:
         api = FakeAPI(None)
         self.assertEqual(rate_limit.reconcile(api, "check"), 2)
         self.assertEqual(methods(api), ["GET", "GET"])
 
-    def test_apply_creates_missing_entrypoint_with_every_rule_and_reads_it_back(self) -> None:
+    def test_apply_creates_missing_entrypoint_with_the_rule_and_reads_it_back(self) -> None:
         api = FakeAPI(None)
         self.assertEqual(rate_limit.reconcile(api, "apply"), 0)
         self.assertEqual(methods(api), ["GET", "GET", "POST", "GET"])
-        self.assertEqual(
-            [rule["ref"] for rule in api.ruleset["rules"]],
-            [rule["ref"] for rule in rate_limit.DESIRED_RULES],
-        )
+        self.assertEqual([rule["ref"] for rule in api.ruleset["rules"]], [RULE["ref"]])
 
-    def test_check_exact_rules_is_read_only(self) -> None:
+    def test_check_exact_rule_is_read_only(self) -> None:
         api = FakeAPI(complete())
         self.assertEqual(rate_limit.reconcile(api, "check"), 0)
         self.assertEqual(methods(api), ["GET", "GET"])
 
-    def test_apply_on_exact_rules_writes_nothing(self) -> None:
+    def test_apply_on_exact_rule_writes_nothing(self) -> None:
         api = FakeAPI(complete())
         self.assertEqual(rate_limit.reconcile(api, "apply"), 0)
         self.assertEqual(writes(api), [])
 
-    def test_check_reports_the_public_rules_missing_from_todays_state(self) -> None:
-        # Production today holds only the internal rule.
-        api = FakeAPI(ruleset_with(INTERNAL))
-        self.assertEqual(rate_limit.reconcile(api, "check"), 2)
-        self.assertEqual(methods(api), ["GET", "GET"])
-
-    def test_apply_appends_the_public_rules_after_existing_ones(self) -> None:
-        api = FakeAPI(ruleset_with(INTERNAL, {"ref": "somebody_else", "enabled": True}))
-        self.assertEqual(rate_limit.reconcile(api, "apply"), 0)
-        self.assertEqual(
-            writes(api),
-            [
-                ("POST", "/zones/zone-1/rulesets/ruleset-1/rules"),
-                ("POST", "/zones/zone-1/rulesets/ruleset-1/rules"),
-            ],
-        )
-        self.assertEqual(methods(api)[-1], "GET")
-        self.assertEqual(
-            [rule["ref"] for rule in api.ruleset["rules"]],
-            [INTERNAL["ref"], "somebody_else", PUBLIC["ref"], REALTIME["ref"]],
-        )
-        self.assertEqual(api.ruleset["rules"][1], {"id": "rule-2", "ref": "somebody_else", "enabled": True})
-
-    def test_check_drift_is_read_only(self) -> None:
-        drifted = copy.deepcopy(PUBLIC)
-        drifted["ratelimit"]["requests_per_period"] = 999
-        api = FakeAPI(ruleset_with(INTERNAL, drifted, REALTIME))
-        self.assertEqual(rate_limit.reconcile(api, "check"), 2)
-        self.assertEqual(methods(api), ["GET", "GET"])
-
-    def test_apply_updates_only_the_drifted_rule_and_reads_it_back(self) -> None:
-        drifted = copy.deepcopy(REALTIME)
-        drifted["enabled"] = False
-        ruleset = ruleset_with(INTERNAL, PUBLIC, drifted)
-        ruleset["rules"].append({"id": "other", "ref": "somebody_else", "enabled": True})
-        api = FakeAPI(ruleset)
-        self.assertEqual(rate_limit.reconcile(api, "apply"), 0)
-        self.assertEqual(writes(api), [("PATCH", "/zones/zone-1/rulesets/ruleset-1/rules/rule-3")])
-        self.assertEqual(methods(api)[-1], "GET")
-        self.assertEqual(api.ruleset["rules"][3], {"id": "other", "ref": "somebody_else", "enabled": True})
-
-    def test_legacy_rule_drift_is_still_corrected(self) -> None:
-        drifted = copy.deepcopy(INTERNAL)
-        drifted["ratelimit"]["requests_per_period"] = 999
-        api = FakeAPI(ruleset_with(drifted, PUBLIC, REALTIME))
+    def test_apply_leaves_other_rules_alone(self) -> None:
+        api = FakeAPI(ruleset_with(TODAY, {"ref": "somebody_else", "enabled": True}))
         self.assertEqual(rate_limit.reconcile(api, "apply"), 0)
         self.assertEqual(writes(api), [("PATCH", "/zones/zone-1/rulesets/ruleset-1/rules/rule-1")])
+        self.assertEqual(api.ruleset["rules"][1], {"id": "rule-2", "ref": "somebody_else", "enabled": True})
 
     def test_duplicate_owned_ref_is_never_mutated(self) -> None:
         ruleset = complete()
-        ruleset["rules"].append({"id": "rule-9", **copy.deepcopy(PUBLIC)})
+        ruleset["rules"].append({"id": "rule-9", **copy.deepcopy(RULE)})
         api = FakeAPI(ruleset)
-        with self.assertRaises(rate_limit.ReconcileError):
-            rate_limit.reconcile(api, "apply")
-        self.assertEqual(methods(api), ["GET", "GET"])
-
-    def test_a_conflict_on_one_rule_refuses_every_write(self) -> None:
-        # The realtime description is taken by a manual rule while the public
-        # API rule is missing: nothing is created, not even the healthy one.
-        conflicting = copy.deepcopy(REALTIME)
-        conflicting["ref"] = "manual_rule"
-        api = FakeAPI(ruleset_with(INTERNAL, conflicting))
         with self.assertRaises(rate_limit.ReconcileError):
             rate_limit.reconcile(api, "apply")
         self.assertEqual(methods(api), ["GET", "GET"])
 
     def test_description_without_owned_ref_is_never_duplicated(self) -> None:
-        conflicting = copy.deepcopy(INTERNAL)
+        conflicting = copy.deepcopy(RULE)
         conflicting["ref"] = "manual_rule"
         api = FakeAPI(ruleset_with(conflicting))
         with self.assertRaises(rate_limit.ReconcileError):
@@ -279,7 +224,7 @@ class ReconcileTests(unittest.TestCase):
                     return rate_limit.APIResponse(200, {"success": True, "result": {}})
                 return super().call(method, path, body, allowed_statuses)
 
-        api = SwallowingAPI(ruleset_with(INTERNAL))
+        api = SwallowingAPI(ruleset_with({"ref": "somebody_else", "enabled": True}))
         with self.assertRaises(rate_limit.ReconcileError):
             rate_limit.reconcile(api, "apply")
 

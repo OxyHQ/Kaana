@@ -24,71 +24,46 @@ RULESET_NAME = "Kaana public inference rate limiting"
 # absent from every expression because it is not available on Free/Pro.
 _PER_IP = ["cf.colo.id", "ip.src"]
 
-# The signed /internal lane. Removed with the envelope in Kaana ADR 0002
-# phase 5, not before.
-INTERNAL_INFERENCE_RULE: dict[str, Any] = {
+# ONE rule, because the kaana.ai zone's plan allows exactly one rate-limiting
+# rule, with a 10-second period and mitigation (Cloudflare answered "exceeded
+# the maximum number of rules in the phase http_ratelimit: 2 out of 1" on
+# 2026-10-15 when three were attempted). It counts every request that can make
+# Kaana work, per IP and colo: the signed /internal lane (removed with the
+# envelope in Kaana ADR 0002 phase 5) and the public API https://kaana.ai/v1,
+# realtime upgrades and resumes included.
+#
+# An origin-abuse ceiling, not a customer quota: per-credential and per-app
+# limits are Oxy's, applied when Kaana asks for a grant (Oxy Console). Its
+# budget is the sum of the three per-path budgets it replaces, each brought to
+# 10 seconds -- /internal/v1/inference 20, /v1 600 a minute = 100, realtime 30
+# a minute = 5 -- so no lane is stricter than it was designed to be. It is
+# generous on purpose because many legitimate callers share one IP behind a NAT
+# (every Alia voice call leaves from Alia's NAT); it exists to bound what an
+# unauthenticated stranger can make Kaana read before Oxy has said whose
+# request it is (a transcription body is up to ~28 MiB).
+#
+# The ref is the one the live zone already holds, so a reconcile UPDATES that
+# rule in place; a new ref would be a second rule, which the plan refuses.
+KAANA_RULE: dict[str, Any] = {
     "ref": "kaana_public_inference_per_ip",
-    "description": "Kaana public inference: 20 requests per 10 seconds per IP",
-    "expression": '(http.request.uri.path eq "/internal/v1/inference")',
-    "action": "block",
-    "ratelimit": {
-        "characteristics": _PER_IP,
-        "period": 10,
-        "requests_per_period": 20,
-        "mitigation_timeout": 10,
-    },
-    "enabled": True,
-}
-
-# The public API, https://kaana.ai/v1 (Kaana ADR 0002 phase 3). An
-# origin-abuse ceiling, not a customer quota: per-credential and per-app rate
-# limits are Oxy's, applied when Kaana asks for a grant. It is generous on
-# purpose because many legitimate SDK callers share one IP behind a NAT; it
-# exists to bound what an unauthenticated stranger can make Kaana read before
-# Oxy has said whose request it is (a transcription body is up to ~28 MiB).
-# Realtime upgrades are counted by their own rule, not here.
-PUBLIC_API_RULE: dict[str, Any] = {
-    "ref": "kaana_public_api_per_ip",
-    "description": "Kaana public API /v1: 600 requests per 60 seconds per IP",
+    "description": "Kaana /internal/v1/inference and /v1: 125 requests per 10 seconds per IP",
     "expression": (
-        '(starts_with(http.request.uri.path, "/v1/")'
-        ' and http.request.uri.path ne "/v1/realtime")'
+        '(http.request.uri.path eq "/internal/v1/inference")'
+        ' or starts_with(http.request.uri.path, "/v1/")'
     ),
     "action": "block",
     "ratelimit": {
         "characteristics": _PER_IP,
-        "period": 60,
-        "requests_per_period": 600,
-        "mitigation_timeout": 60,
-    },
-    "enabled": True,
-}
-
-# Realtime WebSocket upgrades. Each one opens a session that can hold a task's
-# memory and an upstream session for up to an hour, so opening them is counted
-# separately and far more strictly than ordinary requests. A resume is an
-# upgrade too; 30 a minute leaves room for reconnect storms on one NAT.
-PUBLIC_REALTIME_RULE: dict[str, Any] = {
-    "ref": "kaana_public_realtime_per_ip",
-    "description": "Kaana public realtime /v1/realtime: 30 upgrades per 60 seconds per IP",
-    "expression": '(http.request.uri.path eq "/v1/realtime")',
-    "action": "block",
-    "ratelimit": {
-        "characteristics": _PER_IP,
-        "period": 60,
-        "requests_per_period": 30,
-        "mitigation_timeout": 60,
+        "period": 10,
+        "requests_per_period": 125,
+        "mitigation_timeout": 10,
     },
     "enabled": True,
 }
 
 # Every rule this reconciler owns, in the order a fresh entry point gets them.
 # Each is identified by its stable ref; nothing else in the phase is touched.
-DESIRED_RULES: tuple[dict[str, Any], ...] = (
-    INTERNAL_INFERENCE_RULE,
-    PUBLIC_API_RULE,
-    PUBLIC_REALTIME_RULE,
-)
+DESIRED_RULES: tuple[dict[str, Any], ...] = (KAANA_RULE,)
 
 
 class ReconcileError(RuntimeError):
