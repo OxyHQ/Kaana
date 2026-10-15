@@ -48,7 +48,11 @@ WORKDIR /src
 # PostgreSQL uses the RDS trust store rather than assuming a general web-PKI
 # bundle contains the regional database CA. The checksum makes an upstream
 # replacement a reviewed source change instead of mutable build input.
-ADD --checksum=sha256:fe45bbebf92ad3e27a583bbb2ddd1553c521ed4d49af5514dc0a40372ea5395c \
+#
+# Replaced 2026-10-15, reviewed: 114 certificates, every one an Amazon RDS CA
+# (us-west-2 Root CA RSA2048/RSA4096/ECC384 G1 among them), and the production
+# Oxy RDS instance verifies against it (sslmode=verify-ca).
+ADD --checksum=sha256:90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b \
     https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
     /tmp/aws-rds-global-bundle.pem
 
