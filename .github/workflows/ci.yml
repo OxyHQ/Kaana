@@ -145,6 +145,12 @@ jobs:
         run: bun run typecheck && bun run test && bun run build
         working-directory: packages/contracts
 
+      - name: "@kaana.ai/sdk typechecks, passes its suites against the fake server and builds"
+        # After the contracts build: the SDK imports @kaana.ai/contracts
+        # through the workspace, whose entry point is its built dist.
+        run: bun run typecheck && bun run test && bun run build
+        working-directory: packages/sdk
+
       - name: the committed descriptor and openapi.json are what the source produces
         # Both derive from the @kaana.ai/contracts workspace source, so the
         # input is the commit: any diff is a contract change nobody re-derived,
