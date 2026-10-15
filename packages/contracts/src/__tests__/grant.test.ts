@@ -6,8 +6,10 @@ import {
   authorizationRequestSchema,
   canonicalInputSha256,
   canonicalJson,
+  deploymentCommercialSchema,
   GRANT_SIGNATURE_DOMAIN,
   grantSchema,
+  grantStepLimitsSchema,
   SETTLEMENT_SIGNATURE_DOMAIN,
   settlementSchema,
   signatureInput,
@@ -120,6 +122,85 @@ describe('the grant carries today’s funding model', () => {
 
   it('refuses a field the grant does not define', () => {
     expect(refused({ ...commercialGrant, prompt: 'never' })).toBe(true);
+  });
+});
+
+describe('sameModelFailover (contract set 4.4.0)', () => {
+  const limits = commercialGrant.steps[0].limits;
+  const { sameModelFailover: _omitted, ...withoutFlag } = limits as typeof limits & {
+    sameModelFailover?: boolean;
+  };
+
+  it('defaults to true when absent, which is what 4.3.0 did', () => {
+    expect(grantStepLimitsSchema.parse(withoutFlag).sameModelFailover).toBe(true);
+  });
+
+  it('carries false, and refuses anything that is not a boolean', () => {
+    expect(
+      grantStepLimitsSchema.parse({ ...withoutFlag, sameModelFailover: false }).sameModelFailover,
+    ).toBe(false);
+    expect(
+      grantStepLimitsSchema.safeParse({ ...withoutFlag, sameModelFailover: 'no' }).success,
+    ).toBe(false);
+  });
+});
+
+describe('deploymentCommercialSchema (contract set 4.4.0)', () => {
+  const sold = {
+    availabilityScope: 'platform_internal',
+    commercialPermission: 'standard_application_use',
+  };
+
+  it('parses a sold deployment, with and without dedicatedCapacity', () => {
+    expect(deploymentCommercialSchema.safeParse(sold).success).toBe(true);
+    expect(
+      deploymentCommercialSchema.safeParse({
+        availabilityScope: 'enterprise',
+        commercialPermission: 'wholesale_contract',
+        dedicatedCapacity: true,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('is strict and names only the contract’s scopes and permissions', () => {
+    expect(deploymentCommercialSchema.safeParse({ ...sold, status: 'active' }).success).toBe(false);
+    expect(
+      deploymentCommercialSchema.safeParse({ ...sold, availabilityScope: 'internal_alia' }).success,
+    ).toBe(false);
+    expect(
+      deploymentCommercialSchema.safeParse({ ...sold, commercialPermission: 'free' }).success,
+    ).toBe(false);
+    expect(
+      deploymentCommercialSchema.safeParse({ ...sold, dedicatedCapacity: 'yes' }).success,
+    ).toBe(false);
+  });
+
+  it('pairs customer_byok with byok_only, both ways', () => {
+    expect(
+      deploymentCommercialSchema.safeParse({
+        availabilityScope: 'byok_only',
+        commercialPermission: 'customer_byok',
+      }).success,
+    ).toBe(true);
+    expect(
+      deploymentCommercialSchema.safeParse({ ...sold, commercialPermission: 'customer_byok' })
+        .success,
+    ).toBe(false);
+    expect(
+      deploymentCommercialSchema.safeParse({ ...sold, availabilityScope: 'byok_only' }).success,
+    ).toBe(false);
+  });
+
+  it('requires an approved resale permission for public pay-as-you-go', () => {
+    expect(
+      deploymentCommercialSchema.safeParse({ ...sold, availabilityScope: 'public_payg' }).success,
+    ).toBe(false);
+    expect(
+      deploymentCommercialSchema.safeParse({
+        availabilityScope: 'public_payg',
+        commercialPermission: 'public_resale_approved',
+      }).success,
+    ).toBe(true);
   });
 });
 

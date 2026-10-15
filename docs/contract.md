@@ -4,6 +4,31 @@
 authority; `internal/contract` restates it in Go and is answerable to it. The
 direction is **Zod → descriptor → Go** (ADR 0002, decision 10).
 
+## Contract set 4.4.0: deployment commercial facts and `sameModelFailover` (ADR 0002, amendment 2026-10-15)
+
+MINOR, `@kaana.ai/contracts` 4.4.0. Additive; everything 4.3.0 parses still parses.
+
+- **`deploymentCommercialSchema`** (`/internal`, strict): `availabilityScope`
+  (`availabilityScopeSchema`), `commercialPermission`
+  (`commercialPermissionSchema`) and an optional `dedicatedCapacity` (absent =
+  shared). `customer_byok` if and only if `byok_only`; `public_payg` requires
+  `public_resale_approved`, `wholesale_contract` or `open_weight_hosting`. It is
+  the optional `commercial` member of every deployment descriptor on the signed
+  `POST /internal/v1/deployments/query` and `/internal/v1/models/query`. Go:
+  `contract.DeploymentCommercial` (compared field by field by the descriptor
+  test, with `Validate()` for the refinements). The source is
+  `configs/deployment-commercial.json` (docs/inventory.md, "Commercial facts").
+  `availabilityScopeSchema` and `commercialPermissionSchema` are no longer
+  `notApplicable`: Go binds their members.
+- **`grantStepLimitsSchema.sameModelFailover`**: `z.boolean().default(true)`.
+  `false` makes `resolveGrant` authorize ONE deployment (one provider) per
+  admitted line in the step, the best-ranked (cheapest funding tier, then the
+  grant's line order, then the inventory's); no other provider of that line is
+  behind it, so a failure is not retried on one. Later steps are unaffected. Go:
+  `GrantStepLimits.SameModelFailover *bool` (nil = true) and
+  `SameModelFailoverAllowed()`. Rotation among the keys of the chosen
+  deployment's pool (ADR 0001) is not a provider failover and still applies.
+
 ## Contract set 4.3.0: the declared catalogue (ADR 0002, amendment 2026-10-15)
 
 MINOR, `@kaana.ai/contracts` 4.3.0. Additive; everything 4.2.0 parses still parses.

@@ -44,6 +44,11 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // when the previous one has no admissible route left, which the executor
 // decides attempt by attempt and only before any output.
 //
+// A step with `sameModelFailover: false` keeps only the best-ranked deployment
+// of each admitted line (one provider; its key pool still walks free → credit →
+// paid inside that deployment, ADR 0001), so the request never moves to another
+// provider of the same line within the step.
+//
 // Kaana never adds a model line Oxy did not admit and never widens a limit.
 // What it cannot verify from its inventory (zero data retention, training,
 // licences) is the policy Oxy applied when it computed admittedModelLines.
@@ -105,11 +110,21 @@ func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding 
 			}
 			return candidates[a].position < candidates[b].position
 		})
+		// With sameModelFailover false each admitted line is served by ONE
+		// deployment (one provider) in this step: the best-ranked admissible
+		// one, with no other provider of the line behind it.
+		servedInStep := make(map[contract.ModelID]bool)
 		for _, chosen := range candidates {
 			route := chosen.route
 			line := route.ModelReference.ModelID()
 			if pinned, seen := revisionOf[line]; seen && pinned != route.ModelReference {
 				continue
+			}
+			if !step.Limits.SameModelFailoverAllowed() {
+				if servedInStep[line] {
+					continue
+				}
+				servedInStep[line] = true
 			}
 			revisionOf[line] = route.ModelReference
 			authorized := contract.AuthorizedRoute{

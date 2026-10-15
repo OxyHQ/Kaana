@@ -283,6 +283,14 @@ export const grantStepLimitsSchema = z
     prohibitTrainingOnCustomerData: z.boolean(),
     allowedLicenseIds: z.array(z.string().min(1).max(128)).default([]),
     requireCommercialUseRights: z.boolean(),
+    /**
+     * Whether Kaana may fail over, inside this step, between providers (and
+     * keys) serving the SAME admitted line. `false` serves each admitted line
+     * with exactly one provider and one key: the cheapest admissible one, with
+     * no move to another provider of the line within the step. Absent means
+     * `true`. New in contract set 4.4.0.
+     */
+    sameModelFailover: z.boolean().default(true),
   })
   .strict()
   .superRefine((limits, ctx) => {

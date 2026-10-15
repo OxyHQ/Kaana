@@ -164,6 +164,7 @@ const limits = (lines: { modelLine: string; priceVersionId: string }[]) => ({
   prohibitTrainingOnCustomerData: true,
   allowedLicenseIds: [],
   requireCommercialUseRights: true,
+  sameModelFailover: true,
 });
 
 export const commercialGrant = {

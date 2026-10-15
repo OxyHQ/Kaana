@@ -29,9 +29,11 @@ package contract
 // https://kaana.ai/v1 speaks beyond it (the JSON transcription upload and the
 // public response headers and realtime subprotocols); 4.3.0 adds the
 // declared catalogue (identity, licence, data policy and list prices) that
-// GET /internal/v1/models carries to Oxy. Oxy reads it from the
+// GET /internal/v1/models carries to Oxy; 4.4.0 adds the per-deployment
+// `commercial` member of the deployment descriptors and the grant step's
+// `sameModelFailover`. Oxy reads it from the
 // health handshake but compares no version against it.
-const ContractVersion = "4.3.0"
+const ContractVersion = "4.4.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set
