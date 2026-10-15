@@ -2,6 +2,9 @@ package openairealtime
 
 import (
 	"encoding/json"
+	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -87,6 +90,9 @@ type dialect struct {
 	// A provider that does not (xAI bills audio by the minute) is metered
 	// instead (meter.go), and its token counts are never settled.
 	tokenUsage bool
+	// transcription is how the provider transcribes the caller's speech
+	// inside a conversation (config.inputAudioTranscription); nil refuses it.
+	transcription *transcriptionDialect
 	// classifyEvent reads an in-band error event in the provider's vocabulary.
 	classifyEvent func(d *dialect, value wireError, key provider.Key) error
 	// refusalBody reads a refused handshake's body into the shared error shape.
@@ -105,6 +111,87 @@ type vadDialect struct {
 	// maxDurationMs bounds prefix_padding_ms and silence_duration_ms; 0 is
 	// the contract's own bound.
 	maxDurationMs int
+}
+
+// transcriptionDialect is input transcription inside a conversation on one
+// provider's wire.
+type transcriptionDialect struct {
+	// model is the deployment's transcription model. The contract leaves it to
+	// "the deployment's own, declared where the deployment is"; every
+	// conversation model of a slug shares it, so it is declared here, with the
+	// evidence for it, and a change to it is a reviewed change to what the
+	// slug's sessions are billed for.
+	model string
+	// prompt is whether the provider takes free-text context.
+	prompt bool
+	// languageHint is xAI's field name (`language_hint`) for OpenAI's
+	// `language`.
+	languageHint bool
+	// language maps the contract's BCP 47 tag onto the provider's code, or
+	// refuses it with languageRule.
+	language     func(tag string) (string, bool)
+	languageRule string
+	// billed is a provider that bills the transcription model apart from the
+	// session model and reports its usage on each completed transcription
+	// (OpenAI). Otherwise the session's own price includes it (xAI) and it
+	// adds no unit.
+	billed bool
+}
+
+// iso6391 is a two-letter ISO 639-1 language code.
+var iso6391 = regexp.MustCompile(`^[A-Za-z]{2}$`)
+
+// openAITranscription is OpenAI's input transcription inside a Realtime
+// conversation, reviewed 2026-10-15:
+//
+//   - `session.audio.input.transcription {model, language, prompt}`; the model
+//     enum names `gpt-transcribe` beside whisper-1 and the 4o transcribers
+//     (https://developers.openai.com/api/reference/resources/realtime/client-events),
+//     and the transcription guide states that "gpt-transcribe performs input
+//     transcription in a Realtime API session"
+//     (https://developers.openai.com/api/docs/guides/realtime-transcription).
+//   - It is billed "according to the ASR model's pricing rather than the
+//     realtime model's"; `conversation.item.input_audio_transcription.completed`
+//     carries that usage as `{type: "tokens", ...}` or `{type: "duration",
+//     seconds}` (server-events reference).
+//   - `gpt-transcribe` is priced per minute of audio ($0.0045/min,
+//     https://developers.openai.com/api/docs/models/gpt-transcribe) and its
+//     file transcriptions report `duration` usage (docs/openai-audio.md), so it
+//     is declared: its charge is `input_transcription_milliseconds`. A token
+//     usage for it is a charge the contract's unit does not express and ends
+//     the session (transcriptionUnits). UNVERIFIED until the first signed
+//     canary: that the in-session usage is `duration` as it is for files.
+//   - `language` is "ISO-639-1 (e.g. en)"; the contract's tag must be exactly
+//     such a code, lowercased, never a regional tag cut down to one.
+var openAITranscription = &transcriptionDialect{
+	model: "gpt-transcribe", prompt: true, billed: true,
+	language: func(tag string) (string, bool) {
+		if !iso6391.MatchString(tag) {
+			return "", false
+		}
+		return strings.ToLower(tag), true
+	},
+	languageRule: "OpenAI's input transcription names a language by its two-letter ISO 639-1 code (such as es)",
+}
+
+// xAITranscription is xAI's input transcription inside a Voice Agent session,
+// reviewed 2026-10-15 at
+// https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech and
+// https://docs.x.ai/voice-realtime.ws.json: `session.audio.input.transcription`
+// with `language_hint` (a BCP 47 code from its documented list; "for Spanish
+// and Portuguese, you must specify a regional variant"; an unrecognised code
+// is "silently ignored") and the model `grok-transcribe`. No prompt field
+// exists (its `keyterms` are a list of terms, not context). xAI's pricing names
+// two Voice Agent charges — "duration and text events sent without audio"
+// (https://docs.x.ai/developers/models/speech-to-speech) — and no transcription
+// line, so it adds no unit to the session's meter. UNVERIFIED until the first
+// signed canary: that xAI's invoice shows no separate transcription charge.
+var xAITranscription = &transcriptionDialect{
+	model: "grok-transcribe", languageHint: true,
+	language: func(tag string) (string, bool) {
+		return tag, slices.Contains(providerconfig.XAIRealtimeLanguages, tag)
+	},
+	languageRule: "xAI's input transcription takes one of its documented language codes (" + strings.Join(providerconfig.XAIRealtimeLanguages, ", ") + "); Spanish and Portuguese need a region",
 }
 
 // contractPartType maps a provider's content part type to the contract's. xAI
@@ -137,7 +224,7 @@ var openAIDialect = &dialect{
 	maxOutputTokens: 4096, toolChoice: true,
 	outputTextPart: "output_text", outputAudioPart: "output_audio",
 	vad:        vadDialect{responseFields: true, maxThreshold: 1},
-	tokenUsage: true, classifyEvent: classifyOpenAIEvent, refusalBody: openAIRefusalBody,
+	tokenUsage: true, transcription: openAITranscription, classifyEvent: classifyOpenAIEvent, refusalBody: openAIRefusalBody,
 }
 
 // XAISlug is the provider name xAI's Voice Agent sessions are served under.
@@ -173,5 +260,5 @@ var xAIDialect = &dialect{
 		// Named beside output_audio.delta for the JSON transport.
 		"response.audio.delta": "response.output_audio.delta",
 	},
-	classifyEvent: classifyXAIEvent, refusalBody: xAIRefusalBody,
+	transcription: xAITranscription, classifyEvent: classifyXAIEvent, refusalBody: xAIRefusalBody,
 }

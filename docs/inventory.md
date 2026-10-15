@@ -156,6 +156,7 @@ hand and nothing is defaulted — an absent field means the provider did not say
 | `reasoningEfforts` | `"reasoning"`/`"reasoning_effort"` in `supported_parameters` → `["low","medium","high"]`, else `[]`; Anthropic: `capabilities.effort`, the contract efforts whose `supported` is true, `[]` when `effort.supported` is false, absent when a level is unreadable; for `xai`, the adapter's own per-model set (`providerconfig.ReasoningEfforts`, `adapters.md`), which is what `Translate` enforces — read from the adapter, not the list, as Anthropic's `acceptedParameters` is |
 | `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below); OpenRouter's per-endpoint `supports_tool_choice` for the tool-choice values; Anthropic: the Messages adapter's own per-model statement (`anthropic.AcceptedParameters`), less `reasoning.effort` where `capabilities.effort` is unsupported |
 | `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
+| `realtime`, `audio` | never a model list (no provider's says anything about sessions): for a session model under `openai-realtime` or `xai-realtime`, the adapter's reviewed statement (`providerconfig.RealtimeCapabilities`) — transports, session kinds, `inputAudioTranscription`, the realtime encodings in and out, and the provider's documented voices (gender only where reviewed) and languages (`[]` where none is documented). Sorted, each value once; `inventory.Parse` holds them to the contract's bounds and BCP 47 grammar (`realtime.md`, "What the catalogue says about a realtime model") |
 
 A PRESENT `supported_parameters` list is a complete statement, so a parameter it
 omits is reported unsupported; an absent list leaves `supportsTools`,
@@ -237,8 +238,10 @@ provider said nothing ABSTAINS; one that reported can only narrow:
 `displayName` is the first in deployment-id order, `createdAt` the earliest,
 `contextTokens`/`maxOutputTokens` the smallest, modalities and
 `reasoningEfforts` and `acceptedParameters` the intersection, `supportsTools`
-true only if every reporter says so, and `listPrices` one entry per pricing
-deployment, never combined.
+true only if every reporter says so, `listPrices` one entry per pricing
+deployment, never combined, and `realtime`/`audio` the intersection of the
+routes' statements (transcription only if every route transcribes; a voice
+only if every route offers it, its gender only if every route agrees).
 `reasoningEfforts: []` means a provider reported the model takes no effort;
 absent means nobody said. An entry:
 

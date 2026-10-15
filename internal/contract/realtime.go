@@ -69,6 +69,9 @@ const RealtimeWebSocket RealtimeSessionTransport = "websocket"
 
 var realtimeSessionTransportValues = []RealtimeSessionTransport{RealtimeWebSocket}
 
+// Valid reports whether the transport is one the contract declares.
+func (t RealtimeSessionTransport) Valid() bool { return isMember(t, realtimeSessionTransportValues) }
+
 // RealtimeAudioFormat is a session's audio encoding, named by what it is
 // because a realtime stream has no container to say so.
 type RealtimeAudioFormat string
@@ -80,6 +83,9 @@ const (
 )
 
 var realtimeAudioFormatValues = []RealtimeAudioFormat{RealtimePCM16, RealtimeULaw, RealtimeALaw}
+
+// Valid reports whether the encoding is one the contract declares.
+func (f RealtimeAudioFormat) Valid() bool { return isMember(f, realtimeAudioFormatValues) }
 
 // RealtimeOutputModality is what a session's responses produce.
 type RealtimeOutputModality string

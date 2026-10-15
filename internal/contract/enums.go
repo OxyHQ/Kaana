@@ -220,6 +220,14 @@ const (
 	// with a per-audio reading of the same span. Kaana measures it itself,
 	// from the accepted upstream handshake to the upstream's close.
 	UnitSessionMilliseconds UsageUnit = "session_milliseconds"
+	// UnitInputTranscriptionMilliseconds is the milliseconds of a realtime
+	// session's input audio the deployment's own transcription model
+	// transcribed, where the provider bills that model apart from the session
+	// model (contract set 4.1.0): a second model's reading, so it sits beside
+	// the session model's audio units without counting the same charge twice.
+	// Provider-reported; never reported by a provider whose session price
+	// includes the transcription.
+	UnitInputTranscriptionMilliseconds UsageUnit = "input_transcription_milliseconds"
 )
 
 var usageUnitValues = []UsageUnit{
@@ -227,7 +235,7 @@ var usageUnitValues = []UsageUnit{
 	UnitRequests, UnitImages, UnitAudioInputMilliseconds, UnitAudioOutputMilliseconds,
 	UnitVideoMilliseconds, UnitCharacters, UnitEmbeddings,
 	UnitAudioInputTokens, UnitCachedAudioInputTokens, UnitAudioOutputTokens,
-	UnitSessionMilliseconds,
+	UnitSessionMilliseconds, UnitInputTranscriptionMilliseconds,
 }
 
 // Valid reports whether the unit is one the contract declares. A unit that is

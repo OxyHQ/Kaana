@@ -201,6 +201,8 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		models = append(models, voices...)
 	}
 
+	applyStatedRealtime(target, models)
+
 	// Sorted so a snapshot's content — and therefore its id — does not change
 	// because a provider reordered its list.
 	sort.Slice(models, func(i, j int) bool { return models[i].UpstreamModelID < models[j].UpstreamModelID })

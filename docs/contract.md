@@ -4,6 +4,39 @@
 authority; `internal/contract` restates it in Go and is answerable to it. The
 direction is **Zod → descriptor → Go** (ADR 0002, decision 10).
 
+## Contract set 4.1.0: input transcription inside a realtime session (Alia ADR 0017, phase 1)
+
+MINOR, `@kaana.ai/contracts` 4.1.0. Everything 4.0.0 parses still parses; a
+consumer on 4.0.0 refuses what is new.
+
+- **`input_transcription_milliseconds`** joins the closed unit set: the
+  milliseconds of a realtime session's input audio that the deployment's own
+  transcription model transcribed, where the provider bills that model apart
+  from the session model (OpenAI). A second model's reading, so it sits beside
+  the session model's `audio_input_tokens` without breaking the partition
+  rule; a provider whose session price includes the transcription (xAI) never
+  reports it. Provider-reported. `money.ts` states the rule and why the
+  alternatives (`audio_input_milliseconds`, or folding it into the tokens)
+  would double-charge or misprice.
+- **`capabilities.realtime`** gains `inputAudioTranscription` (the flag that a
+  model transcribes its input inside a conversation) and `audioFormats`
+  (`{input, output}` realtime encodings). Both optional: absent is undeclared.
+  A realtime model also publishes `audio` (voices with `gender` where reviewed,
+  languages) with empty file formats.
+- **`checkRealtimeSessionOpen`** is the realtime counterpart of
+  `checkSpeechRequest`: the issues an open has against a model's catalogue
+  entry, refused before a grant.
+- `realtimeAudioFormatSchema` moved from `realtime.ts` to `audioFormats.ts`
+  (same members, same export name from the package root), so the catalogue
+  can name it.
+- The grant fact `audioInputMilliseconds` documents how Kaana measures an
+  upload (`internal/audioprobe`, `docs/openai-audio.md`, "Measuring an
+  upload's duration").
+
+The signed-envelope lane (`/internal/v1/realtime`) keeps refusing input
+transcription: its consumer settles with `@oxy.so/contracts`, which has no
+unit for it (`docs/realtime.md`).
+
 ## Contract set 4.0.0: `@kaana.ai/contracts` (ADR 0002, phase 1)
 
 The inference contract moved here from `@oxy.so/contracts` 4.12.0 (set 3.8.0)

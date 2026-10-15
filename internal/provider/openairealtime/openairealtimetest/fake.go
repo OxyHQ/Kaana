@@ -298,6 +298,23 @@ func (c *Conn) waitForClose(ctx context.Context) {
 	}
 }
 
+// TranscriptionDuration is the usage OpenAI documents on
+// `conversation.item.input_audio_transcription.completed` for an ASR model
+// billed by audio duration: `{"type": "duration", "seconds": <n>}`.
+func TranscriptionDuration(seconds float64) Event {
+	return Event{"type": "duration", "seconds": seconds}
+}
+
+// TranscriptionTokens is the same event's usage for an ASR model billed by
+// tokens: `{"type": "tokens", input_tokens, output_tokens, total_tokens,
+// input_token_details {audio_tokens, text_tokens}}`.
+func TranscriptionTokens(audio, text, output int) Event {
+	return Event{
+		"type": "tokens", "input_tokens": audio + text, "output_tokens": output, "total_tokens": audio + text + output,
+		"input_token_details": Event{"audio_tokens": audio, "text_tokens": text},
+	}
+}
+
 // Usage is a response.done usage block in OpenAI's nesting.
 func Usage(text, audio, cachedText, cachedAudio, outputText, outputAudio int) Event {
 	return Event{

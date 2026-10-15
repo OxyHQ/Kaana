@@ -2,6 +2,7 @@ package publisher
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -382,6 +383,63 @@ func applyStatedReasoningEfforts(slug contract.ProviderSlug, models []Discovered
 		}
 		model.Observed.ReasoningEfforts = &efforts
 	}
+}
+
+// applyStatedRealtime publishes a realtime session adapter's reviewed
+// statement (providerconfig.RealtimeCapabilities) as each session model's
+// `realtime` and `audio` observation: the transports and session kinds it
+// opens, whether it transcribes the caller's input, the encodings it
+// translates, and the provider's documented voices and languages. Neither
+// realtime provider's model list says anything about sessions, and the
+// adapter enforces exactly this statement, so it is what the catalogue
+// publishes (Alia ADR 0017 §5: "publish capabilities.realtime from its own
+// inventory"). A model of another family under the slug is left alone; the
+// snapshot builder drops it.
+func applyStatedRealtime(target Provider, models []DiscoveredModel) {
+	protocol := target.Protocol
+	if protocol == "" {
+		protocol = providerconfig.Known[target.Slug].Protocol
+	}
+	statement, stated := providerconfig.RealtimeCapabilities(target.Slug, protocol)
+	if !stated {
+		return
+	}
+	for index := range models {
+		model := &models[index]
+		family, classified, _ := providerconfig.ClassifyModel(target.Slug, model.UpstreamModelID)
+		if classified && !slices.Contains(statement.SessionKinds, family.Session) {
+			continue
+		}
+		if model.Observed == nil {
+			model.Observed = &inventory.Observed{}
+		}
+		model.Observed.Realtime, model.Observed.Audio = realtimeObservation(statement)
+	}
+}
+
+// realtimeObservation renders a statement in the inventory's sorted form.
+// Every voice speaks every language the statement documents (both providers
+// document voice and language as independent).
+func realtimeObservation(statement providerconfig.RealtimeStatement) (*inventory.RealtimeObservation, *inventory.AudioObservation) {
+	languages := slices.Sorted(slices.Values(statement.Languages))
+	if languages == nil {
+		languages = []string{}
+	}
+	realtime := &inventory.RealtimeObservation{
+		Transports:              slices.Sorted(slices.Values(statement.Transports)),
+		SessionKinds:            slices.Sorted(slices.Values(statement.SessionKinds)),
+		InputAudioTranscription: statement.InputAudioTranscription,
+		AudioFormats: inventory.RealtimeAudioFormats{
+			Input:  slices.Sorted(slices.Values(statement.InputAudioFormats)),
+			Output: append([]contract.RealtimeAudioFormat{}, slices.Sorted(slices.Values(statement.OutputAudioFormats))...),
+		},
+	}
+	audio := &inventory.AudioObservation{Languages: languages, Voices: make([]inventory.VoiceObservation, 0, len(statement.Voices))}
+	for _, voice := range statement.Voices {
+		audio.Voices = append(audio.Voices, inventory.VoiceObservation{ID: voice.ID, Name: voice.Name, Gender: voice.Gender, Languages: slices.Clone(languages)})
+	}
+	sort.Slice(audio.Voices, func(i, j int) bool { return audio.Voices[i].ID < audio.Voices[j].ID })
+	return realtime, audio
 }
 
 // applyStatedAcceptedParameters publishes the Anthropic Messages adapter's own

@@ -75,6 +75,45 @@ A response carrying neither shape, or an inconsistent one, is refused rather
 than settled on a guess. Units are recorded before the transcript is delivered,
 so a disconnected customer does not erase audio OpenAI already billed.
 
+### Measuring an upload's duration (`audioInputMilliseconds`)
+
+On `kaana.ai/v1` a transcription is a grant: Kaana asks Oxy for one with the
+upload's duration as a content-free fact (`grantRequestFactsSchema.audioInputMilliseconds`,
+contract set 4.1.0), and Oxy sizes the hold from it (Kaana ADR 0002 decision 3;
+Alia ADR 0017 §7, where this measurement is phase-1 work). Providers bill a
+transcription by duration, and the byte count does not tell it — a 1 MiB file
+is two seconds of WAV or an hour of low-rate Opus — so the duration is READ,
+by `internal/audioprobe`, from the timing the file's own container states,
+before the grant is asked for:
+
+| Media type | What is read |
+|---|---|
+| `audio/wav` | the data chunk over the fmt chunk's block alignment (PCM, float, G.711, extensible); a compressed WAV's `fact` sample count; a placeholder data size is measured by the bytes present |
+| `audio/flac` | STREAMINFO's total samples over its rate |
+| `audio/mpeg` | every MPEG audio frame, counted; a Xing/Info/VBRI frame is metadata and not counted, and its frame count is not trusted |
+| `audio/aac` | every ADTS frame, counted (1024 samples a raw block) |
+| `audio/ogg` | the last granule position of the one logical stream: Opus less its pre-skip at 48 kHz, Vorbis and FLAC at their rate |
+| `audio/webm` | the audio track's blocks, earliest timestamp to latest timestamp plus duration (BlockDuration, DefaultDuration, or an Opus packet's TOC) — so a browser's MediaRecorder file, which has no Duration element, is measured |
+| `audio/mp4` | the sound track's sample table (`stts`) and every fragment's track runs (`trun`) over the track's timescale — so Safari's fragmented MediaRecorder file, whose header durations are zero, is measured |
+| `audio/pcm` | refused: raw samples carry no rate and the media type names none |
+
+The result is milliseconds rounded up once (a 12.5 s clip is `12500`). Header
+durations (`mvhd`, Matroska `Duration`, Xing frame counts) are never used where
+the samples themselves can be counted. An upload whose duration cannot be read
+— raw PCM, a damaged or truncated file, a multiplexed Ogg, a second audio
+track, a type that does not match its bytes, a claim past a day — is refused
+`invalid_request` naming `file`, before any grant or provider call; nothing is
+estimated from bytes. The probe is a measurement of the file's own statement
+of its timing, not a decode: settlement still charges the provider's own
+reading (`audio_input_milliseconds` from OpenAI's `duration` usage above).
+
+No per-route maximum duration is published in the catalogue: Alia ADR 0017 §7
+chose the measured fact over a route ceiling, and the contract's 20 MiB upload
+bound (`MAX_TRANSCRIPTION_FILE_BYTES`) is the size limit. The public handler
+that calls the probe is ADR 0002 phase 3 (`internal/publicapi`); the fixtures
+in `internal/audioprobe/testdata` are each container's ffmpeg output, checked
+against ffprobe.
+
 ## Audio chat
 
 ### Request mapping
