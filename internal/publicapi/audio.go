@@ -20,7 +20,10 @@ type AudioCapabilities struct {
 }
 
 // SpeedRange is the speed a model accepts, inclusive.
-type SpeedRange struct{ Min, Max float64 }
+type SpeedRange struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
+}
 
 // AudioCatalogue answers a model's published audio capabilities. A model the
 // catalogue does not describe is checked only against the contract's bounds
