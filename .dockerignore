@@ -42,6 +42,11 @@
 # GET /v1/models and relays to Oxy; configs/inventory.example.json stays out.
 !configs/public-catalogue.json
 
+# The commercial facts of every deployment (availability scope, commercial
+# permission; docs/inventory.md), by exact name. Without it the image cannot
+# start: internal/commercial.Load refuses a configured path that is missing.
+!configs/deployment-commercial.json
+
 # Test files and the fixtures they write are not compiled into the binary, and
 # `go build` would not read them, but they are context bytes uploaded to the
 # builder on every build.
