@@ -27,9 +27,11 @@ package contract
 // `@kaana.ai/contracts`; 4.1.0 adds input transcription inside a realtime
 // session (its usage unit and catalogue flag); 4.2.0 adds what
 // https://kaana.ai/v1 speaks beyond it (the JSON transcription upload and the
-// public response headers and realtime subprotocols). Oxy reads it from the
+// public response headers and realtime subprotocols); 4.3.0 adds the
+// declared catalogue (identity, licence, data policy and list prices) that
+// GET /internal/v1/models carries to Oxy. Oxy reads it from the
 // health handshake but compares no version against it.
-const ContractVersion = "4.2.0"
+const ContractVersion = "4.3.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

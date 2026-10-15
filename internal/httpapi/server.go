@@ -91,9 +91,19 @@ type Server struct {
 	registry            *provider.Registry
 	inventory           *inventory.Store
 	rotation            *rotation.Registry
+	declaredCatalogue   json.RawMessage
 	realtime            http.Handler
 	logger              *slog.Logger
 	maxEnvelopeBytes    int64
+}
+
+// declaredOrEmpty is the empty declared catalogue when none was wired, so the
+// response member is always the shape the contract names and never null.
+func declaredOrEmpty(document json.RawMessage) json.RawMessage {
+	if len(document) == 0 {
+		return json.RawMessage(`{"schemaVersion":1,"models":[]}`)
+	}
+	return document
 }
 
 // CredentialValidator is the separately authenticated bootstrap executor.
@@ -121,6 +131,11 @@ type Config struct {
 	Registry            *provider.Registry
 	Inventory           *inventory.Store
 	Rotation            *rotation.Registry
+	// DeclaredCatalogue is the whole of configs/public-catalogue.json
+	// (publicapi.PublicCatalogue.Document), carried on GET /internal/v1/models
+	// so Oxy rates grants from Kaana's list prices. Empty carries an empty
+	// catalogue.
+	DeclaredCatalogue json.RawMessage
 	// Realtime serves GET /internal/v1/realtime (internal/realtime). It
 	// authenticates its own first frame, under the inference signature.
 	Realtime http.Handler
@@ -171,6 +186,7 @@ func New(config Config) (*Server, error) {
 		registry:            config.Registry,
 		inventory:           config.Inventory,
 		rotation:            config.Rotation,
+		declaredCatalogue:   declaredOrEmpty(config.DeclaredCatalogue),
 		realtime:            config.Realtime,
 		logger:              logger,
 		maxEnvelopeBytes:    limit,
@@ -935,6 +951,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		ServesUnpinned:       current.ServesUnpinned(now),
 		Models:               current.Catalogue(),
 		PinnedOnlyReferences: current.PinnedOnlyReferences(),
+		DeclaredCatalogue:    s.declaredCatalogue,
 	})
 }
 
@@ -954,6 +971,10 @@ type modelsResponse struct {
 	// catalogue which omits a routable model says so rather than looking
 	// complete.
 	PinnedOnlyReferences []contract.ModelReference `json:"pinnedOnlyReferences"`
+	// DeclaredCatalogue is declaredCatalogueSchema: Kaana's declared catalogue
+	// with its list prices (ADR 0002, amendment 2026-10-15). The inventory
+	// above says what is served; this says what each model is and costs.
+	DeclaredCatalogue json.RawMessage `json:"declaredCatalogue"`
 }
 
 // handleLive is the only unauthenticated route. It carries the contract version

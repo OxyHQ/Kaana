@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '4.2.0';
+export const INFERENCE_CONTRACT_VERSION = '4.3.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -124,6 +124,12 @@ export const INFERENCE_CONTRACT_VERSION = '4.2.0';
  * Contract set 4.2.0 (Kaana ADR 0002 phase 3) is additive: the JSON form of a
  * transcription upload, the transcription duration ceiling, and the response
  * headers and realtime subprotocols `https://kaana.ai/v1` speaks.
+ *
+ * Contract set 4.3.0 (Kaana ADR 0002, amendment 2026-10-15) is additive: the
+ * internal `declaredModelSchema` and `declaredCatalogueSchema`, the catalogue
+ * Kaana declares (identity, licence, data policy, capabilities and the list
+ * price per unit), carried to Oxy as `declaredCatalogue` on the signed
+ * `GET /internal/v1/models`. Nothing in 4.2.0 changes.
  */
 
 /** The public API's one origin and version. */

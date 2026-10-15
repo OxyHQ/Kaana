@@ -17,15 +17,19 @@ import (
 
 // PublicCatalogue is the part of GET /v1/models Kaana does not measure: who
 // published a model, its licence, provenance, data policy, deprecation, power
-// class and the price list Oxy bills it at. ADR 0002 gives catalogue identity
-// and pricing to Oxy; this is that half, DECLARED in a reviewed file exported
-// from Oxy's catalogue (as configs/model-attribution.json is), never derived.
-// Kaana adds what it serves: the revisions, the realtime capabilities and the
-// voices. A line the inventory serves but this file does not declare is not
+// class and the list price per unit. Kaana is the SOLE source of truth of this
+// catalogue (ADR 0002, amendment 2026-10-15): it is DECLARED in the reviewed
+// file configs/public-catalogue.json, as configs/model-attribution.json is,
+// never derived and never read from Oxy. Oxy reads it back, on the signed
+// GET /internal/v1/models (Document), to rate a grant. Kaana adds what it
+// serves: the revisions, the realtime capabilities and the voices. A line the inventory serves but this file does not declare is not
 // listed, because a model entry without its licence and data policy would
 // claim facts nobody stated.
 type PublicCatalogue struct {
 	models map[contract.ModelID]declaredModel
+	// document is the whole declared catalogue as the internal surface carries
+	// it: every model, its audience included, in the file's order.
+	document json.RawMessage
 }
 
 type declaredModel struct {
@@ -40,6 +44,9 @@ type declaredModel struct {
 // audio are Kaana's own reviewed statement (inventory) and replace any
 // declared ones; a speech model's audio limits are declared here.
 type catalogueFile struct {
+	// Comment is the file's own provenance note (a string or a list of them);
+	// it is never served.
+	Comment       json.RawMessage              `json:"$comment"`
 	SchemaVersion int                          `json:"schemaVersion"`
 	Models        []map[string]json.RawMessage `json:"models"`
 }
@@ -51,14 +58,19 @@ var declaredRequired = []string{"modelId", "publisher", "displayName", "capabili
 // Fields Kaana fills and the file must not.
 var servedFields = []string{"schemaVersion", "currentRevision", "availableRevisions"}
 
+// Fields that describe a ROUTE, not a model: who serves it, where it may be
+// sold and on what commercial basis. They come from the signed inventory and
+// Oxy's grant, and a declared model that carried them would publish an
+// operator on the customer surface.
+var routeFields = []string{"servingProviders", "availabilityScope", "commercialPermission"}
+
 var powerClasses = []string{"instant", "medium", "high", "pro", "ultra"}
 
 // LoadPublicCatalogue reads the declared catalogue. An empty path is an empty
 // catalogue: /v1/models then lists nothing rather than invent an entry.
 func LoadPublicCatalogue(path string) (*PublicCatalogue, error) {
-	catalogue := &PublicCatalogue{models: make(map[contract.ModelID]declaredModel)}
 	if strings.TrimSpace(path) == "" {
-		return catalogue, nil
+		return ParsePublicCatalogue([]byte(`{"schemaVersion":1,"models":[]}`))
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -79,10 +91,16 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 		return nil, errors.New("publicapi: the public catalogue declares no schemaVersion 1")
 	}
 	catalogue := &PublicCatalogue{models: make(map[contract.ModelID]declaredModel, len(file.Models))}
+	declared := make([]declaredEntry, 0, len(file.Models))
 	for index, fields := range file.Models {
 		for _, required := range declaredRequired {
 			if _, present := fields[required]; !present {
 				return nil, fmt.Errorf("publicapi: public catalogue models[%d] does not declare %s", index, required)
+			}
+		}
+		for _, route := range routeFields {
+			if _, present := fields[route]; present {
+				return nil, fmt.Errorf("publicapi: public catalogue models[%d] declares %s, which describes a route and not the model", index, route)
 			}
 		}
 		for _, served := range servedFields {
@@ -111,8 +129,44 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 			}
 		}
 		catalogue.models[line] = model
+		declared = append(declared, declaredEntry{line: line, audience: model.audience, fields: fields})
 	}
+	document := make([]map[string]json.RawMessage, 0, len(declared))
+	for _, entry := range declared {
+		whole := make(map[string]json.RawMessage, len(entry.fields)+1)
+		for name, value := range entry.fields {
+			whole[name] = value
+		}
+		audience, err := json.Marshal(entry.audience)
+		if err != nil {
+			return nil, fmt.Errorf("publicapi: public catalogue %s: %w", entry.line, err)
+		}
+		whole["audience"] = audience
+		document = append(document, whole)
+	}
+	encoded, err := json.Marshal(struct {
+		SchemaVersion int                          `json:"schemaVersion"`
+		Models        []map[string]json.RawMessage `json:"models"`
+	}{SchemaVersion: 1, Models: document})
+	if err != nil {
+		return nil, fmt.Errorf("publicapi: encoding the declared catalogue: %w", err)
+	}
+	catalogue.document = encoded
 	return catalogue, nil
+}
+
+type declaredEntry struct {
+	line     contract.ModelID
+	audience contract.CatalogueAudience
+	fields   map[string]json.RawMessage
+}
+
+// Document is the whole declared catalogue, prices included, as the signed
+// GET /internal/v1/models carries it to Oxy (contract set 4.3.0,
+// declaredCatalogueSchema). It lists every declared model, served now or not:
+// Oxy rates a grant from it and the inventory decides what is served.
+func (c *PublicCatalogue) Document() json.RawMessage {
+	return c.document
 }
 
 // visible reports whether an audience may see a declared model.

@@ -80,6 +80,56 @@ function readFixtures(producer, kind) {
   }));
 }
 
+/**
+ * configs/public-catalogue.json is the catalogue Kaana declares and relays to
+ * Oxy (ADR 0002, amendment 2026-10-15). It is parsed here by the contract's own
+ * declaredCatalogueSchema, with the floor and the rejection controls every
+ * check in this file carries: a file that parsed as empty, or a schema that
+ * accepted a route field, would otherwise pass silently.
+ */
+function validateDeclaredCatalogue() {
+  const problems = [];
+  const file = JSON.parse(
+    readFileSync(join(REPOSITORY_ROOT, 'configs', 'public-catalogue.json'), 'utf8'),
+  );
+  const { $comment, ...declared } = file;
+  if ($comment === undefined)
+    problems.push('configs/public-catalogue.json carries no $comment provenance note');
+  const schema = schemaFor('declaredCatalogueSchema');
+  const result = schema.safeParse(declared);
+  if (!result.success) {
+    problems.push(
+      'REJECTED configs/public-catalogue.json\n' +
+        result.error.issues
+          .slice(0, 20)
+          .map((issue) => `      ${issue.path.join('.')}: ${issue.message}`)
+          .join('\n'),
+    );
+  }
+  if (declared.models.length < 255) {
+    problems.push(
+      `configs/public-catalogue.json declares ${declared.models.length} models; the floor is 255`,
+    );
+  }
+  for (const field of [
+    'servingProviders',
+    'availabilityScope',
+    'commercialPermission',
+    'currentRevision',
+  ]) {
+    const control = { ...declared, models: [{ ...declared.models[0], [field]: [] }] };
+    if (schema.safeParse(control).success) {
+      problems.push(
+        `ACCEPTED a declared model carrying ${field}; declaredCatalogueSchema is not strict`,
+      );
+    }
+  }
+  process.stdout.write(
+    `validated configs/public-catalogue.json: ${declared.models.length} declared models\n`,
+  );
+  return problems;
+}
+
 function schemaFor(name) {
   const schema = contracts[name];
   if (schema === undefined || typeof schema.safeParse !== 'function') {
@@ -126,6 +176,8 @@ try {
       );
     }
   }
+
+  failures.push(...validateDeclaredCatalogue());
 
   process.stdout.write(
     `validated ${valid.length} produced shapes and ${invalid.length} rejection controls ` +

@@ -465,6 +465,8 @@ var notApplicable = map[string]string{
 	"modelCapabilitiesSchema":               "catalogue: Oxy owns capability advertisement",
 	"modelRealtimeCapabilitiesSchema":       "catalogue: served as GET /v1/models in phase 3; until then the same facts are inventory.RealtimeObservation on the internal catalogue",
 	"modelCatalogueEntrySchema":             "catalogue: the assembled customer view is served by Oxy",
+	"declaredModelSchema":                   "catalogue: Kaana declares it in configs/public-catalogue.json and carries it as raw JSON on GET /internal/v1/models; tools/contract validate.mjs parses the file with this schema",
+	"declaredCatalogueSchema":               "catalogue: the same file, whole; validated by tools/contract validate.mjs, relayed byte-for-byte by internal/httpapi",
 	"modelDeploymentSchema":                 "catalogue: carries Oxy commercial fields and no upstream model id; Kaana's own inventory is internal/inventory",
 	"modelDeprecationSchema":                "catalogue: deprecation is an Oxy product decision",
 	"modelEvaluationResultSchema":           "catalogue: evaluation summaries are published by Oxy",
@@ -524,7 +526,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 56
+const expectedNotApplicableCount = 58
 
 type enumBinding struct {
 	goType  reflect.Type
