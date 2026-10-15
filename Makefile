@@ -18,15 +18,16 @@ BUN_VERSION      := 1.4.3
 
 CONTRACT_DIR := tools/contract
 PACKAGE_DIR  := packages/contracts
+SDK_DIR      := packages/sdk
 DESCRIPTOR   := internal/contract/descriptor.json
 OPENAPI      := $(PACKAGE_DIR)/openapi.json
 
 .DEFAULT_GOAL := check
 
-.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate cloudflare tools help
+.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate sdk-package cloudflare tools help
 
 ## check: every gate CI runs, in CI's order. The one command to run before a PR.
-check: fmt build vet lint test contract cloudflare
+check: fmt build vet lint test contract sdk-package cloudflare
 	@echo "all gates passed"
 
 ## ci: alias for check, for anyone reaching for the conventional name.
@@ -108,6 +109,15 @@ contract-lint:
 contract-package:
 	bun install --frozen-lockfile
 	cd $(PACKAGE_DIR) && bun run typecheck && bun run test && bun run build
+
+## sdk-package: @kaana.ai/sdk typechecks, passes its suites against the fake server and builds.
+#
+# The SDK imports @kaana.ai/contracts through the workspace, whose entry point
+# is its built dist, so the contracts package is built first.
+sdk-package:
+	bun install --frozen-lockfile
+	cd $(PACKAGE_DIR) && bun run build
+	cd $(SDK_DIR) && bun run typecheck && bun run test && bun run build
 
 ## contract-generate: regenerate the descriptor and openapi.json and fail on any diff.
 #

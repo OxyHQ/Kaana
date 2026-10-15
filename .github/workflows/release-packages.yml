@@ -1,8 +1,13 @@
 name: Release packages
 
-# Publishes a workspace package (`@kaana.ai/contracts`; `@kaana.ai/sdk` joins
-# in ADR 0002 phase 3) to npm from ONE exact protected `main` commit, with npm
-# trusted publishing (OIDC) and provenance. Kaana ADR 0002, decision 11.
+# Publishes a workspace package (`@kaana.ai/contracts` or `@kaana.ai/sdk`) to
+# npm from ONE exact protected `main` commit, with npm trusted publishing (OIDC)
+# and provenance. Kaana ADR 0002, decision 11.
+#
+# Order: the SDK depends on the exact `@kaana.ai/contracts` version of its
+# commit (`bun pm pack` rewrites `workspace:*` to it), so that contracts version
+# is published first; the build job refuses an SDK whose contracts version is
+# not on the registry yet.
 #
 # Two jobs, the pattern Oxy's package releases use:
 #
@@ -35,6 +40,7 @@ on:
         required: true
         options:
           - contracts
+          - sdk
       expected_source_sha:
         description: Exact protected main commit to build and publish
         required: true
@@ -94,13 +100,24 @@ jobs:
 
       - name: the package's own gates
         # The same commands as `make contract-lint contract-package
-        # contract-generate`: a package is never released from a tree whose
-        # generated descriptor or openapi.json is stale.
+        # sdk-package contract-generate`: a package is never released from a
+        # tree whose generated descriptor or openapi.json is stale. The
+        # contracts are built first because the SDK imports their dist.
         run: |
           bunx biome ci .
+          (cd packages/contracts && bun run build)
           (cd "$PACKAGE_DIR" && bun run typecheck && bun run test)
           (cd tools/contract && bun run generate)
           git diff --exit-code -- internal/contract/descriptor.json packages/contracts/openapi.json
+
+      - name: the SDK's contracts version is already published
+        if: inputs.package == 'sdk'
+        run: |
+          version="$(node -p "require('./packages/contracts/package.json').version")"
+          if ! npm view "@kaana.ai/contracts@$version" version --userconfig /dev/null >/dev/null 2>&1; then
+            echo "@kaana.ai/sdk depends on @kaana.ai/contracts@$version, which is not on the registry; release contracts first"
+            exit 1
+          fi
 
       - name: pack
         run: |
@@ -158,6 +175,7 @@ jobs:
       - name: rebuild from the exact source
         run: |
           bun install --frozen-lockfile
+          (cd packages/contracts && bun run build)
           mkdir -p rebuilt
           (cd "$PACKAGE_DIR" && bun run build && bun pm pack --destination ../../rebuilt)
 
