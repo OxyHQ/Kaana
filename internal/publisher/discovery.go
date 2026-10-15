@@ -647,10 +647,12 @@ func discoveryEndpoint(target Provider, page int) (string, error) {
 	switch target.Discovery {
 	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryXAIRealtimeSessions, providerconfig.DiscoveryMistralModels:
 		if target.Slug == "openrouter" {
-			// The upstream default is text-only. Include decisions in the same
-			// authenticated list; attribution and scoped permits still decide
-			// what can be published, independently of discovery visibility.
-			return base + "/models?output_modalities=text,decisions", nil
+			// The upstream default is text-only. Include decisions and
+			// embeddings in the same authenticated list (both are documented
+			// values of `output_modalities`); attribution, the capability table
+			// and scoped permits still decide what can be published,
+			// independently of discovery visibility.
+			return base + "/models?output_modalities=text,decisions,embeddings", nil
 		}
 		return base + "/models", nil
 	case providerconfig.DiscoveryNebiusModels:

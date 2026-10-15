@@ -209,8 +209,18 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the speech deployment requires audio_speech"}
 	}
 	if request.Modality == contract.ModalityEmbedding {
-		if a.config.Provider != "siliconflow" {
+		// Whether this slug has an embeddings endpoint is the capability
+		// table's answer (providerconfig.ExecutableAPIFormats, which APIFormats
+		// returns), never a slug named here: the executor asks the same table
+		// before Translate, and the publisher attaches a model by it.
+		if !provider.Executes(a, contract.APIFormatEmbeddings) {
 			return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "this deployment does not expose an embeddings endpoint"}
+		}
+		// Where the model id names its family, an embedding request to a model
+		// of another family is refused before anything is sent; elsewhere
+		// attribution alone decides, as it does for publication.
+		if family, classified, _ := providerconfig.ClassifyModel(a.config.Provider, route.UpstreamModelID); classified && family.Format != contract.APIFormatEmbeddings {
+			return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "this deployment's model does not produce embeddings"}
 		}
 		if request.Stream {
 			return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "stream", Detail: "embeddings are non-streaming"}
@@ -224,7 +234,16 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		default:
 			return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "input.format", Detail: "embeddings require text or text_batch input"}
 		}
-		body, err := json.Marshal(embeddingRequest{Model: route.UpstreamModelID, Input: input, Dimensions: 1024})
+		embedding := embeddingRequest{Model: route.UpstreamModelID, Input: input, Dimensions: provider.EmbeddingDimension}
+		if a.config.Provider == "openrouter" {
+			// The same non-negotiable policy every OpenRouter request carries
+			// (the chat body below): zero data retention and no data
+			// collection, so the request is served only from an endpoint in
+			// OpenRouter's zero-retention list, which the publisher already
+			// requires of every OpenRouter deployment (internal/publisher/zdr.go).
+			embedding.Provider = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true}
+		}
+		body, err := json.Marshal(embedding)
 		if err != nil {
 			return nil, fmt.Errorf("openaicompat: encoding embedding request: %w", err)
 		}

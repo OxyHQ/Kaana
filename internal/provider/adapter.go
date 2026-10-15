@@ -185,6 +185,13 @@ type Outcome struct {
 	ProviderReportedCost *providercost.Money
 }
 
+// EmbeddingDimension is the one output dimension Kaana requests from every
+// embeddings endpoint and accepts back: the public API refuses any other
+// `dimensions`, each adapter asks the upstream for exactly this many, and an
+// answer of any other length is a provider error rather than a vector a
+// caller's index would silently mis-store.
+const EmbeddingDimension = 1024
+
 // EmbeddingResult is normalized non-streaming vector output. It remains an
 // adapter result until the executor stamps request and canonical model identity.
 type EmbeddingResult struct {

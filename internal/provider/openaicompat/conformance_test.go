@@ -120,9 +120,10 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 
 		// An embedding request is something chat completions genuinely cannot
 		// express, as opposed to something this adapter merely has not
-		// implemented. The one exception is `siliconflow`, the deployment this
-		// adapter serves an embeddings endpoint for: there an embedding is
-		// served, so the request this protocol cannot express is an image one.
+		// implemented. The exceptions are the slugs whose capability table
+		// lists an embeddings endpoint (providerconfig.ExecutableAPIFormats):
+		// there an embedding is served, so the request this protocol cannot
+		// express is an image one.
 		Refusals: func() []conformance.Refusal {
 			reference := contract.ModelReference(string(slug) + "/test-model@2026-05-01")
 			text := "embed me"
@@ -157,7 +158,7 @@ func subject(slug contract.ProviderSlug) conformance.Subject {
 				}},
 			}
 			name := "an embedding request"
-			if slug == "siliconflow" {
+			if slices.Contains(providerconfig.ExecutableAPIFormats(slug, providerconfig.ProtocolOpenAICompatible), contract.APIFormatEmbeddings) {
 				name = "an image request"
 				unexpressible.Attribution.RequestID = "req_conformance_unsupported_image"
 				unexpressible.Modality = contract.ModalityImage
