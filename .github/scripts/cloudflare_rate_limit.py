@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Reconcile Kaana's one owned Cloudflare rate-limiting rule."""
+"""Reconcile Kaana's owned Cloudflare rate-limiting rules."""
 
 from __future__ import annotations
 
@@ -18,27 +17,78 @@ from typing import Any
 API_BASE = "https://api.cloudflare.com/client/v4"
 ZONE_NAME = "kaana.ai"
 PHASE = "http_ratelimit"
-RULE_REF = "kaana_public_inference_per_ip"
-RULE_DESCRIPTION = "Kaana public inference: 20 requests per 10 seconds per IP"
 RULESET_NAME = "Kaana public inference rate limiting"
 
-DESIRED_RULE: dict[str, Any] = {
-    "ref": RULE_REF,
-    "description": RULE_DESCRIPTION,
-    # Path is available in rate-limiting expressions on every Cloudflare plan.
-    # Method is deliberately absent because it is not available on Free/Pro.
+# cf.colo.id is mandatory for API-authored rate limits; ip.src is the counting
+# characteristic available on every Cloudflare plan. Method is deliberately
+# absent from every expression because it is not available on Free/Pro.
+_PER_IP = ["cf.colo.id", "ip.src"]
+
+# The signed /internal lane. Removed with the envelope in Kaana ADR 0002
+# phase 5, not before.
+INTERNAL_INFERENCE_RULE: dict[str, Any] = {
+    "ref": "kaana_public_inference_per_ip",
+    "description": "Kaana public inference: 20 requests per 10 seconds per IP",
     "expression": '(http.request.uri.path eq "/internal/v1/inference")',
     "action": "block",
     "ratelimit": {
-        # cf.colo.id is mandatory for API-authored rate limits. ip.src is the
-        # counting characteristic available on every Cloudflare plan.
-        "characteristics": ["cf.colo.id", "ip.src"],
+        "characteristics": _PER_IP,
         "period": 10,
         "requests_per_period": 20,
         "mitigation_timeout": 10,
     },
     "enabled": True,
 }
+
+# The public API, https://kaana.ai/v1 (Kaana ADR 0002 phase 3). An
+# origin-abuse ceiling, not a customer quota: per-credential and per-app rate
+# limits are Oxy's, applied when Kaana asks for a grant. It is generous on
+# purpose because many legitimate SDK callers share one IP behind a NAT; it
+# exists to bound what an unauthenticated stranger can make Kaana read before
+# Oxy has said whose request it is (a transcription body is up to ~28 MiB).
+# Realtime upgrades are counted by their own rule, not here.
+PUBLIC_API_RULE: dict[str, Any] = {
+    "ref": "kaana_public_api_per_ip",
+    "description": "Kaana public API /v1: 600 requests per 60 seconds per IP",
+    "expression": (
+        '(starts_with(http.request.uri.path, "/v1/")'
+        ' and http.request.uri.path ne "/v1/realtime")'
+    ),
+    "action": "block",
+    "ratelimit": {
+        "characteristics": _PER_IP,
+        "period": 60,
+        "requests_per_period": 600,
+        "mitigation_timeout": 60,
+    },
+    "enabled": True,
+}
+
+# Realtime WebSocket upgrades. Each one opens a session that can hold a task's
+# memory and an upstream session for up to an hour, so opening them is counted
+# separately and far more strictly than ordinary requests. A resume is an
+# upgrade too; 30 a minute leaves room for reconnect storms on one NAT.
+PUBLIC_REALTIME_RULE: dict[str, Any] = {
+    "ref": "kaana_public_realtime_per_ip",
+    "description": "Kaana public realtime /v1/realtime: 30 upgrades per 60 seconds per IP",
+    "expression": '(http.request.uri.path eq "/v1/realtime")',
+    "action": "block",
+    "ratelimit": {
+        "characteristics": _PER_IP,
+        "period": 60,
+        "requests_per_period": 30,
+        "mitigation_timeout": 60,
+    },
+    "enabled": True,
+}
+
+# Every rule this reconciler owns, in the order a fresh entry point gets them.
+# Each is identified by its stable ref; nothing else in the phase is touched.
+DESIRED_RULES: tuple[dict[str, Any], ...] = (
+    INTERNAL_INFERENCE_RULE,
+    PUBLIC_API_RULE,
+    PUBLIC_REALTIME_RULE,
+)
 
 
 class ReconcileError(RuntimeError):
@@ -131,53 +181,62 @@ def get_entrypoint(api: CloudflareAPI, zone_id: str) -> dict[str, Any] | None:
     return ruleset
 
 
-def _managed_view(rule: dict[str, Any]) -> dict[str, Any]:
-    return {key: rule.get(key) for key in DESIRED_RULE}
+def _managed_view(rule: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any]:
+    return {key: rule.get(key) for key in desired}
 
 
-def rule_drift(rule: dict[str, Any]) -> list[str]:
-    actual = _managed_view(rule)
-    return [
-        key
-        for key, wanted in DESIRED_RULE.items()
-        if actual.get(key) != wanted
-    ]
+def rule_drift(rule: dict[str, Any], desired: dict[str, Any]) -> list[str]:
+    actual = _managed_view(rule, desired)
+    return [key for key, wanted in desired.items() if actual.get(key) != wanted]
 
 
-def find_owned_rule(ruleset: dict[str, Any]) -> dict[str, Any] | None:
+def _rules_of(ruleset: dict[str, Any]) -> list[Any]:
     rules = ruleset.get("rules") or []
     if not isinstance(rules, list):
         raise ReconcileError("the rate-limiting entry point has no rules list")
+    return rules
 
-    owned = [rule for rule in rules if isinstance(rule, dict) and rule.get("ref") == RULE_REF]
+
+def find_owned_rule(ruleset: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any] | None:
+    ref = desired["ref"]
+    rules = _rules_of(ruleset)
+    owned = [rule for rule in rules if isinstance(rule, dict) and rule.get("ref") == ref]
     if len(owned) > 1:
-        raise ReconcileError(f"found {len(owned)} rules with ref {RULE_REF}; refusing to choose one")
+        raise ReconcileError(f"found {len(owned)} rules with ref {ref}; refusing to choose one")
 
     description_conflicts = [
         rule
         for rule in rules
         if isinstance(rule, dict)
-        and rule.get("description") == RULE_DESCRIPTION
-        and rule.get("ref") != RULE_REF
+        and rule.get("description") == desired["description"]
+        and rule.get("ref") != ref
     ]
     if description_conflicts:
         raise ReconcileError(
-            f"a rule uses Kaana's managed description without ref {RULE_REF}; refusing to duplicate it"
+            f"a rule uses Kaana's managed description without ref {ref}; refusing to duplicate it"
         )
     return owned[0] if owned else None
+
+
+def _check_all_owned(ruleset: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
+    """Resolve every owned rule BEFORE any write, so a conflict on one rule
+    refuses the whole reconciliation instead of leaving it half applied."""
+    return {desired["ref"]: find_owned_rule(ruleset, desired) for desired in DESIRED_RULES}
 
 
 def verify(api: CloudflareAPI, zone_id: str) -> None:
     ruleset = get_entrypoint(api, zone_id)
     if ruleset is None:
         raise ReconcileError("read-back found no rate-limiting entry point")
-    rule = find_owned_rule(ruleset)
-    if rule is None:
-        raise ReconcileError(f"read-back found no rule with ref {RULE_REF}")
-    drift = rule_drift(rule)
-    if drift:
-        raise ReconcileError(f"read-back still differs in: {', '.join(drift)}")
-    print(f"OK {RULE_REF}: {RULE_DESCRIPTION}")
+    owned = _check_all_owned(ruleset)
+    for desired in DESIRED_RULES:
+        rule = owned[desired["ref"]]
+        if rule is None:
+            raise ReconcileError(f"read-back found no rule with ref {desired['ref']}")
+        drift = rule_drift(rule, desired)
+        if drift:
+            raise ReconcileError(f"read-back of {desired['ref']} still differs in: {', '.join(drift)}")
+        print(f"OK {desired['ref']}: {desired['description']}")
 
 
 def reconcile(api: CloudflareAPI, action: str) -> int:
@@ -187,7 +246,8 @@ def reconcile(api: CloudflareAPI, action: str) -> int:
 
     if ruleset is None:
         if not apply:
-            print(f"MISSING {RULE_REF}: no {PHASE} entry point exists")
+            for desired in DESIRED_RULES:
+                print(f"MISSING {desired['ref']}: no {PHASE} entry point exists")
             return 2
         api.call(
             "POST",
@@ -197,49 +257,58 @@ def reconcile(api: CloudflareAPI, action: str) -> int:
                 "description": "Kaana-owned rules applied before the data plane reads a request body.",
                 "kind": "zone",
                 "phase": PHASE,
-                "rules": [copy.deepcopy(DESIRED_RULE)],
+                "rules": [copy.deepcopy(desired) for desired in DESIRED_RULES],
             },
         )
-        print(f"CREATED {PHASE} entry point with {RULE_REF}")
+        print(f"CREATED {PHASE} entry point with {', '.join(d['ref'] for d in DESIRED_RULES)}")
         verify(api, zone_id)
         return 0
 
-    rule = find_owned_rule(ruleset)
+    owned = _check_all_owned(ruleset)
     ruleset_id = ruleset.get("id")
     if not isinstance(ruleset_id, str) or not ruleset_id:
         raise ReconcileError(f"the {PHASE} entry point has no id")
 
-    if rule is None:
+    pending = False
+    wrote = False
+    for desired in DESIRED_RULES:
+        ref = desired["ref"]
+        rule = owned[ref]
+        if rule is None:
+            if not apply:
+                print(f"MISSING {ref}: {PHASE} exists but Kaana's rule does not")
+                pending = True
+                continue
+            # Cloudflare requires a new rate-limiting rule at the END of the
+            # phase; POST to .../rules appends.
+            api.call("POST", f"/zones/{zone_id}/rulesets/{ruleset_id}/rules", copy.deepcopy(desired))
+            print(f"CREATED {ref}")
+            wrote = True
+            continue
+
+        drift = rule_drift(rule, desired)
+        if not drift:
+            print(f"OK {ref}: {desired['description']}")
+            continue
         if not apply:
-            print(f"MISSING {RULE_REF}: {PHASE} exists but Kaana's rule does not")
-            return 2
+            print(f"DRIFT {ref}: {', '.join(drift)}")
+            pending = True
+            continue
+        rule_id = rule.get("id")
+        if not isinstance(rule_id, str) or not rule_id:
+            raise ReconcileError(f"the rule with ref {ref} has no id")
         api.call(
-            "POST",
-            f"/zones/{zone_id}/rulesets/{ruleset_id}/rules",
-            copy.deepcopy(DESIRED_RULE),
+            "PATCH",
+            f"/zones/{zone_id}/rulesets/{ruleset_id}/rules/{rule_id}",
+            copy.deepcopy(desired),
         )
-        print(f"CREATED {RULE_REF}")
-        verify(api, zone_id)
-        return 0
+        print(f"UPDATED {ref}: {', '.join(drift)}")
+        wrote = True
 
-    drift = rule_drift(rule)
-    if not drift:
-        print(f"OK {RULE_REF}: {RULE_DESCRIPTION}")
-        return 0
     if not apply:
-        print(f"DRIFT {RULE_REF}: {', '.join(drift)}")
-        return 2
-
-    rule_id = rule.get("id")
-    if not isinstance(rule_id, str) or not rule_id:
-        raise ReconcileError(f"the rule with ref {RULE_REF} has no id")
-    api.call(
-        "PATCH",
-        f"/zones/{zone_id}/rulesets/{ruleset_id}/rules/{rule_id}",
-        copy.deepcopy(DESIRED_RULE),
-    )
-    print(f"UPDATED {RULE_REF}: {', '.join(drift)}")
-    verify(api, zone_id)
+        return 2 if pending else 0
+    if wrote:
+        verify(api, zone_id)
     return 0
 
 

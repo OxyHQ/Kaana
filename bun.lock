@@ -12,9 +12,16 @@
     },
     "packages/contracts": {
       "name": "@kaana.ai/contracts",
-      "version": "4.1.0",
+      "version": "4.2.0",
       "dependencies": {
         "zod": ">=4.4.3 <4.5.0",
+      },
+    },
+    "packages/sdk": {
+      "name": "@kaana.ai/sdk",
+      "version": "1.0.0",
+      "dependencies": {
+        "@kaana.ai/contracts": "workspace:*",
       },
     },
     "tools/contract": {
@@ -48,6 +55,8 @@
     "@kaana.ai/contract-tools": ["@kaana.ai/contract-tools@workspace:tools/contract"],
 
     "@kaana.ai/contracts": ["@kaana.ai/contracts@workspace:packages/contracts"],
+
+    "@kaana.ai/sdk": ["@kaana.ai/sdk@workspace:packages/sdk"],
 
     "@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 

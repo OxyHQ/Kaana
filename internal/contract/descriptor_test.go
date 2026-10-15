@@ -198,6 +198,44 @@ var goShapes = map[string]reflect.Type{
 	"realtimeTranscriptDoneEventSchema":      reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
 	"realtimeTranslationSchema":              reflect.TypeOf(RealtimeTranslationTarget{}),
 	"realtimeTurnDetectionSchema":            reflect.TypeOf(RealtimeTurnDetection{}),
+
+	// The grant and the settlement (ADR 0002, decisions 3 and 4), which
+	// internal/publicapi exchanges with Oxy in phase 3.
+	"grantSchema":                         reflect.TypeOf(Grant{}),
+	"grantStepSchema":                     reflect.TypeOf(GrantStep{}),
+	"grantStepLimitsSchema":               reflect.TypeOf(GrantStepLimits{}),
+	"grantTargetSchema":                   reflect.TypeOf(GrantTarget{}),
+	"grantRequestFactsSchema":             reflect.TypeOf(GrantRequestFacts{}),
+	"grantPrincipalSchema":                reflect.TypeOf(GrantPrincipal{}),
+	"grantExactRouteSchema":               reflect.TypeOf(GrantExactRoute{}),
+	"admittedModelLineSchema":             reflect.TypeOf(AdmittedModelLine{}),
+	"inferenceAuthorizationRequestSchema": reflect.TypeOf(InferenceAuthorizationRequest{}),
+	"catalogueAuthorizationRequestSchema": reflect.TypeOf(CatalogueAuthorizationRequest{}),
+	"receiptAuthorizationRequestSchema":   reflect.TypeOf(ReceiptAuthorizationRequest{}),
+	"catalogueAccessSchema":               reflect.TypeOf(CatalogueAccess{}),
+	"settlementSchema":                    reflect.TypeOf(Settlement{}),
+	"settlementAcknowledgementSchema":     reflect.TypeOf(SettlementAcknowledgement{}),
+	"settlementPageSchema":                reflect.TypeOf(SettlementPage{}),
+	"moneySchema":                         reflect.TypeOf(Money{}),
+
+	// The public API internal/publicapi serves (ADR 0002, decisions 7-9).
+	"publicErrorSchema":                       reflect.TypeOf(PublicError{}),
+	"speechRequestSchema":                     reflect.TypeOf(SpeechRequest{}),
+	"speechAudioDeltaEventSchema":             reflect.TypeOf(SpeechAudioDeltaEvent{}),
+	"speechAudioDoneEventSchema":              reflect.TypeOf(SpeechAudioDoneEvent{}),
+	"speechStreamErrorEventSchema":            reflect.TypeOf(SpeechStreamErrorEvent{}),
+	"transcriptionRequestSchema":              reflect.TypeOf(TranscriptionRequest{}),
+	"transcriptionJsonRequestSchema":          reflect.TypeOf(TranscriptionJSONRequest{}),
+	"transcriptionSchema":                     reflect.TypeOf(Transcription{}),
+	"responseStreamStartEventSchema":          reflect.TypeOf(ResponseStreamStartEvent{}),
+	"responseStreamUsageEventSchema":          reflect.TypeOf(ResponseStreamUsageEvent{}),
+	"responseStreamErrorEventSchema":          reflect.TypeOf(ResponseStreamErrorEvent{}),
+	"realtimeSessionOpenSchema":               reflect.TypeOf(RealtimeSessionOpen{}),
+	"realtimeOpenLimitsSchema":                reflect.TypeOf(RealtimeOpenLimits{}),
+	"realtimePublicSessionCreatedEventSchema": reflect.TypeOf(RealtimePublicSessionCreatedEvent{}),
+	"realtimePublicResponseDoneEventSchema":   reflect.TypeOf(RealtimePublicResponseDoneEvent{}),
+	"realtimePublicErrorEventSchema":          reflect.TypeOf(RealtimePublicErrorEvent{}),
+	"realtimePublicSessionClosedEventSchema":  reflect.TypeOf(RealtimePublicSessionClosedEvent{}),
 }
 
 // goEnums maps a published enum to the Go named type that restates it, together
@@ -239,6 +277,15 @@ var goEnums = map[string]enumBinding{
 	"realtimeSessionKindSchema":        bindEnum(realtimeSessionKindValues),
 	"realtimeSessionTransportSchema":   bindEnum(realtimeSessionTransportValues),
 	"realtimeTranscriptSourceSchema":   bindEnum(realtimeTranscriptSourceValues),
+	// ADR 0002 phase 3: the grant's vocabulary.
+	"grantOperationSchema":             bindEnum(grantOperationValues),
+	"grantLaneSchema":                  bindEnum(grantLaneValues),
+	"powerLevelSchema":                 bindEnum(powerLevelValues),
+	"inferenceEconomicTreatmentSchema": bindEnum(economicTreatmentValues),
+	"publicErrorCodeSchema":            bindEnum(publicErrorCodeValues),
+	"speechFormatSchema":               bindEnum(speechFormatValues),
+	"speechStreamFormatSchema":         bindEnum(speechStreamFormatValues),
+	"audioInputMediaTypeSchema":        bindEnum(audioInputMediaTypeValues),
 }
 
 // goScalars maps a published scalar (a branded id, a constrained string) to the
@@ -264,6 +311,23 @@ var goScalars = map[string]reflect.Type{
 	"realtimeCommandIdSchema":          reflect.TypeOf(RealtimeCommandID("")),
 	"realtimeItemIdSchema":             reflect.TypeOf(RealtimeItemID("")),
 	"realtimeResponseIdSchema":         reflect.TypeOf(RealtimeResponseID("")),
+	"modelRevisionLabelSchema":         reflect.TypeOf(ModelRevisionLabel("")),
+	"exactDecimalSchema":               reflect.TypeOf(ExactDecimal("")),
+	"currencyCodeSchema":               reflect.TypeOf(CurrencyCode("")),
+	"languageTagSchema":                reflect.TypeOf(LanguageTag("")),
+}
+
+// goRecords maps a published string-to-string record to the Go map type that
+// carries it. Only records whose values are strings can be registered: a record
+// of anything else would need its value shape compared too.
+var goRecords = map[string]reflect.Type{
+	"requestLabelsSchema": reflect.TypeOf(RequestLabels(nil)),
+}
+
+// goArrays maps a published named array to the Go slice type that carries it;
+// its items are compared like any field's.
+var goArrays = map[string]reflect.Type{
+	"usageSchema": reflect.TypeOf([]UsageQuantity(nil)),
 }
 
 // goUnions covers the two published unions that are not plain objects: the
@@ -287,6 +351,40 @@ var goCustomUnions = map[string]reflect.Type{
 }
 
 var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
+	"realtimePublicServerEventSchema": {
+		"session.created":             reflect.TypeOf(RealtimePublicSessionCreatedEvent{}),
+		"session.updated":             reflect.TypeOf(RealtimeSessionUpdatedEvent{}),
+		"session.resumed":             reflect.TypeOf(RealtimeSessionResumedEvent{}),
+		"command.accepted":            reflect.TypeOf(RealtimeCommandAcceptedEvent{}),
+		"conversation.item.added":     reflect.TypeOf(RealtimeItemAddedEvent{}),
+		"conversation.item.done":      reflect.TypeOf(RealtimeItemDoneEvent{}),
+		"conversation.item.deleted":   reflect.TypeOf(RealtimeItemDeletedEvent{}),
+		"conversation.item.truncated": reflect.TypeOf(RealtimeItemTruncatedEvent{}),
+		"input_audio.speech_started":  reflect.TypeOf(RealtimeSpeechStartedEvent{}),
+		"input_audio.speech_stopped":  reflect.TypeOf(RealtimeSpeechStoppedEvent{}),
+		"input_audio.committed":       reflect.TypeOf(RealtimeInputAudioCommittedEvent{}),
+		"input_audio.cleared":         reflect.TypeOf(RealtimeInputAudioClearedEvent{}),
+		"response.created":            reflect.TypeOf(RealtimeResponseCreatedEvent{}),
+		"output_audio.delta":          reflect.TypeOf(RealtimeOutputAudioDeltaEvent{}),
+		"output_audio.done":           reflect.TypeOf(RealtimeOutputAudioDoneEvent{}),
+		"transcript.delta":            reflect.TypeOf(RealtimeTranscriptDeltaEvent{}),
+		"transcript.done":             reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
+		"text.delta":                  reflect.TypeOf(RealtimeTextDeltaEvent{}),
+		"tool_call":                   reflect.TypeOf(RealtimeToolCallEvent{}),
+		"response.done":               reflect.TypeOf(RealtimePublicResponseDoneEvent{}),
+		"error":                       reflect.TypeOf(RealtimePublicErrorEvent{}),
+		"session.closed":              reflect.TypeOf(RealtimePublicSessionClosedEvent{}),
+	},
+	"speechStreamEventSchema": {
+		"speech.audio.delta": reflect.TypeOf(SpeechAudioDeltaEvent{}),
+		"speech.audio.done":  reflect.TypeOf(SpeechAudioDoneEvent{}),
+		"error":              reflect.TypeOf(SpeechStreamErrorEvent{}),
+	},
+	"authorizationRequestSchema": {
+		"inference":      reflect.TypeOf(InferenceAuthorizationRequest{}),
+		"catalogue.read": reflect.TypeOf(CatalogueAuthorizationRequest{}),
+		"receipt.read":   reflect.TypeOf(ReceiptAuthorizationRequest{}),
+	},
 	"realtimeClientCommandSchema": {
 		"conversation.item.create":   reflect.TypeOf(RealtimeItemCreateCommand{}),
 		"conversation.item.delete":   reflect.TypeOf(RealtimeItemDeleteCommand{}),
@@ -349,12 +447,10 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 // A shape leaves this list only by being implemented, and joins it only with a
 // reason that names the owner.
 var notApplicable = map[string]string{
-	"inferenceEconomicTreatmentSchema": "Oxy owns economic treatment; Kaana only executes the signed private authority",
-	"inferenceOutputModalitySchema":    "Oxy owns catalogue output capabilities; Kaana receives execution modality on the request",
-	"powerLevelSchema":                 "Oxy control-plane power-level selection; not exchanged with Kaana until ADR 0002 phase 1.2.",
-	"modelPowerClassSchema":            "Oxy control-plane model classification; not exchanged with Kaana until ADR 0002 phase 1.2.",
-	"decisionRequestSchema":            "public request; Kaana receives the signed inference envelope until ADR 0002 phase 3.",
-	"decisionSuccessSchema":            "public response; Kaana returns DecisionResult with technical usage until ADR 0002 phase 3.",
+	"inferenceOutputModalitySchema": "Oxy owns catalogue output capabilities; Kaana receives execution modality on the request",
+	"modelPowerClassSchema":         "Oxy control-plane model classification; not exchanged with Kaana until ADR 0002 phase 1.2.",
+	"decisionRequestSchema":         "public request; Kaana receives the signed inference envelope until ADR 0002 phase 3.",
+	"decisionSuccessSchema":         "public response; Kaana returns DecisionResult with technical usage until ADR 0002 phase 3.",
 	// Catalogue identity and pricing are Oxy's (ADR 0006). Kaana consumes
 	// canonical model ids as opaque strings and holds its own operational
 	// inventory; it neither serves nor stores a customer-facing catalogue
@@ -379,7 +475,6 @@ var notApplicable = map[string]string{
 	"modelSafetyMetadataSchema":             "catalogue: safety metadata is published by Oxy",
 	"publisherSlugSchema":                   "catalogue: a component of a model id Kaana never splits",
 	"modelSlugSchema":                       "catalogue: a component of a model id Kaana never splits",
-	"modelRevisionLabelSchema":              "catalogue: a component of a model reference Kaana never splits",
 	"routingProfileCandidateSchema":         "catalogue: profile candidates are resolved by Oxy before forwarding",
 	"routingProfileSchema":                  "catalogue: profile definitions live in the Oxy catalogue",
 	"routingProfileSlugSchema":              "catalogue: Oxy owns the display slug; signed Kaana targets carry only the exact profile id",
@@ -389,9 +484,6 @@ var notApplicable = map[string]string{
 
 	// Money and the ledger are Oxy's. Kaana measures units and never prices
 	// them; there is deliberately no Money type in this package.
-	"currencyCodeSchema":  "ledger: Kaana never quotes an amount",
-	"exactDecimalSchema":  "ledger: Kaana never quotes an amount",
-	"moneySchema":         "ledger: Kaana never quotes an amount",
 	"unitPriceSchema":     "ledger: Oxy owns pricing",
 	"priceSnapshotSchema": "ledger: Oxy owns pricing",
 
@@ -399,83 +491,40 @@ var notApplicable = map[string]string{
 	// in contract set 4.0.0 and served by internal/publicapi in ADR 0002 phase
 	// 3; until then no Kaana code exchanges these shapes. Each leaves this list
 	// by being implemented there.
-	"audioInputMediaTypeSchema":               "public api (phase 3): transcription upload media types",
-	"chargedGenerationRecordSchema":           "public api (phase 3): GET /v1/generations record",
-	"chatCompletionChunkSchema":               "public api (phase 3): POST /v1/chat/completions stream chunk",
-	"chatCompletionErrorSchema":               "public api (phase 3): POST /v1/chat/completions error body",
-	"chatCompletionMessageSchema":             "public api (phase 3): POST /v1/chat/completions message",
-	"chatCompletionSchema":                    "public api (phase 3): POST /v1/chat/completions response",
-	"chatCompletionUsageSchema":               "public api (phase 3): POST /v1/chat/completions usage",
-	"chatCompletionsRequestSchema":            "public api (phase 3): POST /v1/chat/completions request",
-	"embeddingsRequestSchema":                 "public api (phase 3): POST /v1/embeddings request",
-	"embeddingsResponseSchema":                "public api (phase 3): POST /v1/embeddings response",
-	"generationRecordSchema":                  "public api (phase 3): GET /v1/generations record",
-	"imageGenerationsRequestSchema":           "public api (phase 3): POST /v1/images/generations request",
-	"imageGenerationsSchema":                  "public api (phase 3): POST /v1/images/generations response",
-	"languageTagSchema":                       "public api (phase 3): BCP 47 tags of voices and transcription",
-	"meteredGenerationRecordSchema":           "public api (phase 3): GET /v1/generations record",
-	"modelAudioCapabilitiesSchema":            "public api (phase 3): voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
-	"modelListSchema":                         "public api (phase 3): GET /v1/models",
-	"modelSchema":                             "public api (phase 3): GET /v1/models entry",
-	"modelTargetSchema":                       "public api (phase 3): a model reference or a power level",
-	"powerLevelEntrySchema":                   "public api (phase 3): GET /v1/power-levels entry",
-	"powerLevelListSchema":                    "public api (phase 3): GET /v1/power-levels",
-	"publicErrorCodeSchema":                   "public api (phase 3): the public error vocabulary",
-	"publicErrorSchema":                       "public api (phase 3): the public error body",
-	"realtimeOpenLimitsSchema":                "public api (phase 3): GET /v1/realtime open limits",
-	"realtimePublicErrorEventSchema":          "public api (phase 3): GET /v1/realtime error event",
-	"realtimePublicResponseDoneEventSchema":   "public api (phase 3): GET /v1/realtime response.done",
-	"realtimePublicServerEventSchema":         "public api (phase 3): GET /v1/realtime server events",
-	"realtimePublicSessionClosedEventSchema":  "public api (phase 3): GET /v1/realtime session.closed",
-	"realtimePublicSessionCreatedEventSchema": "public api (phase 3): GET /v1/realtime session.created",
-	"realtimeSessionOpenSchema":               "public api (phase 3): GET /v1/realtime first frame",
-	"requestLabelsSchema":                     "public api (phase 3): cost-attribution labels",
-	"responseSchema":                          "public api (phase 3): POST /v1/responses response",
-	"responseStreamErrorEventSchema":          "public api (phase 3): POST /v1/responses stream error",
-	"responseStreamEventSchema":               "public api (phase 3): POST /v1/responses stream",
-	"responseStreamStartEventSchema":          "public api (phase 3): POST /v1/responses stream start",
-	"responseStreamUsageEventSchema":          "public api (phase 3): POST /v1/responses stream usage",
-	"responsesRequestSchema":                  "public api (phase 3): POST /v1/responses request",
-	"speechAudioDeltaEventSchema":             "public api (phase 3): POST /v1/audio/speech sse delta",
-	"speechAudioDoneEventSchema":              "public api (phase 3): POST /v1/audio/speech sse done",
-	"speechFormatSchema":                      "public api (phase 3): POST /v1/audio/speech response_format",
-	"speechRequestSchema":                     "public api (phase 3): POST /v1/audio/speech request",
-	"speechStreamErrorEventSchema":            "public api (phase 3): POST /v1/audio/speech sse error",
-	"speechStreamEventSchema":                 "public api (phase 3): POST /v1/audio/speech sse frames",
-	"speechStreamFormatSchema":                "public api (phase 3): POST /v1/audio/speech stream_format",
-	"transcriptionRequestSchema":              "public api (phase 3): POST /v1/audio/transcriptions fields",
-	"transcriptionSchema":                     "public api (phase 3): POST /v1/audio/transcriptions response",
-	"usageSchema":                             "public api (phase 3): public usage partition",
-	"voiceSchema":                             "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
+	"chargedGenerationRecordSchema": "public api (phase 3): GET /v1/generations record",
+	"chatCompletionChunkSchema":     "public api (phase 3): POST /v1/chat/completions stream chunk",
+	"chatCompletionErrorSchema":     "public api (phase 3): POST /v1/chat/completions error body",
+	"chatCompletionMessageSchema":   "public api (phase 3): POST /v1/chat/completions message",
+	"chatCompletionSchema":          "public api (phase 3): POST /v1/chat/completions response",
+	"chatCompletionUsageSchema":     "public api (phase 3): POST /v1/chat/completions usage",
+	"chatCompletionsRequestSchema":  "public api (phase 3): POST /v1/chat/completions request",
+	"embeddingsRequestSchema":       "public api (phase 3): POST /v1/embeddings request",
+	"embeddingsResponseSchema":      "public api (phase 3): POST /v1/embeddings response",
+	"generationRecordSchema":        "public api (phase 3): GET /v1/generations record",
+	"imageGenerationsRequestSchema": "public api (phase 3): POST /v1/images/generations request",
+	"imageGenerationsSchema":        "public api (phase 3): POST /v1/images/generations response",
+	"meteredGenerationRecordSchema": "public api (phase 3): GET /v1/generations record",
+	"modelAudioCapabilitiesSchema":  "public api (phase 3): voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
+	"modelListSchema":               "public api (phase 3): GET /v1/models",
+	"modelSchema":                   "public api (phase 3): GET /v1/models entry",
+	"modelTargetSchema":             "public api (phase 3): a model reference or a power level",
+	"powerLevelEntrySchema":         "public api (phase 3): GET /v1/power-levels entry",
+	"powerLevelListSchema":          "public api (phase 3): GET /v1/power-levels",
+	"responseSchema":                "public api (phase 3): POST /v1/responses response",
+	"responseStreamEventSchema":     "public api (phase 3): POST /v1/responses stream",
+	"responsesRequestSchema":        "public api (phase 3): POST /v1/responses request",
+	"voiceSchema":                   "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
 
 	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
 	// authorizations and settlements endpoints in phase 2 and Kaana calls them
 	// from internal/publicapi in phase 3; the signed envelope above remains the
 	// only wire until then.
-	"admittedModelLineSchema":             "grant (phase 3): one admitted model line and its price",
-	"authorizationRequestSchema":          "grant (phase 3): POST /internal/kaana/v1/authorizations",
-	"catalogueAccessSchema":               "grant (phase 3): catalogue.read answer",
-	"catalogueAuthorizationRequestSchema": "grant (phase 3): catalogue.read request",
-	"grantExactRouteSchema":               "grant (phase 3): the exact route of an approval-bound operation",
-	"grantLaneSchema":                     "grant (phase 3): the lane that decides who pays",
-	"grantOperationSchema":                "grant (phase 3): the operation a grant authorizes",
-	"grantPrincipalSchema":                "grant (phase 3): the paying principal",
-	"grantRequestFactsSchema":             "grant (phase 3): content-free facts the hold is sized from",
-	"grantSchema":                         "grant (phase 3): the signed grant",
-	"grantStepLimitsSchema":               "grant (phase 3): the limits of one step",
-	"grantStepSchema":                     "grant (phase 3): one ordered step",
-	"grantTargetSchema":                   "grant (phase 3): a model line or a power level",
-	"inferenceAuthorizationRequestSchema": "grant (phase 3): inference authorization request",
-	"receiptAccessSchema":                 "grant (phase 3): receipt.read answer",
-	"receiptAuthorizationRequestSchema":   "grant (phase 3): receipt.read request",
-	"settlementAcknowledgementSchema":     "settlement (phase 3): Oxy's acknowledgement",
-	"settlementPageSchema":                "settlement (phase 3): GET /internal/v1/settlements page",
-	"settlementSchema":                    "settlement (phase 3): the outbox delivery",
+	"receiptAccessSchema": "grant (phase 3): Oxy owns the generation record; Kaana relays the receipt.read record verbatim and never reads an amount from it",
 }
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 105
+const expectedNotApplicableCount = 56
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -518,6 +567,8 @@ func TestEveryPublishedShapeIsAccountedFor(t *testing.T) {
 		"goEnums":              func(name string) bool { _, ok := goEnums[name]; return ok },
 		"goScalars":            func(name string) bool { _, ok := goScalars[name]; return ok },
 		"goCustomUnions":       func(name string) bool { _, ok := goCustomUnions[name]; return ok },
+		"goRecords":            func(name string) bool { _, ok := goRecords[name]; return ok },
+		"goArrays":             func(name string) bool { _, ok := goArrays[name]; return ok },
 		"goUnionOfNamedShapes": func(name string) bool { _, ok := goUnionOfNamedShapes[name]; return ok },
 		"notApplicable":        func(name string) bool { _, ok := notApplicable[name]; return ok },
 	}
@@ -543,6 +594,8 @@ func TestEveryPublishedShapeIsAccountedFor(t *testing.T) {
 		"goShapes":             keysOf(goShapes),
 		"goScalars":            keysOf(goScalars),
 		"goCustomUnions":       keysOf(goCustomUnions),
+		"goRecords":            keysOf(goRecords),
+		"goArrays":             keysOf(goArrays),
 		"goEnums":              keysOf(goEnums),
 		"goUnionOfNamedShapes": keysOf(goUnionOfNamedShapes),
 		"notApplicable":        keysOf(notApplicable),
@@ -616,6 +669,30 @@ func TestGoTypesMatchPublishedShapes(t *testing.T) {
 			}
 			if diff := diffStringLists(node.Values, binding.members); diff != "" {
 				t.Errorf("%s differs from %s:\n%s", name, binding.goType, diff)
+			}
+		})
+	}
+
+	for name, goType := range goArrays {
+		t.Run(name, func(t *testing.T) {
+			node := file.Shapes[name]
+			if node.Kind != "array" || node.Items == nil {
+				t.Fatalf("%s is published as %q, not an array", name, node.Kind)
+			}
+			for _, problem := range checker.compareKind(name, node, goType) {
+				t.Error(problem)
+			}
+		})
+	}
+
+	for name, goType := range goRecords {
+		t.Run(name, func(t *testing.T) {
+			node := file.Shapes[name]
+			if node.Kind != "record" || node.ValueType == nil || node.ValueType.Kind != "string" {
+				t.Fatalf("%s is published as %q, not a record of strings", name, node.Kind)
+			}
+			if goType.Kind() != reflect.Map || goType.Key().Kind() != reflect.String || goType.Elem().Kind() != reflect.String {
+				t.Errorf("%s carries published record %s", goType, name)
 			}
 		})
 	}
@@ -963,6 +1040,18 @@ func (c *shapeChecker) compareRef(where, ref string, goType reflect.Type) []stri
 		}
 		return nil
 	}
+	if array, isArray := goArrays[ref]; isArray {
+		if goType != array {
+			return []string{fmt.Sprintf("%s: the contract references %s, Go says %s (expected %s)", where, ref, goType, array)}
+		}
+		return nil
+	}
+	if record, isRecord := goRecords[ref]; isRecord {
+		if goType != record {
+			return []string{fmt.Sprintf("%s: the contract references %s, Go says %s (expected %s)", where, ref, goType, record)}
+		}
+		return nil
+	}
 	if custom, isCustom := goCustomUnions[ref]; isCustom {
 		if goType != custom {
 			return []string{fmt.Sprintf("%s: the contract references %s, Go says %s (expected %s)", where, ref, goType, custom)}
@@ -1048,6 +1137,11 @@ var inlineEnumBindings = []enumBinding{
 	bindEnum(realtimeContentPartTypeValues),
 	bindEnum(realtimeItemTypeValues),
 	bindEnum(realtimeItemRoleValues),
+	bindEnum(grantTargetKindValues),
+	bindEnum(grantExactRouteApprovalValues),
+	bindEnum(catalogueAudienceValues),
+	bindEnum(settlementStatusValues),
+	bindEnum(transcriptionTimestampsValues),
 }
 
 /* -------------------------------------------------------------------------- */

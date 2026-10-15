@@ -221,7 +221,7 @@ const paths = {
     ...sse('speechStreamEventSchema', 'With `stream: true` and `stream_format: "sse"`.'),
   }),
   '/audio/transcriptions': post(
-    'Transcribe an uploaded audio file (synchronous).',
+    'Transcribe an uploaded audio file (synchronous), as multipart or as JSON with inline base64.',
     {
       'multipart/form-data': {
         schema: {
@@ -241,6 +241,7 @@ const paths = {
           ],
         },
       },
+      'application/json': { schema: ref('transcriptionJsonRequestSchema') },
     },
     json('transcriptionSchema'),
   ),

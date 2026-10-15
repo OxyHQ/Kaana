@@ -6,7 +6,10 @@ import {
   modelSchema,
   speechMediaType,
   speechRequestSchema,
+  transcriptionJsonRequestSchema,
   transcriptionSchema,
+  MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH,
+  MAX_TRANSCRIPTION_FILE_BYTES,
 } from '../index.js';
 import { audio, requestId, speechModel } from './fixtures.js';
 
@@ -173,6 +176,33 @@ describe('transcription', () => {
         text: 'Hola',
         words: [{ startMs: 500, endMs: 100, word: 'Hola' }],
         usage: [{ unit: 'audio_input_milliseconds', quantity: 500 }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('transcription JSON upload', () => {
+  const upload = (audio: Record<string, unknown>) =>
+    transcriptionJsonRequestSchema.safeParse({ model: 'openai/whisper-1', audio }).success;
+
+  it('carries padded base64 of a declared input media type', () => {
+    expect(upload({ mediaType: 'audio/wav', data: 'UklGRg==' })).toBe(true);
+    expect(upload({ mediaType: 'audio/wav', data: 'UklGRg' })).toBe(false);
+    expect(upload({ mediaType: 'video/mp4', data: 'UklGRg==' })).toBe(false);
+  });
+
+  it('is bounded at exactly the base64 of the largest multipart file', () => {
+    expect(MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH).toBe(
+      Math.ceil(MAX_TRANSCRIPTION_FILE_BYTES / 3) * 4,
+    );
+  });
+
+  it('refuses a field the multipart form does not have', () => {
+    expect(
+      transcriptionJsonRequestSchema.safeParse({
+        model: 'openai/whisper-1',
+        audio: { mediaType: 'audio/wav', data: 'UklGRg==' },
+        response_format: 'srt',
       }).success,
     ).toBe(false);
   });

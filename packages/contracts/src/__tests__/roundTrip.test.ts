@@ -199,6 +199,14 @@ const cases: [keyof typeof publicContract | keyof typeof internalContract, unkno
     { model: 'openai/whisper-1', language: 'es-ES', timestamps: 'segment' },
   ],
   [
+    'transcriptionJsonRequestSchema',
+    {
+      model: 'openai/whisper-1',
+      language: 'es-ES',
+      audio: { mediaType: 'audio/wav', data: 'UklGRiQAAABXQVZF' },
+    },
+  ],
+  [
     'transcriptionSchema',
     {
       schemaVersion: 1,
@@ -298,6 +306,7 @@ describe('round trip', () => {
       'speechRequestSchema',
       'speechStreamEventSchema',
       'transcriptionRequestSchema',
+      'transcriptionJsonRequestSchema',
       'transcriptionSchema',
       'imageGenerationsRequestSchema',
       'imageGenerationsSchema',

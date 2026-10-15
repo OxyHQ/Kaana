@@ -82,6 +82,9 @@ var migration0020 string
 //go:embed migrations/0021_deployment_binding_unpin.sql
 var migration0021 string
 
+//go:embed migrations/0022_settlement_outbox.sql
+var migration0022 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool             *pgxpool.Pool
@@ -217,6 +220,7 @@ func schemaMigrations() []schemaMigration {
 		{version: "0019", body: migration0019},
 		{version: "0020", body: migration0020},
 		{version: "0021", body: migration0021},
+		{version: "0022", body: migration0022},
 	}
 }
 
@@ -274,6 +278,23 @@ func (p *Postgres) RegisterRateCardVersion(ctx context.Context, observation prov
 // request through one PostgreSQL statement and transaction. An error commits
 // none of the attempts, so Recorder may safely retry the whole batch.
 func (p *Postgres) WriteProviderCostEvents(ctx context.Context, events []providercost.Event) error {
+	payload, err := encodeProviderCostEvents(events)
+	if err != nil {
+		return err
+	}
+	var recorded int
+	if err := p.pool.QueryRow(ctx, `SELECT kaana_record_provider_attempt_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
+		return fmt.Errorf("credential store: recording provider cost event batch: %w", err)
+	}
+	if recorded != len(events) {
+		return fmt.Errorf("credential store: provider cost event batch recorded %d of %d attempts", recorded, len(events))
+	}
+	return nil
+}
+
+// encodeProviderCostEvents is the one JSON form a provider cost batch takes,
+// whether it is written alone or beside a settlement.
+func encodeProviderCostEvents(events []providercost.Event) ([]byte, error) {
 	encodedEvents := make([]providerCostEventJSON, 0, len(events))
 	for _, event := range events {
 		encoded := providerCostEventJSON{
@@ -304,16 +325,9 @@ func (p *Postgres) WriteProviderCostEvents(ctx context.Context, events []provide
 	}
 	payload, err := json.Marshal(encodedEvents)
 	if err != nil {
-		return fmt.Errorf("credential store: encoding provider cost event batch: %w", err)
+		return nil, fmt.Errorf("credential store: encoding provider cost event batch: %w", err)
 	}
-	var recorded int
-	if err := p.pool.QueryRow(ctx, `SELECT kaana_record_provider_attempt_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
-		return fmt.Errorf("credential store: recording provider cost event batch: %w", err)
-	}
-	if recorded != len(events) {
-		return fmt.Errorf("credential store: provider cost event batch recorded %d of %d attempts", recorded, len(events))
-	}
-	return nil
+	return payload, nil
 }
 
 func applyMigration(ctx context.Context, tx migrationExecutor, version, body string) error {

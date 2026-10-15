@@ -176,6 +176,39 @@ type Result struct {
 	CostRecordError error
 }
 
+type costRecordingDeferral struct{}
+
+// DeferCostRecording marks ctx so that Execute and SettleSession leave
+// Result.UpstreamCost (and SessionSettlement.UpstreamCost) unrecorded: the
+// caller records it itself, in one transaction with something that must be
+// durable exactly when the cost is. internal/publicapi uses it to write a
+// granted request's cost and its settlement together (Kaana ADR 0002,
+// decision 3). Nothing else changes: the cost is still measured and returned.
+func DeferCostRecording(ctx context.Context) context.Context {
+	return context.WithValue(ctx, costRecordingDeferral{}, true)
+}
+
+type grantSettlement struct{}
+
+// SettledByGrant marks ctx as a session or request that settles through an
+// Oxy grant and Kaana's settlement outbox (kaana.ai/v1, contract set 4.1.0 and
+// later), whose usage report may carry every unit 4.1.0 names. The signed
+// envelope lane is never so marked, and keeps refusing what its consumer
+// cannot settle (EnvelopeInputTranscriptionRefused).
+func SettledByGrant(ctx context.Context) context.Context {
+	return context.WithValue(ctx, grantSettlement{}, true)
+}
+
+func settledByGrant(ctx context.Context) bool {
+	settled, _ := ctx.Value(grantSettlement{}).(bool)
+	return settled
+}
+
+func costRecordingDeferred(ctx context.Context) bool {
+	deferred, _ := ctx.Value(costRecordingDeferral{}).(bool)
+	return deferred
+}
+
 // ErrClientGone reports that the sink stopped accepting events. The executor
 // treats it as a cancellation rather than a failure, because the customer
 // withdrawing is not the provider failing.
@@ -220,7 +253,7 @@ func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink 
 		}
 	}
 	result := e.execute(ctx, request, sink)
-	if e.costRecorder == nil || len(result.UpstreamCost.Attempts) == 0 {
+	if e.costRecorder == nil || len(result.UpstreamCost.Attempts) == 0 || costRecordingDeferred(ctx) {
 		return result
 	}
 	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), providerCostPersistenceTimeout)

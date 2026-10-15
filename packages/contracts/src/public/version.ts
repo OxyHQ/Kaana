@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '4.1.0';
+export const INFERENCE_CONTRACT_VERSION = '4.2.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -120,6 +120,10 @@ export const INFERENCE_CONTRACT_VERSION = '4.1.0';
  * to `audioFormats.ts` with the same members. A consumer on 4.0.0 refuses a
  * usage report carrying the new unit, which is why the signed-envelope lane
  * keeps refusing input transcription (docs/realtime.md).
+ *
+ * Contract set 4.2.0 (Kaana ADR 0002 phase 3) is additive: the JSON form of a
+ * transcription upload, the transcription duration ceiling, and the response
+ * headers and realtime subprotocols `https://kaana.ai/v1` speaks.
  */
 
 /** The public API's one origin and version. */
@@ -130,3 +134,51 @@ export const KAANA_REQUEST_ID_HEADER = 'Kaana-Request-Id';
 
 /** The response header that carries {@link INFERENCE_CONTRACT_VERSION}. */
 export const KAANA_CONTRACT_VERSION_HEADER = 'Kaana-Contract-Version';
+
+/**
+ * The response header that names the revision that actually served a request
+ * whose body is not JSON (`POST /v1/audio/speech` without SSE), e.g.
+ * `elevenlabs/eleven-multilingual@v2`.
+ */
+export const KAANA_MODEL_HEADER = 'Kaana-Model';
+
+/**
+ * The response header that carries the usage of a request whose body is not
+ * JSON (`POST /v1/audio/speech` without streaming): `unit=quantity` pairs
+ * joined by `,`, each unit once, e.g. `characters=12,requests=1`.
+ */
+export const KAANA_USAGE_HEADER = 'Kaana-Usage';
+
+/**
+ * The response headers that carry the customer's routing-policy revision on
+ * `POST /v1/responses`, so a streamed response can be folded into a
+ * `Response` without a second request.
+ */
+export const KAANA_ROUTING_POLICY_ID_HEADER = 'Kaana-Routing-Policy-Id';
+export const KAANA_ROUTING_POLICY_VERSION_HEADER = 'Kaana-Routing-Policy-Version';
+
+/** The request header that names the end user a service token acts for. */
+export const KAANA_ON_BEHALF_OF_HEADER = 'X-Oxy-User-Id';
+
+/** The request header that makes a request idempotent. */
+export const KAANA_IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+
+/**
+ * The WebSocket subprotocol of `GET /v1/realtime`. A client offers it, and the
+ * server selects it, on every connection.
+ */
+export const KAANA_REALTIME_SUBPROTOCOL = 'kaana.v1';
+
+/**
+ * A runtime whose WebSocket cannot set `Authorization` (a browser, React
+ * Native, Node's global WebSocket) carries the credential as a second offered
+ * subprotocol: this prefix followed by the unpadded base64url of the
+ * credential's UTF-8 bytes. The server never selects it.
+ */
+export const KAANA_REALTIME_BEARER_PROTOCOL_PREFIX = 'kaana.bearer.';
+
+/**
+ * Likewise for `X-Oxy-User-Id`: this prefix followed by the unpadded base64url
+ * of the user id. Honoured only with a service token, as the header is.
+ */
+export const KAANA_REALTIME_USER_PROTOCOL_PREFIX = 'kaana.user.';

@@ -905,22 +905,38 @@ cannot sign an envelope it would accept. The signing private key stays in Oxy.
 ### Cloudflare request ceiling
 
 Public traffic to `kaana.ai` reaches Cloudflare before Kaana's dedicated load
-balancer. Oxy's normal edge-to-data-plane traffic resolves `kaana.ai` through
-the private Route 53 zone, so it does not consume this public counter.
+balancer. Oxy's edge-to-data-plane traffic uses the same Cloudflare-proxied
+apex (oxy-infra `app-kaana.tf`: the private Route 53 alias was removed), so it
+is counted by the `/internal` rule below too.
 
-`.github/workflows/cloudflare-rate-limit.yml` owns one zone-level
-`http_ratelimit` rule, identified by the stable ref
-`kaana_public_inference_per_ip`. It applies only to
-`/internal/v1/inference`, counts by Cloudflare data center and source IP, and
-blocks after 20 requests in 10 seconds for 10 seconds. This is an origin-abuse
-ceiling, not a customer quota or Kaana routing policy.
+`.github/workflows/cloudflare-rate-limit.yml` owns three zone-level
+`http_ratelimit` rules, each identified by a stable ref, each counting by
+Cloudflare data center and source IP. They are origin-abuse ceilings, not
+customer quotas or Kaana routing policy: per-credential and per-application
+rate limits on `/v1` are Oxy's, applied when Kaana asks for a grant.
+
+| Ref | Paths | Ceiling | Mitigation |
+|---|---|---|---|
+| `kaana_public_inference_per_ip` | `/internal/v1/inference` | 20 / 10 s | 10 s |
+| `kaana_public_api_per_ip` | `/v1/*` except `/v1/realtime` | 600 / 60 s | 60 s |
+| `kaana_public_realtime_per_ip` | `/v1/realtime` (WebSocket upgrades, resumes included) | 30 / 60 s | 60 s |
+
+The `/v1` ceilings are generous because many SDK callers share one IP behind a
+NAT; they bound what a stranger can make Kaana read before Oxy has said whose
+request it is (a JSON transcription upload is up to ~28 MiB). Realtime upgrades
+count separately and more strictly: each holds a session for up to an hour.
+The `/internal/v1/inference` rule is removed with the envelope in ADR 0002
+phase 5. The 60-second periods need Pro or higher, and Business allows five
+rate-limiting rules in the zone: these three plus the two credential-control
+rules (oxy-infra runbook 38) use all five until phase 5 frees one.
 
 Run the workflow with `action=check` first. Check mode performs GET requests
 only and fails on missing or drifted state. `action=apply` additionally requires
-`confirm_apply=kaana.ai`; it creates or updates only the rule with Kaana's ref,
-never deletes another rule, then reads the entry point back. A duplicate ref or
-a manual rule using Kaana's managed description is a hard conflict rather than
-an invitation to guess which rule to overwrite. DNS remains owned by the
+`confirm_apply=kaana.ai`; it creates (appended, as Cloudflare requires) or
+updates only the rules with Kaana's refs, never deletes another rule, then reads
+the entry point back. A duplicate ref or a manual rule using one of Kaana's
+managed descriptions is a hard conflict, checked for every owned rule before
+any write, rather than an invitation to guess which rule to overwrite. DNS remains owned by the
 separate Cloudflare DNS workflow.
 
 The existing Actions secret `CLOUDFLARE_API_TOKEN` supplies the token. It is

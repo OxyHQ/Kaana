@@ -99,7 +99,7 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 	if !request.Attribution.HasScope(contract.ScopeInvoke) {
 		return refuse(contract.NewError(requestID, contract.CodeInsufficientScope, "the session request does not carry inference:invoke"))
 	}
-	if request.Config.InputAudioTranscription != nil {
+	if request.Config.InputAudioTranscription != nil && !settledByGrant(ctx) {
 		return refuse(EnvelopeInputTranscriptionRefused(requestID))
 	}
 	for index, route := range request.AuthorizedRoutes {
@@ -294,7 +294,7 @@ func (e *Executor) SettleSession(ctx context.Context, opening *SessionOpening, e
 		settlement.Report = report
 	}
 
-	if e.costRecorder != nil && len(settlement.UpstreamCost.Attempts) > 0 {
+	if e.costRecorder != nil && len(settlement.UpstreamCost.Attempts) > 0 && !costRecordingDeferred(ctx) {
 		recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), providerCostPersistenceTimeout)
 		defer cancel()
 		settlement.CostRecordError = e.costRecorder.Record(recordContext, settlement.UpstreamCost)

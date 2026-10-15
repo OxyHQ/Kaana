@@ -257,7 +257,9 @@ func (m *Manager) resume(ctx context.Context, ws *websocket.Conn, frame []byte) 
 	m.mu.Lock()
 	s := m.sessions[command.RequestID]
 	m.mu.Unlock()
-	if s == nil {
+	if s == nil || s.public {
+		// A public session is resumed only through the public surface, by
+		// the credential that opened it.
 		m.refuseResume(ctx, ws, command, "no session with this requestId is open on this task")
 		return
 	}

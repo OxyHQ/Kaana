@@ -1,14 +1,15 @@
-# Reconciles Kaana's one owned zone-level rate-limiting rule. `check` performs
-# only GET requests. `apply` creates or updates only the rule identified by its
-# stable `ref`, then reads the entry point back. It never deletes or replaces
-# another rule and it never changes DNS.
+# Reconciles Kaana's owned zone-level rate-limiting rules (the /internal
+# inference lane, the public /v1 API and /v1/realtime upgrades). `check`
+# performs only GET requests. `apply` creates or updates only the rules
+# identified by their stable refs, then reads the entry point back. It never
+# deletes or replaces another rule and it never changes DNS.
 name: Cloudflare rate limit
 
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'check is read-only. apply reconciles Kaana owned rule.'
+        description: 'check is read-only. apply reconciles Kaana owned rules.'
         type: choice
         options: [check, apply]
         default: check
