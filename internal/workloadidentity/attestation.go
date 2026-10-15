@@ -69,6 +69,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 
 	"github.com/OxyHQ/Kaana/internal/awssig"
+	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 const (
@@ -194,10 +195,14 @@ func New(config Config) (*Client, error) {
 // in the one place that already owns it (internal/oxyvalidation). The URL is
 // copied rather than used, so a caller's value cannot be edited from here.
 //
+// The audience is the one thing about the token the caller chooses (Kaana ADR
+// 0002); Oxy decides the claims and refuses an audience this identity may not
+// hold.
+//
 // Failures are returned, never softened into an empty token: a process that
 // cannot prove what it is must not go on to make an unauthenticated request and
 // learn about it as a 401 somewhere else.
-func (c *Client) Mint(ctx context.Context, origin *url.URL) (string, time.Duration, error) {
+func (c *Client) Mint(ctx context.Context, origin *url.URL, audience contract.OxyAudience) (string, time.Duration, error) {
 	if origin == nil {
 		return "", 0, errors.New("workload identity: an Oxy API origin is required")
 	}
@@ -209,7 +214,7 @@ func (c *Client) Mint(ctx context.Context, origin *url.URL) (string, time.Durati
 	if err != nil {
 		return "", 0, err
 	}
-	return c.exchange(ctx, origin, nonce, headers)
+	return c.exchange(ctx, origin, nonce, headers, audience)
 }
 
 // challenge asks Oxy for the nonce the attestation will sign.
@@ -292,11 +297,12 @@ func (c *Client) attest(ctx context.Context, nonce string) (map[string]string, e
 }
 
 // exchange presents the attestation and returns the token Oxy mints from it.
-func (c *Client) exchange(ctx context.Context, origin *url.URL, nonce string, headers map[string]string) (string, time.Duration, error) {
+func (c *Client) exchange(ctx context.Context, origin *url.URL, nonce string, headers map[string]string, audience contract.OxyAudience) (string, time.Duration, error) {
 	body, err := json.Marshal(attestationRequest{
 		Provider:    attestationProvider,
 		Nonce:       nonce,
 		Attestation: signedRequest{Headers: headers},
+		Audience:    audience,
 	})
 	if err != nil {
 		return "", 0, fmt.Errorf("workload identity: encoding the attestation: %w", err)
@@ -337,7 +343,7 @@ func (c *Client) exchange(ctx context.Context, origin *url.URL, nonce string, he
 		return "", 0, errors.New("workload identity: Oxy answered the attestation without a usable token")
 	}
 	c.logger.Info("oxy service token minted from this task's workload identity",
-		"appName", granted.AppName, "expiresInSeconds", granted.ExpiresIn)
+		"appName", granted.AppName, "audience", audience, "expiresInSeconds", granted.ExpiresIn)
 	return granted.Token, time.Duration(granted.ExpiresIn) * time.Second, nil
 }
 
@@ -346,6 +352,8 @@ type attestationRequest struct {
 	Provider    string        `json:"provider"`
 	Nonce       string        `json:"nonce"`
 	Attestation signedRequest `json:"attestation"`
+	// Audience is always named, so no route depends on Oxy's default.
+	Audience contract.OxyAudience `json:"audience"`
 }
 
 // signedRequest is the whole attestation: signed headers, and nothing else.

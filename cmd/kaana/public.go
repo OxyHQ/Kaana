@@ -29,9 +29,11 @@ type publicAPIDependencies struct {
 	sessions  *realtime.Manager
 	store     *credentialstore.Postgres
 	keys      map[string]ed25519.PublicKey
-	token     publicapi.TokenSource
-	logger    *slog.Logger
-	getenv    func(string) string
+	// controlToken is Kaana's token for Oxy's /internal/kaana/v1/* (audience
+	// oxy-api:kaana-control). An oxy-api token is refused there with 401.
+	controlToken publicapi.TokenSource
+	logger       *slog.Logger
+	getenv       func(string) string
 }
 
 // publicAPI is the public surface, when it is enabled.
@@ -102,14 +104,14 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		return publicAPI{}, err
 	}
 	authorizer, err := publicapi.NewOxyAuthorizer(publicapi.OxyAuthorizerConfig{
-		URL: authorizationURL, Token: deps.token, Grants: grants, Logger: deps.logger,
+		URL: authorizationURL, Token: deps.controlToken, Grants: grants, Logger: deps.logger,
 		Timeout: durationFromEnv("KAANA_OXY_AUTHORIZATION_TIMEOUT", 10*time.Second),
 	})
 	if err != nil {
 		return publicAPI{}, err
 	}
 	settler, err := publicapi.NewSettler(publicapi.SettlerConfig{
-		Store: deps.store, URL: settlementURL, Token: deps.token, Signer: signer, Logger: deps.logger,
+		Store: deps.store, URL: settlementURL, Token: deps.controlToken, Signer: signer, Logger: deps.logger,
 	})
 	if err != nil {
 		return publicAPI{}, err

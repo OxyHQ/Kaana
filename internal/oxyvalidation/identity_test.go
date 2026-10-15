@@ -2,6 +2,7 @@ package oxyvalidation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -19,18 +20,20 @@ import (
 // attestedIdentity is a workload identity that mints without a secret, standing
 // in for internal/workloadidentity.
 type attestedIdentity struct {
-	mu       sync.Mutex
-	calls    int
-	origins  []string
-	token    string
-	lifetime time.Duration
-	err      error
+	mu        sync.Mutex
+	calls     int
+	origins   []string
+	audiences []contract.OxyAudience
+	token     string
+	lifetime  time.Duration
+	err       error
 }
 
-func (a *attestedIdentity) Mint(_ context.Context, origin *url.URL) (string, time.Duration, error) {
+func (a *attestedIdentity) Mint(_ context.Context, origin *url.URL, audience contract.OxyAudience) (string, time.Duration, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls++
+	a.audiences = append(a.audiences, audience)
 	if origin != nil {
 		a.origins = append(a.origins, origin.String())
 	}
@@ -40,6 +43,9 @@ func (a *attestedIdentity) Mint(_ context.Context, origin *url.URL) (string, tim
 	token, lifetime := a.token, a.lifetime
 	if token == "" {
 		token = "attested-service-token"
+	}
+	if audience != contract.OxyAPIAudience {
+		token += "@" + string(audience)
 	}
 	if lifetime == 0 {
 		lifetime = time.Hour
@@ -302,4 +308,65 @@ func TestAttestedTokenIsNotServedPastItsLifetime(t *testing.T) {
 	if mints, _ := attested.observed(); mints != 2 {
 		t.Fatalf("attestations = %d, want one per verdict for a token inside the drift margin", mints)
 	}
+}
+
+// The public API's grant and settlement calls need Oxy's control audience, and
+// Oxy refuses an oxy-api token there (401 kaana_workload_required). Each
+// audience is minted and cached on its own, by either identity.
+func TestControlTokenIsMintedForTheKaanaControlAudience(t *testing.T) {
+	t.Run("from the attested workload", func(t *testing.T) {
+		identity := &attestedIdentity{}
+		reporter, err := New(Config{
+			BaseURL: "https://api.oxy.so", WorkloadMinter: identity, Environment: contract.EnvironmentProduction,
+			Logger: slog.New(slog.DiscardHandler),
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		defer func() { _ = reporter.Close(context.Background()) }()
+		for range 2 {
+			control, err := reporter.ControlToken(context.Background())
+			if err != nil || control != "attested-service-token@oxy-api:kaana-control" {
+				t.Fatalf("ControlToken = %q, %v", control, err)
+			}
+			api, err := reporter.ServiceToken(context.Background())
+			if err != nil || api != "attested-service-token" {
+				t.Fatalf("ServiceToken = %q, %v", api, err)
+			}
+		}
+		identity.mu.Lock()
+		defer identity.mu.Unlock()
+		want := []contract.OxyAudience{contract.OxyKaanaControlAudience, contract.OxyAPIAudience}
+		if len(identity.audiences) != len(want) || identity.audiences[0] != want[0] || identity.audiences[1] != want[1] {
+			t.Fatalf("minted audiences = %v, want one of each, cached: %v", identity.audiences, want)
+		}
+	})
+
+	t.Run("from the key pair", func(t *testing.T) {
+		var audiences []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode mint: %v", err)
+			}
+			audiences = append(audiences, body["audience"])
+			_, _ = io.WriteString(w, `{"data":{"token":"pair-token-for-`+body["audience"]+`","expiresIn":3600}}`)
+		}))
+		defer server.Close()
+		reporter, err := New(Config{
+			BaseURL: server.URL, APIKey: "oxy_dk_kaana", APISecret: "kaana-service-secret",
+			Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler),
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		defer func() { _ = reporter.Close(context.Background()) }()
+		control, err := reporter.ControlToken(context.Background())
+		if err != nil || control != "pair-token-for-oxy-api:kaana-control" {
+			t.Fatalf("ControlToken = %q, %v", control, err)
+		}
+		if strings.Join(audiences, ",") != "oxy-api:kaana-control" {
+			t.Fatalf("minted audiences = %v", audiences)
+		}
+	})
 }
