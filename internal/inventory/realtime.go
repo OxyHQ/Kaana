@@ -45,15 +45,10 @@ type RealtimeAudioFormats struct {
 type AudioObservation struct {
 	Voices    []VoiceObservation `json:"voices"`
 	Languages []string           `json:"languages"`
-	// DetectsLanguage is a model that detects the spoken language when a
-	// request names none.
-	DetectsLanguage bool `json:"detectsLanguage"`
 	// InputMediaTypes are the media types a transcription upload may have,
 	// sorted; absent for a realtime model, whose encodings are
 	// RealtimeObservation.AudioFormats.
 	InputMediaTypes []contract.AudioInputMediaType `json:"inputMediaTypes,omitempty"`
-	// TranscriptionPrompt is a transcription model that takes a prompt.
-	TranscriptionPrompt bool `json:"transcriptionPrompt"`
 }
 
 // VoiceObservation is one voice.
@@ -272,8 +267,7 @@ func aggregateAudio(current, reported *AudioObservation) *AudioObservation {
 	if current == nil {
 		copied := AudioObservation{
 			Languages: slices.Clone(reported.Languages), Voices: make([]VoiceObservation, 0, len(reported.Voices)),
-			DetectsLanguage: reported.DetectsLanguage, InputMediaTypes: cloneOrNil(reported.InputMediaTypes),
-			TranscriptionPrompt: reported.TranscriptionPrompt,
+			InputMediaTypes: cloneOrNil(reported.InputMediaTypes),
 		}
 		for _, voice := range reported.Voices {
 			voice.Languages = slices.Clone(voice.Languages)
@@ -283,9 +277,7 @@ func aggregateAudio(current, reported *AudioObservation) *AudioObservation {
 	}
 	narrowed := AudioObservation{
 		Languages: intersectSorted(current.Languages, reported.Languages), Voices: []VoiceObservation{},
-		DetectsLanguage:     current.DetectsLanguage && reported.DetectsLanguage,
-		InputMediaTypes:     intersectMediaTypes(current.InputMediaTypes, reported.InputMediaTypes),
-		TranscriptionPrompt: current.TranscriptionPrompt && reported.TranscriptionPrompt,
+		InputMediaTypes: intersectMediaTypes(current.InputMediaTypes, reported.InputMediaTypes),
 	}
 	for _, voice := range current.Voices {
 		index := slices.IndexFunc(reported.Voices, func(other VoiceObservation) bool { return other.ID == voice.ID })

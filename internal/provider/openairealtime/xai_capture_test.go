@@ -277,60 +277,48 @@ func TestAnUnreadableEventIsNamed(t *testing.T) {
 	}
 }
 
-// TestXAIRefusesATextOnlyResponse: xAI answers aloud whatever modalities it
-// is sent (the capture: `modalities: ["text"]` confirmed, then audio streamed
-// and reported billable), so a text-only session is refused at open before
-// xAI is dialled, and a text-only session.update or response.create before a
-// byte is written. A spoken session, and text beside audio, are the controls;
-// OpenAI's text-only session is the control that nothing else changed.
-func TestXAIRefusesATextOnlyResponse(t *testing.T) {
-	text := []contract.RealtimeOutputModality{contract.RealtimeOutputText}
+// TestXAIServesATextOnlyResponseFromItsTranscript: xAI answers aloud whatever
+// modalities it is sent (the capture: `modalities: ["text"]` confirmed, then
+// audio streamed and reported billable). A text-only session is served by
+// asking xAI for its audio (Kaana ADR 0003): the audio is measured and not
+// relayed, and its transcript is the response's text. A response asked for
+// text beside audio is the control and is passed through as it is.
+func TestXAIServesATextOnlyResponseFromItsTranscript(t *testing.T) {
 	textOnly := spokenPushToTalk()
-	textOnly.OutputModalities, textOnly.Voice, textOnly.OutputAudioFormat = text, nil, nil
+	textOnly.OutputModalities, textOnly.Voice, textOnly.OutputAudioFormat = []contract.RealtimeOutputModality{contract.RealtimeOutputText}, nil, nil
+	spoken := make([]byte, 4800) // 100 ms of PCM16
 	upstream := fake.NewXAI(t)
-	request := provider.RealtimeOpenRequest{RequestID: requestID, Route: xaiRoute(), Kind: contract.RealtimeConversation, Config: textOnly}
-	_, _, err := xaiAdapter(t, upstream).Open(context.Background(), request, nil)
-	var unsupported provider.ErrUnsupported
-	if !errors.As(err, &unsupported) || unsupported.Code != contract.CodeInvalidRequest || unsupported.Param != "config.outputModalities" {
-		t.Fatalf("Open = %v; want invalid_request naming config.outputModalities", err)
-	}
-	if upstream.Dials() != 0 {
-		t.Errorf("a refused session dialled xAI %d times", upstream.Dials())
-	}
-
-	upstream = fake.NewXAI(t)
 	upstream.Script = func(conn *fake.Conn) {
 		created := conn.Expect("response.create")
-		if got := asJSON(t, created["response"]); got != `{"modalities":["text","audio"]}` {
-			t.Errorf("response.create = %s", got)
+		if got := asJSON(t, created["response"]); got != `{"modalities":["audio"]}` {
+			t.Errorf("response.create = %s; want xAI asked for its audio", got)
 		}
+		conn.Send(fake.Event{"type": "response.created", "response": fake.Event{"id": "resp_1", "object": "realtime.response", "status": "in_progress"}})
+		conn.Send(fake.Event{"type": "response.output_audio_transcript.delta", "response_id": "resp_1", "item_id": "item_answer", "content_index": 0, "delta": "Hola"})
+		conn.Send(fake.Event{"type": "response.output_audio.delta", "response_id": "resp_1", "item_id": "item_answer", "content_index": 0, "delta": base64.StdEncoding.EncodeToString(spoken)})
+		conn.Send(fake.Event{"type": "response.output_audio.done", "response_id": "resp_1", "item_id": "item_answer", "content_index": 0})
+		conn.Send(fake.Event{"type": "response.output_audio_transcript.done", "response_id": "resp_1", "item_id": "item_answer", "content_index": 0, "transcript": "Hola"})
+		conn.Send(fake.Event{"type": "response.done", "response": fake.Event{"id": "resp_1", "object": "realtime.response", "status": "completed"}})
 	}
-	session := xaiOpen(t, upstream, spokenPushToTalk())
-	for name, c := range map[string]struct {
-		command contract.RealtimeCommand
-		param   string
-	}{
-		"a text-only update": {&contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_update",
-			Config: contract.RealtimeSessionConfigUpdate{OutputModalities: text}}, "config.outputModalities"},
-		"a text-only response": {&contract.RealtimeResponseCreateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_text",
-			Response: &contract.RealtimeResponseParameters{OutputModalities: text}}, "response.outputModalities"},
-	} {
-		var refusal provider.ErrUnsupported
-		if err := session.Send(context.Background(), c.command); !errors.As(err, &refusal) || refusal.Param != c.param {
-			t.Errorf("%s: Send = %v; want a refusal naming %s", name, err, c.param)
-		}
+	session := xaiOpen(t, upstream, textOnly)
+	update := sessionOf(t, upstream.Received()[0])
+	if output, _ := update["audio"].(map[string]any)["output"].(map[string]any); output == nil || output["format"] == nil {
+		t.Errorf("session.update = %v; want an output format for the audio xAI will send", update)
 	}
-	send(t, session, &contract.RealtimeResponseCreateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_both",
-		Response: &contract.RealtimeResponseParameters{OutputModalities: []contract.RealtimeOutputModality{contract.RealtimeOutputText, contract.RealtimeOutputAudio}}})
-	_ = session.Close()
-	upstream.WaitClosed(t)
-	if types := upstream.ReceivedTypes(); !reflect.DeepEqual(types, []string{"session.update", "response.create"}) {
-		t.Errorf("xAI received %v; a refused command reached it", types)
+	send(t, session, &contract.RealtimeResponseCreateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_text"})
+	events := collectUntil(t, session, contract.RealtimeEventResponseDoneType)
+	want := []contract.RealtimeEventType{contract.RealtimeEventResponseCreatedType, contract.RealtimeEventTextDeltaType, contract.RealtimeEventResponseDoneType}
+	if got := eventTypes(events); !reflect.DeepEqual(got, want) {
+		t.Fatalf("a text-only response relayed %v, want %v", got, want)
 	}
-
-	openAIText := conversationConfig()
-	openAIText.OutputModalities, openAIText.Voice, openAIText.OutputAudioFormat = text, nil, nil
-	open(t, fake.New(t), openAIText)
+	if text := events[1].Event.(*contract.RealtimeTextDeltaEvent); text.Text != "Hola" {
+		t.Errorf("text = %q", text.Text)
+	}
+	if !reflect.DeepEqual(session.(provider.RealtimeMeter).Measured(), []contract.UsageQuantity{
+		{Unit: contract.UnitAudioOutputMilliseconds, Quantity: 100},
+	}) {
+		t.Errorf("measured = %v; the audio xAI sent is billed whether or not it is relayed", session.(provider.RealtimeMeter).Measured())
+	}
 }
 
 // TestAnIncompleteResponseReadsItsReason: OpenAI's status_details.reason

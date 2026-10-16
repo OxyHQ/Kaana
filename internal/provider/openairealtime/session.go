@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,15 +72,44 @@ type session struct {
 	// response.done for it (measured 2026-10-16), which left every client
 	// counting a response that never ends.
 	openResponse contract.RealtimeResponseID
+	// expected is the output modalities each response.create the client sent
+	// asked for (nil: the session's), in order, until the provider creates
+	// that response; asked is what each created response was asked for. What
+	// a response relays to the client is what it asked for, whatever the
+	// provider was asked for to give it (relayModalities).
+	expected []expectedResponse
+	asked    map[contract.RealtimeResponseID][]contract.RealtimeOutputModality
+	// inputs is each caller audio item's transcript so far (inputTranscript).
+	inputs map[string]*inputItem
+	// awaiting are the committed items without their final transcript yet,
+	// in the order they were committed.
+	awaiting []string
 
 	closeOnce sync.Once
+}
+
+type expectedResponse struct {
+	modalities []contract.RealtimeOutputModality
+}
+
+// inputItem is one item of the caller's audio, transcribed.
+type inputItem struct {
+	// committed is the item's audio having been committed: the provider's
+	// next completed transcript of it is the final one.
+	committed bool
+	// text is the transcript relayed so far as deltas.
+	text string
+	// done is the item's one transcript.done having been relayed.
+	done         bool
+	contentIndex int
 }
 
 func newSession(d *dialect, conn *websocket.Conn, request provider.RealtimeOpenRequest, key provider.Key, inputFormat contract.RealtimeAudioFormat) *session {
 	return &session{
 		dialect: d, conn: conn, requestID: request.RequestID, key: key,
-		inputFormat: inputFormat, outputFormat: request.Config.OutputAudioFormat, config: request.Config,
+		inputFormat: inputFormat, outputFormat: d.wireOutputFormat(request.Config), config: request.Config,
 		toolNames: make(map[string]string), namedTool: make(map[string]bool), streamed: make(map[string]bool),
+		asked: make(map[contract.RealtimeResponseID][]contract.RealtimeOutputModality), inputs: make(map[string]*inputItem),
 	}
 }
 
@@ -148,19 +179,43 @@ func (s *session) admitUpdate(update contract.RealtimeSessionConfigUpdate) error
 	return nil
 }
 
-// sessionModalities is the output modalities in effect for the next response:
-// the confirmed configuration, with every update sent since applied in order,
-// as the provider applies client events in order.
-func (s *session) sessionModalities() []contract.RealtimeOutputModality {
+// projectedConfig is the configuration in effect for the next command: the
+// confirmed one, with every update sent since applied in order, as the
+// provider applies client events in order.
+func (s *session) projectedConfig() contract.RealtimeSessionConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	modalities := s.config.OutputModalities
+	config := s.config
 	for _, pending := range s.pending {
-		if pending.update.OutputModalities != nil {
-			modalities = pending.update.OutputModalities
-		}
+		config = mergeUpdate(config, pending.update)
 	}
-	return modalities
+	return config
+}
+
+// expectResponse records what a response.create the client sent asked for.
+func (s *session) expectResponse(modalities []contract.RealtimeOutputModality) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.expected = append(s.expected, expectedResponse{modalities: modalities})
+}
+
+// relayModalities is what a response asked for: its response.create's, or
+// the session's for one the provider created itself (server_vad).
+func (s *session) relayModalities(id contract.RealtimeResponseID) []contract.RealtimeOutputModality {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if asked, ok := s.asked[id]; ok && asked != nil {
+		return asked
+	}
+	return s.config.OutputModalities
+}
+
+// emulated reports a response whose asked modalities the wire does not take
+// (WireOutputModalities asked it for audio instead): its text is the
+// transcript of that audio, and its audio is relayed only if it was asked for.
+func (s *session) emulated(id contract.RealtimeResponseID) (asked []contract.RealtimeOutputModality, emulated bool) {
+	asked = s.relayModalities(id)
+	return asked, asked != nil && !s.dialect.statement().Parameters.ServesOutputModalities(asked)
 }
 
 // Next returns the next normalized event.
@@ -293,7 +348,8 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 	case "input_audio_buffer.speech_stopped":
 		return one(&contract.RealtimeSpeechStoppedEvent{ItemID: contract.RealtimeItemID(event.ItemID), AudioEndMs: event.AudioEndMs}), nil
 	case "input_audio_buffer.committed":
-		return one(&contract.RealtimeInputAudioCommittedEvent{ItemID: contract.RealtimeItemID(event.ItemID), PreviousItemID: itemID(event.PreviousItemID)}), nil
+		events := s.inputCommitted(event.ItemID)
+		return append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeInputAudioCommittedEvent{ItemID: contract.RealtimeItemID(event.ItemID), PreviousItemID: itemID(event.PreviousItemID)}}), nil
 	case "input_audio_buffer.cleared":
 		return one(&contract.RealtimeInputAudioClearedEvent{}), nil
 
@@ -308,6 +364,10 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 		s.mu.Lock()
 		ended := s.openResponse
 		s.openResponse = created
+		if len(s.expected) > 0 {
+			s.asked[created] = s.expected[0].modalities
+			s.expected = s.expected[1:]
+		}
 		s.mu.Unlock()
 		events := one(&contract.RealtimeResponseCreatedEvent{ResponseID: created})
 		if ended != "" && ended != created {
@@ -322,15 +382,20 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 		return nil, nil
 
 	case "response.output_audio.delta":
-		return s.audioFrames(event)
+		frames, err := s.audioFrames(event)
+		if err != nil || s.relaysAudio(contract.RealtimeResponseID(event.ResponseID)) {
+			return frames, err
+		}
+		return nil, nil
 	case "response.output_audio.done":
+		if !s.relaysAudio(contract.RealtimeResponseID(event.ResponseID)) {
+			return nil, nil
+		}
 		return one(&contract.RealtimeOutputAudioDoneEvent{ResponseID: contract.RealtimeResponseID(event.ResponseID), ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex}), nil
 	case "response.output_audio_transcript.delta":
-		responseID := contract.RealtimeResponseID(event.ResponseID)
-		return one(&contract.RealtimeTranscriptDeltaEvent{Source: contract.RealtimeTranscriptOutput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, ResponseID: &responseID, Text: event.Delta}), nil
+		return s.outputTranscript(event, false), nil
 	case "response.output_audio_transcript.done":
-		responseID := contract.RealtimeResponseID(event.ResponseID)
-		return one(&contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptOutput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, ResponseID: &responseID, Transcript: event.Transcript}), nil
+		return s.outputTranscript(event, true), nil
 	case "response.output_text.delta":
 		return one(&contract.RealtimeTextDeltaEvent{ResponseID: contract.RealtimeResponseID(event.ResponseID), ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, Text: event.Delta}), nil
 
@@ -346,7 +411,13 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 		if !s.transcribingInput() || event.Delta == "" {
 			return nil, nil
 		}
-		return one(&contract.RealtimeTranscriptDeltaEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, Text: event.Delta}), nil
+		return s.inputRunning(event.ItemID, event.ContentIndex, func(text string) string { return text + event.Delta }), nil
+	case "conversation.item.input_audio_transcription.updated":
+		// xAI's running transcript of the item, whole each time.
+		if !s.transcribingInput() {
+			return nil, nil
+		}
+		return s.inputRunning(event.ItemID, event.ContentIndex, func(string) string { return event.Transcript }), nil
 	case "conversation.item.input_audio_transcription.completed":
 		return s.inputTranscript(event)
 	case "conversation.item.input_audio_transcription.failed":
@@ -355,10 +426,8 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 	// session.created after open, conversation.created, rate_limits.updated,
 	// content parts, output_text.done (the deltas already carried it),
 	// input_audio_buffer.timeout_triggered, WebRTC-only output buffer events,
-	// MCP events, OpenAI's diarized transcription segments and xAI's
-	// cumulative `input_audio_transcription.updated` (a running transcript
-	// that may rewrite what it said, where the contract's delta only appends):
-	// nothing in the contract names them.
+	// MCP events and OpenAI's diarized transcription segments: nothing in the
+	// contract names them.
 	return nil, nil
 }
 
@@ -372,9 +441,86 @@ func (s *session) transcribingInput() bool {
 	return s.config.InputAudioTranscription != nil
 }
 
-// inputTranscript is one turn of the caller's speech, transcribed. Its units
-// are what the provider bills the transcription model for (transcriptionUnits)
-// and are settled whether or not the transcript is relayed: a charge the
+// The caller's transcript: exactly one transcript.done per input item, the
+// final one, after the deltas that led to it (Kaana ADR 0003). OpenAI commits
+// an item and then sends one completed transcript. xAI sends a running
+// transcript and a "completed" one at every pause, repeats them, reuses the
+// item across pauses, and sends its final one only after the item is
+// committed (measured 2026-10-16). Both are one rule: an item's final
+// transcript is the first completed one after its commit; one before is a
+// running transcript, and one after the final is a repeat. A running
+// transcript is relayed as the deltas that extend what was relayed; one that
+// rewrites it adds no delta (the contract's delta only appends), and the
+// final transcript.done carries the whole text.
+
+func (s *session) inputItem(id string, contentIndex int) *inputItem {
+	item, ok := s.inputs[id]
+	if !ok {
+		item = &inputItem{contentIndex: contentIndex}
+		s.inputs[id] = item
+	}
+	return item
+}
+
+// inputRunning relays the extension of an item's running transcript, which
+// next computes from what was relayed so far.
+func (s *session) inputRunning(id string, contentIndex int, next func(relayed string) string) []provider.RealtimeUpstreamEvent {
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	item := s.inputItem(id, contentIndex)
+	if item.done {
+		s.mu.Unlock()
+		return nil
+	}
+	text := next(item.text)
+	delta, extends := strings.CutPrefix(text, item.text)
+	if !extends || delta == "" {
+		s.mu.Unlock()
+		return nil
+	}
+	item.text = text
+	s.mu.Unlock()
+	return one(&contract.RealtimeTranscriptDeltaEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(id), ContentIndex: item.contentIndex, Text: delta})
+}
+
+// inputCommitted marks an item committed: its next completed transcript is
+// final. An earlier item that was committed and is still waiting for its
+// final transcript is given the one it has, so no item stays without one.
+func (s *session) inputCommitted(id string) []provider.RealtimeUpstreamEvent {
+	if !s.transcribingInput() || id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var finals []provider.RealtimeUpstreamEvent
+	awaiting := s.awaiting[:0]
+	for _, other := range s.awaiting {
+		item := s.inputs[other]
+		switch {
+		case item.done:
+		case other == id:
+			awaiting = append(awaiting, other)
+		case item.text != "":
+			item.done = true
+			finals = append(finals, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(other), ContentIndex: item.contentIndex, Transcript: item.text}})
+		default:
+			awaiting = append(awaiting, other)
+		}
+	}
+	item := s.inputItem(id, 0)
+	if !item.committed && !item.done {
+		item.committed = true
+		awaiting = append(awaiting, id)
+	}
+	s.awaiting = awaiting
+	return finals
+}
+
+// inputTranscript is one completed transcript of the caller's speech. Its
+// units are what the provider bills the transcription model for
+// (transcriptionUnits) and are settled whatever is relayed: a charge the
 // provider made is never dropped. xAI's event carries no content_index; the
 // item it names is the caller's audio item, whose one part is index 0.
 func (s *session) inputTranscript(event serverEvent) ([]provider.RealtimeUpstreamEvent, error) {
@@ -382,17 +528,64 @@ func (s *session) inputTranscript(event serverEvent) ([]provider.RealtimeUpstrea
 	if err != nil {
 		return nil, err
 	}
-	if !s.transcribingInput() {
+	charge := func(events []provider.RealtimeUpstreamEvent) []provider.RealtimeUpstreamEvent {
 		if len(units) == 0 {
-			return nil, nil
+			return events
 		}
-		return []provider.RealtimeUpstreamEvent{{Units: units}}, nil
+		if len(events) == 0 {
+			return []provider.RealtimeUpstreamEvent{{Units: units}}
+		}
+		events[len(events)-1].Units = units
+		return events
+	}
+	if !s.transcribingInput() {
+		return charge(nil), nil
 	}
 	if event.ItemID == "" {
 		return nil, s.dialect.invalidEvent(event.Type, "item_id is absent")
 	}
-	done := &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, Transcript: event.Transcript}
-	return []provider.RealtimeUpstreamEvent{{Event: done, Units: units}}, nil
+	events := s.inputRunning(event.ItemID, event.ContentIndex, func(string) string { return event.Transcript })
+	s.mu.Lock()
+	item := s.inputItem(event.ItemID, event.ContentIndex)
+	final := item.committed && !item.done
+	if final {
+		item.done = true
+		item.text = event.Transcript
+	}
+	s.mu.Unlock()
+	if final {
+		events = append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: item.contentIndex, Transcript: event.Transcript}})
+	}
+	return charge(events), nil
+}
+
+// relaysAudio is whether a response's audio reaches the client: what it asked
+// for, whatever the provider was asked for to give it.
+func (s *session) relaysAudio(id contract.RealtimeResponseID) bool {
+	asked := s.relayModalities(id)
+	return asked == nil || slices.Contains(asked, contract.RealtimeOutputAudio)
+}
+
+// outputTranscript is the transcript of a response's speech. For a response
+// asked for modalities the wire does not take, the transcript IS the
+// response's text: a text-only response's text deltas (its audio is not
+// relayed), or a spoken-and-written response's text beside its transcript.
+func (s *session) outputTranscript(event serverEvent, done bool) []provider.RealtimeUpstreamEvent {
+	responseID := contract.RealtimeResponseID(event.ResponseID)
+	item := contract.RealtimeItemID(event.ItemID)
+	asked, emulated := s.emulated(responseID)
+	var events []provider.RealtimeUpstreamEvent
+	if !emulated || slices.Contains(asked, contract.RealtimeOutputAudio) {
+		if done {
+			events = append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptOutput, ItemID: item, ContentIndex: event.ContentIndex, ResponseID: &responseID, Transcript: event.Transcript}})
+		} else {
+			events = append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTranscriptDeltaEvent{Source: contract.RealtimeTranscriptOutput, ItemID: item, ContentIndex: event.ContentIndex, ResponseID: &responseID, Text: event.Delta}})
+		}
+	}
+	if emulated && slices.Contains(asked, contract.RealtimeOutputText) && !done && event.Delta != "" {
+		events = append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTextDeltaEvent{ResponseID: responseID, ItemID: item, ContentIndex: event.ContentIndex, Text: event.Delta}})
+	}
+	return events
 }
 
 // inputTranscriptionFailed reports that one turn could not be transcribed. It

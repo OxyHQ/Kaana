@@ -166,6 +166,8 @@ func TestATranscriptNobodyAskedForIsNotRelayedButItsChargeIsSettled(t *testing.T
 			t.Errorf("the enabling update sent %v, want %v", got, want)
 		}
 		conn.Send(fake.Event{"type": "session.updated", "session": update["session"]})
+		// OpenAI commits the item, then sends its one transcript.
+		conn.Send(fake.Event{"type": "input_audio_buffer.committed", "item_id": "item_3"})
 		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_3", "content_index": 0, "transcript": "now", "usage": fake.TranscriptionDuration(0.25)})
 	}
 	session := open(t, upstream, conversationConfig())
@@ -180,6 +182,12 @@ func TestATranscriptNobodyAskedForIsNotRelayedButItsChargeIsSettled(t *testing.T
 	if updated.Config.InputAudioTranscription == nil {
 		t.Errorf("the effective configuration lost the transcription: %+v", updated.Config)
 	}
+	if committed := next(t, session); committed.Event.EventType() != contract.RealtimeEventInputAudioCommittedType {
+		t.Fatalf("the commit = %+v", committed)
+	}
+	if delta := next(t, session); delta.Event.EventType() != contract.RealtimeEventTranscriptDeltaType {
+		t.Fatalf("the transcript's delta = %+v", delta)
+	}
 	relayed := next(t, session)
 	done, ok := relayed.Event.(*contract.RealtimeTranscriptDoneEvent)
 	if !ok || done.ItemID != "item_3" || !reflect.DeepEqual(relayed.Units, []contract.UsageQuantity{{Unit: contract.UnitInputTranscriptionMilliseconds, Quantity: 250}}) {
@@ -188,17 +196,22 @@ func TestATranscriptNobodyAskedForIsNotRelayedButItsChargeIsSettled(t *testing.T
 }
 
 // TestXAITranscribesInsideItsSessionPrice: xAI's wire names `grok-transcribe`
-// and a `language_hint` from its documented list, its completed event (no
-// content_index, no usage) becomes the caller's transcript, its cumulative
-// `updated` events are not relayed, and the session's measurement is exactly
-// what it would be without transcription: xAI's pricing has no transcription
-// line.
+// and a `language_hint` in its spelling, its running and early "completed"
+// transcripts become deltas that only append, its first completed transcript
+// after the commit is the item's one transcript.done, a repeat after it is
+// dropped, and the session's measurement is exactly what it would be without
+// transcription: xAI's pricing has no transcription line.
 func TestXAITranscribesInsideItsSessionPrice(t *testing.T) {
 	appended := base64.StdEncoding.EncodeToString(make([]byte, 4800)) // 100 ms of PCM16
 	script := func(conn *fake.Conn) {
 		conn.Expect("input_audio_buffer.append")
+		// Measured from xAI (2026-10-16): a running transcript, a "completed"
+		// one at the pause, the final one after the commit, and a repeat.
 		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.updated", "item_id": "item_user", "transcript": "Hol"})
 		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_user", "transcript": "Hola"})
+		conn.Send(fake.Event{"type": "input_audio_buffer.committed", "item_id": "item_user"})
+		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_user", "transcript": "Hola, Alia"})
+		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_user", "transcript": "Hola, Alia"})
 		conn.Send(fake.Event{"type": "input_audio_buffer.cleared"})
 	}
 	drive := func(config contract.RealtimeSessionConfig) ([]provider.RealtimeUpstreamEvent, []contract.UsageQuantity, *fake.Upstream) {
@@ -210,7 +223,9 @@ func TestXAITranscribesInsideItsSessionPrice(t *testing.T) {
 		return events, session.(provider.RealtimeMeter).Measured(), upstream
 	}
 
-	events, measured, upstream := drive(transcribed(pushToTalk(), contract.RealtimeInputTranscription{Language: pointer("es-MX")}))
+	// The client's own tag, in a region xAI does not list, is sent as xAI's
+	// variant of the language.
+	events, measured, upstream := drive(transcribed(pushToTalk(), contract.RealtimeInputTranscription{Language: pointer("es-AR")}))
 	update := sessionOf(t, upstream.Received()[0])
 	got := update["audio"].(map[string]any)["input"].(map[string]any)["transcription"]
 	if want := map[string]any{"model": "grok-transcribe", "language_hint": "es-MX"}; !reflect.DeepEqual(got, want) {
@@ -219,18 +234,31 @@ func TestXAITranscribesInsideItsSessionPrice(t *testing.T) {
 	if update["turn_detection"] == nil || update["voice"] != "eve" {
 		t.Errorf("xAI's flat session fields were displaced: %v", update)
 	}
-	if got := eventTypes(events); !reflect.DeepEqual(got, []contract.RealtimeEventType{contract.RealtimeEventTranscriptDoneType, contract.RealtimeEventInputAudioClearedType}) {
-		t.Fatalf("events = %v", got)
+	want := []contract.RealtimeEventType{
+		contract.RealtimeEventTranscriptDeltaType, contract.RealtimeEventTranscriptDeltaType, contract.RealtimeEventInputAudioCommittedType,
+		contract.RealtimeEventTranscriptDeltaType, contract.RealtimeEventTranscriptDoneType, contract.RealtimeEventInputAudioClearedType,
 	}
-	done := events[0].Event.(*contract.RealtimeTranscriptDoneEvent)
-	if done.Source != contract.RealtimeTranscriptInput || done.ItemID != "item_user" || done.ContentIndex != 0 || done.Transcript != "Hola" || len(events[0].Units) != 0 {
-		t.Errorf("xAI's input transcript = %+v units %v", done, events[0].Units)
+	if got := eventTypes(events); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	var deltas string
+	for _, event := range events {
+		if delta, ok := event.Event.(*contract.RealtimeTranscriptDeltaEvent); ok {
+			deltas += delta.Text
+		}
+	}
+	done := events[4].Event.(*contract.RealtimeTranscriptDoneEvent)
+	if done.Source != contract.RealtimeTranscriptInput || done.ItemID != "item_user" || done.ContentIndex != 0 || done.Transcript != "Hola, Alia" || len(events[4].Units) != 0 {
+		t.Errorf("xAI's input transcript = %+v units %v", done, events[4].Units)
+	}
+	if deltas != done.Transcript {
+		t.Errorf("the deltas append %q, the transcript is %q", deltas, done.Transcript)
 	}
 
 	// Control: the same session without transcription relays no transcript
 	// and is measured identically.
 	plainEvents, plainMeasured, _ := drive(pushToTalk())
-	if got := eventTypes(plainEvents); !reflect.DeepEqual(got, []contract.RealtimeEventType{contract.RealtimeEventInputAudioClearedType}) {
+	if got := eventTypes(plainEvents); !reflect.DeepEqual(got, []contract.RealtimeEventType{contract.RealtimeEventInputAudioCommittedType, contract.RealtimeEventInputAudioClearedType}) {
 		t.Errorf("an unrequested xAI transcript was relayed: %v", got)
 	}
 	if !reflect.DeepEqual(measured, plainMeasured) {
@@ -243,11 +271,10 @@ func TestXAITranscribesInsideItsSessionPrice(t *testing.T) {
 	}
 }
 
-// TestTheCatalogueStatementIsWhatTheAdapterServes ties the published
-// statement (providerconfig.RealtimeCapabilities) to this adapter: the flag
-// is set exactly where a dialect transcribes, every published encoding is one
-// the wire translates, and every language xAI publishes is one its
-// transcription takes — while one it does not publish is refused.
+// TestTheCatalogueStatementIsWhatTheAdapterServes ties the statement
+// (providerconfig.RealtimeCapabilities) to this adapter: the published flag is
+// set exactly where a dialect transcribes, every published encoding is one the
+// wire translates, and the internal parameters are valid.
 func TestTheCatalogueStatementIsWhatTheAdapterServes(t *testing.T) {
 	for _, d := range []*dialect{openAIDialect, xAIDialect} {
 		statement, stated := providerconfig.RealtimeCapabilities(d.slug, d.protocol)
@@ -266,119 +293,129 @@ func TestTheCatalogueStatementIsWhatTheAdapterServes(t *testing.T) {
 			}
 		}
 		if err := statement.Parameters.Validate(); err != nil {
-			t.Errorf("%s publishes parameters the catalogue refuses: %v", d.slug, err)
+			t.Errorf("%s states invalid parameters: %v", d.slug, err)
 		}
 	}
 }
 
-// TestTheDialectServesExactlyWhatTheStatementDeclares crosses the published
-// parameters (providerconfig.RealtimeCapabilities) with the dialect field by
-// field: every value the statement serves is written to the wire, and every
-// value of the contract it does not serve is refused naming its field. A
-// catalogue that advertised what a session refuses, or a session that refused
-// what the catalogue advertised, fails here.
-func TestTheDialectServesExactlyWhatTheStatementDeclares(t *testing.T) {
+// TestTheDialectTranslatesEveryContractValue: every value the contract
+// offers is either written to the provider's wire — as it is, or translated
+// or emulated (Kaana ADR 0003) — or, when no translation can serve it,
+// refused naming its contract field and exactly as Unservable, the check the
+// public API runs before a grant, says. Nothing in between.
+func TestTheDialectTranslatesEveryContractValue(t *testing.T) {
+	yes, no := true, false
+	detections := []contract.RealtimeTurnDetection{
+		{Type: contract.TurnDetectionNone},
+		{Type: contract.TurnDetectionServerVAD, CreateResponse: &yes, InterruptResponse: &yes, Threshold: pointer(0.0)},
+		{Type: contract.TurnDetectionServerVAD, CreateResponse: &yes, InterruptResponse: &yes, Threshold: pointer(1.0), SilenceDurationMs: pointer(10_000)},
+		{Type: contract.TurnDetectionServerVAD, CreateResponse: &no, InterruptResponse: &yes},
+		{Type: contract.TurnDetectionServerVAD, CreateResponse: &yes, InterruptResponse: &no},
+		{Type: contract.TurnDetectionSemanticVAD, Eagerness: pointer(contract.RealtimeVADEagerness("low")), CreateResponse: &yes, InterruptResponse: &yes},
+	}
+	choices := []contract.ToolChoice{
+		{Mode: pointer(contract.ToolChoiceAuto)}, {Mode: pointer(contract.ToolChoiceNone)}, {Mode: pointer(contract.ToolChoiceRequired)},
+		{Function: &contract.ToolChoiceFunction{Type: "function", Name: "lookup"}},
+	}
+	modalities := [][]contract.RealtimeOutputModality{
+		{contract.RealtimeOutputAudio}, {contract.RealtimeOutputText}, {contract.RealtimeOutputText, contract.RealtimeOutputAudio},
+	}
 	for _, d := range []*dialect{openAIDialect, xAIDialect} {
-		statement := d.statement()
-		parameters := statement.Parameters
-		base := func() contract.RealtimeSessionConfig {
-			config := conversationConfig()
-			config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionNone}
-			config.OutputModalities = parameters.OutputModalities[0]
-			config.InputAudioTranscription = nil
-			config.ToolChoice, config.MaxOutputTokens = nil, nil
-			return config
-		}
-		check := func(name, param string, served bool, mutate func(*contract.RealtimeSessionConfig)) {
+		parameters := d.statement().Parameters
+		check := func(name string, config contract.RealtimeSessionConfig) {
 			t.Helper()
-			config := base()
-			mutate(&config)
+			issues := parameters.Unservable("config", config.Fields())
 			_, err := d.wireSession(config)
 			var unsupported provider.ErrUnsupported
 			switch {
-			case served && err != nil:
-				t.Errorf("%s %s: the statement serves it and the dialect refused it: %v", d.slug, name, err)
-			case !served && (!errors.As(err, &unsupported) || unsupported.Param != param):
-				t.Errorf("%s %s: the statement does not serve it; wireSession = %v, want a refusal naming %s", d.slug, name, err, param)
+			case len(issues) == 0 && err != nil:
+				t.Errorf("%s %s: servable and refused: %v", d.slug, name, err)
+			case len(issues) > 0 && (!errors.As(err, &unsupported) || unsupported.Param != issues[0].Param):
+				t.Errorf("%s %s: unservable (%s); wireSession = %v", d.slug, name, issues[0].Param, err)
+			case len(issues) > 0 && strings.Contains(unsupported.Detail, d.name):
+				t.Errorf("%s %s: the refusal names the provider: %q", d.slug, name, unsupported.Detail)
 			}
 		}
-		if _, err := d.wireSession(base()); err != nil {
-			t.Fatalf("%s: the control configuration was refused: %v", d.slug, err)
-		}
-
-		fixed := true
-		detections := map[contract.RealtimeTurnDetectionType]contract.RealtimeTurnDetection{
-			contract.TurnDetectionNone:        {Type: contract.TurnDetectionNone},
-			contract.TurnDetectionServerVAD:   {Type: contract.TurnDetectionServerVAD, CreateResponse: &fixed, InterruptResponse: &fixed},
-			contract.TurnDetectionSemanticVAD: {Type: contract.TurnDetectionSemanticVAD, Eagerness: pointer(contract.RealtimeVADEagerness("low")), CreateResponse: &fixed, InterruptResponse: &fixed},
-		}
-		for kind, detection := range detections {
-			served, ok := parameters.TurnDetectionOf(kind)
-			check("turn detection "+string(kind), "config.turnDetection", ok, func(c *contract.RealtimeSessionConfig) { c.TurnDetection = detection })
-			if !ok || kind == contract.TurnDetectionNone {
-				continue
-			}
-			unfixed := false
-			check(string(kind)+" without createResponse", "config.turnDetection.createResponse", !served.FixedResponses, func(c *contract.RealtimeSessionConfig) {
-				c.TurnDetection = detection
-				c.TurnDetection.CreateResponse = &unfixed
-			})
-			check(string(kind)+" without interruptResponse", "config.turnDetection.interruptResponse", !served.FixedResponses, func(c *contract.RealtimeSessionConfig) {
-				c.TurnDetection = detection
-				c.TurnDetection.InterruptResponse = &unfixed
-			})
-			if served.Threshold != nil {
-				check(string(kind)+" threshold below its range", "config.turnDetection.threshold", false, func(c *contract.RealtimeSessionConfig) {
-					c.TurnDetection = detection
-					c.TurnDetection.Threshold = pointer(served.Threshold.Min / 2)
-				})
-				check(string(kind)+" threshold inside its range", "", true, func(c *contract.RealtimeSessionConfig) {
-					c.TurnDetection = detection
-					c.TurnDetection.Threshold = pointer(served.Threshold.Min)
-				})
+		for _, detection := range detections {
+			for _, choice := range choices {
+				for _, set := range modalities {
+					for _, transcription := range []*contract.RealtimeInputTranscription{
+						nil, {Language: pointer("es-AR"), Prompt: pointer("names: Kaana")}, {Language: pointer("gl")},
+					} {
+						config := conversationConfig()
+						config.TurnDetection, config.ToolChoice, config.OutputModalities = detection, &choice, set
+						config.InputAudioTranscription, config.MaxOutputTokens = transcription, pointer(8192)
+						check(fmt.Sprintf("%v/%v/%v/%v", detection.Type, contract.RealtimeToolChoiceOf(choice), set, transcription != nil), config)
+					}
+				}
 			}
 		}
+	}
+}
 
-		for _, set := range [][]contract.RealtimeOutputModality{
-			{contract.RealtimeOutputAudio}, {contract.RealtimeOutputText}, {contract.RealtimeOutputText, contract.RealtimeOutputAudio},
-		} {
-			check(fmt.Sprintf("output modalities %v", set), "config.outputModalities", parameters.ServesOutputModalities(set), func(c *contract.RealtimeSessionConfig) {
-				c.OutputModalities = set
-			})
-		}
+// TestXAITranslatesWhatItsWireSpellsDifferently pins the translations onto
+// xAI's wire: semantic_vad runs as its server_vad, a detection that names no
+// silence waits Kaana's default and one that does waits its own, the
+// contract's threshold is mapped onto xAI's 0.1-0.9, `none` withholds the
+// tools, a cap past the wire's is the wire's, and a prompt (a hint) is not
+// sent where xAI has none.
+func TestXAITranslatesWhatItsWireSpellsDifferently(t *testing.T) {
+	yes := true
+	config := pushToTalk()
+	config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionSemanticVAD, Eagerness: pointer(contract.RealtimeVADEagerness("high")), CreateResponse: &yes, InterruptResponse: &yes}
+	config.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceNone)}
+	config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("pt-AO"), Prompt: pointer("names")}
+	wire, err := xAIDialect.wireSession(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := asJSON(t, wire.TurnDetection); got != `{"silence_duration_ms":500,"type":"server_vad"}` {
+		t.Errorf("semantic_vad on xAI = %s", got)
+	}
+	if wire.Tools == nil || len(*wire.Tools) != 0 || wire.ToolChoice != nil {
+		t.Errorf("toolChoice none = tools %v, tool_choice %s; want the tools withheld", wire.Tools, wire.ToolChoice)
+	}
+	transcription := wire.Audio.Input.Transcription
+	if transcription.Prompt != nil || transcription.LanguageHint == nil || *transcription.LanguageHint != "pt-BR" {
+		t.Errorf("transcription = %+v; want pt-BR and no prompt", transcription)
+	}
+	config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionServerVAD, Threshold: pointer(0.5), SilenceDurationMs: pointer(800), CreateResponse: &yes, InterruptResponse: &yes}
+	if wire, err = xAIDialect.wireSession(config); err != nil || asJSON(t, wire.TurnDetection) != `{"silence_duration_ms":800,"threshold":0.5,"type":"server_vad"}` {
+		t.Errorf("the contract's middle threshold on xAI = %s, %v; want xAI's middle", asJSON(t, wire.TurnDetection), err)
+	}
+	openAI := conversationConfig()
+	openAI.MaxOutputTokens = pointer(9000)
+	if wire, err = openAIDialect.wireSession(openAI); err != nil || wire.MaxOutputTokens == nil || *wire.MaxOutputTokens != 4096 {
+		t.Errorf("a cap past OpenAI's = %v, %v; want 4096", wire.MaxOutputTokens, err)
+	}
+}
 
-		choices := map[contract.RealtimeToolChoice]contract.ToolChoice{
-			contract.RealtimeToolChoiceAuto:     {Mode: pointer(contract.ToolChoiceAuto)},
-			contract.RealtimeToolChoiceNone:     {Mode: pointer(contract.ToolChoiceNone)},
-			contract.RealtimeToolChoiceRequired: {Mode: pointer(contract.ToolChoiceRequired)},
-			contract.RealtimeToolChoiceFunction: {Function: &contract.ToolChoiceFunction{Type: "function", Name: "lookup"}},
-		}
-		for kind, choice := range choices {
-			check("tool choice "+string(kind), "config.toolChoice", slices.Contains(parameters.ToolChoice, kind), func(c *contract.RealtimeSessionConfig) {
-				c.ToolChoice = &choice
-			})
-		}
-
-		if parameters.MaxOutputTokens == nil {
-			check("an output token cap", "config.maxOutputTokens", false, func(c *contract.RealtimeSessionConfig) { c.MaxOutputTokens = pointer(100) })
-		} else {
-			check("the largest output token cap", "", true, func(c *contract.RealtimeSessionConfig) { c.MaxOutputTokens = pointer(*parameters.MaxOutputTokens) })
-			check("an output token cap past it", "config.maxOutputTokens", false, func(c *contract.RealtimeSessionConfig) { c.MaxOutputTokens = pointer(*parameters.MaxOutputTokens + 1) })
-		}
-
-		check("a transcription prompt", "config.inputAudioTranscription.prompt", parameters.InputTranscriptionPrompt, func(c *contract.RealtimeSessionConfig) {
-			c.InputAudioTranscription = &contract.RealtimeInputTranscription{Prompt: pointer("names: Kaana, Alia")}
-		})
-		for _, language := range statement.Languages {
-			check("the published language "+language, "", true, func(c *contract.RealtimeSessionConfig) {
-				c.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer(language)}
-			})
-		}
-		check("a language it does not publish", "config.inputAudioTranscription.language", false, func(c *contract.RealtimeSessionConfig) {
-			c.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("gl")}
-		})
-		check("no language, which the model detects", "", statement.DetectsLanguage, func(c *contract.RealtimeSessionConfig) {
-			c.InputAudioTranscription = &contract.RealtimeInputTranscription{}
-		})
+// TestEveryCommittedItemGetsOneTranscript: an item whose final transcript
+// never comes is given the one it has when the next item is committed, before
+// that commit, and a late transcript of it afterwards relays nothing more.
+func TestEveryCommittedItemGetsOneTranscript(t *testing.T) {
+	upstream := fake.NewXAI(t)
+	upstream.Script = func(conn *fake.Conn) {
+		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.updated", "item_id": "item_1", "transcript": "uno"})
+		conn.Send(fake.Event{"type": "input_audio_buffer.committed", "item_id": "item_1"})
+		conn.Send(fake.Event{"type": "input_audio_buffer.committed", "item_id": "item_2", "previous_item_id": "item_1"})
+		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_1", "transcript": "uno dos"})
+		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_2", "transcript": "tres"})
+		conn.Send(fake.Event{"type": "input_audio_buffer.cleared"})
+	}
+	session := xaiOpen(t, upstream, transcribed(pushToTalk(), contract.RealtimeInputTranscription{}))
+	events := collectUntil(t, session, contract.RealtimeEventInputAudioClearedType)
+	want := []contract.RealtimeEventType{
+		contract.RealtimeEventTranscriptDeltaType, contract.RealtimeEventInputAudioCommittedType,
+		contract.RealtimeEventTranscriptDoneType, contract.RealtimeEventInputAudioCommittedType,
+		contract.RealtimeEventTranscriptDeltaType, contract.RealtimeEventTranscriptDoneType,
+		contract.RealtimeEventInputAudioClearedType,
+	}
+	if got := eventTypes(events); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	first, second := events[2].Event.(*contract.RealtimeTranscriptDoneEvent), events[5].Event.(*contract.RealtimeTranscriptDoneEvent)
+	if first.ItemID != "item_1" || first.Transcript != "uno" || second.ItemID != "item_2" || second.Transcript != "tres" {
+		t.Errorf("transcripts = %+v, %+v", first, second)
 	}
 }

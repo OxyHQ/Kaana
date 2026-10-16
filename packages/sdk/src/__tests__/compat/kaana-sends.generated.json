@@ -1,0 +1,653 @@
+{
+  "authorizations": [
+    {
+      "schemaVersion": 1,
+      "kind": "inference",
+      "credential": "oxy_sk_test_valid_synthetic",
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "operation": "realtime_session",
+      "target": {
+        "kind": "model",
+        "modelLine": "openai/gpt-realtime-2.1"
+      },
+      "facts": {
+        "declaredTools": 1,
+        "stream": true,
+        "realtimeSessionKind": "conversation"
+      },
+      "bodySha256": "fd55a93145851fa079579c1bcbc73d6a5b387cd2eb688897fa82002a15f3d9a6",
+      "client": {
+        "endpoint": "/v1/realtime",
+        "receivedAt": "2026-10-16T04:44:31.587Z"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "inference",
+      "credential": "oxy_sk_test_valid_synthetic",
+      "requestId": "req_xs2te4bvtratgjeqf4rbway6te",
+      "operation": "audio_transcriptions",
+      "target": {
+        "kind": "model",
+        "modelLine": "stub/whisper"
+      },
+      "facts": {
+        "audioInputMilliseconds": 1500,
+        "declaredTools": 0,
+        "stream": false
+      },
+      "bodySha256": "18e705916881d1abdef277b31ded42d41c1a883831c2afd2caca42b0884371c9",
+      "client": {
+        "endpoint": "/v1/audio/transcriptions",
+        "receivedAt": "2026-10-16T04:44:31.595Z"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "catalogue.read",
+      "credential": "oxy_sk_test_valid_synthetic",
+      "requestId": "req_hfgb4xjfh4lezpodnjoen6xonq"
+    }
+  ],
+  "catalogue": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "g711_alaw",
+                "g711_ulaw",
+                "pcm16_24khz"
+              ],
+              "output": [
+                "g711_alaw",
+                "g711_ulaw",
+                "pcm16_24khz"
+              ]
+            },
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation",
+              "transcription"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "licenseId": "proprietary",
+          "displayName": "Proprietary",
+          "commercialUseAllowed": true,
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "slug": "openai",
+          "displayName": "OpenAI"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "outputModalities": [
+            "text"
+          ],
+          "tools": true,
+          "parallelToolCalls": false,
+          "structuredOutput": false,
+          "jsonMode": false,
+          "reasoning": false,
+          "streaming": true,
+          "promptCaching": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "licenseId": "proprietary",
+          "displayName": "Proprietary",
+          "commercialUseAllowed": true,
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "priceVersionId": "price-1",
+          "currency": "USD",
+          "unitPrices": [
+            {
+              "unit": "output_tokens",
+              "amount": "0.000002",
+              "per": 1,
+              "currency": "USD"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "slug": "stub",
+          "displayName": "Stub Labs"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "voices": [
+            {
+              "id": "rachel",
+              "name": "Rachel",
+              "languages": [
+                "en"
+              ]
+            }
+          ],
+          "languages": [
+            "en"
+          ],
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "speed": {
+            "min": 0.7,
+            "max": 1.2
+          },
+          "maxInputCharacters": 5000
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "outputModalities": [
+            "audio"
+          ],
+          "tools": false,
+          "parallelToolCalls": false,
+          "structuredOutput": false,
+          "jsonMode": false,
+          "reasoning": false,
+          "streaming": true,
+          "promptCaching": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "licenseId": "proprietary",
+          "displayName": "Proprietary",
+          "commercialUseAllowed": true,
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "slug": "stub",
+          "displayName": "Stub Labs"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  },
+  "realtimeEvents": [
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 0,
+      "type": "session.created",
+      "model": "openai/gpt-realtime-2.1@observed-2026-09-30",
+      "kind": "conversation",
+      "config": {
+        "instructions": "be brief",
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "voice": "marin",
+        "inputAudioFormat": "pcm16_24khz",
+        "outputAudioFormat": "pcm16_24khz",
+        "turnDetection": {
+          "type": "none"
+        },
+        "inputAudioTranscription": {
+          "language": "es-AR"
+        },
+        "tools": [
+          {
+            "type": "function",
+            "name": "lookup",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxDurationMs": 120000,
+        "idleTimeoutMs": 120000,
+        "maxInputAudioBytes": 172800000,
+        "maxOutputAudioBytes": 172800000,
+        "maxResponses": 1000
+      },
+      "resumeWindowMs": 30000,
+      "startedAt": "2026-10-16T04:44:31.591Z",
+      "expiresAt": "2026-10-16T04:46:31.591Z"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 1,
+      "type": "input_audio.committed",
+      "itemId": "item_user"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 2,
+      "type": "transcript.delta",
+      "source": "input_audio",
+      "itemId": "item_user",
+      "contentIndex": 0,
+      "text": "hol"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 3,
+      "type": "transcript.delta",
+      "source": "input_audio",
+      "itemId": "item_user",
+      "contentIndex": 0,
+      "text": "a"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 4,
+      "type": "transcript.done",
+      "source": "input_audio",
+      "itemId": "item_user",
+      "contentIndex": 0,
+      "transcript": "hola"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 5,
+      "type": "response.created",
+      "responseId": "resp_1"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 6,
+      "type": "transcript.delta",
+      "source": "output_audio",
+      "itemId": "item_answer",
+      "contentIndex": 0,
+      "responseId": "resp_1",
+      "text": "Hi"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 7,
+      "type": "text.delta",
+      "responseId": "resp_1",
+      "itemId": "item_answer",
+      "contentIndex": 0,
+      "text": "Hi"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 8,
+      "type": "output_audio.delta",
+      "responseId": "resp_1",
+      "itemId": "item_answer",
+      "contentIndex": 0,
+      "format": "pcm16_24khz",
+      "data": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 9,
+      "type": "output_audio.done",
+      "responseId": "resp_1",
+      "itemId": "item_answer",
+      "contentIndex": 0
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 10,
+      "type": "transcript.done",
+      "source": "output_audio",
+      "itemId": "item_answer",
+      "contentIndex": 0,
+      "responseId": "resp_1",
+      "transcript": "Hi"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 11,
+      "type": "response.done",
+      "responseId": "resp_1",
+      "status": "completed",
+      "finishReason": "stop",
+      "units": [
+        {
+          "unit": "input_tokens",
+          "quantity": 10
+        },
+        {
+          "unit": "cached_input_tokens",
+          "quantity": 0
+        },
+        {
+          "unit": "audio_input_tokens",
+          "quantity": 20
+        },
+        {
+          "unit": "cached_audio_input_tokens",
+          "quantity": 0
+        },
+        {
+          "unit": "output_tokens",
+          "quantity": 3
+        },
+        {
+          "unit": "audio_output_tokens",
+          "quantity": 40
+        }
+      ],
+      "usageSource": "provider_reported"
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 12,
+      "commandId": "cmd_refused",
+      "type": "command.accepted",
+      "duplicate": false
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 13,
+      "commandId": "cmd_refused",
+      "type": "error",
+      "fatal": false,
+      "error": {
+        "schemaVersion": 1,
+        "code": "invalid_request",
+        "message": "the request cannot be served as asked (item.content[0].type)",
+        "retryable": false,
+        "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+        "param": "item.content[0].type"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 14,
+      "commandId": "cmd_close",
+      "type": "command.accepted",
+      "duplicate": false
+    },
+    {
+      "schemaVersion": 1,
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "sequence": 15,
+      "type": "session.closed",
+      "reason": "client_closed",
+      "units": [
+        {
+          "unit": "audio_input_tokens",
+          "quantity": 20
+        },
+        {
+          "unit": "audio_output_tokens",
+          "quantity": 40
+        },
+        {
+          "unit": "cached_audio_input_tokens",
+          "quantity": 0
+        },
+        {
+          "unit": "cached_input_tokens",
+          "quantity": 0
+        },
+        {
+          "unit": "input_tokens",
+          "quantity": 10
+        },
+        {
+          "unit": "input_transcription_milliseconds",
+          "quantity": 500
+        },
+        {
+          "unit": "output_tokens",
+          "quantity": 3
+        }
+      ],
+      "usageSource": "provider_reported",
+      "closedAt": "2026-10-16T04:44:31.593Z"
+    }
+  ],
+  "settlements": [
+    {
+      "schemaVersion": 1,
+      "settlementId": "stl_mwq6x3qni3qv7sue3oo65jjrtq",
+      "grantId": "grt_1",
+      "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+      "reservationId": "rsv_1",
+      "servedStep": 0,
+      "report": {
+        "schemaVersion": 2,
+        "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+        "generationId": "gen_z747l4jqerzb53wnlmaur5ixoi",
+        "attribution": {
+          "principal": {
+            "billing": {
+              "accountId": "acct_1"
+            },
+            "applicationId": "app_1",
+            "credentialId": "cred_1",
+            "environment": "production",
+            "inferenceScopes": [
+              "inference:invoke"
+            ]
+          },
+          "requestId": "req_cla42qsaaknywipvhva2orhc3q",
+          "generationId": "gen_z747l4jqerzb53wnlmaur5ixoi"
+        },
+        "outcome": "completed",
+        "units": [
+          {
+            "unit": "audio_input_tokens",
+            "quantity": 20
+          },
+          {
+            "unit": "audio_output_tokens",
+            "quantity": 40
+          },
+          {
+            "unit": "cached_audio_input_tokens",
+            "quantity": 0
+          },
+          {
+            "unit": "cached_input_tokens",
+            "quantity": 0
+          },
+          {
+            "unit": "input_tokens",
+            "quantity": 10
+          },
+          {
+            "unit": "input_transcription_milliseconds",
+            "quantity": 500
+          },
+          {
+            "unit": "output_tokens",
+            "quantity": 3
+          }
+        ],
+        "usageSource": "provider_reported",
+        "resolvedModelReference": "openai/gpt-realtime-2.1@observed-2026-09-30",
+        "servingProvider": "openai-realtime",
+        "deploymentId": "dep_realtime",
+        "routeSwitches": 0,
+        "startedAt": "2026-10-16T04:44:31.590Z",
+        "completedAt": "2026-10-16T04:44:31.593Z",
+        "timeToFirstTokenMs": 1
+      },
+      "createdAt": "2026-10-16T04:44:31.594Z"
+    },
+    {
+      "schemaVersion": 1,
+      "settlementId": "stl_qytnfwqwlhi6vixozsc7exotue",
+      "grantId": "grt_2",
+      "requestId": "req_xs2te4bvtratgjeqf4rbway6te",
+      "reservationId": "rsv_2",
+      "servedStep": 0,
+      "report": {
+        "schemaVersion": 2,
+        "requestId": "req_xs2te4bvtratgjeqf4rbway6te",
+        "generationId": "gen_cy533zg4l5we32634bpjbe63ym",
+        "attribution": {
+          "principal": {
+            "billing": {
+              "accountId": "acct_1"
+            },
+            "applicationId": "app_1",
+            "credentialId": "cred_1",
+            "environment": "production",
+            "inferenceScopes": [
+              "inference:invoke"
+            ]
+          },
+          "requestId": "req_xs2te4bvtratgjeqf4rbway6te",
+          "generationId": "gen_cy533zg4l5we32634bpjbe63ym"
+        },
+        "outcome": "completed",
+        "units": [
+          {
+            "unit": "audio_input_milliseconds",
+            "quantity": 1000
+          }
+        ],
+        "usageSource": "provider_reported",
+        "resolvedModelReference": "stub/whisper@v1",
+        "servingProvider": "stub",
+        "deploymentId": "dep_whisper",
+        "routeSwitches": 0,
+        "startedAt": "2026-10-16T04:44:31.597Z",
+        "completedAt": "2026-10-16T04:44:31.597Z",
+        "timeToFirstTokenMs": 0
+      },
+      "createdAt": "2026-10-16T04:44:31.597Z"
+    }
+  ],
+  "transcription": {
+    "schemaVersion": 1,
+    "requestId": "req_xs2te4bvtratgjeqf4rbway6te",
+    "model": "stub/whisper@v1",
+    "text": "hola mundo",
+    "durationMs": 1500,
+    "usage": [
+      {
+        "unit": "audio_input_milliseconds",
+        "quantity": 1000
+      }
+    ]
+  }
+}

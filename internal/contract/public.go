@@ -333,6 +333,15 @@ type RealtimeOpenLimits struct {
 // the connection before it is read.
 const MaxRealtimeOpenFrameBytes = 1 << 20
 
+// DefaultSilenceDurationMs is the silence after which server_vad ends a
+// caller's turn when the session names none
+// (REALTIME_DEFAULT_SILENCE_DURATION_MS, contract set 6.0.0, Kaana ADR 0003):
+// sent to every provider, so a turn ends the same way whichever serves the
+// session. Measured on xAI's grok-voice-3.0 (2026-10-16): its own default cut
+// a phrase with 0.56 s and 0.79 s pauses into three responses, two cancelled;
+// 500 ms answered it once, 490-576 ms after it ended.
+const DefaultSilenceDurationMs = 500
+
 // RealtimeSessionOpen is the first frame of GET /v1/realtime.
 type RealtimeSessionOpen struct {
 	Type            string                    `json:"type"`

@@ -88,10 +88,12 @@ type meter struct {
 
 // newMeter measures a session opened at openedAt. clock is whether the
 // provider bills this session by its wall clock rather than by its audio.
-func newMeter(config contract.RealtimeSessionConfig, clock bool, openedAt time.Time, now func() time.Time) *meter {
+// output is the encoding the provider speaks in (dialect.wireOutputFormat),
+// which is what its audio is measured at.
+func newMeter(config contract.RealtimeSessionConfig, output *contract.RealtimeAudioFormat, clock bool, openedAt time.Time, now func() time.Time) *meter {
 	m := &meter{inputRate: bytesPerSecond(config.InputAudioFormat), clock: clock, now: now, openedAt: openedAt}
-	if config.OutputAudioFormat != nil {
-		m.outputRate = bytesPerSecond(*config.OutputAudioFormat)
+	if output != nil {
+		m.outputRate = bytesPerSecond(*output)
 	}
 	return m
 }

@@ -843,8 +843,9 @@ The other warnings remain exclusions:
   as file transcription on Groq's OpenAI-compatible `/audio/transcriptions`
   (`internal/provider/openaitranscription`), classified by
   `providerconfig.ClassifyModel` and taken as `providerconfig.TranscriptionCapabilities`
-  states: Groq's containers, no language list (the model detects it), a
-  prompt, and its ten-second minimum billed length.[^groq-transcription]
+  states: Groq's containers, Whisper's ISO 639-1 languages (a client's BCP 47
+  tag is sent as its code, or none for the model to detect), a prompt, and its
+  ten-second minimum billed length.[^groq-transcription]
 - Groq's Llama Prompt Guard 2 (`meta-llama/llama-prompt-guard-2-22m`,
   `-86m`) is an mDeBERTa classifier with a 512-token window. Groq serves it at
   `/chat/completions`, but it holds no conversation and fails a streamed chat

@@ -17,9 +17,9 @@ import (
 type TranscriptionStatement struct {
 	// MediaTypes are the uploads the provider detects, sorted.
 	MediaTypes []contract.AudioInputMediaType
-	// Languages are the BCP 47 tags a request may name in `language`, sent to
-	// the provider as they are. Empty: the provider documents no list, so a
-	// request names none and the model detects the language.
+	// Languages are the tags the provider takes as `language`; a client's tag
+	// is normalized onto them (NormalizeLanguage), and one the provider takes
+	// nothing of is not sent, so the model detects it.
 	Languages []string
 	// DetectsLanguage is a model that detects the spoken language when a
 	// request names none.
@@ -55,6 +55,12 @@ func TranscriptionCapabilities(slug contract.ProviderSlug, protocol string) (sta
 	return statement, true
 }
 
+// LanguageFor is the tag to send for the language a client named, or false to
+// send none and let the model detect it.
+func (s TranscriptionStatement) LanguageFor(tag string) (string, bool) {
+	return NormalizeLanguage(tag, s.Languages, nil)
+}
+
 // xAITranscription is xAI's `POST /v1/stt`, read 2026-10-16 at
 // https://docs.x.ai/developers/model-capabilities/audio/speech-to-text: it
 // auto-detects WAV, MP3, OGG/Opus, FLAC, AAC, MP4/M4A and MKV (WebM is
@@ -75,12 +81,12 @@ var xAITranscription = TranscriptionStatement{
 // groqTranscription is Groq's OpenAI-compatible
 // `POST /openai/v1/audio/transcriptions`, read 2026-10-16 at
 // https://console.groq.com/docs/speech-to-text: "flac, mp3, mp4, mpeg, mpga,
-// m4a, ogg, wav, webm"; `language` is an ISO-639-1 code and Groq publishes no
-// list beyond "Multilingual", so none is named and the model detects it; a
-// `prompt` of up to 224 tokens; "Minimum billed length: 10 seconds".
+// m4a, ogg, wav, webm"; `language` is an ISO-639-1 code, sent for the
+// languages Whisper transcribes (whisperLanguages); a `prompt` of up to 224
+// tokens; "Minimum billed length: 10 seconds".
 var groqTranscription = TranscriptionStatement{
 	MediaTypes:                []contract.AudioInputMediaType{"audio/flac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm"},
-	Languages:                 []string{},
+	Languages:                 whisperLanguages,
 	DetectsLanguage:           true,
 	Prompt:                    true,
 	MinimumBilledMilliseconds: 10_000,
@@ -89,11 +95,12 @@ var groqTranscription = TranscriptionStatement{
 // openAITranscription is OpenAI's `POST /v1/audio/transcriptions`, read
 // 2026-10-16 at https://developers.openai.com/api/docs/guides/speech-to-text:
 // "mp3, mp4, mpeg, mpga, m4a, wav, and webm" (ogg and flac are what this
-// adapter has served since it was reviewed, docs/openai-audio.md); no list of
-// languages, so none is named and the model detects it; a `prompt`.
+// adapter has served since it was reviewed, docs/openai-audio.md); `language`
+// in "ISO 639-1 codes, such as en, es, and fr" (the same guide), sent for the
+// languages Whisper transcribes (whisperLanguages); a `prompt`.
 var openAITranscription = TranscriptionStatement{
 	MediaTypes:      []contract.AudioInputMediaType{"audio/flac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm"},
-	Languages:       []string{},
+	Languages:       whisperLanguages,
 	DetectsLanguage: true,
 	Prompt:          true,
 }

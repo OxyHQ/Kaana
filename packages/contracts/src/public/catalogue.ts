@@ -19,10 +19,8 @@ import {
   audioInputMediaTypeSchema,
   languageTagSchema,
   realtimeAudioFormatSchema,
-  realtimeOutputModalitySchema,
-  realtimeTurnDetectionTypeSchema,
 } from './audioFormats.js';
-import { priceSnapshotSchema, usageUnitSchema } from './money.js';
+import { moneySchema, priceSnapshotSchema } from './money.js';
 import { inferenceAudioMediaTypeSchema } from './streamEvents.js';
 
 /** Input/request modalities; structured decisions are an output, never an input. */
@@ -119,72 +117,6 @@ export const realtimeSessionKindSchema = z.enum(['conversation', 'transcription'
  */
 export const realtimeSessionTransportSchema = z.enum(['websocket']);
 
-/** A closed interval. */
-export const numberRangeSchema = z.object({ min: z.number(), max: z.number() }).strict();
-
-/** One kind of tool choice: the modes, and `function` for one that names a tool. */
-export const realtimeToolChoiceKindSchema = z.enum(['auto', 'none', 'required', 'function']);
-
-/**
- * One turn detection a realtime model serves (contract set 5.0.0).
- *
- * - `fixedResponses` — the detection always answers the turn it detected and
- *   lets the caller's speech interrupt the answer: it has neither switch, so a
- *   session must state `createResponse: true` and `interruptResponse: true`.
- * - `threshold` — server_vad's `threshold` range; absent, the contract's 0–1.
- * - `meteredUnits` — the units a session under this detection is billed in:
- *   what a caller multiplies the model's prices by to estimate a call. A
- *   provider that bills by the clock under one detection and by the audio
- *   under another states each.
- */
-export const realtimeTurnDetectionParametersSchema = z
-  .object({
-    type: realtimeTurnDetectionTypeSchema,
-    fixedResponses: z.boolean(),
-    threshold: numberRangeSchema.optional(),
-    meteredUnits: z.array(usageUnitSchema).min(1),
-  })
-  .strict();
-
-/**
- * What a realtime model's session configuration may set, and within which
- * bounds (contract set 5.0.0): the provider's reviewed statement, which Kaana's
- * adapter enforces and the catalogue publishes, so a session built from it is
- * one the model serves. `checkRealtimeSessionOpen` applies it.
- *
- * - `turnDetection` — every detection served.
- * - `outputModalities` — every set of modalities one response may produce
- *   (each sorted): a model that answers aloud whatever it is asked does not
- *   serve `["text"]`.
- * - `toolChoice` — every kind of tool choice served; always holds `auto`.
- * - `maxOutputTokens` — the largest per-response cap; absent, the model has
- *   none and `maxOutputTokens` is refused.
- * - `inputTranscriptionPrompt` — `config.inputAudioTranscription.prompt` is
- *   taken.
- */
-export const realtimeParametersSchema = z
-  .object({
-    turnDetection: z.array(realtimeTurnDetectionParametersSchema).min(1),
-    outputModalities: z.array(z.array(realtimeOutputModalitySchema).min(1).max(2)).min(1),
-    toolChoice: z.array(realtimeToolChoiceKindSchema).min(1),
-    maxOutputTokens: z.number().int().positive().safe().optional(),
-    inputTranscriptionPrompt: z.boolean(),
-  })
-  .strict()
-  .superRefine((parameters, ctx) => {
-    if (!parameters.toolChoice.includes('auto')) {
-      ctx.addIssue({ code: 'custom', path: ['toolChoice'], message: 'auto is always served' });
-    }
-    const kinds = parameters.turnDetection.map((detection) => detection.type);
-    if (new Set(kinds).size !== kinds.length) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['turnDetection'],
-        message: 'each detection is declared once',
-      });
-    }
-  });
-
 /**
  * What a deployment can execute as a realtime session. Present only on a model
  * that holds sessions; absent means it holds none, which is the state of every
@@ -202,8 +134,6 @@ export const realtimeParametersSchema = z
  * - `audioFormats` — the realtime encodings a session may name as
  *   `config.inputAudioFormat` and `config.outputAudioFormat`. These are not the
  *   media types of `audio.audioFormats`, which describe files.
- * - `parameters` (contract set 5.0.0) — what a session configuration may set
- *   ({@link realtimeParametersSchema}). Absent: undeclared, not checked.
  */
 export const modelRealtimeCapabilitiesSchema = z
   .object({
@@ -217,7 +147,6 @@ export const modelRealtimeCapabilitiesSchema = z
       })
       .strict()
       .optional(),
-    parameters: realtimeParametersSchema.optional(),
   })
   .strict();
 
@@ -484,22 +413,16 @@ export const voiceSchema = z
  * `gender` is published only where it has been reviewed against the
  * provider's own catalogue; absent is unknown.
  *
- * Contract set 5.0.0:
- *
- * - `detectsLanguage` — naming no language lets the model detect it. A caller
- *   whose language is not in `languages` omits it rather than losing the
- *   model; absent is undeclared.
- * - `transcriptionPrompt` — a transcription request may carry a `prompt`.
- *   Absent or `false`: one that does is refused before anything is held.
- * - A TRANSCRIPTION model's `languages` are exactly what a request may name in
- *   `language`, and its `audioFormats.input` exactly what it uploads.
+ * A model's `languages` describe it; they are not a list a request must pick
+ * from. A request names the client's own BCP 47 tag, and Kaana sends the
+ * provider its spelling of that language, or none for the model to detect
+ * (Kaana ADR 0003). A transcription model's `audioFormats.input` are the
+ * uploads it reads.
  */
 export const modelAudioCapabilitiesSchema = z
   .object({
     voices: z.array(voiceSchema),
     languages: z.array(languageTagSchema),
-    detectsLanguage: z.boolean().optional(),
-    transcriptionPrompt: z.boolean().optional(),
     audioFormats: z
       .object({
         input: z.array(audioInputMediaTypeSchema),
@@ -588,6 +511,14 @@ export const modelSchema = z.object({
   dataPolicy: inferenceDataPolicySchema,
   /** Oxy's list price. Absent for a model a customer cannot buy per unit (BYOK-only). */
   pricing: priceSnapshotSchema.optional(),
+  /**
+   * Kaana's price of one minute of this model's work, whatever units its
+   * provider bills (contract set 6.0.0): for a realtime model, a minute of a
+   * conversation under `server_vad`, Kaana's default turn detection; for a
+   * transcription model, a minute of audio. An estimate to reserve or show
+   * with, rounded up; what a request costs is what it measured, in `pricing`.
+   */
+  pricePerMinute: moneySchema.optional(),
   deprecation: modelDeprecationSchema,
   evaluations: z.array(modelEvaluationResultSchema).default([]),
   safety: modelSafetyMetadataSchema.optional(),
@@ -646,9 +577,6 @@ export type InferenceApiFormat = z.infer<typeof inferenceApiFormatSchema>;
 export type RealtimeSessionKind = z.infer<typeof realtimeSessionKindSchema>;
 export type RealtimeSessionTransport = z.infer<typeof realtimeSessionTransportSchema>;
 export type ModelRealtimeCapabilities = z.infer<typeof modelRealtimeCapabilitiesSchema>;
-export type RealtimeParameters = z.infer<typeof realtimeParametersSchema>;
-export type RealtimeTurnDetectionParameters = z.infer<typeof realtimeTurnDetectionParametersSchema>;
-export type RealtimeToolChoiceKind = z.infer<typeof realtimeToolChoiceKindSchema>;
 export type ModelCapabilities = z.infer<typeof modelCapabilitiesSchema>;
 export type ModelLicense = z.infer<typeof modelLicenseSchema>;
 export type ModelProvenance = z.infer<typeof modelProvenanceSchema>;

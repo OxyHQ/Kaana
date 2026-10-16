@@ -8,6 +8,12 @@
  * held to Kaana's render by a Go test). The client in front of it is the real
  * `Kaana`, so a refusal reaches the code under test as the SDK's own error
  * class, with the code and `param` production would send.
+ *
+ * It serves the canonical contract, not any provider's dialect: Kaana
+ * translates or emulates every value the contract offers on every model
+ * (Kaana ADR 0003), so what the contract accepts the fake accepts, and it
+ * refuses only what the catalogue says a model lacks (a voice, an encoding, a
+ * session kind, a transport, an upload format).
  */
 
 import {
@@ -24,7 +30,6 @@ import {
   type RealtimeSessionLimits,
   type RealtimeSessionOpen,
   realtimeClientCommandSchema,
-  realtimeParameterIssues,
   realtimePublicServerEventSchema,
   realtimeSessionOpenSchema,
   type Transcription,
@@ -198,34 +203,6 @@ export class FakeRealtimeSession {
     if (command.type === 'session.close') {
       this.commands.push(command);
       this.#finish('client_closed', [], 'oxy_measured');
-      return;
-    }
-    // What the model's dialect refuses after acknowledging it: the same
-    // published parameters Kaana's adapter reads.
-    const parameters = this.model.capabilities.realtime?.parameters;
-    const issue =
-      parameters === undefined
-        ? undefined
-        : command.type === 'session.update'
-          ? realtimeParameterIssues('config', command.config, parameters)[0]
-          : command.type === 'response.create' && command.response !== undefined
-            ? realtimeParameterIssues('response', command.response, parameters)[0]
-            : undefined;
-    const language =
-      command.type === 'session.update'
-        ? command.config.inputAudioTranscription?.language
-        : undefined;
-    if (issue !== undefined) {
-      this.#refuse(command.commandId, 'invalid_request', issue.message, issue.param);
-      return;
-    }
-    if (language !== undefined && !(this.model.audio?.languages ?? []).includes(language)) {
-      this.#refuse(
-        command.commandId,
-        'invalid_request',
-        `this model does not declare the language ${language}`,
-        'config.inputAudioTranscription.language',
-      );
       return;
     }
     this.commands.push(command);
@@ -484,7 +461,7 @@ export class FakeKaanaServer {
     const issue =
       model.audio === undefined
         ? undefined
-        : checkTranscriptionRequest(fields, mediaType as never, model.audio)[0];
+        : checkTranscriptionRequest(mediaType as never, model.audio)[0];
     if (issue !== undefined)
       return json(400, publicError('invalid_request', issue.message, id, issue.param), id);
     const result = this.#transcribe({

@@ -36,14 +36,25 @@ type RealtimeStatement struct {
 	// may name. Empty: the provider documents none, which is published as an
 	// empty list rather than guessed.
 	Languages []string
+	// LanguageDefaults is the variant sent for a language the client names in
+	// a region the provider does not list (`es-AR` → `es-MX`), keyed by the
+	// language alone (NormalizeLanguage).
+	LanguageDefaults map[string]string
 	// DetectsLanguage is a model that detects the spoken language when a
-	// session names none: a caller whose language is not in Languages omits
-	// it rather than losing the model.
+	// session names none: a client's language the provider takes nothing of
+	// is not sent, and the model detects it.
 	DetectsLanguage bool
-	// Parameters is what a session configuration may set and within which
-	// bounds. The dialect (internal/provider/openairealtime) refuses exactly
-	// what this omits; it is published as capabilities.realtime.parameters.
+	// Parameters is what the provider's wire takes. Kaana's own knowledge: the
+	// dialect (internal/provider/openairealtime) translates and emulates every
+	// contract value onto it and refuses only what cannot be served; it never
+	// reaches a client (Kaana ADR 0003).
 	Parameters contract.RealtimeParameters
+}
+
+// LanguageFor is the tag to send for the language a client named, or false to
+// send none and let the model detect it.
+func (s RealtimeStatement) LanguageFor(tag string) (string, bool) {
+	return NormalizeLanguage(tag, s.Languages, s.LanguageDefaults)
 }
 
 // RealtimeVoice is one documented voice.
@@ -83,6 +94,7 @@ func RealtimeCapabilities(slug contract.ProviderSlug, protocol string) (statemen
 	case ProtocolXAIRealtime:
 		statement.Voices = cloneVoices(xAIRealtimeVoices)
 		statement.Languages = append([]string{}, XAIRealtimeLanguages...)
+		statement.LanguageDefaults = map[string]string{"ar": "ar-SA", "es": "es-MX", "pt": "pt-BR"}
 		statement.DetectsLanguage = true
 		statement.Parameters = xAIRealtimeParameters()
 	default:

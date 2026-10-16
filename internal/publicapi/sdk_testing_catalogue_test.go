@@ -72,7 +72,7 @@ func TestTheSDKTestingCatalogueIsWhatKaanaServes(t *testing.T) {
 			t.Fatalf("%s is not declared in configs/public-catalogue.json", entry.Model)
 		}
 		_, revision, _ := strings.Cut(string(entry.Reference), "@")
-		rendered, err := declared.render(entry, []string{revision}, catalogueSetDeclared)
+		rendered, err := declared.render(entry, []string{revision})
 		if err != nil {
 			t.Fatal(err)
 		}

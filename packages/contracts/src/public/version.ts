@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '5.0.0';
+export const INFERENCE_CONTRACT_VERSION = '6.0.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -157,6 +157,21 @@ export const INFERENCE_CONTRACT_VERSION = '5.0.0';
  * `MAX_REALTIME_TEXT_ITEMS`, and a transcription's `timestamps`, `segments`
  * and `words`. A request that parsed under 4.5.0 and that Kaana served
  * still parses and is served the same.
+ *
+ * Contract set 6.0.0 (Kaana ADR 0003) is one canonical API: no provider's
+ * variant reaches a client. Kaana translates or emulates every value the
+ * contract offers on every model, so the catalogue publishes product
+ * capabilities only. MAJOR because it REMOVES what 5.0.0 published of each
+ * provider's wire: `capabilities.realtime.parameters`
+ * (`realtimeParametersSchema`, `realtimeTurnDetectionParametersSchema`,
+ * `numberRangeSchema`, `realtimeToolChoiceKindSchema`),
+ * `realtimeParameterIssues`, `audio.detectsLanguage` and
+ * `audio.transcriptionPrompt`; and `checkTranscriptionRequest` takes the
+ * upload's media type alone, since a language or a prompt is never refused.
+ * Additive: a model's `pricePerMinute`, exactly one input `transcript.done`
+ * per item, and `REALTIME_DEFAULT_SILENCE_DURATION_MS`, the silence a
+ * `server_vad` that names none waits on every provider. A client on 5.0.0
+ * parses every 6.0.0 response.
  */
 
 /** The public API's one origin and version. */
@@ -168,9 +183,8 @@ export const KAANA_REQUEST_ID_HEADER = 'Kaana-Request-Id';
 /**
  * The header that carries {@link INFERENCE_CONTRACT_VERSION}: on every
  * response, the set Kaana serves; on a request (`@kaana.ai/sdk` 2.0.0 and
- * later), the set the client parses. The catalogue's leaves are strict, so
- * Kaana renders `GET /v1/models` in the shape of the client's set: a client
- * that states none is served the 4.x shape, without what set 5.0.0 added.
+ * later), the set the client parses. Every set since 4.0.0 parses the
+ * catalogue Kaana serves.
  */
 export const KAANA_CONTRACT_VERSION_HEADER = 'Kaana-Contract-Version';
 

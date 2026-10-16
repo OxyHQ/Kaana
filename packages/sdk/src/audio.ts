@@ -64,11 +64,12 @@ export interface TranscriptionRequest {
   file: Blob | Uint8Array;
   mediaType: AudioInputMediaType;
   /**
-   * One of the model's `audio.languages`; omit it to let a model that
-   * `detectsLanguage` detect it (`checkTranscriptionRequest`).
+   * The spoken language as the app's own BCP 47 tag (`es-AR`), when known.
+   * Kaana sends the provider its spelling of it, or none for the model to
+   * detect; it is never refused.
    */
   language?: string;
-  /** Only for a model whose `audio.transcriptionPrompt` is true. */
+  /** A hint (vocabulary, names), used where the model takes one. */
   prompt?: string;
 }
 

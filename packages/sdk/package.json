@@ -1,6 +1,6 @@
 {
   "name": "@kaana.ai/sdk",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "The TypeScript client of Kaana's public API at https://kaana.ai/v1: models, power levels, responses, chat completions, embeddings, speech, transcription, images, decisions, generation records and realtime sessions. Runs in Node, browsers and React Native.",
   "type": "module",
   "sideEffects": false,
@@ -41,5 +41,11 @@
   },
   "dependencies": {
     "@kaana.ai/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "kaana-contracts-4.4.0": "npm:@kaana.ai/contracts@4.4.0",
+    "kaana-contracts-4.4.1": "npm:@kaana.ai/contracts@4.4.1",
+    "kaana-contracts-5.0.0": "npm:@kaana.ai/contracts@5.0.0",
+    "kaana-sdk-1.0.1": "npm:@kaana.ai/sdk@1.0.1"
   }
 }

@@ -7,7 +7,9 @@ request for attribution, metering and settlement, and it settles exactly once.
 Contract: `@oxy.so/contracts` 4.5.0 (inference set 3.3.0: 3.2.0's session
 family plus the `session_milliseconds` unit), `inference/realtime.ts`; input
 transcription and the realtime catalogue fields are `@kaana.ai/contracts`
-4.1.0 ("Input transcription");
+4.1.0 ("Input transcription"); since contract set 6.0.0 one canonical API
+whose every value Kaana translates or emulates per provider (Kaana ADR 0003,
+"How Kaana serves every contract value");
 Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 
 | Piece | Where |
@@ -269,16 +271,16 @@ on this key and is classified like a refused request. The open is bounded at
 |---|---|
 | (always) | `session.type: "realtime"` |
 | `instructions` | `instructions` |
-| `outputModalities` `["audio"]` / `["text"]` | `output_modalities` `["audio"]` / `["text"]`; `["text","audio"]` is refused (OpenAI produces one or the other) |
+| `outputModalities` `["audio"]` / `["text"]` | `output_modalities` `["audio"]` / `["text"]`; `["text","audio"]` is sent as `["audio"]` and the audio's transcript is relayed as the text too (OpenAI produces one or the other) |
 | `inputAudioFormat` `pcm16_24khz` / `g711_ulaw` / `g711_alaw` | `audio.input.format` `{type:"audio/pcm",rate:24000}` / `{type:"audio/pcmu"}` / `{type:"audio/pcma"}` |
 | `outputAudioFormat`, `voice` | `audio.output.format`, `audio.output.voice` |
 | `turnDetection` `none` | `audio.input.turn_detection: null` |
-| `turnDetection` `server_vad` | `{type:"server_vad", threshold?, prefix_padding_ms?, silence_duration_ms?, create_response, interrupt_response}` |
+| `turnDetection` `server_vad` | `{type:"server_vad", threshold?, prefix_padding_ms?, silence_duration_ms, create_response, interrupt_response}`; a session that names no silence is sent Kaana's `REALTIME_DEFAULT_SILENCE_DURATION_MS` (500), never the provider's default |
 | `turnDetection` `semantic_vad` | `{type:"semantic_vad", eagerness, create_response, interrupt_response}` |
 | `tools` (function) | `tools: [{type:"function", name, description?, parameters}]`; a realtime tool has no `strict` (contract set 5.0.0: `realtimeToolDefinitionSchema`) |
 | `toolChoice` | `tool_choice`: the mode string, or `{type:"function", name}` |
-| `maxOutputTokens` | `max_output_tokens`; above 4096 is refused (GA schema: 1..4096 or `"inf"`) |
-| `inputAudioTranscription` | `audio.input.transcription {model: "gpt-transcribe", language?, prompt?}`; OpenAI publishes no language list, so none is published and a session names none: the model detects it (see "Input transcription") |
+| `maxOutputTokens` | `max_output_tokens`, at most 4096 (GA schema: 1..4096 or `"inf"`): a larger cap is sent as 4096 |
+| `inputAudioTranscription` | `audio.input.transcription {model: "gpt-transcribe", language?, prompt?}`; the language as its ISO 639-1 code (see "Input transcription") |
 
 There is no `temperature`: OpenAI removed it from the GA session and response
 schemas and xAI has none, so contract set 5.0.0 removed it from the contract.
@@ -411,10 +413,12 @@ shared code, and every documented difference is a dialect field.
 | Voice | `audio.output.voice` | `session.voice` |
 | Turn detection | `audio.input.turn_detection`; none is `null` | `session.turn_detection`; none is `{"type": null}` |
 | `server_vad` | `create_response`, `interrupt_response` sent | only `threshold` (0.1–0.9), `prefix_padding_ms` and `silence_duration_ms` (0–10000); `createResponse` and `interruptResponse` must be `true` (xAI's VAD always answers and is interruptible; it has neither field) |
-| `semantic_vad` | served | refused: xAI's schema names only `server_vad` or null |
-| Output modalities | `session.output_modalities`, one per response | no documented session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one); a `server_vad` response xAI creates itself carries xAI's own modalities. **Audio is required**: `["audio"]` and `["text","audio"]` are served, and any set without `audio` — `config.outputModalities` at open or on `session.update`, `response.outputModalities` on `response.create` — is refused `invalid_request` before anything is sent, because xAI answers aloud whatever it is asked (measured, below) |
+| `server_vad` threshold | 0–1 | 0.1–0.9: the contract's 0–1 is mapped linearly onto it (0.5 stays 0.5, 0.7 is 0.66) |
+| `server_vad` silence | the session's, or Kaana's 500 ms | the same, as `silence_duration_ms`, which xAI honours though its schema does not name it (measured 2026-10-16: with xAI's own default a phrase with 0.56 s and 0.79 s pauses became three responses, two cancelled; at 500 ms, one, 490–576 ms after it ended) |
+| `semantic_vad` | served | run as xAI's `server_vad` (its schema names only `server_vad` or null); the eagerness is not sent |
+| Output modalities | `session.output_modalities`, one per response | no documented session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one); a `server_vad` response xAI creates itself carries xAI's own modalities. xAI answers aloud whatever it is asked (measured, below), so a set without `audio` is served by asking for `["audio"]`: the audio is measured (billed) and not relayed, and its transcript is the response's `text.delta` |
 | `response.status_details` | an object (`{type, reason}`) or `null` | the string `"unimplemented"` on `response.created` and `response.done` (measured): read as no details, so an incomplete xAI response has no finish reason. Any other non-object is unreadable, and OpenAI's dialect still refuses a string |
-| `tool_choice`, `max_output_tokens`, `temperature` | the first two served | none documented: refused naming the field, except `toolChoice: "auto"`, which is xAI's own behaviour with the tools it was given and is served by sending nothing (Alia opens every call with it) |
+| `tool_choice`, `max_output_tokens` | served | none documented. `toolChoice: "auto"` is xAI's own behaviour with the tools it was given, sent as nothing; `none` for the session is served by sending `tools: []`; `required`, a named function, or `none` on one `response.create` cannot be served and are refused naming the field. `maxOutputTokens` is not sent |
 | Function tools | flat `{type, name, description, parameters}` | the guide's examples are flat; the machine-readable schema nests under `function` (UNVERIFIED which xAI enforces; flat is sent) |
 | Assistant content parts | `output_text` / `output_audio` | `text` / `audio` (read back as the contract's output parts for the assistant, input parts otherwise) |
 | Event aliases | — | `response.text.delta` = `response.output_text.delta` ("Functionally identical... handle both"); `response.audio.delta` = `response.output_audio.delta` |
@@ -462,19 +466,15 @@ shows, beside what xAI documents:
 ["text"]` on the session (xAI echoed it on `session.updated`) and still got an
 `audio` part, three output audio deltas (710 ms, exactly xAI's
 `output_audio_seconds: 0.71`), their transcript and `billable_audio_seconds: 1`
-— no `response.output_text.delta` at all. A text-only Kaana session would
-therefore receive audio it has no output format for (and could not frame),
-billed by xAI but invisible to a meter with no output rate. Serving it by
-relaying only the transcript would invent a text channel xAI does not have and
-charge audio the caller did not ask for; the adapter rule is to refuse in
-`Translate` what the provider cannot express, so xAI refuses any output
-modality set without `audio` (`config.outputModalities` /
-`response.outputModalities`). A caller that wants text reads the transcript of
-a spoken session, which is also what it pays for. The capture put
+— no `response.output_text.delta` at all. Since contract set 6.0.0 (Kaana ADR
+0003) a text-only session on xAI is served from that audio: Kaana asks xAI for
+`["audio"]` in PCM16 (`dialect.wireOutputFormat`), measures the audio xAI sends
+(it is billed, so the meter has an output rate), relays none of it, and relays
+its transcript as the response's `text.delta`. The session's price is the
+spoken one, which `pricePerMinute` already states. The capture put
 `modalities` on the session, not on `response.create` (where Kaana sends it);
-UNVERIFIED whether xAI's documented per-response field fares differently — a
-reason to lift the refusal only on a capture that shows text-only output and
-no billable audio.
+UNVERIFIED whether xAI's documented per-response field produces text alone —
+were it to, the emulation would be replaced by the wire's own text.
 
 An event the adapter cannot read is now named in the failure's own detail —
 `xAI sent a Realtime event this adapter cannot read (response.created:
@@ -614,9 +614,22 @@ change to what the slug's sessions are billed for.
 |---|---|---|
 | Wire | `session.audio.input.transcription {model, language, prompt}` | `session.audio.input.transcription {model, language_hint}` |
 | Model | `gpt-transcribe` (per-minute priced, $0.0045/min, read 2026-10-15) | `grok-transcribe` |
-| `language` | two-letter ISO 639-1 code, lowercased; a regional tag is refused, never cut down | exactly one of xAI's documented codes (`providerconfig.XAIRealtimeLanguages`); Spanish and Portuguese need a region; anything else refused (xAI silently ignores an unknown hint) |
-| `prompt` | sent | refused: xAI has key terms, not a prompt |
-| Events | `.delta` relayed; `.completed` → `transcript.done`; `.failed` → non-fatal error; `.segment` (diarize) dropped | `.completed` → `transcript.done` (no `content_index`: the caller's audio item has one part, index 0); cumulative `.updated` dropped, because it may rewrite what it said and the contract's delta only appends |
+| `language` | the client's BCP 47 tag as its ISO 639-1 code (`es-AR` → `es`) | xAI's documented spelling (`providerconfig.XAIRealtimeLanguages`): the tag itself, the language alone, or xAI's default region (`es` → `es-MX`, `pt` → `pt-BR`, `ar` → `ar-SA`) |
+| A language it has no code for | not sent: the model detects it | the same (xAI silently ignores an unknown hint, so none is sent) |
+| `prompt` | sent | not sent: a hint, and xAI has key terms, not a prompt |
+| Events | `.delta` relayed; `.completed` → `transcript.done`; `.failed` → non-fatal error; `.segment` (diarize) dropped | cumulative `.updated` and the "completed" ones before the commit → deltas that extend what was relayed; the first `.completed` after `input_audio_buffer.committed` → the one `transcript.done` (no `content_index`: the caller's audio item has one part, index 0); repeats after it dropped |
+
+**One transcript per item** (contract set 6.0.0). Whatever the provider sends,
+each committed input item gets exactly one `transcript.done`, its final
+transcript, after deltas that only append: the first completed transcript
+after the item's commit is final, one before it is a running transcript, and
+one after it is a repeat (`session.inputTranscript`). xAI sends a running
+transcript, a "completed" one at each pause and the final one only after the
+commit, and repeats it (measured 2026-10-16). An item whose final transcript
+never comes is given the text it has when the next item is committed, before
+that commit. A running transcript that rewrites what was relayed adds no delta
+(the contract's delta only appends); the `transcript.done` carries the whole
+text.
 | Charge | the ASR model's own usage on each `.completed`: `duration` → `input_transcription_milliseconds`, read to the microsecond and rounded up per turn | none: xAI's Voice Agent bills "duration and text events sent without audio", with no transcription line, so the session meter is unchanged |
 
 **Units.** OpenAI bills input transcription "according to the ASR model's
@@ -657,44 +670,10 @@ The publisher writes the adapter's reviewed statement
 `observed` block, as it does reasoning efforts, because neither provider's
 model list says anything about sessions; `inventory.Parse` validates it and
 `GET /internal/v1/models` serves the line's intersection across its routes
-(`realtime`, `audio` on the catalogue entry). Contract shapes:
-`capabilities.realtime {transports, sessionKinds, inputAudioTranscription,
-audioFormats, parameters}` and `audio {voices, languages, detectsLanguage}`.
-
-### What a session may set: `capabilities.realtime.parameters`
-
-Contract set 5.0.0 publishes, per model, what a session configuration may
-set and within which bounds (`contract.RealtimeParameters`). It is ONE
-statement with three readers, so none of them can disagree with another:
-
-- the adapter's dialect refuses exactly what it omits
-  (`dialect.refuseIssues`, which calls `RealtimeParameters.Issues`; the
-  dialect holds only how a served value is SPELLED on the provider's wire);
-- the public API refuses it before a grant (`checkRealtimeOpen`);
-- a client builds its `session.open` from it, or filters models with
-  `realtimeParameterIssues` / `checkRealtimeSessionOpen` from
-  `@kaana.ai/contracts`, which apply the same rules
-  (`internal/contract/testdata/realtime-parameter-issues.json` holds Go and
-  TypeScript to the same vectors).
-
-`TestTheDialectServesExactlyWhatTheStatementDeclares` crosses the statement
-with the dialect field by field: every served value is written to the wire and
-every other value of the contract is refused naming its field.
-
-| | OpenAI | xAI |
-|---|---|---|
-| `turnDetection` | `none`, `server_vad`, `semantic_vad`, each with its own `createResponse`/`interruptResponse` | `none`; `server_vad` with `fixedResponses` (both `true`) and `threshold` 0.1–0.9 |
-| `meteredUnits` | the token units and `input_transcription_milliseconds`, under every detection | `none`: audio in and out ms and `requests`; `server_vad`: `session_milliseconds` and `requests` |
-| `outputModalities` | `["audio"]` or `["text"]` | `["audio"]` or `["audio","text"]` (it answers aloud whatever it is asked) |
-| `toolChoice` | `auto`, `none`, `required`, `function` | `auto` only (no field; `auto` is sent as nothing) |
-| `maxOutputTokens` | 4096 | absent: refused |
-| `inputTranscriptionPrompt` | `true` | `false` |
-
-`audio.detectsLanguage` is `true` for both: a session that names no
-`inputAudioTranscription.language` is transcribed in the language the model
-hears, so a caller whose language is not in `audio.languages` omits it instead
-of losing the model. A language that IS named must be one of
-`audio.languages`, exactly (xAI silently ignores a code it does not know).
+(`realtime`, `audio` on the catalogue entry). The public catalogue publishes
+product capabilities only (Kaana ADR 0003): `capabilities.realtime
+{transports, sessionKinds, inputAudioTranscription, audioFormats}`, `audio
+{voices, languages}` and `pricePerMinute`.
 
 | | OpenAI | xAI |
 |---|---|---|
@@ -705,10 +684,51 @@ of losing the model. A language that IS named must be one of
 | Languages | none: OpenAI documents no language list for its Realtime models | xAI's 20 documented codes; every voice speaks every one |
 
 `gender` is never inferred from a name, and an empty language list is
-published rather than guessed. A consequence for Alia ADR 0017 §2, which picks
-a model whose `audio.languages` covers the session language and which has a
-voice of the product gender: only xAI qualifies until someone states OpenAI's
-voice genders from reviewed evidence; OpenAI's language is detected.
+published rather than guessed. A model's `languages` describe it; a session
+names the client's own tag whatever the list says.
+
+`pricePerMinute` is Kaana's price of one minute of a conversation under
+`server_vad`, Kaana's default turn detection: the units that detection is
+metered in (`MeteredUnits`) priced for a minute (60 000 ms of a clock or audio
+unit; 600 audio input and 1200 audio output tokens for a token-priced model),
+rounded up to twelve decimals. It is what a client reserves or shows; a session
+settles what it measured.
+
+### How Kaana serves every contract value: the internal statement
+
+`contract.RealtimeParameters`, in each dialect's `providerconfig.RealtimeStatement`,
+is Kaana's own table of what the provider's wire takes: its detections and
+their threshold range, whether a detected turn's responses are fixed, the
+units each detection is metered in, the output modality sets, the tool
+choices, the output token cap, whether transcription takes a prompt, and
+(`LanguageDefaults`) the region to send for a bare language. It is never
+published. It drives:
+
+- the translation: `NumberRange.Map` (the threshold), `WireTurnDetection`
+  (`semantic_vad` → `server_vad`), `WireOutputModalities` (ask for audio when
+  the wire cannot produce what was asked), the token cap clipped to the
+  wire's, `NormalizeLanguage`, a prompt sent only where taken;
+- the emulation: `toolChoice: none` as `tools: []`, a text-only response from
+  its audio's transcript (`session.outputTranscript`), the audio of a response
+  that did not ask for it measured and not relayed (`relaysAudio`);
+- the refusal of the impossible, `RealtimeParameters.Unservable`, the one rule
+  the public API applies before a grant (`checkRealtimeOpen`) and the dialect
+  applies before writing (`refuseUnservable`): `invalid_request`, the
+  contract's `param`, a message that names no provider.
+
+| | OpenAI | xAI |
+|---|---|---|
+| `turnDetection` | `none`, `server_vad`, `semantic_vad`, each with its own `createResponse`/`interruptResponse` | `none`; `server_vad` with fixed responses (both `true`) and `threshold` 0.1–0.9; `semantic_vad` served as `server_vad` |
+| Metered units | the token units and `input_transcription_milliseconds`, under every detection | `none`: audio in and out ms and `requests`; `server_vad`: `session_milliseconds` and `requests` |
+| Output modalities on the wire | `["audio"]` or `["text"]` | `["audio"]` or `["audio","text"]` |
+| Tool choices on the wire | `auto`, `none`, `required`, `function` | `auto` only (no field; `auto` is sent as nothing; `none` emulated for the session) |
+| Output token cap | 4096 | none: not sent |
+| Transcription prompt | taken | not taken: not sent |
+
+`TestTheDialectTranslatesEveryContractValue` crosses every contract value with
+both dialects: it is either written to the wire (as it is, translated or
+emulated) or refused exactly as `Unservable` says, naming its field and never
+the provider; nothing in between.
 
 ## Publishing
 
@@ -824,14 +844,12 @@ pins the set and proves each row publishable there and nowhere else.
   serving task through `KAANA_PROVIDER_RATES_PATH=/etc/kaana-rates/provider-rates.json`. Oxy's price
   version for the route must price `session_milliseconds` too (Oxy holds it for
   every realtime session and refuses a route that leaves it unpriced).
-- Every session needs `audio` among its output modalities (with a voice and an
-  output audio format): xAI speaks whatever it is asked, so a text-only session
-  is refused `invalid_request` naming `config.outputModalities` before anything
-  is dialled. The signed canary is therefore a spoken session
+- xAI speaks whatever it is asked, so a text-only session is served from its
+  audio's transcript (above). The signed canary is a spoken session
   (`outputModalities: ["audio"]`, `outputAudioFormat`, `voice`) that checks the
-  transcript. A `server_vad` session also needs `createResponse: true`,
-  `interruptResponse: true` and xAI's bounds on the tunables. Health stays
-  `degraded` until a signed canary session has been validated.
+  transcript. A `server_vad` session needs `createResponse: true` and
+  `interruptResponse: true`; its threshold is mapped onto xAI's range. Health
+  stays `degraded` until a signed canary session has been validated.
 
 ## Findings, refusals and what is not verified
 
@@ -848,10 +866,10 @@ pins the set and proves each row publishable there and nowhere else.
    `input_transcription_milliseconds`, and the transcription model is declared
    per slug by the dialect ("Input transcription"). The signed-envelope lane
    still refuses it.
-3. **`temperature` has no GA field** and is refused; the contract still carries
-   it.
-4. **Text and audio output together** is refused: GA takes exactly one output
-   modality per response.
+3. **`temperature` has no GA field**; contract set 5.0.0 removed it.
+4. **Text and audio output together** is emulated on OpenAI: GA takes exactly
+   one output modality per response, so the response is asked for audio and
+   its transcript is relayed as its text too.
 5. **Reasoning tokens** of the reasoning Realtime models are not split out of
    `output_tokens`: GA usage documents no reasoning breakdown. UNVERIFIED
    whether one exists on the wire.
@@ -922,8 +940,12 @@ pins the set and proves each row publishable there and nowhere else.
   provider bills the ASR model apart, nothing where the session price
   includes it, and a session ends on a transcription charge that unit cannot
   express. A transcript is relayed only once asked for; a reported charge is
-  always settled. The catalogue's realtime statement is the one the dialect
-  enforces (`TestTheCatalogueStatementIsWhatTheAdapterServes`).
+  always settled. The realtime statement the publisher writes is the one the
+  dialect reads (`TestTheCatalogueStatementIsWhatTheAdapterServes`).
+- **No provider variant reaches a client** (Kaana ADR 0003): every value the
+  contract offers is translated or emulated, and only what `Unservable` says
+  is impossible is refused, with the contract's `param` and a message that
+  names no provider. Nothing of a dialect's statement is published.
 - **A provider speaking the OpenAI Realtime shape is a dialect of
   `internal/provider/openairealtime`, not a copy**: its differences are
   `dialect` fields, each from the provider's documentation, and it gets its own

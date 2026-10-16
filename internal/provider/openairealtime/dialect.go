@@ -20,7 +20,7 @@ import (
 //
 // What a session may SET is not here: it is the protocol's reviewed statement
 // (providerconfig.RealtimeCapabilities), which the catalogue publishes and
-// every request is checked against (statement, refuseIssues). This type holds
+// every request is translated onto (statement, refuseUnservable). This type holds
 // only how a served value is written on the provider's wire, so the catalogue
 // and the adapter cannot disagree about what is accepted.
 type dialect struct {
@@ -82,12 +82,14 @@ func (d *dialect) statement() providerconfig.RealtimeStatement {
 	return statement
 }
 
-// refuseIssues refuses the first field of a configuration, an update or a
-// response.create that the statement does not serve, with the same check the
-// public API runs before a grant (contract.RealtimeParameters.Issues).
-func (d *dialect) refuseIssues(prefix string, fields contract.RealtimeConfigFields) error {
-	if issues := d.statement().Parameters.Issues(prefix, fields); len(issues) > 0 {
-		return refused(issues[0].Param, d.name+": "+issues[0].Message)
+// refuseUnservable refuses the first field of a configuration, an update or a
+// response.create that no translation onto this wire can serve, in the
+// contract's terms (the same check the public API runs before a grant:
+// contract.RealtimeParameters.Unservable). Everything else is translated or
+// emulated (Kaana ADR 0003).
+func (d *dialect) refuseUnservable(prefix string, fields contract.RealtimeConfigFields) error {
+	if issues := d.statement().Parameters.Unservable(prefix, fields); len(issues) > 0 {
+		return refused(issues[0].Param, issues[0].Message)
 	}
 	return nil
 }
