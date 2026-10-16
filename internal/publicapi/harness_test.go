@@ -213,8 +213,11 @@ type fakeOxy struct {
 	mu             sync.Mutex
 	authorizations []json.RawMessage
 	settlements    map[string]contract.Settlement // by grant
-	deliveries     int
-	down           bool
+	// settlementBodies are the settlements as Kaana sent them, first delivery
+	// of each grant.
+	settlementBodies []json.RawMessage
+	deliveries       int
+	down             bool
 	// loseAcknowledgements settles but answers 503 that many times: the
 	// shape of an acknowledgement lost on the way back.
 	loseAcknowledgements int
@@ -391,6 +394,7 @@ func (o *fakeOxy) settle(w http.ResponseWriter, r *http.Request) {
 		status = contract.SettlementDuplicate
 	} else {
 		o.settlements[settlement.GrantID] = settlement
+		o.settlementBodies = append(o.settlementBodies, json.RawMessage(body))
 	}
 	if o.loseAcknowledgements > 0 {
 		o.loseAcknowledgements--

@@ -12,16 +12,22 @@
     },
     "packages/contracts": {
       "name": "@kaana.ai/contracts",
-      "version": "5.0.0",
+      "version": "6.0.0",
       "dependencies": {
         "zod": ">=4.4.3 <4.5.0",
       },
     },
     "packages/sdk": {
       "name": "@kaana.ai/sdk",
-      "version": "2.0.0",
+      "version": "3.0.0",
       "dependencies": {
         "@kaana.ai/contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "kaana-contracts-4.4.0": "npm:@kaana.ai/contracts@4.4.0",
+        "kaana-contracts-4.4.1": "npm:@kaana.ai/contracts@4.4.1",
+        "kaana-contracts-5.0.0": "npm:@kaana.ai/contracts@5.0.0",
+        "kaana-sdk-1.0.1": "npm:@kaana.ai/sdk@1.0.1",
       },
     },
     "tools/contract": {
@@ -64,6 +70,14 @@
 
     "bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
+    "kaana-contracts-4.4.0": ["@kaana.ai/contracts@4.4.0", "", { "dependencies": { "zod": ">=4.4.3 <4.5.0" } }, "sha512-kJB6ZtaANdkD27raxlkEvPJejJU9EaDkmvdzpIuMfFjh/1pDCHLgQJIzNBalLRT1EXj6w0ROsxBZ6bUaibXSUQ=="],
+
+    "kaana-contracts-4.4.1": ["@kaana.ai/contracts@4.4.1", "", { "dependencies": { "zod": ">=4.4.3 <4.5.0" } }, "sha512-gaw8rbdn+nsKqsJD0BcFVbakn6IEHKy/n1aYCsns1T9N4SsMT+hoNj+Y63YZJEVE20o1sJuAdW/PAjJ4/ebwDA=="],
+
+    "kaana-contracts-5.0.0": ["@kaana.ai/contracts@5.0.0", "", { "dependencies": { "zod": ">=4.4.3 <4.5.0" } }, "sha512-rHgw6Oo4zMnD3kVgG0jigVsXw7WIf7X13TweKHVFadhXuHifO0HQ09wHnoBNBhq9zl4pOpXJAszNfwSvVw9VYA=="],
+
+    "kaana-sdk-1.0.1": ["@kaana.ai/sdk@1.0.1", "", { "dependencies": { "@kaana.ai/contracts": "4.4.0" } }, "sha512-XColP9bTXSBJ0XXblVSg6UwE/MUa0gPCs87Uq3sI2EQTTmcInlTVShfq/GFCDxoQxW12d6cCmymmvxuTyLuxHQ=="],
+
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@8.12.1", "", {}, "sha512-nCiEcIx87oMw9u3Yzj2DuRBzv6p0e7akhy4HUPtpBiVWmAY3o6Phznst8QhmY1oLMttLgJ2tlAvsKuzCgBSoAw=="],
@@ -71,5 +85,7 @@
     "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
 
     "@types/node/undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
+
+    "kaana-sdk-1.0.1/@kaana.ai/contracts": ["@kaana.ai/contracts@4.4.0", "", { "dependencies": { "zod": ">=4.4.3 <4.5.0" } }, "sha512-kJB6ZtaANdkD27raxlkEvPJejJU9EaDkmvdzpIuMfFjh/1pDCHLgQJIzNBalLRT1EXj6w0ROsxBZ6bUaibXSUQ=="],
   }
 }
