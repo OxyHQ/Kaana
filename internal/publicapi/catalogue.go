@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -174,8 +175,32 @@ func (m declaredModel) visible(audience contract.CatalogueAudience) bool {
 	return m.audience == contract.AudiencePublic || audience == contract.AudiencePlatformInternal
 }
 
-// render is one modelSchema entry: the declaration, with what Kaana serves.
-func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string) (json.RawMessage, error) {
+// catalogueSetDeclared is the first contract set whose catalogue publishes
+// what a voice model accepts: capabilities.realtime.parameters,
+// audio.detectsLanguage and audio.transcriptionPrompt.
+const catalogueSetDeclared = 5
+
+// clientContractSet is the contract set major a client states in
+// Kaana-Contract-Version (`@kaana.ai/sdk` 2.0.0 and later). A client that
+// states none was built against a set before it was sent, 4 at the latest.
+//
+// The catalogue's leaves are strict in the contract (a stripped field is a
+// second source of truth), so a field a client's set does not have is a
+// field its parse refuses: the whole list, not the one model. Kaana therefore
+// renders the catalogue in the shape of the client's set; a client sees a new
+// field once its SDK states a set that has it.
+func clientContractSet(r *http.Request) int {
+	major, _, _ := strings.Cut(r.Header.Get(HeaderContractVersion), ".")
+	set, err := strconv.Atoi(major)
+	if err != nil || set < 4 {
+		return 4
+	}
+	return set
+}
+
+// render is one modelSchema entry: the declaration, with what Kaana serves,
+// in the shape of the client's contract set.
+func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string, contractSet int) (json.RawMessage, error) {
 	fields := make(map[string]json.RawMessage, len(m.fields)+4)
 	for name, value := range m.fields {
 		fields[name] = value
@@ -196,7 +221,7 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		}
 		realtime := map[string]any{"transports": entry.Realtime.Transports, "sessionKinds": entry.Realtime.SessionKinds,
 			"inputAudioTranscription": entry.Realtime.InputAudioTranscription, "audioFormats": entry.Realtime.AudioFormats}
-		if entry.Realtime.Parameters != nil {
+		if entry.Realtime.Parameters != nil && contractSet >= catalogueSetDeclared {
 			realtime["parameters"] = entry.Realtime.Parameters
 		}
 		encoded, err := json.Marshal(realtime)
@@ -224,10 +249,13 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		if input == nil {
 			input = []contract.AudioInputMediaType{}
 		}
-		audio := map[string]any{"voices": voices, "languages": entry.Audio.Languages, "detectsLanguage": entry.Audio.DetectsLanguage,
+		audio := map[string]any{"voices": voices, "languages": entry.Audio.Languages,
 			"audioFormats": map[string]any{"input": input, "output": []string{}}}
-		if entry.Audio.TranscriptionPrompt {
-			audio["transcriptionPrompt"] = true
+		if contractSet >= catalogueSetDeclared {
+			audio["detectsLanguage"] = entry.Audio.DetectsLanguage
+			if entry.Audio.TranscriptionPrompt {
+				audio["transcriptionPrompt"] = true
+			}
 		}
 		if err := set("audio", audio); err != nil {
 			return nil, err
@@ -334,8 +362,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := make([]json.RawMessage, 0)
+	contractSet := clientContractSet(r)
 	for _, model := range s.served(access.Audience) {
-		rendered, err := model.declared.render(model.entry, model.revisions)
+		rendered, err := model.declared.render(model.entry, model.revisions, contractSet)
 		if err != nil {
 			writeError(w, requestID, contract.NewPublicError(requestID, "internal_error", contract.PublicMessage("internal_error")))
 			return
@@ -362,7 +391,7 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 		if model.entry.Model != reference.ModelID() || (pinned && !slices.Contains(model.revisions, revision)) {
 			continue
 		}
-		rendered, err := model.declared.render(model.entry, model.revisions)
+		rendered, err := model.declared.render(model.entry, model.revisions, clientContractSet(r))
 		if err != nil {
 			break
 		}

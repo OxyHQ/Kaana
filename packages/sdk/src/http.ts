@@ -5,7 +5,9 @@
 
 import {
   chatCompletionErrorSchema,
+  INFERENCE_CONTRACT_VERSION,
   KAANA_API_BASE_URL,
+  KAANA_CONTRACT_VERSION_HEADER,
   KAANA_IDEMPOTENCY_KEY_HEADER,
   KAANA_ON_BEHALF_OF_HEADER,
   KAANA_REQUEST_ID_HEADER,
@@ -171,6 +173,8 @@ export class Transport {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${credential}`,
         Accept: init.accept,
+        // The set this SDK parses: Kaana renders what it sends in that shape.
+        [KAANA_CONTRACT_VERSION_HEADER]: INFERENCE_CONTRACT_VERSION,
       };
       if (typeof init.body === 'string') headers['Content-Type'] = 'application/json';
       if (options.idempotencyKey !== undefined) {

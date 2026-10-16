@@ -408,3 +408,33 @@ func TestReconciliationReadsTheOutboxSigned(t *testing.T) {
 		t.Errorf("outbox = %d", len(h.outbox.snapshot()))
 	}
 }
+
+// A client is served the catalogue of the contract set it states: a client
+// that states none (every @kaana.ai/sdk before 2.0.0) parses the catalogue's
+// leaves strictly and would refuse the whole list for one field its set does
+// not have, so it gets the 4.x shape; one that states 5.0.0 gets what each
+// voice model accepts.
+func TestTheCatalogueIsServedInTheClientsContractSet(t *testing.T) {
+	h := newHarness(t, harnessOptions{catalogue: loadDeclared(t)})
+	fields := []string{`"parameters"`, `"detectsLanguage"`}
+	legacy := h.get("/v1/models/openai/gpt-realtime-2.1", validKey)
+	if legacy.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", legacy.StatusCode, legacy.Body)
+	}
+	for _, field := range fields {
+		if strings.Contains(string(legacy.Body), field) {
+			t.Errorf("a client that states no contract set was sent %s: %s", field, legacy.Body)
+		}
+	}
+	for _, version := range []string{"5.0.0", "6.1.0"} {
+		request, _ := http.NewRequest(http.MethodGet, h.server.URL+"/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer "+validKey)
+		request.Header.Set(publicapi.HeaderContractVersion, version)
+		current := h.do(request)
+		for _, field := range fields {
+			if !strings.Contains(string(current.Body), field) {
+				t.Errorf("a client on %s was not sent %s: %s", version, field, current.Body)
+			}
+		}
+	}
+}

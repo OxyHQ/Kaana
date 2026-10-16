@@ -51,8 +51,10 @@ async function refusal(promise: Promise<unknown>): Promise<KaanaInvalidRequestEr
 
 describe('@kaana.ai/sdk/testing', () => {
   it("serves Kaana's voice catalogue, with what each model accepts", async () => {
-    const { kaana } = createFakeKaana();
+    const { kaana, server } = createFakeKaana();
     const models = await kaana.models.list();
+    // The client states the set it parses, which Kaana renders the catalogue in.
+    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('5.0.0');
     expect(models.map((model) => model.modelId)).toEqual(
       voiceCatalogue.map((model) => model.modelId),
     );
