@@ -210,4 +210,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ inputs.bootstrap && secrets.NPM_BOOTSTRAP_TOKEN || '' }}
         run: |
           trusted=(trusted/*.tgz)
-          npm publish "${trusted[0]}" --provenance --access public
+          # "./": npm reads a bare `trusted/<file>.tgz` as the GitHub shorthand
+          # `user/repo` and tries to clone it (the 5.0.0 release failed exactly
+          # so); a path that starts with ./ is a local tarball.
+          npm publish "./${trusted[0]}" --provenance --access public
