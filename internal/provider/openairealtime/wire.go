@@ -306,7 +306,14 @@ func (d *dialect) wireToolChoice(param string, choice *contract.ToolChoice) (jso
 		return nil, nil
 	}
 	if !d.toolChoice {
-		return nil, refused(param, d.name+"'s Realtime API documents no tool_choice")
+		// `auto` is what a provider with no tool_choice does with the tools it
+		// was given (the model decides), so it is served by sending nothing.
+		// `none`, `required` and a named function would be silently ignored:
+		// those are refused.
+		if choice.Function == nil && choice.Mode != nil && *choice.Mode == contract.ToolChoiceAuto {
+			return nil, nil
+		}
+		return nil, refused(param, d.name+"'s Realtime API documents no tool_choice; only auto, its behaviour, is served")
 	}
 	if choice.Function != nil {
 		return json.Marshal(struct {

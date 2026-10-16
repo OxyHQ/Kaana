@@ -130,6 +130,26 @@ func TestXAIOpenConfiguresTheSessionOnXAIsWire(t *testing.T) {
 	}
 }
 
+// TestXAIServesAutoToolChoiceBySendingNothing: `auto` is xAI's own behaviour
+// with the tools it was given, so the session opens with exactly the
+// configuring session.update of an open without it — no `tool_choice` on the
+// wire. Alia opens every call with it.
+func TestXAIServesAutoToolChoiceBySendingNothing(t *testing.T) {
+	withAuto := pushToTalk()
+	withAuto.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceAuto)}
+	auto := fake.NewXAI(t)
+	xaiOpen(t, auto, withAuto)
+	control := fake.NewXAI(t)
+	xaiOpen(t, control, pushToTalk())
+	got, want := auto.Received(), control.Received()
+	if len(got) != 1 || len(want) != 1 {
+		t.Fatalf("the fakes read %d and %d client events, want the configuring session.update each", len(got), len(want))
+	}
+	if asJSON(t, got[0]) != asJSON(t, want[0]) {
+		t.Errorf("session.update with auto =\n%s\nwant the same as without it\n%s", asJSON(t, got[0]), asJSON(t, want[0]))
+	}
+}
+
 // TestWhatXAICannotExpressIsRefusedBeforeAnythingIsDialled: every refusal
 // class spends nothing — not one handshake reaches xAI — and the unmodified
 // push-to-talk request opening on the same fake is the control.
@@ -163,8 +183,14 @@ func TestWhatXAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 		"semantic vad": {func(r *provider.RealtimeOpenRequest) {
 			r.Config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionSemanticVAD, Eagerness: pointer(contract.RealtimeVADEagerness("low")), CreateResponse: pointer(true), InterruptResponse: pointer(true)}
 		}, contract.CodeInvalidRequest, "config.turnDetection"},
-		"tool choice": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceAuto)}
+		"tool choice required": {func(r *provider.RealtimeOpenRequest) {
+			r.Config.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceRequired)}
+		}, contract.CodeInvalidRequest, "config.toolChoice"},
+		"tool choice none": {func(r *provider.RealtimeOpenRequest) {
+			r.Config.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceNone)}
+		}, contract.CodeInvalidRequest, "config.toolChoice"},
+		"tool choice naming a function": {func(r *provider.RealtimeOpenRequest) {
+			r.Config.ToolChoice = &contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "lookup"}}
 		}, contract.CodeInvalidRequest, "config.toolChoice"},
 		"output token limit": {func(r *provider.RealtimeOpenRequest) { r.Config.MaxOutputTokens = pointer(100) }, contract.CodeInvalidRequest, "config.maxOutputTokens"},
 		"temperature":        {func(r *provider.RealtimeOpenRequest) { r.Config.Temperature = pointer(0.5) }, contract.CodeInvalidRequest, "config.temperature"},
