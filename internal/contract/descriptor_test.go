@@ -651,6 +651,25 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 	assertStringList("USAGE_SOURCES", stringsOf(usageSourceValues))
 	assertStringList("INFERENCE_SCOPES", stringsOf(scopeValues))
 
+	for constant, got := range map[string]int{
+		"MAX_REALTIME_AUDIO_FRAME_BASE64_LENGTH": MaxRealtimeAudioFrameBase64Length,
+		"MAX_REALTIME_SESSION_DURATION_MS":       MaxRealtimeSessionDurationMs,
+		"MAX_REALTIME_SESSION_AUDIO_BYTES":       MaxRealtimeSessionAudioBytes,
+		"MAX_REALTIME_RESUME_WINDOW_MS":          MaxRealtimeResumeWindowMs,
+		"MAX_REALTIME_ITEM_TEXT_CHARS":           MaxRealtimeItemTextChars,
+		"MAX_REALTIME_OPEN_FRAME_BYTES":          MaxRealtimeOpenFrameBytes,
+	} {
+		raw, present := file.Constants[constant]
+		if !present {
+			t.Errorf("published constant %s is gone", constant)
+			continue
+		}
+		var want int
+		if err := json.Unmarshal(raw.Value, &want); err != nil || want != got {
+			t.Errorf("%s is %s upstream, its Go declaration is %d", constant, raw.Value, got)
+		}
+	}
+
 	// The signature domains: a domain Oxy signs under and Kaana verifies under
 	// that differ by one letter is every read refused as unsigned, which is what
 	// the reconciliation read was until 2026-10-15.

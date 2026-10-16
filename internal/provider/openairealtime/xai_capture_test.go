@@ -24,12 +24,18 @@ const contextWait = 10 * time.Second
 // captured is every server event of testdata/xai-text-only-capture.jsonl:
 // what xAI's production Voice Agent API sent on 2026-09-30 for a session
 // configured `modalities: ["text"]`, `turn_detection: {"type": null}`, one
-// input_text item and a bare response.create. Each line is `<type> <json>`;
-// the capture elided each audio delta's base64, which the replay refills with
-// exactly the `audio_duration_ms` xAI stated for it at 24 kHz PCM16.
+// input_text item and a bare response.create.
 func captured(t *testing.T) []fake.Event {
 	t.Helper()
-	data, err := os.ReadFile("testdata/xai-text-only-capture.jsonl")
+	return capture(t, "xai-text-only-capture.jsonl")
+}
+
+// capture reads one testdata file of xAI server events. Each line is
+// `<type> <json>`; a capture that elided an audio delta's base64 is refilled
+// with exactly the `audio_duration_ms` xAI stated for it at 24 kHz PCM16.
+func capture(t *testing.T, name string) []fake.Event {
+	t.Helper()
+	data, err := os.ReadFile("testdata/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,17 @@
+input_audio_buffer.speech_started {"type":"input_audio_buffer.speech_started","item_id":"9a96ccb3-b4f1-422e-a04a-b34cd56cb159","audio_start_ms":285}
+conversation.item.added {"type":"conversation.item.added","item":{"id":"9a96ccb3-b4f1-422e-a04a-b34cd56cb159","type":"message","role":"user","content":[{"type":"input_audio","transcript":""}]}}
+conversation.item.input_audio_transcription.updated {"type":"conversation.item.input_audio_transcription.updated","item_id":"9a96ccb3-b4f1-422e-a04a-b34cd56cb159","transcript":"Hello Alia."}
+input_audio_buffer.speech_stopped {"type":"input_audio_buffer.speech_stopped","item_id":"9a96ccb3-b4f1-422e-a04a-b34cd56cb159","audio_end_ms":1738}
+response.created {"type":"response.created","response":{"id":"resp_e331692e","status":"in_progress","output":[]}}
+input_audio_buffer.committed {"type":"input_audio_buffer.committed","item_id":"9a96ccb3-b4f1-422e-a04a-b34cd56cb159"}
+conversation.item.input_audio_transcription.completed {"type":"conversation.item.input_audio_transcription.completed","item_id":"9a96ccb3-b4f1-422e-a04a-b34cd56cb159","transcript":"Hello Alia."}
+response.done {"type":"response.done","response":{"id":"resp_e331692e","status":"completed","output":[]}}
+input_audio_buffer.speech_started {"type":"input_audio_buffer.speech_started","item_id":"4792fca9-9225-421e-8871-0a24c9919529","audio_start_ms":6051}
+conversation.item.added {"type":"conversation.item.added","item":{"id":"4792fca9-9225-421e-8871-0a24c9919529","type":"message","role":"user","content":[{"type":"input_audio","transcript":""}]},"previous_item_id":"254ec7bc-f50a-46ca-8f77-3b06ceb2b441"}
+conversation.item.input_audio_transcription.updated {"type":"conversation.item.input_audio_transcription.updated","item_id":"4792fca9-9225-421e-8871-0a24c9919529","transcript":"Please tell"}
+conversation.item.input_audio_transcription.updated {"type":"conversation.item.input_audio_transcription.updated","item_id":"4792fca9-9225-421e-8871-0a24c9919529","transcript":"Please tell me in one"}
+input_audio_buffer.speech_stopped {"type":"input_audio_buffer.speech_stopped","item_id":"4792fca9-9225-421e-8871-0a24c9919529","audio_end_ms":11287}
+response.created {"type":"response.created","response":{"id":"resp_52850c8a","status":"in_progress","output":[]}}
+input_audio_buffer.committed {"type":"input_audio_buffer.committed","item_id":"4792fca9-9225-421e-8871-0a24c9919529","previous_item_id":"254ec7bc-f50a-46ca-8f77-3b06ceb2b441"}
+conversation.item.input_audio_transcription.completed {"type":"conversation.item.input_audio_transcription.completed","item_id":"4792fca9-9225-421e-8871-0a24c9919529","transcript":"Please tell me, in one short sentence, what is the capital of France?"}
+input_audio_buffer.cleared {"type":"input_audio_buffer.cleared"}

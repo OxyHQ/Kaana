@@ -34,6 +34,9 @@ const (
 	// MaxRealtimeResumeWindowMs is the longest a dropped connection may be
 	// resumed after.
 	MaxRealtimeResumeWindowMs = 60_000
+	// MaxRealtimeItemTextChars bounds the text of one conversation item, in
+	// UTF-16 code units: an input_text part or a function_call_output.
+	MaxRealtimeItemTextChars = 1_048_576
 
 	maxRealtimeInstructions = 32_768
 )
@@ -398,7 +401,7 @@ func (i RealtimeConversationItem) Validate() error {
 		}
 	case RealtimeFunctionCallOutputItem:
 		if i.Role != nil || i.Content != nil || i.Name != nil || i.Arguments != nil || i.CallID == nil ||
-			!boundedID(*i.CallID) || i.Output == nil || utf16Length(*i.Output) > 1_048_576 {
+			!boundedID(*i.CallID) || i.Output == nil || utf16Length(*i.Output) > MaxRealtimeItemTextChars {
 			return fmt.Errorf("a function_call_output item has a callId and output, and nothing else")
 		}
 	default:
@@ -420,8 +423,8 @@ func (p RealtimeContentPart) validate(role RealtimeItemRole) error {
 		if p.Text == nil || p.Format != nil || p.Data != nil || p.Transcript != nil {
 			return fmt.Errorf("a text part carries text only")
 		}
-		if p.Type == RealtimeInputTextPart && utf16Length(*p.Text) > 1_048_576 {
-			return fmt.Errorf("an input_text part is at most 1048576 characters")
+		if p.Type == RealtimeInputTextPart && utf16Length(*p.Text) > MaxRealtimeItemTextChars {
+			return fmt.Errorf("an input_text part is at most %d characters", MaxRealtimeItemTextChars)
 		}
 	case RealtimeInputAudioPart, RealtimeOutputAudioPart:
 		if p.Text != nil || p.Format == nil || !isMember(*p.Format, realtimeAudioFormatValues) {

@@ -49,7 +49,12 @@ export interface RealtimeSession extends AsyncIterable<RealtimeServerEvent> {
   appendAudio(pcm16: Uint8Array): void;
   /** Reattach after a dropped connection, within the session's resume window. */
   resume(): Promise<void>;
-  /** End the session; resolves with what it consumed. It settles exactly once. */
+  /**
+   * End the session; resolves with what it consumed. It never throws: every
+   * outcome is the promise's. A dropped session is reattached to be closed, so
+   * it settles now rather than when its resume window lapses; every call
+   * returns the same promise.
+   */
   close(): Promise<Usage>;
 }
 
@@ -146,7 +151,9 @@ class Session implements RealtimeSession {
   #units: Usage | undefined;
   #commands = 0;
   #pending: { resolve(): void; reject(error: unknown): void } | undefined;
+  #attaching: Promise<void> | undefined;
   #closing = deferred<Usage>();
+  #close: Promise<Usage> | undefined;
 
   constructor(
     WebSocketImpl: typeof globalThis.WebSocket,
@@ -185,7 +192,8 @@ class Session implements RealtimeSession {
     const previous = this.#ws;
     this.#ws = undefined;
     previous?.close(1000);
-    return this.#attach(frame, 'resuming', undefined);
+    this.#attaching = this.#attach(frame, 'resuming', undefined);
+    return this.#attaching;
   }
 
   send(event: RealtimeClientEventInput): void {
@@ -221,19 +229,8 @@ class Session implements RealtimeSession {
   }
 
   close(): Promise<Usage> {
-    if (this.#units !== undefined) return Promise.resolve(this.#units);
-    if (this.#state === 'closed') {
-      return Promise.reject(
-        this.#fatal ?? new KaanaConnectionError('The session ended without settling here.'),
-      );
-    }
-    this.send({ type: 'session.close' });
-    const timer = setTimeout(() => {
-      this.#closing.reject(
-        new KaanaConnectionError('The session did not close in time.', { timedOut: true }),
-      );
-    }, this.#timeoutMs);
-    return this.#closing.promise.finally(() => clearTimeout(timer));
+    this.#close ??= this.#closeSession();
+    return this.#close;
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<RealtimeServerEvent> {
@@ -246,6 +243,22 @@ class Session implements RealtimeSession {
   }
 
   /* ------------------------------------------------------------------------ */
+
+  async #closeSession(): Promise<Usage> {
+    if (this.#state === 'resuming') await this.#attaching;
+    else if (this.#state === 'dropped') await this.resume();
+    if (this.#units !== undefined) return this.#units;
+    if (this.#state === 'closed') {
+      throw this.#fatal ?? new KaanaConnectionError('The session ended without settling here.');
+    }
+    this.send({ type: 'session.close' });
+    const timer = setTimeout(() => {
+      this.#closing.reject(
+        new KaanaConnectionError('The session did not close in time.', { timedOut: true }),
+      );
+    }, this.#timeoutMs);
+    return this.#closing.promise.finally(() => clearTimeout(timer));
+  }
 
   #nextCommandId(): string {
     this.#commands += 1;

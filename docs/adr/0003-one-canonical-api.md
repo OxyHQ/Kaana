@@ -109,6 +109,11 @@ cualquier otro. Ningún cliente tiene código ni decisiones por proveedor.**
      no llega recibe el texto que tiene cuando se confirma el siguiente, antes
      de ese commit. La concatenación de los deltas es el final siempre que el
      proveedor solo añada texto.
+   - El texto de cada item es el de SU audio (`@kaana.ai/contracts` 6.1.0). xAI no
+     reinicia su transcriptor por item sino cuando acaba una respuesta: si el
+     usuario sigue hablando mientras se genera, el segundo item llega
+     transcrito con las palabras del primero delante. Kaana las corta en el
+     adaptador (`continuesInterruptedTurns`); ningún cliente las ve dos veces.
    - Ciclo de vida de respuestas completo: todo `response.created` tiene su
      `response.done` (Kaana#195).
    - Orden garantizado: el que el proveedor emite, con los eventos sintéticos
