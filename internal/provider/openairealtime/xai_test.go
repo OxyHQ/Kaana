@@ -36,7 +36,7 @@ func pushToTalk() contract.RealtimeSessionConfig {
 		InputAudioFormat:  contract.RealtimePCM16,
 		OutputAudioFormat: pointer(contract.RealtimeULaw),
 		TurnDetection:     contract.RealtimeTurnDetection{Type: contract.TurnDetectionNone},
-		Tools: []contract.ToolDefinition{{
+		Tools: []contract.RealtimeToolDefinition{{
 			Type: "function", Name: "lookup", Description: pointer("find an order"),
 			Parameters: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}},
 		}},
@@ -171,10 +171,6 @@ func TestWhatXAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 			r.Config.TurnDetection = serverVAD().TurnDetection
 			r.Config.TurnDetection.Threshold = pointer(0.95)
 		}, contract.CodeInvalidRequest, "config.turnDetection.threshold"},
-		"server vad silence past xAI's bound": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.TurnDetection = serverVAD().TurnDetection
-			r.Config.TurnDetection.SilenceDurationMs = pointer(10_001)
-		}, contract.CodeInvalidRequest, "config.turnDetection.silenceDurationMs"},
 		"text-only server vad session": {func(r *provider.RealtimeOpenRequest) {
 			r.Config = serverVAD()
 			r.Config.OutputModalities = []contract.RealtimeOutputModality{contract.RealtimeOutputText}
@@ -193,7 +189,6 @@ func TestWhatXAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 			r.Config.ToolChoice = &contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "lookup"}}
 		}, contract.CodeInvalidRequest, "config.toolChoice"},
 		"output token limit": {func(r *provider.RealtimeOpenRequest) { r.Config.MaxOutputTokens = pointer(100) }, contract.CodeInvalidRequest, "config.maxOutputTokens"},
-		"temperature":        {func(r *provider.RealtimeOpenRequest) { r.Config.Temperature = pointer(0.5) }, contract.CodeInvalidRequest, "config.temperature"},
 		"a transcription prompt": {func(r *provider.RealtimeOpenRequest) {
 			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Prompt: pointer("names: Kaana, Alia")}
 		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.prompt"},

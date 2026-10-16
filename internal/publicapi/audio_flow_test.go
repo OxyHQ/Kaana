@@ -381,12 +381,16 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 		t.Errorf("the language did not reach the adapter: %+v", call.Transcription)
 	}
 
-	// Refused before a grant: what the envelope cannot carry, and audio
-	// longer than the ceiling.
+	// Refused before a grant: a tag that is not one, what the model's
+	// published audio does not take (a language it does not declare, a
+	// prompt, an upload it does not read), and audio longer than the ceiling.
 	before := len(h.oxy.authorizationBodies())
-	jsonBody["language"] = "español"
-	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "language" {
-		t.Errorf("language = %+v", failure)
+	for value, want := range map[string]string{"español": "", "gl": "omit it to let the model detect the language"} {
+		jsonBody["language"] = value
+		failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest)
+		if *failure.Param != "language" || !strings.Contains(failure.Message, want) {
+			t.Errorf("language %q = %+v", value, failure)
+		}
 	}
 	delete(jsonBody, "language")
 	jsonBody["prompt"] = "names: Kaana"
@@ -394,6 +398,12 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 		t.Errorf("prompt = %+v", failure)
 	}
 	delete(jsonBody, "prompt")
+	upload := jsonBody["audio"]
+	jsonBody["audio"] = map[string]any{"mediaType": "audio/flac", "data": base64.StdEncoding.EncodeToString(wav(1000))}
+	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "file" {
+		t.Errorf("an upload the model does not read = %+v", failure)
+	}
+	jsonBody["audio"] = upload
 	jsonBody["audio"] = map[string]any{"mediaType": "audio/wav", "data": base64.StdEncoding.EncodeToString(wav(31 * 60 * 1000))}
 	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusRequestEntityTooLarge); failure.Code != "request_too_large" {
 		t.Errorf("31 minutes = %+v", failure)

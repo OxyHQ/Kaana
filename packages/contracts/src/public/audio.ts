@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import {
+  type AudioInputMediaType,
   audioInputMediaTypeSchema,
   languageTagSchema,
   speechFormatSchema,
@@ -191,12 +192,16 @@ export const MAX_TRANSCRIPTION_FILE_BYTES = 20 * 1024 * 1024;
 export const transcriptionRequestSchema = z
   .object({
     model: modelReferenceSchema,
-    /** The spoken language, when known; validated against the model's `audio.languages`. */
+    /**
+     * The spoken language, when known: one of the model's `audio.languages`.
+     * Absent lets a model that `detectsLanguage` detect it.
+     */
     language: languageTagSchema.optional(),
-    /** Vocabulary or context that helps the model; never an instruction. */
+    /**
+     * Vocabulary or context that helps the model; never an instruction. Only
+     * for a model whose `audio.transcriptionPrompt` is true.
+     */
     prompt: z.string().max(4096).optional(),
-    /** Absent means `none`. */
-    timestamps: z.enum(['none', 'segment', 'word']).optional(),
   })
   .strict();
 
@@ -237,12 +242,7 @@ export const transcriptionJsonRequestSchema = transcriptionRequestSchema
   })
   .strict();
 
-const timedSpanFields = {
-  startMs: z.number().int().nonnegative().safe(),
-  endMs: z.number().int().nonnegative().safe(),
-};
-
-/** The response. Segments or words are present only when the request asked for them. */
+/** The response. */
 export const transcriptionSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -250,27 +250,53 @@ export const transcriptionSchema = z
     /** The revision that actually served the request. */
     model: modelReferenceSchema,
     text: z.string(),
-    /** The language the model heard, when it reports one. */
+    /** The language the model heard, when its provider reports it as a tag. */
     language: languageTagSchema.optional(),
+    /** The audio's duration, measured from its container before the grant. */
     durationMs: z.number().int().nonnegative().safe().optional(),
-    segments: z.array(z.object({ ...timedSpanFields, text: z.string() }).strict()).optional(),
-    words: z.array(z.object({ ...timedSpanFields, word: z.string() }).strict()).optional(),
     usage: usageSchema,
   })
-  .strict()
-  .superRefine((transcription, ctx) => {
-    for (const field of ['segments', 'words'] as const) {
-      for (const [index, span] of (transcription[field] ?? []).entries()) {
-        if (span.endMs < span.startMs) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [field, index, 'endMs'],
-            message: 'a span cannot end before it starts',
-          });
-        }
-      }
-    }
-  });
+  .strict();
+
+/** Why a transcription request cannot be served by a model, before anything is held. */
+export interface TranscriptionRequestIssue {
+  /** The request's field at fault, as `invalid_request.param` names it. */
+  readonly param: 'file' | 'language' | 'prompt';
+  readonly message: string;
+}
+
+/**
+ * Check a transcription request against the model's published `audio` — the
+ * transcription counterpart of {@link checkSpeechRequest}. Kaana refuses a
+ * request with `invalid_request` and the first issue's `param` BEFORE asking
+ * Oxy for a grant; a client may run the same check to choose a model, and
+ * omit `language` where `detectsLanguage` lets the model detect it.
+ *
+ * `mediaType` is the upload's (the multipart `file` part's content type, or
+ * `audio.mediaType` of the JSON form). Returns every issue, in field order.
+ */
+export function checkTranscriptionRequest(
+  request: { readonly language?: string; readonly prompt?: string },
+  mediaType: AudioInputMediaType,
+  audio: ModelAudioCapabilities,
+): TranscriptionRequestIssue[] {
+  const issues: TranscriptionRequestIssue[] = [];
+  if (!audio.audioFormats.input.includes(mediaType)) {
+    issues.push({ param: 'file', message: `this model does not take ${mediaType} audio` });
+  }
+  if (request.language !== undefined && !audio.languages.includes(request.language)) {
+    issues.push({
+      param: 'language',
+      message:
+        `this model does not declare the language ${request.language}` +
+        (audio.detectsLanguage === true ? '; omit it to let the model detect the language' : ''),
+    });
+  }
+  if (request.prompt !== undefined && audio.transcriptionPrompt !== true) {
+    issues.push({ param: 'prompt', message: 'this model takes no prompt' });
+  }
+  return issues;
+}
 
 export type SpeechStreamFormat = z.infer<typeof speechStreamFormatSchema>;
 export type SpeechRequest = z.infer<typeof speechRequestSchema>;

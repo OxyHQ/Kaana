@@ -221,6 +221,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	}
 
 	applyStatedRealtime(target, models)
+	applyStatedTranscription(target, models)
 
 	// Sorted so a snapshot's content — and therefore its id — does not change
 	// because a provider reordered its list.

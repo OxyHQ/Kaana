@@ -223,16 +223,6 @@ type SpeechStreamErrorEvent struct {
 /*  Transcription                                                             */
 /* -------------------------------------------------------------------------- */
 
-// TranscriptionTimestamps is the timing detail a transcription asks for.
-type TranscriptionTimestamps string
-
-var transcriptionTimestampsValues = []TranscriptionTimestamps{"none", "segment", "word"}
-
-// Valid reports whether the value is one the contract names.
-func (t TranscriptionTimestamps) Valid() bool {
-	return slices.Contains(transcriptionTimestampsValues, t)
-}
-
 // AudioInputMediaType is the media type of an uploaded audio file.
 type AudioInputMediaType string
 
@@ -258,10 +248,9 @@ func (t LanguageTag) Valid() bool {
 
 // TranscriptionRequest is the text fields of the multipart form.
 type TranscriptionRequest struct {
-	Model      ModelReference           `json:"model"`
-	Language   *LanguageTag             `json:"language,omitempty"`
-	Prompt     *string                  `json:"prompt,omitempty"`
-	Timestamps *TranscriptionTimestamps `json:"timestamps,omitempty"`
+	Model    ModelReference `json:"model"`
+	Language *LanguageTag   `json:"language,omitempty"`
+	Prompt   *string        `json:"prompt,omitempty"`
 }
 
 // TranscriptionAudio is the inline audio of the JSON form.
@@ -272,38 +261,21 @@ type TranscriptionAudio struct {
 
 // TranscriptionJSONRequest is the JSON form of a transcription upload.
 type TranscriptionJSONRequest struct {
-	Model      ModelReference           `json:"model"`
-	Language   *LanguageTag             `json:"language,omitempty"`
-	Prompt     *string                  `json:"prompt,omitempty"`
-	Timestamps *TranscriptionTimestamps `json:"timestamps,omitempty"`
-	Audio      TranscriptionAudio       `json:"audio"`
-}
-
-// TranscriptionSegment is one timed span of text.
-type TranscriptionSegment struct {
-	StartMs int    `json:"startMs"`
-	EndMs   int    `json:"endMs"`
-	Text    string `json:"text"`
-}
-
-// TranscriptionWord is one timed word.
-type TranscriptionWord struct {
-	StartMs int    `json:"startMs"`
-	EndMs   int    `json:"endMs"`
-	Word    string `json:"word"`
+	Model    ModelReference     `json:"model"`
+	Language *LanguageTag       `json:"language,omitempty"`
+	Prompt   *string            `json:"prompt,omitempty"`
+	Audio    TranscriptionAudio `json:"audio"`
 }
 
 // Transcription is the response to a transcription request.
 type Transcription struct {
-	SchemaVersion int                    `json:"schemaVersion"`
-	RequestID     RequestID              `json:"requestId"`
-	Model         ModelReference         `json:"model"`
-	Text          string                 `json:"text"`
-	Language      *LanguageTag           `json:"language,omitempty"`
-	DurationMs    *int                   `json:"durationMs,omitempty"`
-	Segments      []TranscriptionSegment `json:"segments,omitempty"`
-	Words         []TranscriptionWord    `json:"words,omitempty"`
-	Usage         []UsageQuantity        `json:"usage"`
+	SchemaVersion int             `json:"schemaVersion"`
+	RequestID     RequestID       `json:"requestId"`
+	Model         ModelReference  `json:"model"`
+	Text          string          `json:"text"`
+	Language      *LanguageTag    `json:"language,omitempty"`
+	DurationMs    *int            `json:"durationMs,omitempty"`
+	Usage         []UsageQuantity `json:"usage"`
 }
 
 /* -------------------------------------------------------------------------- */
@@ -353,8 +325,13 @@ type RealtimeOpenLimits struct {
 	MaxInputAudioBytes  *int `json:"maxInputAudioBytes,omitempty"`
 	MaxOutputAudioBytes *int `json:"maxOutputAudioBytes,omitempty"`
 	MaxResponses        *int `json:"maxResponses,omitempty"`
-	MaxTextItems        *int `json:"maxTextItems,omitempty"`
 }
+
+// MaxRealtimeOpenFrameBytes bounds the first frame of GET /v1/realtime, a
+// session.open with its instructions and up to 128 tool definitions
+// (MAX_REALTIME_OPEN_FRAME_BYTES, contract set 5.0.0). A larger frame closes
+// the connection before it is read.
+const MaxRealtimeOpenFrameBytes = 1 << 20
 
 // RealtimeSessionOpen is the first frame of GET /v1/realtime.
 type RealtimeSessionOpen struct {

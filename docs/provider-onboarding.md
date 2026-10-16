@@ -836,9 +836,15 @@ The other warnings remain exclusions:
   one set of weights.
 - Preview-labelled ids are not promoted merely because their response shape is
   compatible.
-- Groq's Compound ids are systems that choose among models and tools; Orpheus
-  and Whisper use speech endpoints and output types the Chat Completions
-  adapter cannot represent.[^groq-systems][^groq-speech][^groq-transcription]
+- Groq's Compound ids are systems that choose among models and tools, and
+  Orpheus uses a speech endpoint the Chat Completions adapter cannot
+  represent.[^groq-systems][^groq-speech] Whisper (`whisper-large-v3`,
+  `whisper-large-v3-turbo`, attributed to OpenAI) is served since 2026-10-16
+  as file transcription on Groq's OpenAI-compatible `/audio/transcriptions`
+  (`internal/provider/openaitranscription`), classified by
+  `providerconfig.ClassifyModel` and taken as `providerconfig.TranscriptionCapabilities`
+  states: Groq's containers, no language list (the model detects it), a
+  prompt, and its ten-second minimum billed length.[^groq-transcription]
 - Groq's Llama Prompt Guard 2 (`meta-llama/llama-prompt-guard-2-22m`,
   `-86m`) is an mDeBERTa classifier with a 512-token window. Groq serves it at
   `/chat/completions`, but it holds no conversation and fails a streamed chat

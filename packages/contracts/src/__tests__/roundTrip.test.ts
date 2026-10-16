@@ -196,7 +196,7 @@ const cases: [keyof typeof publicContract | keyof typeof internalContract, unkno
   ['speechStreamEventSchema', { type: 'error', error: publicError }],
   [
     'transcriptionRequestSchema',
-    { model: 'openai/whisper-1', language: 'es-ES', timestamps: 'segment' },
+    { model: 'openai/whisper-1', language: 'es-ES', prompt: 'Kaana, Alia' },
   ],
   [
     'transcriptionJsonRequestSchema',
@@ -215,7 +215,6 @@ const cases: [keyof typeof publicContract | keyof typeof internalContract, unkno
       text: 'Hola mundo',
       language: 'es-ES',
       durationMs: 1200,
-      segments: [{ startMs: 0, endMs: 1200, text: 'Hola mundo' }],
       usage: [{ unit: 'audio_input_milliseconds', quantity: 1200 }],
     },
   ],
@@ -245,7 +244,7 @@ const cases: [keyof typeof publicContract | keyof typeof internalContract, unkno
         turnDetection: { type: 'none' },
         inputAudioTranscription: { language: 'es' },
       },
-      limits: { maxDurationMs: 60_000, maxTextItems: 0 },
+      limits: { maxDurationMs: 60_000, maxResponses: 500 },
     },
   ],
   [

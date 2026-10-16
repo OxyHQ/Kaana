@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '4.5.0';
+export const INFERENCE_CONTRACT_VERSION = '5.0.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -142,6 +142,21 @@ export const INFERENCE_CONTRACT_VERSION = '4.5.0';
  * `transcription` member (`inferenceTranscriptionParametersSchema`), which
  * carries a file transcription's `language` to the model instead of the
  * public API refusing it. Nothing in 4.4.0 changes.
+ *
+ * Contract set 5.0.0 publishes what each voice model ACCEPTS, so a client
+ * builds its request from the catalogue instead of learning the rules from a
+ * refusal. Additive: `capabilities.realtime.parameters` (turn detections and
+ * their bounds, output modality sets, tool choices, the output token cap, the
+ * input transcription prompt, and the units each detection is billed in),
+ * `audio.detectsLanguage` and `audio.transcriptionPrompt`,
+ * `realtimeParameterIssues` and `checkTranscriptionRequest`, the envelope's
+ * `transcription.prompt`, `MAX_REALTIME_OPEN_FRAME_BYTES`. MAJOR because it
+ * REMOVES what no server ever served, each of which Kaana already refused:
+ * the realtime `temperature`, a realtime tool's `strict`
+ * (`realtimeToolDefinitionSchema`), `limits.maxTextItems` and
+ * `MAX_REALTIME_TEXT_ITEMS`, and a transcription's `timestamps`, `segments`
+ * and `words`. A request that parsed under 4.5.0 and that Kaana served
+ * still parses and is served the same.
  */
 
 /** The public API's one origin and version. */

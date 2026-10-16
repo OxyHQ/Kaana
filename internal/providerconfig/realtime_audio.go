@@ -1,6 +1,10 @@
 package providerconfig
 
-import "github.com/OxyHQ/Kaana/internal/contract"
+import (
+	"slices"
+
+	"github.com/OxyHQ/Kaana/internal/contract"
+)
 
 // RealtimeStatement is what a realtime session adapter can serve, stated per
 // protocol from a reviewed reading of the provider's own documentation: the
@@ -28,9 +32,18 @@ type RealtimeStatement struct {
 	// independent).
 	Voices []RealtimeVoice
 	// Languages are the BCP 47 tags the provider documents the model
-	// conversing in. Empty: the provider documents none, which is published as
-	// an empty list rather than guessed.
+	// conversing in, and exactly what config.inputAudioTranscription.language
+	// may name. Empty: the provider documents none, which is published as an
+	// empty list rather than guessed.
 	Languages []string
+	// DetectsLanguage is a model that detects the spoken language when a
+	// session names none: a caller whose language is not in Languages omits
+	// it rather than losing the model.
+	DetectsLanguage bool
+	// Parameters is what a session configuration may set and within which
+	// bounds. The dialect (internal/provider/openairealtime) refuses exactly
+	// what this omits; it is published as capabilities.realtime.parameters.
+	Parameters contract.RealtimeParameters
 }
 
 // RealtimeVoice is one documented voice.
@@ -65,13 +78,86 @@ func RealtimeCapabilities(slug contract.ProviderSlug, protocol string) (statemen
 	case ProtocolOpenAIRealtime:
 		statement.Voices = cloneVoices(openAIRealtimeVoices)
 		statement.Languages = []string{}
+		statement.DetectsLanguage = true
+		statement.Parameters = openAIRealtimeParameters()
 	case ProtocolXAIRealtime:
 		statement.Voices = cloneVoices(xAIRealtimeVoices)
 		statement.Languages = append([]string{}, XAIRealtimeLanguages...)
+		statement.DetectsLanguage = true
+		statement.Parameters = xAIRealtimeParameters()
 	default:
 		return RealtimeStatement{}, false
 	}
 	return statement, true
+}
+
+// openAIRealtimeTokenUnits is how OpenAI bills a Realtime session under every
+// turn detection: the tokens response.done reports, split as the contract
+// partitions them (openairealtime, usage.units), and the input transcription
+// model's minutes, billed apart.
+var openAIRealtimeTokenUnits = []contract.UsageUnit{
+	contract.UnitAudioInputTokens, contract.UnitAudioOutputTokens, contract.UnitCachedAudioInputTokens,
+	contract.UnitCachedInputTokens, contract.UnitInputTokens, contract.UnitInputTranscriptionMilliseconds,
+	contract.UnitOutputTokens,
+}
+
+// openAIRealtimeParameters is OpenAI's GA Realtime session, reviewed
+// 2026-10-15 against
+// https://developers.openai.com/api/reference/resources/realtime/client-events:
+// push-to-talk (`turn_detection: null`), server_vad and semantic_vad, each
+// with `create_response` and `interrupt_response`; exactly one of `text` or
+// `audio` per response; `tool_choice` as a mode or a named function;
+// `max_output_tokens` up to 4096; an input transcription `prompt`. No
+// `temperature` (removed from the GA schema).
+func openAIRealtimeParameters() contract.RealtimeParameters {
+	maxOutputTokens := 4096
+	detection := func(kind contract.RealtimeTurnDetectionType) contract.RealtimeTurnDetectionParameters {
+		return contract.RealtimeTurnDetectionParameters{Type: kind, MeteredUnits: slices.Clone(openAIRealtimeTokenUnits)}
+	}
+	return contract.RealtimeParameters{
+		TurnDetection: []contract.RealtimeTurnDetectionParameters{
+			detection(contract.TurnDetectionNone), detection(contract.TurnDetectionServerVAD), detection(contract.TurnDetectionSemanticVAD),
+		},
+		OutputModalities: [][]contract.RealtimeOutputModality{{contract.RealtimeOutputAudio}, {contract.RealtimeOutputText}},
+		ToolChoice: []contract.RealtimeToolChoice{
+			contract.RealtimeToolChoiceAuto, contract.RealtimeToolChoiceNone, contract.RealtimeToolChoiceRequired, contract.RealtimeToolChoiceFunction,
+		},
+		MaxOutputTokens:          &maxOutputTokens,
+		InputTranscriptionPrompt: true,
+	}
+}
+
+// xAIRealtimeParameters is xAI's Voice Agent session, reviewed 2026-09-30
+// against https://docs.x.ai/voice-realtime.ws.json and
+// https://docs.x.ai/developers/pricing:
+//
+//   - `turn_detection` is `{"type": null}` or `server_vad` with `threshold`
+//     0.1-0.9 and `prefix_padding_ms`/`silence_duration_ms` 0-10000, and no
+//     `create_response` or `interrupt_response`: its VAD always answers and is
+//     interruptible.
+//   - "Push-to-talk sessions are billed only for audio sent and received";
+//     "sessions using the default server_vad turn detection are billed for
+//     session duration"; each text conversation.item.create is a request.
+//   - It answers every response aloud whatever modalities it is sent
+//     (measured 2026-09-30), so a set without audio is not served.
+//   - No `tool_choice` (auto, its behaviour, is served by sending nothing), no
+//     `max_output_tokens`, no transcription prompt.
+func xAIRealtimeParameters() contract.RealtimeParameters {
+	return contract.RealtimeParameters{
+		TurnDetection: []contract.RealtimeTurnDetectionParameters{
+			{
+				Type:         contract.TurnDetectionNone,
+				MeteredUnits: []contract.UsageUnit{contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitRequests},
+			},
+			{
+				Type: contract.TurnDetectionServerVAD, FixedResponses: true,
+				Threshold:    &contract.NumberRange{Min: 0.1, Max: 0.9},
+				MeteredUnits: []contract.UsageUnit{contract.UnitRequests, contract.UnitSessionMilliseconds},
+			},
+		},
+		OutputModalities: [][]contract.RealtimeOutputModality{{contract.RealtimeOutputAudio}, {contract.RealtimeOutputAudio, contract.RealtimeOutputText}},
+		ToolChoice:       []contract.RealtimeToolChoice{contract.RealtimeToolChoiceAuto},
+	}
 }
 
 func cloneVoices(voices []RealtimeVoice) []RealtimeVoice {
@@ -84,6 +170,12 @@ func cloneVoices(voices []RealtimeVoice) []RealtimeVoice {
 // verse, marin, and cedar"). OpenAI documents neither a gender for any of them
 // nor the languages its Realtime models converse in, so neither is published
 // (docs/realtime.md, "What the catalogue says about a realtime model").
+//
+// The languages: OpenAI's guides publish no list of the languages a Realtime
+// model converses or transcribes in (read 2026-10-16 at
+// https://developers.openai.com/api/docs/guides/speech-to-text, which names
+// only the code formats), so none is published and a session names none: the
+// model detects the language (DetectsLanguage).
 var openAIRealtimeVoices = []RealtimeVoice{
 	{ID: "alloy", Name: "Alloy"}, {ID: "ash", Name: "Ash"}, {ID: "ballad", Name: "Ballad"},
 	{ID: "coral", Name: "Coral"}, {ID: "echo", Name: "Echo"}, {ID: "sage", Name: "Sage"},

@@ -32,9 +32,13 @@ package contract
 // GET /internal/v1/models carries to Oxy; 4.4.0 adds the per-deployment
 // `commercial` member of the deployment descriptors and the grant step's
 // `sameModelFailover`; 4.5.0 adds the envelope's `transcription` member (a
-// file transcription's language). Oxy reads it from the
-// health handshake but compares no version against it.
-const ContractVersion = "4.5.0"
+// file transcription's language); 5.0.0 publishes what each voice model
+// accepts (capabilities.realtime.parameters, audio.detectsLanguage and
+// audio.transcriptionPrompt) and removes what no server served (the realtime
+// temperature and tool strict mode, limits.maxTextItems, transcription
+// timestamps, segments and words). Oxy reads it from the health handshake
+// but compares no version against it.
+const ContractVersion = "5.0.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

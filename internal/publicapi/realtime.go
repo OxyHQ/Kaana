@@ -160,14 +160,8 @@ func (g *RealtimeGate) Admit(ctx context.Context, r *http.Request, frame []byte)
 // checked, except input transcription in a conversation, which a model must
 // declare to be asked for because asking for it starts a charge.
 func (s *Server) checkRealtimeOpen(requestID contract.RequestID, model contract.ModelReference, open contract.RealtimeSessionOpen) *contract.PublicError {
-	var entry *inventory.CatalogueEntry
-	for _, candidate := range s.inventory.Current().Catalogue() {
-		if candidate.Model == model.ModelID() {
-			entry = &candidate
-			break
-		}
-	}
-	if entry == nil {
+	entry, found := s.catalogueEntry(model)
+	if !found {
 		return contract.NewPublicError(requestID, "model_not_found", contract.PublicMessage("model_not_found")).WithParam("model")
 	}
 	issue := func(param, message string) *contract.PublicError { return invalid(requestID, param, message) }
@@ -202,9 +196,29 @@ func (s *Server) checkRealtimeOpen(requestID contract.RequestID, model contract.
 		return issue("config.inputAudioTranscription", "this model does not transcribe its input inside a conversation")
 	}
 	if transcription != nil && transcription.Language != nil && audio != nil && !slices.Contains(audio.Languages, *transcription.Language) {
-		return issue("config.inputAudioTranscription.language", "this model does not declare the language "+*transcription.Language)
+		message := "this model does not declare the language " + *transcription.Language
+		if audio.DetectsLanguage {
+			message += "; omit it to let the model detect the language"
+		}
+		return issue("config.inputAudioTranscription.language", message)
+	}
+	if served.Parameters != nil {
+		if issues := served.Parameters.Issues("config", config.Fields()); len(issues) > 0 {
+			return issue(issues[0].Param, issues[0].Message)
+		}
 	}
 	return nil
+}
+
+// catalogueEntry is the inventory's line for a model reference: what every
+// route of it serves.
+func (s *Server) catalogueEntry(model contract.ModelReference) (inventory.CatalogueEntry, bool) {
+	for _, candidate := range s.inventory.Current().Catalogue() {
+		if candidate.Model == model.ModelID() {
+			return candidate, true
+		}
+	}
+	return inventory.CatalogueEntry{}, false
 }
 
 // realtimeLimits signs the session for the defaults, or for less when the
@@ -216,9 +230,6 @@ func realtimeLimits(requestID contract.RequestID, asked *contract.RealtimeOpenLi
 	}
 	if asked.IdleTimeoutMs != nil && asked.MaxDurationMs != nil && *asked.IdleTimeoutMs > *asked.MaxDurationMs {
 		return limits, invalid(requestID, "limits.idleTimeoutMs", "an idle timeout cannot outlast the session")
-	}
-	if asked.MaxTextItems != nil {
-		return limits, invalid(requestID, "limits.maxTextItems", "limits.maxTextItems is not enforced by this server; omit it")
 	}
 	apply := func(param string, value *int, ceiling *int) *contract.PublicError {
 		if value == nil {

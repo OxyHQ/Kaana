@@ -63,10 +63,13 @@ export interface TranscriptionRequest {
   /** A Blob is uploaded as multipart; bytes are sent as JSON with inline base64. */
   file: Blob | Uint8Array;
   mediaType: AudioInputMediaType;
-  /** BCP 47, validated against the catalogue. */
+  /**
+   * One of the model's `audio.languages`; omit it to let a model that
+   * `detectsLanguage` detect it (`checkTranscriptionRequest`).
+   */
   language?: string;
+  /** Only for a model whose `audio.transcriptionPrompt` is true. */
   prompt?: string;
-  timestamps?: 'none' | 'segment' | 'word';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -304,7 +307,6 @@ export async function transcribe(
     model: request.model,
     ...(request.language === undefined ? {} : { language: request.language }),
     ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
-    ...(request.timestamps === undefined ? {} : { timestamps: request.timestamps }),
   };
   const parsedFields = transcriptionRequestSchema.safeParse(fields);
   if (!parsedFields.success) {

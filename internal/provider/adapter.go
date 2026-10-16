@@ -159,6 +159,9 @@ type Outcome struct {
 	Decisions []contract.DecisionAnswer
 
 	Embedding *EmbeddingResult
+	// DetectedLanguage is the language a transcription's provider says it
+	// heard (DetectedLanguage reads it); nil when it says none.
+	DetectedLanguage *contract.LanguageTag
 	// Units measured so far. Each unit appears at most once, as a total.
 	Units []contract.UsageQuantity
 	// UsageSource distinguishes what the provider reported from what Kaana

@@ -344,7 +344,11 @@ describe('realtime commands and events', () => {
   });
 
   it('refuses a session update that changes nothing, or changes what is fixed at open', () => {
-    expect(realtimeSessionConfigUpdateSchema.safeParse({ temperature: 0.5 }).success).toBe(true);
+    expect(realtimeSessionConfigUpdateSchema.safeParse({ maxOutputTokens: 500 }).success).toBe(
+      true,
+    );
+    // No realtime provider has a temperature (contract set 5.0.0).
+    expect(realtimeSessionConfigUpdateSchema.safeParse({ temperature: 0.5 }).success).toBe(false);
     expect(realtimeSessionConfigUpdateSchema.safeParse({}).success).toBe(false);
     expect(realtimeSessionConfigUpdateSchema.safeParse({ voice: 'cedar' }).success).toBe(false);
     expect(

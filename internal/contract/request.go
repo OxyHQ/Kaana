@@ -133,6 +133,8 @@ type ToolDefinition struct {
 	Strict      *bool          `json:"strict,omitempty"`
 }
 
+func (t ToolDefinition) toolName() string { return t.Name }
+
 // ToolChoiceFunction names the one tool the model must call.
 type ToolChoiceFunction struct {
 	Type string `json:"type"`
@@ -358,11 +360,14 @@ type SpeechParameters struct {
 }
 
 // TranscriptionParameters carries a file transcription's controls (contract
-// set 4.5.0). Language is the caller's statement of what is spoken, in the tag
-// the model's catalogue declares; nil lets the model detect it. An adapter whose
-// provider takes no language refuses one rather than dropping it.
+// set 4.5.0; Prompt 5.0.0). Language is the caller's statement of what is
+// spoken, in the tag the model's catalogue declares; nil lets the model detect
+// it. Prompt is vocabulary or context, never an instruction, for a model whose
+// catalogue says it takes one. An adapter refuses either where its provider
+// takes none, rather than dropping it.
 type TranscriptionParameters struct {
 	Language *LanguageTag `json:"language,omitempty"`
+	Prompt   *string      `json:"prompt,omitempty"`
 }
 
 // AudioOutputParameters asks a conversational model to answer in its own
@@ -508,16 +513,17 @@ func (r *Request) Validate() error {
 // validateToolDeclarations holds the tool rules every envelope shares: a tool
 // choice needs a tool, and tool names are unique within the request or session
 // that declares them.
-func validateToolDeclarations(tools []ToolDefinition, choice *ToolChoice, scope string) error {
+func validateToolDeclarations[T interface{ toolName() string }](tools []T, choice *ToolChoice, scope string) error {
 	if choice != nil && len(tools) == 0 {
 		return fmt.Errorf("a tool choice requires at least one tool definition")
 	}
 	seen := make(map[string]struct{}, len(tools))
 	for _, tool := range tools {
-		if _, duplicate := seen[tool.Name]; duplicate {
-			return fmt.Errorf("tool names must be unique within one %s (%q repeats)", scope, tool.Name)
+		name := tool.toolName()
+		if _, duplicate := seen[name]; duplicate {
+			return fmt.Errorf("tool names must be unique within one %s (%q repeats)", scope, name)
 		}
-		seen[tool.Name] = struct{}{}
+		seen[name] = struct{}{}
 	}
 	return nil
 }

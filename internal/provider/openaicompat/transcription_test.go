@@ -127,6 +127,117 @@ func TestTranscriptionRealWireSendsTheUploadAndMetersTheReportedDuration(t *test
 	if !reflect.DeepEqual(outcome.Units, expected) || !reflect.DeepEqual(capture.units, expected) || outcome.UsageSource != contract.UsageProviderReported {
 		t.Fatalf("transcription metering = %+v", outcome)
 	}
+	// xAI names the language it heard as a tag, which the response carries.
+	if outcome.DetectedLanguage == nil || *outcome.DetectedLanguage != "es" {
+		t.Errorf("detected language = %v, want es", outcome.DetectedLanguage)
+	}
+}
+
+// groqTranscriptionFixture is a Whisper request on Groq's slug.
+func groqTranscriptionFixture() (*contract.Request, provider.Route) {
+	r, route := transcriptionFixture()
+	prompt := "names: Kaana, Alia"
+	r.Transcription = &contract.TranscriptionParameters{Prompt: &prompt}
+	route.Provider = "groq"
+	route.ModelReference = "openai/whisper-large-v3-turbo@observed-2026-10-16"
+	route.UpstreamModelID = "whisper-large-v3-turbo"
+	return r, route
+}
+
+// Groq serves Whisper on OpenAI's endpoint: the model, verbose_json (whose
+// duration is what it bills), the caller's prompt, and the audio. Groq bills
+// at least ten seconds, so a 2.5 second clip is metered as ten; its
+// verbose_json names the language ("spanish"), which is not a tag and is not
+// passed off as one.
+func TestGroqTranscribesWhisperOnOpenAIsEndpointAndBillsItsMinimum(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/openai/v1/audio/transcriptions" || r.Header.Get("Authorization") != "Bearer "+fakeAPIKey {
+			t.Errorf("wrong transcription transport: %s %s", r.Method, r.URL.Path)
+		}
+		_, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		reader := multipart.NewReader(r.Body, params["boundary"])
+		values := map[string]string{}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(part)
+			values[part.FormName()] = string(body)
+		}
+		want := map[string]string{"model": "whisper-large-v3-turbo", "response_format": "verbose_json", "prompt": "names: Kaana, Alia", "file": string(transcriptionAudio)}
+		if !reflect.DeepEqual(values, want) {
+			t.Errorf("upload = %#v, want %#v", values, want)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"task":"transcribe","language":"spanish","duration":2.5,"text":"hola","segments":[]}`)
+	}))
+	defer server.Close()
+	a, err := New(Config{Provider: "groq", BaseURL: server.URL + "/openai/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, route := groqTranscriptionFixture()
+	call, err := a.Translate(request, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := &transcriptCapture{}
+	outcome, err := a.Stream(context.Background(), call, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capture.text.String() != "hola" {
+		t.Errorf("transcript = %q", capture.text.String())
+	}
+	if want := []contract.UsageQuantity{{Unit: contract.UnitAudioInputMilliseconds, Quantity: 10_000}}; !reflect.DeepEqual(outcome.Units, want) {
+		t.Errorf("units = %v, want Groq's ten-second minimum %v", outcome.Units, want)
+	}
+	if outcome.DetectedLanguage != nil {
+		t.Errorf("a language name was published as a tag: %v", *outcome.DetectedLanguage)
+	}
+}
+
+// What Groq's statement does not take is refused before anything is sent: a
+// named language (Groq publishes no list; the model detects it) and an
+// upload it does not read.
+func TestGroqRefusesWhatItsStatementDoesNotTake(t *testing.T) {
+	a, err := New(Config{Provider: "groq", BaseURL: "https://upstream.invalid/openai/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*contract.Request){
+		"a language": func(r *contract.Request) {
+			language := contract.LanguageTag("es")
+			r.Transcription.Language = &language
+		},
+		"aac": func(r *contract.Request) {
+			aac := "audio/aac"
+			r.Input.Messages[0].Content[0].Source.MediaType = &aac
+		},
+	} {
+		request, route := groqTranscriptionFixture()
+		mutate(request)
+		var refusal provider.ErrUnsupported
+		if _, err := a.Translate(request, route); !errors.As(err, &refusal) || refusal.Code != contract.CodeInvalidRequest {
+			t.Errorf("%s: Translate = %v, want invalid_request", name, err)
+		}
+	}
+}
+
+// xAI takes no prompt: one is refused, never dropped.
+func TestXAIRefusesAPrompt(t *testing.T) {
+	a := speechAdapter(t, "https://upstream.invalid/v1")
+	request, route := transcriptionFixture()
+	prompt := "names"
+	request.Transcription.Prompt = &prompt
+	var refusal provider.ErrUnsupported
+	if _, err := a.Translate(request, route); !errors.As(err, &refusal) || refusal.Param != "transcription.prompt" {
+		t.Errorf("Translate = %v, want a refusal naming transcription.prompt", err)
+	}
 }
 
 // Without a language the field is absent: the model detects it.

@@ -51,7 +51,6 @@ func publicValidFixtures(t *testing.T) []fixture {
 	unopened.Stamp(RealtimeEventHeader{SchemaVersion: 1, RequestID: session, Sequence: 1})
 
 	language := LanguageTag("es-ES")
-	segment := TranscriptionTimestamps("segment")
 	format, sse := SpeechFormat("mp3"), SpeechStreamSSE
 	return []fixture{
 		{Schema: "publicErrorSchema", Case: "projected-service-unavailable", Value: unavailable},
@@ -69,13 +68,11 @@ func publicValidFixtures(t *testing.T) []fixture {
 		{Schema: "speechStreamEventSchema", Case: "done", Value: SpeechAudioDoneEvent{Type: "speech.audio.done", RequestID: session,
 			Model: "elevenlabs/eleven-multilingual@v2", Usage: []UsageQuantity{{Unit: UnitCharacters, Quantity: 4}}}},
 		{Schema: "speechStreamEventSchema", Case: "error", Value: SpeechStreamErrorEvent{Type: "error", Error: *unavailable}},
-		{Schema: "transcriptionSchema", Case: "segments", Value: Transcription{SchemaVersion: 1, RequestID: session,
+		{Schema: "transcriptionSchema", Case: "detected-language", Value: Transcription{SchemaVersion: 1, RequestID: session,
 			Model: "openai/whisper-1@2023-03-01", Text: "Hola mundo", Language: &language, DurationMs: pointerTo(1200),
-			Segments: []TranscriptionSegment{{StartMs: 0, EndMs: 1200, Text: "Hola mundo"}},
-			Words:    []TranscriptionWord{{StartMs: 0, EndMs: 500, Word: "Hola"}},
-			Usage:    []UsageQuantity{{Unit: UnitAudioInputMilliseconds, Quantity: 1200}}}},
+			Usage: []UsageQuantity{{Unit: UnitAudioInputMilliseconds, Quantity: 1200}}}},
 		{Schema: "transcriptionJsonRequestSchema", Case: "every-field", Value: TranscriptionJSONRequest{Model: "openai/whisper-1",
-			Language: &language, Prompt: pointerTo("Kaana"), Timestamps: &segment,
+			Language: &language, Prompt: pointerTo("Kaana"),
 			Audio: TranscriptionAudio{MediaType: "audio/wav", Data: "UklGRiQAAABXQVZF"}}},
 		{Schema: "responseStreamEventSchema", Case: "start", Value: ResponseStreamStartEvent{SchemaVersion: 1, Type: EventStart,
 			RequestID: session, Seq: 0, GenerationID: pointerTo(GenerationID("gen_1")), Model: "openai/gpt-5@2026-05-01", StartedAt: at}},

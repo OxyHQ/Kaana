@@ -25,10 +25,6 @@ import (
 // the settlement goes to Oxy through the outbox instead; and a resume must
 // present the credential that opened the session.
 
-// MaxPublicFirstFrameBytes bounds a session.open: instructions and up to 128
-// tool definitions.
-const MaxPublicFirstFrameBytes = 1 << 20
-
 // PublicSubprotocol is the subprotocol every public connection speaks.
 const PublicSubprotocol = "kaana.v1"
 
@@ -73,7 +69,7 @@ func (m *Manager) PublicHandler(gate PublicGate) http.Handler {
 		if err != nil {
 			return
 		}
-		ws.SetReadLimit(MaxPublicFirstFrameBytes)
+		ws.SetReadLimit(contract.MaxRealtimeOpenFrameBytes)
 		readContext, cancel := context.WithTimeout(r.Context(), FirstFrameTimeout)
 		kind, frame, err := ws.Read(readContext)
 		cancel()

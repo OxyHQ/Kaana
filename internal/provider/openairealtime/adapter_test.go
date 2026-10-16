@@ -41,7 +41,7 @@ func conversationConfig() contract.RealtimeSessionConfig {
 			Type: contract.TurnDetectionServerVAD, Threshold: pointer(0.5), PrefixPaddingMs: pointer(300),
 			SilenceDurationMs: pointer(500), CreateResponse: pointer(true), InterruptResponse: pointer(true),
 		},
-		Tools: []contract.ToolDefinition{{
+		Tools: []contract.RealtimeToolDefinition{{
 			Type: "function", Name: "lookup", Description: pointer("find an order"),
 			Parameters: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}},
 		}},
@@ -177,7 +177,6 @@ func TestWhatOpenAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 	}{
 		"transcription session": {func(r *provider.RealtimeOpenRequest) { r.Kind = contract.RealtimeTranscription }, contract.CodeUnsupportedModality, "kind"},
 		"translation session":   {func(r *provider.RealtimeOpenRequest) { r.Kind = contract.RealtimeTranslation }, contract.CodeUnsupportedModality, "kind"},
-		"temperature":           {func(r *provider.RealtimeOpenRequest) { r.Config.Temperature = pointer(0.8) }, contract.CodeInvalidRequest, "config.temperature"},
 		"a regional transcription language": {func(r *provider.RealtimeOpenRequest) {
 			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("es-ES")}
 		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.language"},
@@ -185,7 +184,6 @@ func TestWhatOpenAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 			r.Config.OutputModalities = []contract.RealtimeOutputModality{contract.RealtimeOutputText, contract.RealtimeOutputAudio}
 		}, contract.CodeInvalidRequest, "config.outputModalities"},
 		"too many output tokens": {func(r *provider.RealtimeOpenRequest) { r.Config.MaxOutputTokens = pointer(4097) }, contract.CodeInvalidRequest, "config.maxOutputTokens"},
-		"strict tool":            {func(r *provider.RealtimeOpenRequest) { r.Config.Tools[0].Strict = pointer(true) }, contract.CodeInvalidRequest, "config.tools[0].strict"},
 		"another slug":           {func(r *provider.RealtimeOpenRequest) { r.Route.Provider = "openai" }, contract.CodeInvalidRequest, "authorizedRoutes"},
 	}
 	for name, tc := range cases {
@@ -511,8 +509,8 @@ func TestCommandsOpenAICannotExpressAreRefusedWithoutSending(t *testing.T) {
 			Type: contract.RealtimeMessageItem, Role: pointer(contract.RealtimeItemRole("user")),
 			Content: []contract.RealtimeContentPart{{Type: contract.RealtimeInputAudioPart, Format: pointer(contract.RealtimeULaw), Data: pointer("AAAA")}},
 		}},
-		"temperature":   &contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "c3", Config: contract.RealtimeSessionConfigUpdate{Temperature: pointer(1.0)}},
-		"session.close": &contract.RealtimeSessionCloseCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "c4"},
+		"too many output tokens": &contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "c3", Config: contract.RealtimeSessionConfigUpdate{MaxOutputTokens: pointer(4097)}},
+		"session.close":          &contract.RealtimeSessionCloseCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "c4"},
 	}
 	for name, command := range refusals {
 		var unsupported provider.ErrUnsupported

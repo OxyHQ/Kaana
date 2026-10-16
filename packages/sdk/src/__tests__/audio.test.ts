@@ -181,12 +181,12 @@ describe('audio.transcriptions', () => {
       model: 'openai/whisper-1',
       file: new Blob([new Uint8Array(10)]),
       mediaType: 'audio/mpeg',
-      timestamps: 'segment',
+      prompt: 'Kaana, Alia',
     });
     expect(transcription.text).toBe('heard 10 bytes');
     const form = fake.requests[0].form;
     expect(form?.get('model')).toBe('openai/whisper-1');
-    expect(form?.get('timestamps')).toBe('segment');
+    expect(form?.get('prompt')).toBe('Kaana, Alia');
     const file = form?.get('file') as File;
     expect(file.type).toBe('audio/mpeg');
     expect(file.name).toBe('audio.mp3');

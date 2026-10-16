@@ -17,54 +17,22 @@ package openaiaudio
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
-	"reflect"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/openaitranscription"
 	"github.com/OxyHQ/Kaana/internal/provider/spokenchat"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // Slug is the provider name OpenAI's audio APIs are served under.
 const Slug contract.ProviderSlug = "openai-audio"
-
-// maxAudioBytes is the smaller of the contract's inline audio ceiling
-// (MAX_INFERENCE_AUDIO_BYTES, 20 MiB) and OpenAI's documented 25 MB upload
-// limit. The contract's is the binding one.
-const maxAudioBytes = 20 << 20
-
-// maxResponseBytes bounds the transcript document. A transcript of 20 MiB of
-// audio is far smaller; verbose_json segments are the largest shape asked for.
-const maxResponseBytes = 8 << 20
-
-// whisperModel is the one reviewed model whose plain `json` response carries no
-// duration. It is asked for `verbose_json`, whose top-level duration is the
-// billing quantity OpenAI prices it by.
-const whisperModel = "whisper-1"
-
-// fileNames is the upload name for each accepted container. OpenAI infers the
-// container from the file name's extension, so the name is part of the wire
-// contract rather than decoration. Only containers OpenAI documents for this
-// endpoint and the contract can name are accepted.
-var fileNames = map[string]string{
-	"audio/wav":   "audio.wav",
-	"audio/x-wav": "audio.wav",
-	"audio/mpeg":  "audio.mp3",
-	"audio/flac":  "audio.flac",
-	"audio/ogg":   "audio.ogg",
-	"audio/webm":  "audio.webm",
-	"audio/mp4":   "audio.m4a",
-}
 
 type Config struct {
 	Declarations []provider.KeyDeclaration
@@ -104,9 +72,9 @@ func refuse(param, message string) (*provider.Call, error) {
 	return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: param, Detail: message}
 }
 
-// Translate builds the multipart upload. It sends the exact signed model, the
-// audio, and the response format this adapter reads — no language, prompt,
-// temperature or chunking default is invented for a caller who never set one.
+// Translate builds the multipart upload (internal/provider/openaitranscription)
+// from the request read against the slug's reviewed statement
+// (providerconfig.TranscriptionCapabilities), or a spoken chat (chat.go).
 func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provider.Call, error) {
 	if r == nil || route.Provider != Slug || route.UpstreamModelID == "" {
 		return refuse("model", "an exact OpenAI audio deployment is required")
@@ -117,133 +85,22 @@ func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provide
 	if r.Client.APIFormat != contract.APIFormatAudioTranscriptions {
 		return refuse("client.apiFormat", "only audio_transcriptions and spoken chat_completions are supported")
 	}
-	if r.AudioOutput != nil {
-		return refuse("audioOutput", "spoken output is a chat_completions request")
-	}
-	if r.Stream {
-		return refuse("stream", "streamed transcription events are not supported by this adapter")
-	}
-	if r.Modality != contract.ModalityAudio {
-		return refuse("modality", "transcription requires audio modality")
-	}
-	if r.Transcription != nil && r.Transcription.Language != nil {
-		// Its catalogue lines declare no language, so none is sent here; one
-		// that arrives anyway is refused, never dropped.
-		return refuse("transcription.language", "this transcription deployment takes no language; omit it to let the model detect it")
-	}
-	if r.Speech != nil || r.Reasoning != nil || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || !reflect.DeepEqual(r.Sampling, contract.SamplingParameters{}) {
-		return refuse("parameters", "chat, speech, reasoning and sampling controls are not supported by the transcription API")
-	}
-	if r.Input.Format != contract.InputMessages || len(r.Input.Messages) != 1 || r.Input.Text != nil || len(r.Input.Texts) != 0 {
-		return refuse("input", "transcription requires one user message containing one inline audio part")
-	}
-	message := r.Input.Messages[0]
-	if message.Role != contract.RoleUser || len(message.Content) != 1 || len(message.ToolCalls) != 0 || message.Name != nil || message.ToolCallID != nil {
-		return refuse("input", "transcription requires one user audio part without message metadata")
-	}
-	part := message.Content[0]
-	if part.Type != contract.ContentPartAudio || part.Source == nil || part.Source.Kind != contract.ContentSourceInline || part.Source.URL != nil || part.Source.Data == nil || part.Source.MediaType == nil || part.Text != nil || part.Detail != nil || part.Filename != nil {
-		return refuse("input", "only inline audio is supported; remote audio is not fetched")
-	}
-	fileName, supported := fileNames[*part.Source.MediaType]
-	if !supported {
-		return refuse("input.mediaType", "audio must use a container OpenAI documents for transcription")
-	}
-	if len(*part.Source.Data) > base64.StdEncoding.EncodedLen(maxAudioBytes) {
-		return refuse("input", "audio exceeds 20 MiB")
-	}
-	audio, err := base64.StdEncoding.Strict().DecodeString(*part.Source.Data)
-	if err != nil || len(audio) == 0 || len(audio) > maxAudioBytes {
-		return refuse("input", "audio must be nonempty base64 of at most 20 MiB")
-	}
-
-	responseFormat := "json"
-	if route.UpstreamModelID == whisperModel {
-		responseFormat = "verbose_json"
-	}
-	var body bytes.Buffer
-	form := multipart.NewWriter(&body)
-	for _, field := range [][2]string{{"model", route.UpstreamModelID}, {"response_format", responseFormat}} {
-		if err := form.WriteField(field[0], field[1]); err != nil {
-			return nil, fmt.Errorf("openaiaudio: encoding %s: %w", field[0], err)
-		}
-	}
-	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, fileName))
-	header.Set("Content-Type", *part.Source.MediaType)
-	file, err := form.CreatePart(header)
+	upload, err := provider.ReadTranscription(r, transcriptionStatement())
 	if err != nil {
-		return nil, fmt.Errorf("openaiaudio: encoding the audio part: %w", err)
+		return nil, err
 	}
-	if _, err := file.Write(audio); err != nil {
-		return nil, fmt.Errorf("openaiaudio: encoding the audio part: %w", err)
-	}
-	if err := form.Close(); err != nil {
-		return nil, fmt.Errorf("openaiaudio: closing the upload: %w", err)
-	}
-	call := &provider.Call{Route: route, Method: http.MethodPost, URL: a.base + "/audio/transcriptions", Body: body.Bytes(), Header: make(http.Header)}
-	call.Header.Set("Content-Type", form.FormDataContentType())
-	call.Header.Set("Accept", "application/json")
-	return call, nil
+	return openaitranscription.Call(route, a.base+"/audio/transcriptions", upload)
+}
+
+// transcriptionStatement is what this slug transcribes.
+func transcriptionStatement() providerconfig.TranscriptionStatement {
+	statement, _ := providerconfig.TranscriptionCapabilities(Slug, providerconfig.ProtocolOpenAIAudio)
+	return statement
 }
 
 func invalidResponse() error {
 	return provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "OpenAI returned an invalid or oversized transcription response",
 		Passthrough: &contract.ProviderErrorPassthrough{Provider: Slug}}
-}
-
-// transcription is the part of OpenAI's json and verbose_json responses this
-// adapter reads.
-type transcription struct {
-	Text     *string  `json:"text"`
-	Duration *float64 `json:"duration"`
-	Usage    *struct {
-		Type         string   `json:"type"`
-		Seconds      *float64 `json:"seconds"`
-		InputTokens  *int     `json:"input_tokens"`
-		OutputTokens *int     `json:"output_tokens"`
-		TotalTokens  *int     `json:"total_tokens"`
-	} `json:"usage"`
-}
-
-// units is what OpenAI reported, in the contract's units.
-//
-// OpenAI reports one of two usage shapes and each is copied exactly:
-//
-//   - `duration` (whisper-1, and per-minute-priced models): the audio length
-//     in seconds, which is `audio_input_milliseconds`, rounded up.
-//   - `tokens` (token-priced models): `input_tokens` and `output_tokens`.
-//     OpenAI's input count is mostly audio tokens (`input_token_details`
-//     splits audio from text), and the contract has no audio-token unit, so
-//     the total is reported as `input_tokens` without a split. That is the
-//     provider's own count, not an estimate; what is lost is only the price
-//     distinction, which a rate card for these deployments must price knowing
-//     the input is audio.
-//
-// A response with neither is refused rather than settled on a guess.
-func (t transcription) units() ([]contract.UsageQuantity, bool) {
-	seconds := t.Duration
-	if t.Usage != nil {
-		switch t.Usage.Type {
-		case "duration":
-			seconds = t.Usage.Seconds
-		case "tokens":
-			in, out := t.Usage.InputTokens, t.Usage.OutputTokens
-			if in == nil || out == nil || *in < 0 || *out < 0 || (t.Usage.TotalTokens != nil && *t.Usage.TotalTokens != *in+*out) {
-				return nil, false
-			}
-			return []contract.UsageQuantity{
-				{Unit: contract.UnitInputTokens, Quantity: *in},
-				{Unit: contract.UnitOutputTokens, Quantity: *out},
-			}, true
-		default:
-			return nil, false
-		}
-	}
-	if seconds == nil || math.IsNaN(*seconds) || math.IsInf(*seconds, 0) || *seconds <= 0 || *seconds > 24*60*60 {
-		return nil, false
-	}
-	return []contract.UsageQuantity{{Unit: contract.UnitAudioInputMilliseconds, Quantity: int(math.Ceil(*seconds * 1000))}}, true
 }
 
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
@@ -260,25 +117,18 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return result, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	data, err := io.ReadAll(io.LimitReader(response.Body, openaitranscription.MaxResponseBytes+1))
 	if err != nil {
 		return result, a.TransportFailure(ctx, err)
 	}
-	if len(data) > maxResponseBytes {
+	if len(data) > openaitranscription.MaxResponseBytes {
 		return result, invalidResponse()
 	}
-	var body transcription
-	if json.Unmarshal(data, &body) != nil {
-		return result, invalidResponse()
-	}
-	// Units come before the transcript is validated or delivered: OpenAI bills
-	// the audio it processed whether or not the text reaches the customer.
-	units, measured := body.units()
-	if !measured {
-		return result, invalidResponse()
-	}
-	result.Units = units
-	if body.Text == nil {
+	// Units come before the transcript is delivered: OpenAI bills the audio it
+	// processed whether or not the text reaches the customer.
+	transcript, ok := openaitranscription.Read(data, transcriptionStatement())
+	result.Units = transcript.Units
+	if !ok {
 		return result, invalidResponse()
 	}
 	result.FinishReason = contract.FinishStop
@@ -291,7 +141,7 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	if err := out.Usage(result.Units, result.UsageSource); err != nil {
 		return result, err
 	}
-	if err := out.Delta(0, contract.ChannelOutputText, *body.Text); err != nil {
+	if err := out.Delta(0, contract.ChannelOutputText, transcript.Text); err != nil {
 		return result, err
 	}
 	return result, nil

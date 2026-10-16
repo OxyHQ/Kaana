@@ -71,7 +71,9 @@ type ModelFamily struct {
 //     gateway's namespace;
 //   - xAI's own slugs (`xai`, `xai-realtime`);
 //   - ElevenLabs (`elevenlabs`), whose published models are all speech;
-//   - Groq's Llama Prompt Guard ids, and only those (groqClassifierOnly).
+//   - Groq's Llama Prompt Guard ids (groqClassifierOnly) and its Whisper ids,
+//     which its documentation serves only on `/audio/transcriptions`
+//     (https://console.groq.com/docs/speech-to-text).
 //
 // classified is false everywhere else: the model list says nothing about the
 // family there, and attribution alone decides. expressible is false when
@@ -101,6 +103,9 @@ func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family M
 	case "groq":
 		if groqClassifierOnly(upstreamModelID) {
 			return ModelFamily{}, true, false
+		}
+		if strings.HasPrefix(strings.ToLower(upstreamModelID), "whisper-") {
+			return ModelFamily{Format: contract.APIFormatAudioTranscriptions}, true, true
 		}
 	}
 	return ModelFamily{}, false, true

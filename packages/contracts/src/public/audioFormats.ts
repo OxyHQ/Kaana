@@ -48,6 +48,20 @@ export const audioInputMediaTypeSchema = z.enum([
  */
 export const realtimeAudioFormatSchema = z.enum(['pcm16_24khz', 'g711_ulaw', 'g711_alaw']);
 
+/**
+ * What a session's responses produce. Declared here, beside the encodings and
+ * for the same reason, since contract set 5.0.0: the catalogue publishes which
+ * sets of them a model serves (`capabilities.realtime.parameters`).
+ */
+export const realtimeOutputModalitySchema = z.enum(['text', 'audio']);
+
+/**
+ * How the end of a caller's turn is detected: the discriminant of
+ * `realtimeTurnDetectionSchema`, published per model by the catalogue
+ * (contract set 5.0.0).
+ */
+export const realtimeTurnDetectionTypeSchema = z.enum(['none', 'server_vad', 'semantic_vad']);
+
 const SPEECH_MEDIA_TYPES = {
   mp3: 'audio/mpeg',
   opus: 'audio/ogg',
