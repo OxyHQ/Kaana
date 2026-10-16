@@ -419,6 +419,7 @@ shared code, and every documented difference is a dialect field.
 | Assistant content parts | `output_text` / `output_audio` | `text` / `audio` (read back as the contract's output parts for the assistant, input parts otherwise) |
 | Event aliases | — | `response.text.delta` = `response.output_text.delta` ("Functionally identical... handle both"); `response.audio.delta` = `response.output_audio.delta` |
 | `conversation.item.done` | sent | not emitted by xAI; the contract event simply does not occur |
+| `response.done` of a talked-over answer | sent, `cancelled` | not sent: xAI opens the next response with none for the first (measured 2026-10-16). Both run one in-conversation response at a time, so a `response.created` while one is open ends it: Kaana reports that one `response.done` `cancelled`, with no usage (xAI's session is metered), before the new `response.created` |
 | In-band errors | OpenAI's type/code vocabulary | `invalid_request_error` / `invalid_event` refuse one event (session continues); `internal_error` is xAI's failure; `timeout` / `max_duration` end the session (`provider_timeout`) |
 | Handshake refusal body | `{"error": {type, code, message}}` | `{"code": "<status text>", "error": "<message>"}` (probed, see below) |
 | Usage | `response.done.usage` tokens, billed | tokens reported but NOT billed: never settled; the session is metered instead |
