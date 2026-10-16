@@ -226,6 +226,8 @@ type fakeOxy struct {
 	// steps overrides the steps of every grant.
 	steps  func(request contract.InferenceAuthorizationRequest) []contract.GrantStep
 	grants int
+	// refusal, when set, answers every inference authorization in place of a grant.
+	refusal http.HandlerFunc
 	// audience and allowedLevels answer catalogue.read.
 	audience      contract.CatalogueAudience
 	allowedLevels []contract.PowerLevel
@@ -256,6 +258,7 @@ func refuse(w http.ResponseWriter, status int, code string) {
 func (o *fakeOxy) authorize(w http.ResponseWriter, r *http.Request) {
 	o.mu.Lock()
 	down := o.down
+	refusal := o.refusal
 	o.mu.Unlock()
 	if down {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -281,6 +284,10 @@ func (o *fakeOxy) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		refuse(w, http.StatusUnauthorized, "authentication_failed")
+		return
+	}
+	if refusal != nil && probe.Kind == contract.AuthorizationKindInference {
+		refusal(w, r)
 		return
 	}
 	switch probe.Kind {

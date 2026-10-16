@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -256,14 +258,18 @@ func (a *OxyAuthorizer) post(ctx context.Context, requestID contract.RequestID, 
 	if response.StatusCode == http.StatusOK {
 		return body, response.Header, nil
 	}
-	return nil, nil, a.refusal(requestID, response.StatusCode, body)
+	return nil, nil, a.refusal(requestID, response.StatusCode, response.Header, body)
 }
 
 // refusal reads Oxy's answer to an authorization it did not grant. Oxy
 // answers with the error shape both surfaces share (code, retryable,
 // retryAfterMs, param); its message may be about the account and is replaced
 // by the code's public text, which links to Oxy Console where it matters.
-func (a *OxyAuthorizer) refusal(requestID contract.RequestID, status int, body []byte) *contract.PublicError {
+//
+// An answer without that shape is not the caller's refusal — it is Oxy, or
+// something in front of it, turning Kaana away — so it is service_unavailable,
+// retryable after the Retry-After Oxy sent, or a second when it sent none.
+func (a *OxyAuthorizer) refusal(requestID contract.RequestID, status int, header http.Header, body []byte) *contract.PublicError {
 	var answer struct {
 		Code         contract.ErrorCode `json:"code"`
 		RetryAfterMs *int               `json:"retryAfterMs"`
@@ -280,7 +286,7 @@ func (a *OxyAuthorizer) refusal(requestID contract.RequestID, status int, body [
 	if answer.Code == "" {
 		a.logger.Warn("Oxy refused an authorization without a readable error", "requestId", requestID, "status", status)
 		if status >= 500 || status == http.StatusTooManyRequests {
-			return contract.NewPublicError(requestID, "service_unavailable", contract.PublicMessage("service_unavailable")).WithRetryAfter(1000)
+			return contract.NewPublicError(requestID, "service_unavailable", contract.PublicMessage("service_unavailable")).WithRetryAfter(retryAfterMs(header))
 		}
 		return contract.NewPublicError(requestID, "internal_error", contract.PublicMessage("internal_error"))
 	}
@@ -292,6 +298,20 @@ func (a *OxyAuthorizer) refusal(requestID contract.RequestID, status int, body [
 		internal = internal.WithRetryAfter(*answer.RetryAfterMs)
 	}
 	return contract.PublicErrorFrom(internal)
+}
+
+// maxStatedRetryAfter bounds the wait an unreadable refusal's Retry-After can
+// pass on: Oxy's longest rate-limit window.
+const maxStatedRetryAfter = 15 * time.Minute
+
+// retryAfterMs is the wait a Retry-After header states in delay-seconds, or a
+// second when it states none Kaana can use.
+func retryAfterMs(header http.Header) int {
+	seconds, err := strconv.Atoi(strings.TrimSpace(header.Get("Retry-After")))
+	if err != nil || seconds <= 0 {
+		return 1000
+	}
+	return int(min(time.Duration(seconds)*time.Second, maxStatedRetryAfter).Milliseconds())
 }
 
 func decodeStrict(body []byte, destination any) error {
