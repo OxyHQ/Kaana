@@ -63,6 +63,13 @@ type session struct {
 	// meter is what Kaana measures for a provider that bills by it rather
 	// than by the tokens it reports (meter.go); nil for OpenAI.
 	meter *meter
+	// openResponse is the in-conversation response created and not yet done.
+	// Both providers run at most one (Kaana's contract has no out-of-band
+	// response), so a response.created while one is open means the provider
+	// ended it: xAI cancels an answer the caller talks over and sends no
+	// response.done for it (measured 2026-10-16), which left every client
+	// counting a response that never ends.
+	openResponse contract.RealtimeResponseID
 
 	closeOnce sync.Once
 }
@@ -297,7 +304,17 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 		if _, err := s.dialect.statusReason(event.Type, *event.Response); err != nil {
 			return nil, err
 		}
-		return one(&contract.RealtimeResponseCreatedEvent{ResponseID: contract.RealtimeResponseID(event.Response.ID)}), nil
+		created := contract.RealtimeResponseID(event.Response.ID)
+		s.mu.Lock()
+		ended := s.openResponse
+		s.openResponse = created
+		s.mu.Unlock()
+		events := one(&contract.RealtimeResponseCreatedEvent{ResponseID: created})
+		if ended != "" && ended != created {
+			// Every response.created gets its response.done, in order.
+			events = append([]provider.RealtimeUpstreamEvent{{Event: s.endedUnannounced(ended)}}, events...)
+		}
+		return events, nil
 	case "response.output_item.added", "response.output_item.done":
 		if event.Item != nil {
 			s.rememberToolName(*event.Item)
@@ -529,11 +546,33 @@ func (s *session) responseDone(event serverEvent) ([]provider.RealtimeUpstreamEv
 		}
 		units = measured
 	}
+	id := contract.RealtimeResponseID(event.Response.ID)
+	s.mu.Lock()
+	if s.openResponse == id {
+		s.openResponse = ""
+	}
+	s.mu.Unlock()
 	done := &contract.RealtimeResponseDoneEvent{
-		ResponseID: contract.RealtimeResponseID(event.Response.ID), Status: status,
+		ResponseID: id, Status: status,
 		FinishReason: finishReason(*event.Response, status, reason), Units: units, UsageSource: source,
 	}
 	return []provider.RealtimeUpstreamEvent{{Event: done, Units: units}}, nil
+}
+
+// endedUnannounced is the response.done of a response the provider ended
+// without one: cancelled, with no usage of its own. xAI bills by the minute and
+// its session is metered (meter.go), so nothing is lost; a provider that
+// reports tokens always sends its response.done and never reaches here.
+func (s *session) endedUnannounced(id contract.RealtimeResponseID) *contract.RealtimeResponseDoneEvent {
+	source := contract.UsageProviderReported
+	if !s.dialect.tokenUsage() {
+		source = contract.UsageOxyMeasured
+	}
+	finish := contract.FinishCancelled
+	return &contract.RealtimeResponseDoneEvent{
+		ResponseID: id, Status: contract.RealtimeResponseCancelled, FinishReason: &finish,
+		Units: []contract.UsageQuantity{}, UsageSource: source,
+	}
 }
 
 // contractItem is an OpenAI conversation item in the contract's shape, or
