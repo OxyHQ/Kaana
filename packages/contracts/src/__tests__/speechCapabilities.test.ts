@@ -191,29 +191,18 @@ describe('checkTranscriptionRequest', () => {
   const transcriber: ModelAudioCapabilities = {
     voices: [],
     languages: ['es', 'es-ES'],
-    detectsLanguage: true,
     audioFormats: { input: ['audio/mp4', 'audio/webm'], output: [] },
   };
 
-  it('accepts what the model declares, and an omitted language it detects', () => {
-    expect(checkTranscriptionRequest({ language: 'es-ES' }, 'audio/mp4', transcriber)).toEqual([]);
-    expect(checkTranscriptionRequest({}, 'audio/webm', transcriber)).toEqual([]);
+  it('accepts an upload the model reads, whatever language or prompt comes with it', () => {
+    expect(checkTranscriptionRequest('audio/mp4', transcriber)).toEqual([]);
+    expect(checkTranscriptionRequest('audio/webm', transcriber)).toEqual([]);
   });
 
-  it('names every field the model does not take', () => {
-    const issues = checkTranscriptionRequest(
-      { language: 'gl', prompt: 'Kaana' },
-      'audio/wav',
-      transcriber,
+  it('refuses an upload in a format the model does not read', () => {
+    expect(checkTranscriptionRequest('audio/wav', transcriber).map((issue) => issue.param)).toEqual(
+      ['file'],
     );
-    expect(issues.map((issue) => issue.param)).toEqual(['file', 'language', 'prompt']);
-    expect(issues[1]?.message).toContain('omit it to let the model detect the language');
-    expect(
-      checkTranscriptionRequest({ prompt: 'Kaana' }, 'audio/mp4', {
-        ...transcriber,
-        transcriptionPrompt: true,
-      }),
-    ).toEqual([]);
   });
 });
 

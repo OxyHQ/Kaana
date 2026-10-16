@@ -450,7 +450,7 @@ func realtimeObservation(statement providerconfig.RealtimeStatement) (*inventory
 		},
 		Parameters: &parameters,
 	}
-	audio := &inventory.AudioObservation{Languages: languages, DetectsLanguage: statement.DetectsLanguage, Voices: make([]inventory.VoiceObservation, 0, len(statement.Voices))}
+	audio := &inventory.AudioObservation{Languages: languages, Voices: make([]inventory.VoiceObservation, 0, len(statement.Voices))}
 	for _, voice := range statement.Voices {
 		audio.Voices = append(audio.Voices, inventory.VoiceObservation{ID: voice.ID, Name: voice.Name, Gender: voice.Gender, Languages: slices.Clone(languages)})
 	}
@@ -460,8 +460,8 @@ func realtimeObservation(statement providerconfig.RealtimeStatement) (*inventory
 
 // applyStatedTranscription publishes a file transcription adapter's reviewed
 // statement (providerconfig.TranscriptionCapabilities) as each transcription
-// model's `audio` observation: the uploads it takes, the languages a request
-// may name, whether it detects one, and whether it takes a prompt. No
+// model's `audio` observation: the uploads it takes and the languages it
+// transcribes. No
 // provider's model list says any of it, and the adapter reads its requests
 // with exactly this statement (provider.ReadTranscription), so it is what the
 // catalogue publishes.
@@ -487,8 +487,7 @@ func applyStatedTranscription(target Provider, models []DiscoveredModel) {
 		}
 		model.Observed.Audio = &inventory.AudioObservation{
 			Voices: []inventory.VoiceObservation{}, Languages: slices.Clone(languages),
-			DetectsLanguage: statement.DetectsLanguage, InputMediaTypes: slices.Sorted(slices.Values(statement.MediaTypes)),
-			TranscriptionPrompt: statement.Prompt,
+			InputMediaTypes: slices.Sorted(slices.Values(statement.MediaTypes)),
 		}
 	}
 }

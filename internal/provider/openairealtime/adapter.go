@@ -166,7 +166,7 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 	// reports, is metered (meter.go): by its wall clock when the session's turn
 	// detection is the one the provider bills by duration, else by its audio.
 	clock := d.clockBilled(request.Config.TurnDetection.Type)
-	upstream.meter = newMeter(request.Config, clock, handshakeAt, a.now)
+	upstream.meter = newMeter(request.Config, d.wireOutputFormat(request.Config), clock, handshakeAt, a.now)
 	return meteredSession{upstream}, opened, nil
 }
 

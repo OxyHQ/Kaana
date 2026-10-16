@@ -36,9 +36,12 @@ package contract
 // accepts (capabilities.realtime.parameters, audio.detectsLanguage and
 // audio.transcriptionPrompt) and removes what no server served (the realtime
 // temperature and tool strict mode, limits.maxTextItems, transcription
-// timestamps, segments and words). Oxy reads it from the health handshake
-// but compares no version against it.
-const ContractVersion = "5.0.0"
+// timestamps, segments and words); 6.0.0 is one canonical API (Kaana ADR
+// 0003): the catalogue loses what 5.0.0 published of each provider's wire
+// (capabilities.realtime.parameters, audio.detectsLanguage and
+// audio.transcriptionPrompt) and gains each voice model's pricePerMinute.
+// Oxy reads it from the health handshake but compares no version against it.
+const ContractVersion = "6.0.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

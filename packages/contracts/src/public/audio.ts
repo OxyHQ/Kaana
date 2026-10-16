@@ -193,13 +193,13 @@ export const transcriptionRequestSchema = z
   .object({
     model: modelReferenceSchema,
     /**
-     * The spoken language, when known: one of the model's `audio.languages`.
-     * Absent lets a model that `detectsLanguage` detect it.
+     * The spoken language, when known, as the client's own BCP 47 tag. Kaana
+     * sends the provider its spelling of it, or none for the model to detect.
      */
     language: languageTagSchema.optional(),
     /**
-     * Vocabulary or context that helps the model; never an instruction. Only
-     * for a model whose `audio.transcriptionPrompt` is true.
+     * A hint — vocabulary or context that helps the model, never an
+     * instruction — used where the model takes one.
      */
     prompt: z.string().max(4096).optional(),
   })
@@ -261,41 +261,26 @@ export const transcriptionSchema = z
 /** Why a transcription request cannot be served by a model, before anything is held. */
 export interface TranscriptionRequestIssue {
   /** The request's field at fault, as `invalid_request.param` names it. */
-  readonly param: 'file' | 'language' | 'prompt';
+  readonly param: 'file';
   readonly message: string;
 }
 
 /**
- * Check a transcription request against the model's published `audio` — the
- * transcription counterpart of {@link checkSpeechRequest}. Kaana refuses a
- * request with `invalid_request` and the first issue's `param` BEFORE asking
- * Oxy for a grant; a client may run the same check to choose a model, and
- * omit `language` where `detectsLanguage` lets the model detect it.
- *
- * `mediaType` is the upload's (the multipart `file` part's content type, or
- * `audio.mediaType` of the JSON form). Returns every issue, in field order.
+ * Check a transcription upload against the model's published `audio` — the
+ * transcription counterpart of {@link checkSpeechRequest}. Kaana refuses an
+ * upload in a format the model does not read with `invalid_request` and
+ * `param: 'file'` BEFORE asking Oxy for a grant. A language or a prompt is
+ * never refused: Kaana sends the provider its spelling of the language, or
+ * none for the model to detect, and the prompt where it is taken (Kaana ADR
+ * 0003). `mediaType` is the upload's.
  */
 export function checkTranscriptionRequest(
-  request: { readonly language?: string; readonly prompt?: string },
   mediaType: AudioInputMediaType,
   audio: ModelAudioCapabilities,
 ): TranscriptionRequestIssue[] {
-  const issues: TranscriptionRequestIssue[] = [];
-  if (!audio.audioFormats.input.includes(mediaType)) {
-    issues.push({ param: 'file', message: `this model does not take ${mediaType} audio` });
-  }
-  if (request.language !== undefined && !audio.languages.includes(request.language)) {
-    issues.push({
-      param: 'language',
-      message:
-        `this model does not declare the language ${request.language}` +
-        (audio.detectsLanguage === true ? '; omit it to let the model detect the language' : ''),
-    });
-  }
-  if (request.prompt !== undefined && audio.transcriptionPrompt !== true) {
-    issues.push({ param: 'prompt', message: 'this model takes no prompt' });
-  }
-  return issues;
+  return audio.audioFormats.input.includes(mediaType)
+    ? []
+    : [{ param: 'file', message: `this model does not take ${mediaType} audio` }];
 }
 
 export type SpeechStreamFormat = z.infer<typeof speechStreamFormatSchema>;

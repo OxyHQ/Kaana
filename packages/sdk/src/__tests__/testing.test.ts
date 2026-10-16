@@ -50,17 +50,18 @@ async function refusal(promise: Promise<unknown>): Promise<KaanaInvalidRequestEr
 }
 
 describe('@kaana.ai/sdk/testing', () => {
-  it("serves Kaana's voice catalogue, with what each model accepts", async () => {
+  it("serves Kaana's voice catalogue, priced per minute and with no provider variant", async () => {
     const { kaana, server } = createFakeKaana();
     const models = await kaana.models.list();
     // The client states the set it parses, which Kaana renders the catalogue in.
-    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('5.0.0');
+    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('6.0.0');
     expect(models.map((model) => model.modelId)).toEqual(
       voiceCatalogue.map((model) => model.modelId),
     );
     const voice = models.find((model) => model.modelId === VOICE);
-    expect(voice?.capabilities.realtime?.parameters?.toolChoice).toEqual(['auto']);
-    expect(voice?.audio?.detectsLanguage).toBe(true);
+    expect(voice?.pricePerMinute?.currency).toBe('USD');
+    expect(Number(voice?.pricePerMinute?.amount)).toBeGreaterThan(0);
+    expect(JSON.stringify(models)).not.toContain('"parameters"');
   });
 
   it('opens the session a voice client opens, and settles it on close', async () => {
@@ -81,39 +82,40 @@ describe('@kaana.ai/sdk/testing', () => {
     expect(opened?.closed).toBe(true);
   });
 
-  it('refuses before anything is held what the model does not serve, naming the field', async () => {
+  it('opens whatever the contract offers, and refuses only what the model lacks', async () => {
     const { kaana, server } = createFakeKaana();
-    for (const [config, param] of [
-      [{ outputModalities: ['text'] }, 'config.outputModalities'],
-      [{ inputAudioTranscription: { language: 'gl' } }, 'config.inputAudioTranscription.language'],
-      [{ toolChoice: 'required' }, 'config.toolChoice'],
-      [{ maxOutputTokens: 100 }, 'config.maxOutputTokens'],
-      [{ voice: 'nobody' }, 'config.voice'],
+    for (const config of [
+      { outputModalities: ['text'], voice: undefined, outputAudioFormat: undefined },
+      { inputAudioTranscription: { language: 'gl', prompt: 'Kaana, Alia' } },
+      { toolChoice: 'none' },
+      { maxOutputTokens: 100 },
     ] as const) {
-      const error = await refusal(kaana.realtime.connect(voiceCall(config as never)));
-      expect(error.param).toBe(param);
+      const session = await kaana.realtime.connect(voiceCall(config as never));
+      await session.close();
     }
-    expect(server.sessions).toHaveLength(0);
+    expect(server.sessions).toHaveLength(4);
+    const error = await refusal(kaana.realtime.connect(voiceCall({ voice: 'nobody' })));
+    expect(error.param).toBe('config.voice');
+    expect(server.sessions).toHaveLength(4);
     // A limit no server enforces is not in the contract: the client refuses it.
     const unenforced = voiceCall();
     (unenforced.limits as Record<string, unknown>).maxTextItems = 0;
     await refusal(kaana.realtime.connect(unenforced));
   });
 
-  it('acknowledges an update it cannot serve, then refuses it without ending the session', async () => {
+  it('applies every update the contract offers', async () => {
     const { kaana, server } = createFakeKaana();
     const session = await kaana.realtime.connect(voiceCall());
     const events = session[Symbol.asyncIterator]();
     await next(events);
     session.send({ type: 'session.update', config: { toolChoice: 'none' } });
     expect((await next(events)).type).toBe('command.accepted');
-    const refused = await next(events);
-    expect(refused.type === 'error' && !refused.fatal && refused.error.param).toBe(
-      'config.toolChoice',
-    );
     session.send({ type: 'session.update', config: { instructions: 'Shorter.' } });
     expect((await next(events)).type).toBe('command.accepted');
-    expect(server.sessions[0]?.commands.map((command) => command.type)).toEqual(['session.update']);
+    expect(server.sessions[0]?.commands.map((command) => command.type)).toEqual([
+      'session.update',
+      'session.update',
+    ]);
     await session.close();
   });
 
@@ -134,7 +136,7 @@ describe('@kaana.ai/sdk/testing', () => {
     await session.close();
   });
 
-  it('transcribes what a model takes, and refuses what it does not before anything is held', async () => {
+  it('transcribes any language with any hint, and refuses an upload the model does not read', async () => {
     const { kaana } = createFakeKaana({
       transcribe: ({ model }) => ({ text: `heard by ${model.modelId}`, durationMs: 2500 }),
     });
@@ -148,25 +150,23 @@ describe('@kaana.ai/sdk/testing', () => {
     expect(whisper.text).toBe('heard by openai/whisper-large-v3-turbo');
     expect(whisper.usage).toEqual([{ unit: 'audio_input_milliseconds', quantity: 2500 }]);
 
-    const named = await refusal(
+    // Any language and a prompt reach Kaana, which translates them.
+    const named = await kaana.audio.transcriptions.create({
+      model: 'x-ai/grok-voice-transcribe-2.0',
+      file: audio,
+      mediaType: 'audio/webm',
+      language: 'gl',
+      prompt: 'Kaana',
+    });
+    expect(named.text).toBe('heard by x-ai/grok-voice-transcribe-2.0');
+
+    const unread = await refusal(
       kaana.audio.transcriptions.create({
         model: 'openai/whisper-large-v3-turbo',
         file: audio,
-        mediaType: 'audio/webm',
-        language: 'es',
+        mediaType: 'audio/aac' as never,
       }),
     );
-    expect(named.param).toBe('language');
-    expect(named.message).toContain('omit it to let the model detect the language');
-
-    const prompted = await refusal(
-      kaana.audio.transcriptions.create({
-        model: 'x-ai/grok-voice-transcribe-2.0',
-        file: audio,
-        mediaType: 'audio/webm',
-        prompt: 'Kaana',
-      }),
-    );
-    expect(prompted.param).toBe('prompt');
+    expect(unread.param).toBe('file');
   });
 });

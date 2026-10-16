@@ -32,7 +32,7 @@ type TranscriptionUpload struct {
 // ReadTranscription reads a file transcription request against the adapter's
 // reviewed statement (providerconfig.TranscriptionCapabilities): one user
 // message holding one inline audio part, in a container the provider
-// detects, with a language and a prompt only where the statement takes them.
+// detects, with the client's language in the provider's spelling of it.
 // Every transcription adapter reads its request here, so they refuse the same
 // things the same way, and the public API's check before the grant
 // (publicapi.checkTranscription) refuses them first.
@@ -73,16 +73,18 @@ func ReadTranscription(r *contract.Request, statement providerconfig.Transcripti
 	}
 	upload := TranscriptionUpload{MediaType: mediaType, Audio: audio}
 	if parameters := r.Transcription; parameters != nil {
+		// The client names its language; the provider's spelling of it is
+		// Kaana's (Kaana ADR 0003). One it takes nothing of is not sent, and
+		// the model detects the language.
 		if parameters.Language != nil {
-			if !slices.Contains(statement.Languages, string(*parameters.Language)) {
-				return refuse("transcription.language", "this deployment names a language only from its declared list; omit it to let the model detect it")
+			if tag, ok := statement.LanguageFor(string(*parameters.Language)); ok {
+				language := contract.LanguageTag(tag)
+				upload.Language = &language
 			}
-			upload.Language = parameters.Language
 		}
-		if parameters.Prompt != nil {
-			if !statement.Prompt {
-				return refuse("transcription.prompt", "this deployment takes no prompt")
-			}
+		// A prompt is a hint (the contract's own word): sent where the
+		// provider takes one.
+		if parameters.Prompt != nil && statement.Prompt {
 			upload.Prompt = parameters.Prompt
 		}
 	}

@@ -63,9 +63,11 @@ type sessionConfig struct {
 	Voice            *string         `json:"voice,omitempty"`
 	TurnDetection    json.RawMessage `json:"turn_detection,omitempty"`
 	Audio            *audioConfig    `json:"audio,omitempty"`
-	Tools            []functionTool  `json:"tools,omitempty"`
-	ToolChoice       json.RawMessage `json:"tool_choice,omitempty"`
-	MaxOutputTokens  *int            `json:"max_output_tokens,omitempty"`
+	// Tools is a pointer so an emptied tool list is sent as `[]`, which is
+	// how a session that withholds its tools clears them upstream.
+	Tools           *[]functionTool `json:"tools,omitempty"`
+	ToolChoice      json.RawMessage `json:"tool_choice,omitempty"`
+	MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
 }
 
 type contentPart struct {
@@ -194,32 +196,21 @@ func wireFormat(format contract.RealtimeAudioFormat) (*audioFormat, error) {
 	return nil, fmt.Errorf("openairealtime: %q is not an audio format", format)
 }
 
-// wireTurnDetection writes a served turn detection (refuseIssues has
-// already refused one the statement does not serve). A detection with fixed
+// wireTurnDetection is the contract's turn detection on the provider's wire
+// (Unservable has refused what no translation serves): semantic_vad runs as
+// server_vad where the wire has no semantic detection, the contract's 0 to 1
+// threshold is mapped onto the wire's own range, and a detection with fixed
 // responses (xAI's server_vad, which always answers and is interruptible) has
 // no create_response or interrupt_response on the wire.
 func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (json.RawMessage, error) {
-	switch detection.Type {
-	case contract.TurnDetectionNone:
+	if detection.Type == contract.TurnDetectionNone {
 		return d.turnDetectionNone, nil
-	case contract.TurnDetectionServerVAD:
-		if served, _ := d.statement().Parameters.TurnDetectionOf(detection.Type); served.FixedResponses {
-			return json.Marshal(struct {
-				Type              string   `json:"type"`
-				Threshold         *float64 `json:"threshold,omitempty"`
-				PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
-				SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
-			}{"server_vad", detection.Threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs})
-		}
-		return json.Marshal(struct {
-			Type              string   `json:"type"`
-			Threshold         *float64 `json:"threshold,omitempty"`
-			PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
-			SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
-			CreateResponse    bool     `json:"create_response"`
-			InterruptResponse bool     `json:"interrupt_response"`
-		}{"server_vad", detection.Threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs, *detection.CreateResponse, *detection.InterruptResponse})
-	case contract.TurnDetectionSemanticVAD:
+	}
+	served, ok := d.statement().Parameters.WireTurnDetection(detection.Type)
+	if !ok {
+		return nil, refused("config.turnDetection", "this model cannot detect turns by "+string(detection.Type))
+	}
+	if served.Type == contract.TurnDetectionSemanticVAD {
 		return json.Marshal(struct {
 			Type              string `json:"type"`
 			Eagerness         string `json:"eagerness"`
@@ -227,7 +218,27 @@ func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (j
 			InterruptResponse bool   `json:"interrupt_response"`
 		}{"semantic_vad", string(*detection.Eagerness), *detection.CreateResponse, *detection.InterruptResponse})
 	}
-	return nil, refused("config.turnDetection", "the turn detection is not one "+d.name+"'s Realtime API names")
+	threshold := detection.Threshold
+	if threshold != nil && served.Threshold != nil {
+		mapped := served.Threshold.Map(*threshold)
+		threshold = &mapped
+	}
+	if served.FixedResponses {
+		return json.Marshal(struct {
+			Type              string   `json:"type"`
+			Threshold         *float64 `json:"threshold,omitempty"`
+			PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
+			SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
+		}{"server_vad", threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs})
+	}
+	return json.Marshal(struct {
+		Type              string   `json:"type"`
+		Threshold         *float64 `json:"threshold,omitempty"`
+		PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
+		SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
+		CreateResponse    bool     `json:"create_response"`
+		InterruptResponse bool     `json:"interrupt_response"`
+	}{"server_vad", threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs, *detection.CreateResponse, *detection.InterruptResponse})
 }
 
 // wireModalities writes the output modalities of a served set.
@@ -246,23 +257,27 @@ func wireModalities(modalities []contract.RealtimeOutputModality) []string {
 // ({type, name, description, parameters}). xAI's machine-readable schema nests
 // the definition under `function`, but every example in its guide is flat,
 // like OpenAI's; docs/realtime.md records the discrepancy.
-func (d *dialect) wireTools(tools []contract.RealtimeToolDefinition) ([]functionTool, error) {
-	if tools == nil {
-		return nil, nil
-	}
+func (d *dialect) wireTools(tools []contract.RealtimeToolDefinition) (*[]functionTool, error) {
 	wire := make([]functionTool, 0, len(tools))
 	for index, tool := range tools {
 		if tool.Type != "function" {
-			return nil, refused(fmt.Sprintf("config.tools[%d].type", index), "only function tools are served on "+d.name+"'s Realtime API")
+			return nil, refused(fmt.Sprintf("config.tools[%d].type", index), "only function tools are called in a session")
 		}
 		wire = append(wire, functionTool{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
-	return wire, nil
+	return &wire, nil
 }
 
-// wireToolChoice writes a served tool choice. A provider with no tool_choice
-// field serves only `auto`, its own behaviour with the tools it was given,
-// which is sent as nothing.
+// withholdsTools reports a tool choice served by sending the provider no
+// tools: `none` on a wire with no tool_choice, which would otherwise call
+// them as it saw fit.
+func (d *dialect) withholdsTools(choice *contract.ToolChoice) bool {
+	return !d.toolChoiceField && choice != nil && contract.RealtimeToolChoiceOf(*choice) == contract.RealtimeToolChoiceNone
+}
+
+// wireToolChoice writes a tool choice on a wire that has the field; without
+// one, `auto` is the provider's own behaviour and `none` is served by
+// withholding the tools (withholdsTools).
 func (d *dialect) wireToolChoice(choice *contract.ToolChoice) (json.RawMessage, error) {
 	if choice == nil || !d.toolChoiceField {
 		return nil, nil
@@ -274,6 +289,18 @@ func (d *dialect) wireToolChoice(choice *contract.ToolChoice) (json.RawMessage, 
 		}{"function", choice.Function.Name})
 	}
 	return json.Marshal(choice)
+}
+
+// wireMaxOutputTokens is the contract's per-response cap on the wire, at
+// most the wire's own (a response cannot be longer than the provider allows
+// anyway). Unservable refused one on a wire with no cap.
+func (d *dialect) wireMaxOutputTokens(limit *int) *int {
+	ceiling := d.statement().Parameters.MaxOutputTokens
+	if limit == nil || ceiling == nil || *limit <= *ceiling {
+		return limit
+	}
+	capped := *ceiling
+	return &capped
 }
 
 // sessionFields is what a full configuration and an update share.
@@ -288,20 +315,20 @@ type sessionFields struct {
 }
 
 func (f sessionFields) governed() contract.RealtimeConfigFields {
-	return contract.RealtimeConfigFields{
-		OutputModalities: f.outputModalities, TurnDetection: f.turnDetection,
-		InputTranscriptionPrompt: f.inputAudioTranscription != nil && f.inputAudioTranscription.Prompt != nil,
-		ToolChoice:               f.toolChoice, MaxOutputTokens: f.maxOutputTokens,
-	}
+	return contract.RealtimeConfigFields{TurnDetection: f.turnDetection, ToolChoice: f.toolChoice, MaxOutputTokens: f.maxOutputTokens}
 }
 
-func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
-	if err := d.refuseIssues("config", f.governed()); err != nil {
+// wire is the fields on the provider's wire. effective is the session's whole
+// configuration once these fields apply: a provider that serves `none` by
+// withholding the tools is sent the tools the configuration then has, or none.
+func (f sessionFields) wire(d *dialect, effective contract.RealtimeSessionConfig) (*sessionConfig, error) {
+	if err := d.refuseUnservable("config", f.governed()); err != nil {
 		return nil, err
 	}
-	config := &sessionConfig{Type: d.sessionType, Instructions: f.instructions, MaxOutputTokens: f.maxOutputTokens}
+	parameters := d.statement().Parameters
+	config := &sessionConfig{Type: d.sessionType, Instructions: f.instructions, MaxOutputTokens: d.wireMaxOutputTokens(f.maxOutputTokens)}
 	if d.sessionModalities {
-		config.OutputModalities = wireModalities(f.outputModalities)
+		config.OutputModalities = wireModalities(parameters.WireOutputModalities(f.outputModalities))
 	}
 	// Otherwise (xAI) the session's modalities have no session field: they
 	// ride on every response.create instead (wireCommand).
@@ -323,10 +350,17 @@ func (f sessionFields) wire(d *dialect) (*sessionConfig, error) {
 		}
 		config.input().Transcription = transcription
 	}
-	var err error
-	if config.Tools, err = d.wireTools(f.tools); err != nil {
-		return nil, err
+	if f.tools != nil || (f.toolChoice != nil && !d.toolChoiceField) {
+		tools := effective.Tools
+		if d.withholdsTools(effective.ToolChoice) {
+			tools = nil
+		}
+		var err error
+		if config.Tools, err = d.wireTools(tools); err != nil {
+			return nil, err
+		}
 	}
+	var err error
 	if config.ToolChoice, err = d.wireToolChoice(f.toolChoice); err != nil {
 		return nil, err
 	}
@@ -347,24 +381,27 @@ func (c *sessionConfig) input() *audioInput {
 // wireTranscription is input transcription on the provider's wire, with the
 // transcription model the dialect declares for the deployment (the contract:
 // "the deployment's own, declared where the deployment is, never chosen by a
-// string here"). A prompt the statement does not serve was refused by
-// refuseIssues; a language it does not name is refused here, because a
-// provider that ignores an unknown code (xAI) would otherwise transcribe in a
-// language nobody asked for.
+// string here"). The client's language is sent in the provider's spelling of
+// it (providerconfig.NormalizeLanguage), or not at all when the provider takes
+// nothing of it, so the model detects it; a prompt, which the contract defines
+// as a hint, is sent where the provider takes one.
 func (d *dialect) wireTranscription(value contract.RealtimeInputTranscription) (*transcriptionConfig, error) {
 	t := d.transcription
 	if t == nil {
-		return nil, refused("config.inputAudioTranscription", d.name+"'s Realtime API does not transcribe the caller's input inside a conversation")
+		return nil, refused("config.inputAudioTranscription", "this model does not transcribe the caller's speech inside a conversation")
 	}
-	wire := &transcriptionConfig{Model: t.model, Prompt: value.Prompt}
+	statement := d.statement()
+	wire := &transcriptionConfig{Model: t.model}
+	if statement.Parameters.InputTranscriptionPrompt {
+		wire.Prompt = value.Prompt
+	}
 	if value.Language != nil {
-		if !slices.Contains(d.statement().Languages, *value.Language) {
-			return nil, refused("config.inputAudioTranscription.language", d.name+"'s input transcription names a language only from its declared list; omit it to let the model detect it")
-		}
-		if t.languageHint {
-			wire.LanguageHint = value.Language
-		} else {
-			wire.Language = value.Language
+		if language, ok := statement.LanguageFor(*value.Language); ok {
+			if t.languageHint {
+				wire.LanguageHint = &language
+			} else {
+				wire.Language = &language
+			}
 		}
 	}
 	return wire, nil
@@ -380,7 +417,7 @@ func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionCo
 		instructions: config.Instructions, outputModalities: config.OutputModalities, turnDetection: &turnDetection,
 		inputAudioTranscription: config.InputAudioTranscription, tools: config.Tools, toolChoice: config.ToolChoice,
 		maxOutputTokens: config.MaxOutputTokens,
-	}.wire(d)
+	}.wire(d, config)
 	if err != nil {
 		return nil, err
 	}
@@ -393,10 +430,11 @@ func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionCo
 	if d.flatSession {
 		session.Voice, voice = config.Voice, nil
 	}
-	if config.OutputAudioFormat != nil || voice != nil {
+	output := d.wireOutputFormat(config)
+	if output != nil || voice != nil {
 		session.Audio.Output = &audioOutput{Voice: voice}
-		if config.OutputAudioFormat != nil {
-			if session.Audio.Output.Format, err = wireFormat(*config.OutputAudioFormat); err != nil {
+		if output != nil {
+			if session.Audio.Output.Format, err = wireFormat(*output); err != nil {
 				return nil, refused("config.outputAudioFormat", err.Error())
 			}
 		}
@@ -404,13 +442,30 @@ func (d *dialect) wireSession(config contract.RealtimeSessionConfig) (*sessionCo
 	return session, nil
 }
 
-// wireUpdate is the session.update a contract session.update command becomes.
-func (d *dialect) wireUpdate(update contract.RealtimeSessionConfigUpdate) (*sessionConfig, error) {
+// wireOutputFormat is the encoding the provider speaks in: the session's, or
+// PCM16 for a session that asked for no audio on a provider that answers
+// aloud anyway (WireOutputModalities). Kaana then measures that audio and
+// relays none of it.
+func (d *dialect) wireOutputFormat(config contract.RealtimeSessionConfig) *contract.RealtimeAudioFormat {
+	if config.OutputAudioFormat != nil {
+		return config.OutputAudioFormat
+	}
+	if slices.Contains(d.statement().Parameters.WireOutputModalities(config.OutputModalities), contract.RealtimeOutputAudio) {
+		pcm := contract.RealtimePCM16
+		return &pcm
+	}
+	return nil
+}
+
+// wireUpdate is the session.update a contract session.update command becomes,
+// on a session whose configuration, once every update already sent applies,
+// is projected.
+func (d *dialect) wireUpdate(update contract.RealtimeSessionConfigUpdate, projected contract.RealtimeSessionConfig) (*sessionConfig, error) {
 	return sessionFields{
 		instructions: update.Instructions, outputModalities: update.OutputModalities, turnDetection: update.TurnDetection,
 		inputAudioTranscription: update.InputAudioTranscription, tools: update.Tools, toolChoice: update.ToolChoice,
 		maxOutputTokens: update.MaxOutputTokens,
-	}.wire(d)
+	}.wire(d, mergeUpdate(projected, update))
 }
 
 // mergeUpdate is the effective configuration once OpenAI confirmed an update.
@@ -481,7 +536,7 @@ func (s *session) wireCommand(command contract.RealtimeCommand) (clientEvent, er
 	event := clientEvent{EventID: string(commandID)}
 	switch c := command.(type) {
 	case *contract.RealtimeSessionUpdateCommand:
-		session, err := s.dialect.wireUpdate(c.Config)
+		session, err := s.dialect.wireUpdate(c.Config, s.projectedConfig())
 		if err != nil {
 			return event, err
 		}
@@ -517,27 +572,33 @@ func (s *session) wireCommand(command contract.RealtimeCommand) (clientEvent, er
 			parameters = &contract.RealtimeResponseParameters{}
 		}
 		if parameters != nil {
-			if err := d.refuseIssues("response", parameters.Fields()); err != nil {
+			if err := d.refuseUnservable("response", parameters.Fields()); err != nil {
 				return event, err
 			}
-			wire := &responseParameters{Instructions: parameters.Instructions, MaxOutputTokens: parameters.MaxOutputTokens}
+			wire := &responseParameters{Instructions: parameters.Instructions, MaxOutputTokens: d.wireMaxOutputTokens(parameters.MaxOutputTokens)}
 			requested := parameters.OutputModalities
 			if requested == nil && !d.sessionModalities {
 				// The session's modalities, carried on the one field the
 				// provider has for them. Every response of a push-to-talk
 				// session is created here, so none escapes it.
-				requested = s.sessionModalities()
+				requested = s.projectedConfig().OutputModalities
 			}
+			// What the client asked this response for decides what is relayed
+			// of it (relayResponse); the wire is asked for what it can give.
+			s.expectResponse(parameters.OutputModalities)
+			onWire := wireModalities(d.statement().Parameters.WireOutputModalities(requested))
 			if d.responseModalitiesField == "modalities" {
-				wire.Modalities = wireModalities(requested)
+				wire.Modalities = onWire
 			} else {
-				wire.OutputModalities = wireModalities(requested)
+				wire.OutputModalities = onWire
 			}
 			var err error
 			if wire.ToolChoice, err = d.wireToolChoice(parameters.ToolChoice); err != nil {
 				return event, err
 			}
 			event.Response = wire
+		} else {
+			s.expectResponse(nil)
 		}
 	case *contract.RealtimeResponseCancelCommand:
 		event.Type = "response.cancel"

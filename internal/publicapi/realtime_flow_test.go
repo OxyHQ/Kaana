@@ -13,6 +13,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	fake "github.com/OxyHQ/Kaana/internal/provider/openairealtime/openairealtimetest"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // dialRealtime connects the way @kaana.ai/sdk does: the credential in the
@@ -200,15 +201,18 @@ func TestARealtimeSessionWithoutAGrantIsOneErrorAndNoUpstream(t *testing.T) {
 }
 
 // A session the model cannot hold is refused before Oxy is asked: an
-// undeclared voice, a language it does not declare, and what its published
-// parameters do not serve.
+// undeclared voice, and what no translation of its configuration serves.
+// What Kaana translates is opened: a language the model does not list, text
+// beside audio, a cap past the provider's (Kaana ADR 0003).
 func TestARealtimeOpenIsCheckedAgainstTheModelBeforeAnyGrant(t *testing.T) {
-	h := newHarness(t, harnessOptions{})
+	// xAI's statement: a turn it detects is always answered, and no tool can
+	// be named.
+	xai, _ := providerconfig.RealtimeCapabilities("xai-realtime", providerconfig.ProtocolXAIRealtime)
+	h := newHarness(t, harnessOptions{realtime: &xai})
 	for param, extra := range map[string]map[string]any{
-		"config.voice": {"voice": "nobody", "outputModalities": []string{"audio"}, "outputAudioFormat": "pcm16_24khz"},
-		"config.inputAudioTranscription.language": {"inputAudioTranscription": map[string]any{"language": "fr"}},
-		"config.outputModalities":                 {"outputModalities": []string{"text", "audio"}, "voice": "marin", "outputAudioFormat": "pcm16_24khz"},
-		"config.maxOutputTokens":                  {"maxOutputTokens": 4097},
+		"config.voice":                        {"voice": "nobody", "outputModalities": []string{"audio"}, "outputAudioFormat": "pcm16_24khz"},
+		"config.turnDetection.createResponse": {"turnDetection": map[string]any{"type": "server_vad", "createResponse": false, "interruptResponse": true}},
+		"config.toolChoice":                   {"toolChoice": map[string]any{"type": "function", "name": "lookup"}},
 	} {
 		ws := h.dialRealtime(validKey, conversationOpen(extra))
 		refused := readEvent(t, ws)
@@ -220,6 +224,17 @@ func TestARealtimeOpenIsCheckedAgainstTheModelBeforeAnyGrant(t *testing.T) {
 	}
 	if len(h.oxy.authorizationBodies()) != 0 {
 		t.Errorf("%d authorizations for opens the model refuses", len(h.oxy.authorizationBodies()))
+	}
+	h = newHarness(t, harnessOptions{})
+	for name, extra := range map[string]map[string]any{
+		"an unlisted language": {"inputAudioTranscription": map[string]any{"language": "fr"}},
+		"text beside audio":    {"outputModalities": []string{"text", "audio"}, "voice": "marin", "outputAudioFormat": "pcm16_24khz"},
+		"a cap past OpenAI's":  {"maxOutputTokens": 4097},
+	} {
+		ws := h.dialRealtime(validKey, conversationOpen(extra))
+		if opened := readEvent(t, ws); opened.head.Type != "session.created" {
+			t.Errorf("%s: %s", name, opened.raw)
+		}
 	}
 }
 

@@ -228,30 +228,20 @@ func validateTranscription(requestID contract.RequestID, upload transcriptionUpl
 
 // checkTranscription is `checkTranscriptionRequest` of `@kaana.ai/contracts`,
 // restated against the inventory's catalogue entry for the line (what every
-// route of it serves): an upload, a language or a prompt the model does not
-// take is refused with invalid_request BEFORE a grant is asked for, so nothing
-// is held for a request no route could serve. A line whose audio is
-// undeclared (a snapshot from before the statement) is not checked.
+// route of it serves): an upload in a format the model does not read is
+// refused with invalid_request BEFORE a grant is asked for. The language and
+// the prompt are never refused: the adapter sends the provider's spelling of
+// the language, or none for the model to detect, and the prompt where the
+// provider takes one, since the contract defines it as a hint (Kaana ADR
+// 0003). A line whose audio is undeclared (an older snapshot) is not checked.
 func (s *Server) checkTranscription(requestID contract.RequestID, upload transcriptionUpload) *contract.PublicError {
 	entry, found := s.catalogueEntry(upload.fields.Model)
 	if !found {
 		return contract.NewPublicError(requestID, "model_not_found", contract.PublicMessage("model_not_found")).WithParam("model")
 	}
 	audio := entry.Audio
-	if audio == nil || audio.InputMediaTypes == nil {
-		return nil
-	}
-	fields := upload.fields
-	switch {
-	case !slices.Contains(audio.InputMediaTypes, upload.mediaType):
+	if audio != nil && audio.InputMediaTypes != nil && !slices.Contains(audio.InputMediaTypes, upload.mediaType) {
 		return invalid(requestID, "file", fmt.Sprintf("this model does not take %s audio", upload.mediaType))
-	case fields.Language != nil && !slices.Contains(audio.Languages, string(*fields.Language)):
-		if audio.DetectsLanguage {
-			return invalid(requestID, "language", fmt.Sprintf("this model does not declare the language %s; omit it to let the model detect the language", *fields.Language))
-		}
-		return invalid(requestID, "language", fmt.Sprintf("this model does not declare the language %s", *fields.Language))
-	case fields.Prompt != nil && !audio.TranscriptionPrompt:
-		return invalid(requestID, "prompt", "this model takes no prompt")
 	}
 	return nil
 }

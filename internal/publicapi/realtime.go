@@ -195,15 +195,11 @@ func (s *Server) checkRealtimeOpen(requestID contract.RequestID, model contract.
 	if transcription != nil && open.Kind == contract.RealtimeConversation && !served.InputAudioTranscription {
 		return issue("config.inputAudioTranscription", "this model does not transcribe its input inside a conversation")
 	}
-	if transcription != nil && transcription.Language != nil && audio != nil && !slices.Contains(audio.Languages, *transcription.Language) {
-		message := "this model does not declare the language " + *transcription.Language
-		if audio.DetectsLanguage {
-			message += "; omit it to let the model detect the language"
-		}
-		return issue("config.inputAudioTranscription.language", message)
-	}
+	// The language is never refused: the adapter sends the provider's
+	// spelling of it, or none for the model to detect (Kaana ADR 0003). Only
+	// what no translation serves is refused here, before a grant.
 	if served.Parameters != nil {
-		if issues := served.Parameters.Issues("config", config.Fields()); len(issues) > 0 {
+		if issues := served.Parameters.Unservable("config", config.Fields()); len(issues) > 0 {
 			return issue(issues[0].Param, issues[0].Message)
 		}
 	}

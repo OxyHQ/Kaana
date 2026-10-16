@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func TestThePublisherPublishesWhatAnXAIVoiceSessionServes(t *testing.T) {
 	if !reflect.DeepEqual(entry.Realtime, wantRealtime) {
 		t.Errorf("realtime = %+v, want %+v", entry.Realtime, wantRealtime)
 	}
-	if entry.Audio == nil || len(entry.Audio.Voices) != 26 || len(entry.Audio.Languages) != 20 || !entry.Audio.DetectsLanguage {
+	if entry.Audio == nil || len(entry.Audio.Voices) != 26 || len(entry.Audio.Languages) != 20 {
 		t.Fatalf("audio = %+v", entry.Audio)
 	}
 	genders := map[string]string{}
@@ -141,16 +142,15 @@ func TestARequestSlugPublishesNoRealtimeStatement(t *testing.T) {
 	}
 }
 
-// A transcription model's `audio` is its adapter's statement: the uploads it
-// reads, the languages a request may name, whether it detects one, whether it
-// takes a prompt. A chat model of the same slug is left alone.
+// A transcription model's `audio` is its adapter's statement: the languages it
+// transcribes and the uploads it reads. A chat model of the same slug is left
+// alone.
 func TestThePublisherPublishesWhatATranscriptionAdapterTakes(t *testing.T) {
 	models := []DiscoveredModel{{UpstreamModelID: "whisper-large-v3-turbo"}, {UpstreamModelID: "openai/gpt-oss-120b"}}
 	applyStatedTranscription(Provider{Slug: "groq", Protocol: providerconfig.ProtocolOpenAICompatible}, models)
 	statement, _ := providerconfig.TranscriptionCapabilities("groq", providerconfig.ProtocolOpenAICompatible)
 	want := &inventory.AudioObservation{
-		Voices: []inventory.VoiceObservation{}, Languages: []string{}, DetectsLanguage: true,
-		InputMediaTypes: statement.MediaTypes, TranscriptionPrompt: true,
+		Voices: []inventory.VoiceObservation{}, Languages: slices.Sorted(slices.Values(statement.Languages)), InputMediaTypes: statement.MediaTypes,
 	}
 	if models[0].Observed == nil || !reflect.DeepEqual(models[0].Observed.Audio, want) {
 		t.Errorf("whisper audio = %+v, want %+v", models[0].Observed, want)

@@ -40,15 +40,16 @@ behalf.
 ### Request mapping
 
 - The request is read by `provider.ReadTranscription` against the slug's
-  reviewed statement (`providerconfig.TranscriptionCapabilities`), the same
-  statement the publisher writes into the inventory and the catalogue
-  publishes as the model's `audio`, and the public API checks before the grant
-  (`checkTranscription`): audio modality, one user message with one inline
-  base64 audio part of at most 20 MiB (the contract's ceiling; OpenAI accepts
-  25 MB), in one of the statement's containers (WAV, MP3, FLAC, Ogg, WebM,
-  MP4/M4A). OpenAI publishes no language list, so a request names none and the
-  model detects it (`audio.detectsLanguage`); a `prompt` is taken
-  (`audio.transcriptionPrompt`).
+  reviewed statement (`providerconfig.TranscriptionCapabilities`), internal to
+  Kaana (ADR 0003): audio modality, one user message with one inline base64
+  audio part of at most 20 MiB (the contract's ceiling; OpenAI accepts 25 MB),
+  in one of the statement's containers (WAV, MP3, FLAC, Ogg, WebM, MP4/M4A).
+  The containers and languages are what the catalogue publishes as the
+  model's `audio`, and the container is the one thing the public API checks
+  before the grant (`checkTranscription`). The client's BCP 47 `language` is
+  sent as Whisper's ISO 639-1 code (`providerconfig.NormalizeLanguage`), or
+  not at all for one Whisper has no code for, and the model detects it; a
+  `prompt` is a hint, sent where the statement takes it.
 - The wire is `internal/provider/openaitranscription`, shared with every
   provider that documents OpenAI's endpoint (Groq): `model` (the signed
   upstream id), `response_format` (`json`, or `verbose_json` for a Whisper

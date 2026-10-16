@@ -56,23 +56,23 @@ const chargedRecord = `{"schemaVersion":1,"kind":"charge","requestId":"req_1","g
 // realtimeObserved is what the realtime deployment publishes: a conversation
 // over WebSocket, input transcription, one voice, no language list (OpenAI
 // publishes none, so a session names none and the model detects it), and the
-// parameters OpenAI's session serves, as its adapter states them.
-func realtimeObserved(t *testing.T) json.RawMessage {
+// parameters its session serves, as its adapter states them: OpenAI's, or the
+// statement harnessOptions.realtime names.
+func realtimeObserved(t *testing.T, statement providerconfig.RealtimeStatement) json.RawMessage {
 	t.Helper()
-	statement, _ := providerconfig.RealtimeCapabilities(openairealtime.Slug, providerconfig.ProtocolOpenAIRealtime)
 	parameters, err := json.Marshal(statement.Parameters)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return json.RawMessage(`{"realtime":{"transports":["websocket"],"sessionKinds":["conversation","transcription"],"inputAudioTranscription":true,
   "audioFormats":{"input":["g711_alaw","g711_ulaw","pcm16_24khz"],"output":["g711_alaw","g711_ulaw","pcm16_24khz"]},"parameters":` + string(parameters) + `},
-  "audio":{"languages":[],"detectsLanguage":true,"voices":[{"id":"marin","name":"Marin","languages":[]}]}}`)
+  "audio":{"languages":[],"voices":[{"id":"marin","name":"Marin","languages":[]}]}}`)
 }
 
 // whisperObserved is what the transcription deployment publishes: the uploads
-// it takes, two languages, detection of any other, and no prompt.
-const whisperObserved = `{"audio":{"voices":[],"languages":["en","es-ES"],"detectsLanguage":true,
-  "inputMediaTypes":["audio/mp4","audio/wav","audio/webm"],"transcriptionPrompt":false}}`
+// it takes and two languages.
+const whisperObserved = `{"audio":{"voices":[],"languages":["en","es-ES"],
+  "inputMediaTypes":["audio/mp4","audio/wav","audio/webm"]}}`
 
 const (
 	textModel     = contract.ModelReference("stub/model@2026-05-01")
@@ -555,6 +555,9 @@ type harnessOptions struct {
 	origins   []string
 	store     publicapi.SettlementStore
 	authorize func(publicapi.Authorizer) publicapi.Authorizer
+	// realtime is the statement the realtime deployment publishes; OpenAI's
+	// when unset.
+	realtime *providerconfig.RealtimeStatement
 }
 
 type lockedBuffer struct {
@@ -583,6 +586,10 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	oxy := newFakeOxy(t, signer.PublicKey())
 	upstream := fake.New(t)
+	realtimeStatement, _ := providerconfig.RealtimeCapabilities(openairealtime.Slug, providerconfig.ProtocolOpenAIRealtime)
+	if options.realtime != nil {
+		realtimeStatement = *options.realtime
+	}
 
 	deployments := []map[string]any{
 		{"deploymentId": "dep_stub_a", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-a", "regions": []string{"us"}, "current": true},
@@ -592,7 +599,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true,
 			"observed": json.RawMessage(whisperObserved)},
 		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true,
-			"observed": realtimeObserved(t)},
+			"observed": realtimeObserved(t, realtimeStatement)},
 	}
 	document, _ := json.Marshal(map[string]any{"snapshotId": "snap_public", "issuedAt": contract.NewTimestamp(time.Now()), "deployments": deployments})
 	path := filepath.Join(t.TempDir(), "inventory.json")

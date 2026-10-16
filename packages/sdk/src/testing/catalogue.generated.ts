@@ -16,9 +16,105 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
         ],
         "output": []
       },
-      "detectsLanguage": true,
-      "languages": [],
-      "transcriptionPrompt": true,
+      "languages": [
+        "af",
+        "am",
+        "ar",
+        "as",
+        "az",
+        "ba",
+        "be",
+        "bg",
+        "bn",
+        "bo",
+        "br",
+        "bs",
+        "ca",
+        "cs",
+        "cy",
+        "da",
+        "de",
+        "el",
+        "en",
+        "es",
+        "et",
+        "eu",
+        "fa",
+        "fi",
+        "fo",
+        "fr",
+        "gl",
+        "gu",
+        "ha",
+        "he",
+        "hi",
+        "hr",
+        "ht",
+        "hu",
+        "hy",
+        "id",
+        "is",
+        "it",
+        "ja",
+        "ka",
+        "kk",
+        "km",
+        "kn",
+        "ko",
+        "la",
+        "lb",
+        "ln",
+        "lo",
+        "lt",
+        "lv",
+        "mg",
+        "mi",
+        "mk",
+        "ml",
+        "mn",
+        "mr",
+        "ms",
+        "mt",
+        "my",
+        "ne",
+        "nl",
+        "nn",
+        "no",
+        "oc",
+        "pa",
+        "pl",
+        "ps",
+        "pt",
+        "ro",
+        "ru",
+        "sa",
+        "sd",
+        "si",
+        "sk",
+        "sl",
+        "sn",
+        "so",
+        "sq",
+        "sr",
+        "su",
+        "sv",
+        "sw",
+        "ta",
+        "te",
+        "tg",
+        "th",
+        "tk",
+        "tl",
+        "tr",
+        "tt",
+        "uk",
+        "ur",
+        "uz",
+        "vi",
+        "yi",
+        "yo",
+        "zh"
+      ],
       "voices": []
     },
     "availableRevisions": [
@@ -69,6 +165,10 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
     },
     "modelCardUrl": "https://github.com/openai/whisper/blob/main/model-card.md",
     "modelId": "openai/whisper-large-v3-turbo",
+    "pricePerMinute": {
+      "amount": "0.000666666667",
+      "currency": "USD"
+    },
     "pricing": {
       "priceVersionId": "01a142b3-b09d-71a3-bf7d-04b2a777f681",
       "currency": "USD",
@@ -104,7 +204,6 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
         "input": [],
         "output": []
       },
-      "detectsLanguage": true,
       "languages": [
         "ar-AE",
         "ar-EG",
@@ -839,44 +938,6 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
           ]
         },
         "inputAudioTranscription": true,
-        "parameters": {
-          "turnDetection": [
-            {
-              "type": "none",
-              "fixedResponses": false,
-              "meteredUnits": [
-                "audio_input_milliseconds",
-                "audio_output_milliseconds",
-                "requests"
-              ]
-            },
-            {
-              "type": "server_vad",
-              "fixedResponses": true,
-              "threshold": {
-                "min": 0.1,
-                "max": 0.9
-              },
-              "meteredUnits": [
-                "requests",
-                "session_milliseconds"
-              ]
-            }
-          ],
-          "outputModalities": [
-            [
-              "audio"
-            ],
-            [
-              "audio",
-              "text"
-            ]
-          ],
-          "toolChoice": [
-            "auto"
-          ],
-          "inputTranscriptionPrompt": false
-        },
         "sessionKinds": [
           "conversation"
         ],
@@ -914,6 +975,10 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
     },
     "modelCardUrl": "https://docs.x.ai/developers/models/speech-to-speech",
     "modelId": "x-ai/grok-voice-3.0",
+    "pricePerMinute": {
+      "amount": "0.08",
+      "currency": "USD"
+    },
     "pricing": {
       "priceVersionId": "01a14202-11ab-7414-bf4d-b371039da104",
       "currency": "USD",
@@ -975,7 +1040,6 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
         ],
         "output": []
       },
-      "detectsLanguage": true,
       "languages": [
         "ar",
         "ar-AE",
@@ -1073,6 +1137,10 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
     },
     "modelCardUrl": "https://docs.x.ai/developers/model-capabilities/audio/speech-to-text",
     "modelId": "x-ai/grok-voice-transcribe-2.0",
+    "pricePerMinute": {
+      "amount": "0.001666666667",
+      "currency": "USD"
+    },
     "pricing": {
       "priceVersionId": "01a14207-e41f-78c6-a03f-d2842f30a3a8",
       "currency": "USD",

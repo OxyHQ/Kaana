@@ -381,23 +381,26 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 		t.Errorf("the language did not reach the adapter: %+v", call.Transcription)
 	}
 
-	// Refused before a grant: a tag that is not one, what the model's
-	// published audio does not take (a language it does not declare, a
-	// prompt, an upload it does not read), and audio longer than the ceiling.
-	before := len(h.oxy.authorizationBodies())
-	for value, want := range map[string]string{"español": "", "gl": "omit it to let the model detect the language"} {
-		jsonBody["language"] = value
-		failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest)
-		if *failure.Param != "language" || !strings.Contains(failure.Message, want) {
-			t.Errorf("language %q = %+v", value, failure)
-		}
+	// Any language and a prompt are the adapter's to translate (Kaana ADR
+	// 0003): a language the model does not list and a prompt reach it as
+	// they were sent.
+	jsonBody["language"], jsonBody["prompt"] = "gl", "names: Kaana"
+	if response := h.post("/v1/audio/transcriptions", validKey, jsonBody); response.StatusCode != http.StatusOK {
+		t.Fatalf("with an unlisted language and a prompt: %d %s", response.StatusCode, readAll(t, response))
 	}
-	delete(jsonBody, "language")
-	jsonBody["prompt"] = "names: Kaana"
-	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "prompt" {
-		t.Errorf("prompt = %+v", failure)
+	if call := h.adapter.lastCall(); call.Transcription == nil || *call.Transcription.Language != "gl" || *call.Transcription.Prompt != "names: Kaana" {
+		t.Errorf("the adapter received %+v", call.Transcription)
 	}
 	delete(jsonBody, "prompt")
+
+	// Refused before a grant: a tag that is not one, an upload the model
+	// does not read, and audio longer than the ceiling.
+	before := len(h.oxy.authorizationBodies())
+	jsonBody["language"] = "español"
+	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "language" {
+		t.Errorf("language español = %+v", failure)
+	}
+	delete(jsonBody, "language")
 	upload := jsonBody["audio"]
 	jsonBody["audio"] = map[string]any{"mediaType": "audio/flac", "data": base64.StdEncoding.EncodeToString(wav(1000))}
 	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "file" {
@@ -420,8 +423,8 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 		t.Error("an invalid transcription asked Oxy for a grant")
 	}
 	h.settle()
-	if len(h.oxy.settled()) != 3 {
-		t.Errorf("%d settlements for 3 transcriptions", len(h.oxy.settled()))
+	if len(h.oxy.settled()) != 4 {
+		t.Errorf("%d settlements for 4 transcriptions", len(h.oxy.settled()))
 	}
 }
 

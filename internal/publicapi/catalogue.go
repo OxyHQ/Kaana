@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -175,32 +175,11 @@ func (m declaredModel) visible(audience contract.CatalogueAudience) bool {
 	return m.audience == contract.AudiencePublic || audience == contract.AudiencePlatformInternal
 }
 
-// catalogueSetDeclared is the first contract set whose catalogue publishes
-// what a voice model accepts: capabilities.realtime.parameters,
-// audio.detectsLanguage and audio.transcriptionPrompt.
-const catalogueSetDeclared = 5
-
-// clientContractSet is the contract set major a client states in
-// Kaana-Contract-Version (`@kaana.ai/sdk` 2.0.0 and later). A client that
-// states none was built against a set before it was sent, 4 at the latest.
-//
-// The catalogue's leaves are strict in the contract (a stripped field is a
-// second source of truth), so a field a client's set does not have is a
-// field its parse refuses: the whole list, not the one model. Kaana therefore
-// renders the catalogue in the shape of the client's set; a client sees a new
-// field once its SDK states a set that has it.
-func clientContractSet(r *http.Request) int {
-	major, _, _ := strings.Cut(r.Header.Get(HeaderContractVersion), ".")
-	set, err := strconv.Atoi(major)
-	if err != nil || set < 4 {
-		return 4
-	}
-	return set
-}
-
-// render is one modelSchema entry: the declaration, with what Kaana serves,
-// in the shape of the client's contract set.
-func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string, contractSet int) (json.RawMessage, error) {
+// render is one modelSchema entry: the declaration, with what Kaana serves.
+// What a model's provider takes on its wire is Kaana's own business and is
+// not published (Kaana ADR 0003): a client is told the model's capabilities
+// and Kaana's price, never a provider's variant.
+func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string) (json.RawMessage, error) {
 	fields := make(map[string]json.RawMessage, len(m.fields)+4)
 	for name, value := range m.fields {
 		fields[name] = value
@@ -221,9 +200,6 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		}
 		realtime := map[string]any{"transports": entry.Realtime.Transports, "sessionKinds": entry.Realtime.SessionKinds,
 			"inputAudioTranscription": entry.Realtime.InputAudioTranscription, "audioFormats": entry.Realtime.AudioFormats}
-		if entry.Realtime.Parameters != nil && contractSet >= catalogueSetDeclared {
-			realtime["parameters"] = entry.Realtime.Parameters
-		}
 		encoded, err := json.Marshal(realtime)
 		if err != nil {
 			return nil, err
@@ -251,17 +227,115 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		}
 		audio := map[string]any{"voices": voices, "languages": entry.Audio.Languages,
 			"audioFormats": map[string]any{"input": input, "output": []string{}}}
-		if contractSet >= catalogueSetDeclared {
-			audio["detectsLanguage"] = entry.Audio.DetectsLanguage
-			if entry.Audio.TranscriptionPrompt {
-				audio["transcriptionPrompt"] = true
-			}
-		}
 		if err := set("audio", audio); err != nil {
 			return nil, err
 		}
 	}
+	price, err := m.pricePerMinute(entry)
+	if err != nil {
+		return nil, err
+	}
+	if price != nil {
+		if err := set("pricePerMinute", price); err != nil {
+			return nil, err
+		}
+	}
 	return json.Marshal(fields)
+}
+
+// realtimeTokensPerMinute is the audio a minute of conversation carries in
+// tokens, for a realtime model priced by them: OpenAI documents audio input
+// at about one token per 100 ms and output at one per 50 ms. It prices
+// pricePerMinute, an estimate; a session is billed by what it measured.
+var realtimeTokensPerMinute = map[contract.UsageUnit]int64{
+	contract.UnitAudioInputTokens: 600, contract.UnitAudioOutputTokens: 1200,
+}
+
+// minuteOf is how much of a unit one minute of a voice model's work is: a
+// minute of a session or of audio in milliseconds, and the audio tokens a
+// minute of conversation carries. A unit a minute does not imply (text
+// tokens, text items) adds nothing to the estimate.
+func minuteOf(unit contract.UsageUnit) int64 {
+	switch unit {
+	case contract.UnitSessionMilliseconds, contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitInputTranscriptionMilliseconds:
+		return 60_000
+	}
+	return realtimeTokensPerMinute[unit]
+}
+
+// pricePerMinute is Kaana's price of one minute of a voice model: of a
+// realtime session under server_vad, Kaana's default turn detection, or of
+// transcribed audio (Kaana ADR 0003). A client reserves or estimates with it
+// without knowing which units a provider bills; nil for a model that is
+// neither, or whose price for those units is undeclared. Rounded up to the
+// contract's twelve decimals, so an estimate never under-reserves.
+func (m declaredModel) pricePerMinute(entry inventory.CatalogueEntry) (*contract.Money, error) {
+	var units []contract.UsageUnit
+	switch {
+	case entry.Realtime != nil && entry.Realtime.Parameters != nil:
+		detection, ok := entry.Realtime.Parameters.TurnDetectionOf(contract.TurnDetectionServerVAD)
+		if !ok {
+			return nil, nil
+		}
+		units = detection.MeteredUnits
+	case entry.Audio != nil && entry.Audio.InputMediaTypes != nil:
+		units = []contract.UsageUnit{contract.UnitAudioInputMilliseconds}
+	default:
+		return nil, nil
+	}
+	raw, present := m.fields["pricing"]
+	if !present {
+		return nil, nil
+	}
+	var pricing struct {
+		Currency   contract.CurrencyCode `json:"currency"`
+		UnitPrices []declaredUnitPrice   `json:"unitPrices"`
+	}
+	if err := json.Unmarshal(raw, &pricing); err != nil {
+		return nil, fmt.Errorf("publicapi: %s's pricing is unreadable: %w", entry.Model, err)
+	}
+	total := new(big.Rat)
+	for _, unit := range units {
+		quantity := minuteOf(unit)
+		if quantity == 0 {
+			continue
+		}
+		index := slices.IndexFunc(pricing.UnitPrices, func(price declaredUnitPrice) bool { return price.Unit == unit })
+		if index < 0 {
+			return nil, nil
+		}
+		price := pricing.UnitPrices[index]
+		amount, ok := new(big.Rat).SetString(price.Amount)
+		if !ok || price.Per <= 0 {
+			return nil, fmt.Errorf("publicapi: %s prices %s as %q per %d", entry.Model, unit, price.Amount, price.Per)
+		}
+		total.Add(total, amount.Mul(amount, big.NewRat(quantity, price.Per)))
+	}
+	return &contract.Money{Amount: contract.ExactDecimal(ceilDecimal(total, 12)), Currency: pricing.Currency}, nil
+}
+
+// declaredUnitPrice is one list price of the declared catalogue.
+type declaredUnitPrice struct {
+	Unit   contract.UsageUnit `json:"unit"`
+	Amount string             `json:"amount"`
+	Per    int64              `json:"per"`
+}
+
+// ceilDecimal is value rounded up to places decimals, without trailing zeros
+// beyond the first.
+func ceilDecimal(value *big.Rat, places int) string {
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(places)), nil)
+	scaled := new(big.Rat).Mul(value, new(big.Rat).SetInt(scale))
+	quotient, remainder := new(big.Int).QuoRem(scaled.Num(), scaled.Denom(), new(big.Int))
+	if remainder.Sign() > 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	text := new(big.Rat).SetFrac(quotient, scale).FloatString(places)
+	text = strings.TrimRight(text, "0")
+	if strings.HasSuffix(text, ".") {
+		text += "0"
+	}
+	return text
 }
 
 // Audio implements AudioCatalogue from the declared audio limits of a speech
@@ -362,9 +436,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := make([]json.RawMessage, 0)
-	contractSet := clientContractSet(r)
 	for _, model := range s.served(access.Audience) {
-		rendered, err := model.declared.render(model.entry, model.revisions, contractSet)
+		rendered, err := model.declared.render(model.entry, model.revisions)
 		if err != nil {
 			writeError(w, requestID, contract.NewPublicError(requestID, "internal_error", contract.PublicMessage("internal_error")))
 			return
@@ -391,7 +464,7 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 		if model.entry.Model != reference.ModelID() || (pinned && !slices.Contains(model.revisions, revision)) {
 			continue
 		}
-		rendered, err := model.declared.render(model.entry, model.revisions, clientContractSet(r))
+		rendered, err := model.declared.render(model.entry, model.revisions)
 		if err != nil {
 			break
 		}

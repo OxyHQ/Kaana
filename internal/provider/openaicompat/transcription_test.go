@@ -201,42 +201,50 @@ func TestGroqTranscribesWhisperOnOpenAIsEndpointAndBillsItsMinimum(t *testing.T)
 	}
 }
 
-// What Groq's statement does not take is refused before anything is sent: a
-// named language (Groq publishes no list; the model detects it) and an
-// upload it does not read.
-func TestGroqRefusesWhatItsStatementDoesNotTake(t *testing.T) {
+// A language is sent in the provider's spelling, or not at all for the model
+// to detect (Kaana ADR 0003): a regional tag reaches Groq's Whisper as its
+// ISO 639-1 code, and a language Whisper has no code for is left to
+// detection. An upload it does not read is the one thing refused.
+func TestGroqTakesAnyLanguageInItsSpelling(t *testing.T) {
 	a, err := New(Config{Provider: "groq", BaseURL: "https://upstream.invalid/openai/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, mutate := range map[string]func(*contract.Request){
-		"a language": func(r *contract.Request) {
-			language := contract.LanguageTag("es")
-			r.Transcription.Language = &language
-		},
-		"aac": func(r *contract.Request) {
-			aac := "audio/aac"
-			r.Input.Messages[0].Content[0].Source.MediaType = &aac
-		},
-	} {
+	for tag, want := range map[string]string{"es-AR": `name="language"` + "\r\n\r\nes\r\n", "pt-BR": `name="language"` + "\r\n\r\npt\r\n", "tlh": ""} {
 		request, route := groqTranscriptionFixture()
-		mutate(request)
-		var refusal provider.ErrUnsupported
-		if _, err := a.Translate(request, route); !errors.As(err, &refusal) || refusal.Code != contract.CodeInvalidRequest {
-			t.Errorf("%s: Translate = %v, want invalid_request", name, err)
+		language := contract.LanguageTag(tag)
+		request.Transcription.Language = &language
+		call, err := a.Translate(request, route)
+		if err != nil {
+			t.Fatalf("%s: Translate = %v", tag, err)
 		}
+		body := string(call.Body)
+		if want == "" && strings.Contains(body, `name="language"`) || want != "" && !strings.Contains(body, want) {
+			t.Errorf("%s: the upload's language field is wrong:\n%s", tag, body)
+		}
+	}
+	request, route := groqTranscriptionFixture()
+	aac := "audio/aac"
+	request.Input.Messages[0].Content[0].Source.MediaType = &aac
+	var refusal provider.ErrUnsupported
+	if _, err := a.Translate(request, route); !errors.As(err, &refusal) || refusal.Code != contract.CodeInvalidRequest {
+		t.Errorf("aac: Translate = %v, want invalid_request", err)
 	}
 }
 
-// xAI takes no prompt: one is refused, never dropped.
-func TestXAIRefusesAPrompt(t *testing.T) {
+// A prompt is a hint: xAI takes none, so it is not sent, and nothing else of
+// the request changes.
+func TestXAIIsNotSentAPrompt(t *testing.T) {
 	a := speechAdapter(t, "https://upstream.invalid/v1")
 	request, route := transcriptionFixture()
 	prompt := "names"
 	request.Transcription.Prompt = &prompt
-	var refusal provider.ErrUnsupported
-	if _, err := a.Translate(request, route); !errors.As(err, &refusal) || refusal.Param != "transcription.prompt" {
-		t.Errorf("Translate = %v, want a refusal naming transcription.prompt", err)
+	call, err := a.Translate(request, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(call.Body), `name="prompt"`) {
+		t.Error("xAI was sent a prompt it does not take")
 	}
 }
 

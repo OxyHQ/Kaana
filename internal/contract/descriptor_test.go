@@ -119,18 +119,12 @@ var goShapes = map[string]reflect.Type{
 	"samplingParametersSchema":      reflect.TypeOf(SamplingParameters{}),
 	"inferenceReasoningSchema":      reflect.TypeOf(ReasoningParameters{}),
 	"toolDefinitionSchema":          reflect.TypeOf(ToolDefinition{}),
-	// contract set 5.0.0: a realtime session's tool (no strict mode) and what
-	// a realtime model's session configuration may set, carried by the
-	// inventory (inventory.RealtimeObservation.Parameters) and checked by
-	// checkRealtimeOpen.
-	"realtimeToolDefinitionSchema":          reflect.TypeOf(RealtimeToolDefinition{}),
-	"realtimeParametersSchema":              reflect.TypeOf(RealtimeParameters{}),
-	"realtimeTurnDetectionParametersSchema": reflect.TypeOf(RealtimeTurnDetectionParameters{}),
-	"numberRangeSchema":                     reflect.TypeOf(NumberRange{}),
-	"responseFormatSchema":                  reflect.TypeOf(ResponseFormat{}),
-	"routingTargetSchema":                   reflect.TypeOf(RoutingTarget{}),
-	"routingPolicyReferenceSchema":          reflect.TypeOf(RoutingPolicyReference{}),
-	"authorizedRouteSchema":                 reflect.TypeOf(AuthorizedRoute{}),
+	// contract set 5.0.0: a realtime session's tool (no strict mode).
+	"realtimeToolDefinitionSchema": reflect.TypeOf(RealtimeToolDefinition{}),
+	"responseFormatSchema":         reflect.TypeOf(ResponseFormat{}),
+	"routingTargetSchema":          reflect.TypeOf(RoutingTarget{}),
+	"routingPolicyReferenceSchema": reflect.TypeOf(RoutingPolicyReference{}),
+	"authorizedRouteSchema":        reflect.TypeOf(AuthorizedRoute{}),
 
 	// Signed customer-provider credential control. The mutation/outcome wire
 	// schemas remain version 1 even though the contract set is 2.0.0.
@@ -282,8 +276,6 @@ var goEnums = map[string]enumBinding{
 	"inferenceApiFormatSchema":         bindEnum(apiFormatValues),
 	"realtimeAudioFormatSchema":        bindEnum(realtimeAudioFormatValues),
 	"realtimeOutputModalitySchema":     bindEnum(realtimeOutputModalityValues),
-	"realtimeTurnDetectionTypeSchema":  bindEnum(realtimeTurnDetectionTypeValues),
-	"realtimeToolChoiceKindSchema":     bindEnum(realtimeToolChoiceValues),
 	"realtimeResponseStatusSchema":     bindEnum(realtimeResponseStatusValues),
 	"realtimeSessionCloseReasonSchema": bindEnum(realtimeSessionCloseReasonValues),
 	"realtimeSessionKindSchema":        bindEnum(realtimeSessionKindValues),
@@ -1175,7 +1167,6 @@ var inlineEnumBindings = []enumBinding{
 	bindEnum(grantExactRouteApprovalValues),
 	bindEnum(catalogueAudienceValues),
 	bindEnum(settlementStatusValues),
-	bindEnum(realtimeToolChoiceValues),
 }
 
 /* -------------------------------------------------------------------------- */

@@ -167,34 +167,13 @@ func TestWhatXAICannotExpressIsRefusedBeforeAnythingIsDialled(t *testing.T) {
 			r.Config.TurnDetection = serverVAD().TurnDetection
 			r.Config.TurnDetection.InterruptResponse = pointer(false)
 		}, contract.CodeInvalidRequest, "config.turnDetection.interruptResponse"},
-		"server vad threshold outside xAI's range": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.TurnDetection = serverVAD().TurnDetection
-			r.Config.TurnDetection.Threshold = pointer(0.95)
-		}, contract.CodeInvalidRequest, "config.turnDetection.threshold"},
-		"text-only server vad session": {func(r *provider.RealtimeOpenRequest) {
-			r.Config = serverVAD()
-			r.Config.OutputModalities = []contract.RealtimeOutputModality{contract.RealtimeOutputText}
-			r.Config.Voice, r.Config.OutputAudioFormat = nil, nil
-		}, contract.CodeInvalidRequest, "config.outputModalities"},
-		"semantic vad": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionSemanticVAD, Eagerness: pointer(contract.RealtimeVADEagerness("low")), CreateResponse: pointer(true), InterruptResponse: pointer(true)}
-		}, contract.CodeInvalidRequest, "config.turnDetection"},
 		"tool choice required": {func(r *provider.RealtimeOpenRequest) {
 			r.Config.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceRequired)}
-		}, contract.CodeInvalidRequest, "config.toolChoice"},
-		"tool choice none": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.ToolChoice = &contract.ToolChoice{Mode: pointer(contract.ToolChoiceNone)}
 		}, contract.CodeInvalidRequest, "config.toolChoice"},
 		"tool choice naming a function": {func(r *provider.RealtimeOpenRequest) {
 			r.Config.ToolChoice = &contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "lookup"}}
 		}, contract.CodeInvalidRequest, "config.toolChoice"},
 		"output token limit": {func(r *provider.RealtimeOpenRequest) { r.Config.MaxOutputTokens = pointer(100) }, contract.CodeInvalidRequest, "config.maxOutputTokens"},
-		"a transcription prompt": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Prompt: pointer("names: Kaana, Alia")}
-		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.prompt"},
-		"a transcription language xAI does not document": {func(r *provider.RealtimeOpenRequest) {
-			r.Config.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("es")}
-		}, contract.CodeInvalidRequest, "config.inputAudioTranscription.language"},
 		"transcription kind": {func(r *provider.RealtimeOpenRequest) { r.Kind = contract.RealtimeTranscription }, contract.CodeUnsupportedModality, "kind"},
 		"another slug":       {func(r *provider.RealtimeOpenRequest) { r.Route.Provider = "xai" }, contract.CodeInvalidRequest, "authorizedRoutes"},
 	}
@@ -520,22 +499,21 @@ func TestXAISessionClockStopsWhenXAIEndsTheSession(t *testing.T) {
 }
 
 // TestXAIServerVADUpdatesKeepTheBillingMode: once a session is billed by its
-// clock it stays so. A switch to push-to-talk, or a text-only session xAI would
-// still answer aloud, is refused before anything is written; retuning
-// server_vad itself is the control and reaches xAI.
+// clock it stays so. A switch to push-to-talk is refused before anything is
+// written; retuning server_vad itself is the control and reaches xAI, with
+// the contract's threshold mapped onto xAI's range.
 func TestXAIServerVADUpdatesKeepTheBillingMode(t *testing.T) {
 	upstream := fake.NewXAI(t)
 	upstream.Script = func(conn *fake.Conn) {
 		update := conn.Expect("session.update")
 		session, _ := update["session"].(map[string]any)
-		if got := asJSON(t, session["turn_detection"]); got != `{"threshold":0.7,"type":"server_vad"}` {
+		if got := asJSON(t, session["turn_detection"]); got != `{"threshold":0.66,"type":"server_vad"}` {
 			t.Errorf("retuned turn_detection = %s", got)
 		}
 	}
 	session := xaiOpen(t, upstream, serverVAD())
 	for name, update := range map[string]contract.RealtimeSessionConfigUpdate{
 		"a switch to push-to-talk": {TurnDetection: &contract.RealtimeTurnDetection{Type: contract.TurnDetectionNone}},
-		"text only":                {OutputModalities: []contract.RealtimeOutputModality{contract.RealtimeOutputText}},
 	} {
 		var unsupported provider.ErrUnsupported
 		err := session.Send(context.Background(), &contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_refused", Config: update})

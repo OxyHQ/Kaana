@@ -235,7 +235,7 @@ describe('checkRealtimeSessionOpen', () => {
     }
   });
 
-  it('refuses a transcription language, a voice and encodings the model does not publish', () => {
+  it('refuses a voice and encodings the model does not publish, never a language', () => {
     const issues = checkRealtimeSessionOpen(
       open({
         voice: 'ara',
@@ -254,7 +254,6 @@ describe('checkRealtimeSessionOpen', () => {
       'config.inputAudioFormat',
       'config.outputAudioFormat',
       'config.voice',
-      'config.inputAudioTranscription.language',
     ]);
   });
 
