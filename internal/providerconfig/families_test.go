@@ -118,6 +118,7 @@ func TestXAIFamilies(t *testing.T) {
 			"grok-voice-think-fast-2.0": {Session: contract.RealtimeConversation},
 			"grok-voice-latest":         {Session: contract.RealtimeConversation},
 			"tts":                       {Format: contract.APIFormatAudioSpeech},
+			"grok-voice-transcribe-2.0": {Format: contract.APIFormatAudioTranscriptions},
 			"grok-4.7":                  {Format: contract.APIFormatChatCompletions},
 		} {
 			got, classified, expressible := ClassifyModel(slug, id)

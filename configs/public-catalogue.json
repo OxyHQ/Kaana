@@ -20793,6 +20793,142 @@
       "audience": "platform_internal"
     },
     {
+      "modelId": "x-ai/grok-voice-transcribe-2.0",
+      "publisher": {
+        "slug": "x-ai",
+        "displayName": "xAI",
+        "websiteUrl": "https://x.ai/"
+      },
+      "displayName": "Grok Voice Transcribe 2.0",
+      "description": "Hosted speech-to-text served as file transcription (POST /v1/audio/transcriptions).",
+      "capabilities": {
+        "inputModalities": [
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "tools": false,
+        "parallelToolCalls": false,
+        "structuredOutput": false,
+        "jsonMode": false,
+        "reasoning": false,
+        "reasoningEfforts": [],
+        "streaming": false,
+        "promptCaching": false,
+        "maxContextTokens": 1,
+        "maxOutputTokens": 1,
+        "apiFormats": [
+          "audio_transcriptions"
+        ]
+      },
+      "audio": {
+        "voices": [],
+        "languages": [
+          "ar",
+          "ar-AE",
+          "ar-EG",
+          "ar-SA",
+          "bg",
+          "bs",
+          "ca",
+          "cs",
+          "da",
+          "de",
+          "el",
+          "en",
+          "es",
+          "es-ES",
+          "es-MX",
+          "fa",
+          "fi",
+          "fil",
+          "fr",
+          "hi",
+          "hr",
+          "hu",
+          "id",
+          "it",
+          "ja",
+          "ko",
+          "mk",
+          "ms",
+          "nb",
+          "nl",
+          "pl",
+          "pt",
+          "pt-BR",
+          "pt-PT",
+          "ro",
+          "ru",
+          "sk",
+          "sv",
+          "th",
+          "tr",
+          "uk",
+          "ur",
+          "vi",
+          "yue",
+          "zh"
+        ],
+        "audioFormats": {
+          "input": [
+            "audio/wav",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/flac",
+            "audio/aac",
+            "audio/mp4",
+            "audio/webm"
+          ],
+          "output": []
+        }
+      },
+      "license": {
+        "licenseId": "xAI-Enterprise-Terms",
+        "displayName": "xAI Enterprise Terms of Service",
+        "url": "https://x.ai/legal/terms-of-service-enterprise",
+        "commercialUseAllowed": true,
+        "requiresAttribution": false
+      },
+      "provenance": {
+        "releaseKind": "third_party_hosted",
+        "trainingOrganization": "xAI"
+      },
+      "regions": [],
+      "dataPolicy": {
+        "retainsPayloads": true,
+        "retentionDays": 30,
+        "trainsOnCustomerData": false,
+        "zeroDataRetentionAvailable": true,
+        "subprocessors": [],
+        "policyUrl": "https://docs.x.ai/developers/faq/security"
+      },
+      "pricing": {
+        "priceVersionId": "01a14207-e41f-78c6-a03f-d2842f30a3a8",
+        "currency": "USD",
+        "unitPrices": [
+          {
+            "unit": "audio_input_milliseconds",
+            "amount": "0.100000000000",
+            "per": 3600000,
+            "currency": "USD"
+          }
+        ]
+      },
+      "deprecation": {
+        "status": "active"
+      },
+      "evaluations": [],
+      "safety": {
+        "contentFilteringDefault": "provider_default",
+        "knownLimitations": [],
+        "provenanceMarking": "none"
+      },
+      "modelCardUrl": "https://docs.x.ai/developers/model-capabilities/audio/speech-to-text",
+      "audience": "platform_internal"
+    },
+    {
       "modelId": "x-ai/text-to-speech",
       "publisher": {
         "slug": "x-ai",

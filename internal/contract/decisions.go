@@ -329,7 +329,7 @@ func ValidateDecisionAnswers(input DecisionInput, answers []DecisionAnswer) erro
 
 // ValidateDecisionsEnvelope also runs in Translate, before any upstream spend.
 func (r *Request) ValidateDecisionsEnvelope() error {
-	if r.Client.APIFormat != APIFormatDecisions || r.Input.Format != InputDecisions || r.Input.Decisions == nil || r.Modality != ModalityText || r.Stream || r.Target.Kind != TargetModel || r.Target.ModelReference == nil || !r.Target.ModelReference.Pinned() || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || r.Reasoning != nil || r.Speech != nil || r.AudioOutput != nil || r.Input.Messages != nil || r.Input.Text != nil || r.Input.Texts != nil {
+	if r.Client.APIFormat != APIFormatDecisions || r.Input.Format != InputDecisions || r.Input.Decisions == nil || r.Modality != ModalityText || r.Stream || r.Target.Kind != TargetModel || r.Target.ModelReference == nil || !r.Target.ModelReference.Pinned() || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || r.Reasoning != nil || r.Speech != nil || r.Transcription != nil || r.AudioOutput != nil || r.Input.Messages != nil || r.Input.Text != nil || r.Input.Texts != nil {
 		return fmt.Errorf("contract: decisions require exact-model typed nonstreaming text without generation controls")
 	}
 	for _, route := range r.AuthorizedRoutes {

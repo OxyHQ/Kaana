@@ -369,14 +369,31 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 		t.Fatalf("json: %d %s", response.StatusCode, body)
 	}
 
+	// The language travels in the envelope (contract set 4.5.0), never
+	// dropped on the way to the adapter.
+	jsonBody["language"] = "es-ES"
+	response = h.post("/v1/audio/transcriptions", validKey, jsonBody)
+	body = readAll(t, response)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("with a language: %d %s", response.StatusCode, body)
+	}
+	if call := h.adapter.lastCall(); call.Transcription == nil || call.Transcription.Language == nil || *call.Transcription.Language != "es-ES" {
+		t.Errorf("the language did not reach the adapter: %+v", call.Transcription)
+	}
+
 	// Refused before a grant: what the envelope cannot carry, and audio
 	// longer than the ceiling.
 	before := len(h.oxy.authorizationBodies())
-	jsonBody["language"] = "es"
+	jsonBody["language"] = "español"
 	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "language" {
 		t.Errorf("language = %+v", failure)
 	}
 	delete(jsonBody, "language")
+	jsonBody["prompt"] = "names: Kaana"
+	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusBadRequest); *failure.Param != "prompt" {
+		t.Errorf("prompt = %+v", failure)
+	}
+	delete(jsonBody, "prompt")
 	jsonBody["audio"] = map[string]any{"mediaType": "audio/wav", "data": base64.StdEncoding.EncodeToString(wav(31 * 60 * 1000))}
 	if failure := publicError(t, h.post("/v1/audio/transcriptions", validKey, jsonBody), http.StatusRequestEntityTooLarge); failure.Code != "request_too_large" {
 		t.Errorf("31 minutes = %+v", failure)
@@ -393,8 +410,8 @@ func TestTranscriptionAsMultipartAndAsJSON(t *testing.T) {
 		t.Error("an invalid transcription asked Oxy for a grant")
 	}
 	h.settle()
-	if len(h.oxy.settled()) != 2 {
-		t.Errorf("%d settlements for 2 transcriptions", len(h.oxy.settled()))
+	if len(h.oxy.settled()) != 3 {
+		t.Errorf("%d settlements for 3 transcriptions", len(h.oxy.settled()))
 	}
 }
 

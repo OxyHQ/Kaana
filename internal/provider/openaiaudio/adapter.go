@@ -126,6 +126,11 @@ func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provide
 	if r.Modality != contract.ModalityAudio {
 		return refuse("modality", "transcription requires audio modality")
 	}
+	if r.Transcription != nil && r.Transcription.Language != nil {
+		// Its catalogue lines declare no language, so none is sent here; one
+		// that arrives anyway is refused, never dropped.
+		return refuse("transcription.language", "this transcription deployment takes no language; omit it to let the model detect it")
+	}
 	if r.Speech != nil || r.Reasoning != nil || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || !reflect.DeepEqual(r.Sampling, contract.SamplingParameters{}) {
 		return refuse("parameters", "chat, speech, reasoning and sampling controls are not supported by the transcription API")
 	}

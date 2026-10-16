@@ -65,6 +65,9 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/tts") {
 		return a.streamSpeech(ctx, call, out, credentials)
 	}
+	if call.Route.Provider == "xai" && strings.HasSuffix(call.URL, "/stt") {
+		return a.streamTranscription(ctx, call, out, credentials)
+	}
 	if spokenchat.IsCall(call) {
 		return a.streamSpoken(ctx, call, out, credentials)
 	}

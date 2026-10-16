@@ -172,7 +172,10 @@ func openAIFamily(upstreamModelID string) (ModelFamily, bool) {
 	return ModelFamily{Format: contract.APIFormatChatCompletions}, true
 }
 
-// xAIFamily classifies one of xAI's own ids. `grok-voice*` is the Voice Agent
+// xAIFamily classifies one of xAI's own ids. `grok-voice-transcribe*` is file
+// transcription, POST /v1/stt
+// (https://docs.x.ai/developers/model-capabilities/audio/speech-to-text), and is
+// matched before every other `grok-voice*` id, which is the Voice Agent
 // (speech-to-speech) API, a realtime conversation over wss://api.x.ai/v1/realtime
 // (https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech);
 // `tts` is Kaana's name for xAI's model-less POST /v1/tts endpoint (the
@@ -180,6 +183,8 @@ func openAIFamily(upstreamModelID string) (ModelFamily, bool) {
 func xAIFamily(upstreamModelID string) ModelFamily {
 	id := strings.ToLower(upstreamModelID)
 	switch {
+	case strings.HasPrefix(id, "grok-voice-transcribe"):
+		return ModelFamily{Format: contract.APIFormatAudioTranscriptions}
 	case strings.HasPrefix(id, "grok-voice"):
 		return ModelFamily{Session: contract.RealtimeConversation}
 	case id == "tts":

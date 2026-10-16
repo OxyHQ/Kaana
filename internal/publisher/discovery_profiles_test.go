@@ -213,12 +213,13 @@ func (function discoveryRoundTripFunc) RoundTrip(request *http.Request) (*http.R
 
 func TestXAISpeechDiscoveryRequiresTheAuthenticatedVoiceCatalogue(t *testing.T) {
 	for _, tc := range []struct {
-		name, voices string
-		wantSpeech   bool
+		name, voices      string
+		wantSpeech        bool
+		wantTranscription bool
 	}{
-		{"both voices", `{"voices":[{"voice_id":"eve"},{"voice_id":"rex"}]}`, true},
-		{"no voices", `{"voices":[]}`, false},
-		{"missing male", `{"voices":[{"voice_id":"eve"}]}`, false},
+		{"both voices", `{"voices":[{"voice_id":"eve"},{"voice_id":"rex"}]}`, true, true},
+		{"no voices", `{"voices":[]}`, false, false},
+		{"missing male", `{"voices":[{"voice_id":"eve"}]}`, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := []string{}
@@ -245,13 +246,13 @@ func TestXAISpeechDiscoveryRequiresTheAuthenticatedVoiceCatalogue(t *testing.T) 
 			if !reflect.DeepEqual(calls, []string{"/v1/models", "/v1/tts/voices"}) {
 				t.Fatalf("discovery calls = %v", calls)
 			}
-			speech := false
-			chat := false
+			speech, transcription, chat := false, false, false
 			for _, m := range models {
 				speech = speech || m.UpstreamModelID == "tts"
+				transcription = transcription || m.UpstreamModelID == "grok-voice-transcribe-2.0"
 				chat = chat || m.UpstreamModelID == "grok-4.6"
 			}
-			if speech != tc.wantSpeech || !chat {
+			if speech != tc.wantSpeech || transcription != tc.wantTranscription || !chat {
 				t.Fatalf("discovered models = %+v", models)
 			}
 		})

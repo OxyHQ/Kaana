@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
 )
 
@@ -244,6 +245,16 @@ func (t AudioInputMediaType) Valid() bool { return slices.Contains(audioInputMed
 
 // LanguageTag is a BCP 47 language tag.
 type LanguageTag string
+
+// languageTagPattern is the contract's grammar for a tag (languageTagSchema):
+// validated by its shape only; the catalogue is the authority on which tags a
+// model accepts.
+var languageTagPattern = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
+
+// Valid reports whether the tag matches the contract's grammar and length.
+func (t LanguageTag) Valid() bool {
+	return len(t) <= 35 && languageTagPattern.MatchString(string(t))
+}
 
 // TranscriptionRequest is the text fields of the multipart form.
 type TranscriptionRequest struct {

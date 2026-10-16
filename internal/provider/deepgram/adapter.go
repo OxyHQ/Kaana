@@ -105,6 +105,9 @@ func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provide
 		call.Header.Set("Content-Type", "application/json")
 		call.Header.Set("Accept", "audio/mpeg")
 	case contract.APIFormatAudioTranscriptions:
+		if r.Transcription != nil && r.Transcription.Language != nil {
+			return refuse("transcription.language", "this transcription deployment takes no language; omit it to let the model detect it")
+		}
 		if r.Speech != nil || r.Input.Format != contract.InputMessages || len(r.Input.Messages) != 1 || r.Input.Text != nil || len(r.Input.Texts) != 0 {
 			return refuse("input", "transcription requires one user message containing one inline audio part")
 		}

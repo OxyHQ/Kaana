@@ -31,9 +31,10 @@ package contract
 // declared catalogue (identity, licence, data policy and list prices) that
 // GET /internal/v1/models carries to Oxy; 4.4.0 adds the per-deployment
 // `commercial` member of the deployment descriptors and the grant step's
-// `sameModelFailover`. Oxy reads it from the
+// `sameModelFailover`; 4.5.0 adds the envelope's `transcription` member (a
+// file transcription's language). Oxy reads it from the
 // health handshake but compares no version against it.
-const ContractVersion = "4.4.0"
+const ContractVersion = "4.5.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set
