@@ -215,7 +215,7 @@ func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 /* -------------------------------------------------------------------------- */
 
 var (
-	corsAllowedHeaders = strings.Join([]string{"Authorization", "Content-Type", HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
+	corsAllowedHeaders = strings.Join([]string{"Authorization", "Content-Type", HeaderContractVersion, HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
 	corsExposedHeaders = strings.Join([]string{
 		HeaderRequestID, HeaderContractVersion, HeaderModel, HeaderUsage,
 		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After",

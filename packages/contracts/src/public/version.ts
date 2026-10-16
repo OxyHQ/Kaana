@@ -165,7 +165,13 @@ export const KAANA_API_BASE_URL = 'https://kaana.ai/v1';
 /** The response header that carries the request id. */
 export const KAANA_REQUEST_ID_HEADER = 'Kaana-Request-Id';
 
-/** The response header that carries {@link INFERENCE_CONTRACT_VERSION}. */
+/**
+ * The header that carries {@link INFERENCE_CONTRACT_VERSION}: on every
+ * response, the set Kaana serves; on a request (`@kaana.ai/sdk` 2.0.0 and
+ * later), the set the client parses. The catalogue's leaves are strict, so
+ * Kaana renders `GET /v1/models` in the shape of the client's set: a client
+ * that states none is served the 4.x shape, without what set 5.0.0 added.
+ */
 export const KAANA_CONTRACT_VERSION_HEADER = 'Kaana-Contract-Version';
 
 /**
