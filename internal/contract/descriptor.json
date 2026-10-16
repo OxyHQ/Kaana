@@ -324,6 +324,10 @@
         "internal_error": 500
       }
     },
+    "REALTIME_DEFAULT_SILENCE_DURATION_MS": {
+      "module": "public/realtime",
+      "value": 500
+    },
     "RESERVED_ALIA_PUBLISHER": {
       "module": "public/identifiers",
       "value": "alia"

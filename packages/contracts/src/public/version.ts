@@ -168,8 +168,10 @@ export const INFERENCE_CONTRACT_VERSION = '6.0.0';
  * `realtimeParameterIssues`, `audio.detectsLanguage` and
  * `audio.transcriptionPrompt`; and `checkTranscriptionRequest` takes the
  * upload's media type alone, since a language or a prompt is never refused.
- * Additive: a model's `pricePerMinute`, and exactly one input
- * `transcript.done` per item. A client on 5.0.0 parses every 6.0.0 response.
+ * Additive: a model's `pricePerMinute`, exactly one input `transcript.done`
+ * per item, and `REALTIME_DEFAULT_SILENCE_DURATION_MS`, the silence a
+ * `server_vad` that names none waits on every provider. A client on 5.0.0
+ * parses every 6.0.0 response.
  */
 
 /** The public API's one origin and version. */

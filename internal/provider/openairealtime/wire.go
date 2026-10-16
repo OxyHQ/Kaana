@@ -201,7 +201,9 @@ func wireFormat(format contract.RealtimeAudioFormat) (*audioFormat, error) {
 // server_vad where the wire has no semantic detection, the contract's 0 to 1
 // threshold is mapped onto the wire's own range, and a detection with fixed
 // responses (xAI's server_vad, which always answers and is interruptible) has
-// no create_response or interrupt_response on the wire.
+// no create_response or interrupt_response on the wire. A server_vad that
+// names no silence waits Kaana's default (contract.DefaultSilenceDurationMs),
+// never the provider's.
 func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (json.RawMessage, error) {
 	if detection.Type == contract.TurnDetectionNone {
 		return d.turnDetectionNone, nil
@@ -223,22 +225,26 @@ func (d *dialect) wireTurnDetection(detection contract.RealtimeTurnDetection) (j
 		mapped := served.Threshold.Map(*threshold)
 		threshold = &mapped
 	}
+	silence := contract.DefaultSilenceDurationMs
+	if detection.SilenceDurationMs != nil {
+		silence = *detection.SilenceDurationMs
+	}
 	if served.FixedResponses {
 		return json.Marshal(struct {
 			Type              string   `json:"type"`
 			Threshold         *float64 `json:"threshold,omitempty"`
 			PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
-			SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
-		}{"server_vad", threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs})
+			SilenceDurationMs int      `json:"silence_duration_ms"`
+		}{"server_vad", threshold, detection.PrefixPaddingMs, silence})
 	}
 	return json.Marshal(struct {
 		Type              string   `json:"type"`
 		Threshold         *float64 `json:"threshold,omitempty"`
 		PrefixPaddingMs   *int     `json:"prefix_padding_ms,omitempty"`
-		SilenceDurationMs *int     `json:"silence_duration_ms,omitempty"`
+		SilenceDurationMs int      `json:"silence_duration_ms"`
 		CreateResponse    bool     `json:"create_response"`
 		InterruptResponse bool     `json:"interrupt_response"`
-	}{"server_vad", threshold, detection.PrefixPaddingMs, detection.SilenceDurationMs, *detection.CreateResponse, *detection.InterruptResponse})
+	}{"server_vad", threshold, detection.PrefixPaddingMs, silence, *detection.CreateResponse, *detection.InterruptResponse})
 }
 
 // wireModalities writes the output modalities of a served set.

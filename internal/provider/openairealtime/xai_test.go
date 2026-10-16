@@ -507,7 +507,7 @@ func TestXAIServerVADUpdatesKeepTheBillingMode(t *testing.T) {
 	upstream.Script = func(conn *fake.Conn) {
 		update := conn.Expect("session.update")
 		session, _ := update["session"].(map[string]any)
-		if got := asJSON(t, session["turn_detection"]); got != `{"threshold":0.66,"type":"server_vad"}` {
+		if got := asJSON(t, session["turn_detection"]); got != `{"silence_duration_ms":500,"threshold":0.66,"type":"server_vad"}` {
 			t.Errorf("retuned turn_detection = %s", got)
 		}
 	}

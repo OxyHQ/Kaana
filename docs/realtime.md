@@ -275,7 +275,7 @@ on this key and is classified like a refused request. The open is bounded at
 | `inputAudioFormat` `pcm16_24khz` / `g711_ulaw` / `g711_alaw` | `audio.input.format` `{type:"audio/pcm",rate:24000}` / `{type:"audio/pcmu"}` / `{type:"audio/pcma"}` |
 | `outputAudioFormat`, `voice` | `audio.output.format`, `audio.output.voice` |
 | `turnDetection` `none` | `audio.input.turn_detection: null` |
-| `turnDetection` `server_vad` | `{type:"server_vad", threshold?, prefix_padding_ms?, silence_duration_ms?, create_response, interrupt_response}` |
+| `turnDetection` `server_vad` | `{type:"server_vad", threshold?, prefix_padding_ms?, silence_duration_ms, create_response, interrupt_response}`; a session that names no silence is sent Kaana's `REALTIME_DEFAULT_SILENCE_DURATION_MS` (500), never the provider's default |
 | `turnDetection` `semantic_vad` | `{type:"semantic_vad", eagerness, create_response, interrupt_response}` |
 | `tools` (function) | `tools: [{type:"function", name, description?, parameters}]`; a realtime tool has no `strict` (contract set 5.0.0: `realtimeToolDefinitionSchema`) |
 | `toolChoice` | `tool_choice`: the mode string, or `{type:"function", name}` |
@@ -414,6 +414,7 @@ shared code, and every documented difference is a dialect field.
 | Turn detection | `audio.input.turn_detection`; none is `null` | `session.turn_detection`; none is `{"type": null}` |
 | `server_vad` | `create_response`, `interrupt_response` sent | only `threshold` (0.1–0.9), `prefix_padding_ms` and `silence_duration_ms` (0–10000); `createResponse` and `interruptResponse` must be `true` (xAI's VAD always answers and is interruptible; it has neither field) |
 | `server_vad` threshold | 0–1 | 0.1–0.9: the contract's 0–1 is mapped linearly onto it (0.5 stays 0.5, 0.7 is 0.66) |
+| `server_vad` silence | the session's, or Kaana's 500 ms | the same, as `silence_duration_ms`, which xAI honours though its schema does not name it (measured 2026-10-16: with xAI's own default a phrase with 0.56 s and 0.79 s pauses became three responses, two cancelled; at 500 ms, one, 490–576 ms after it ended) |
 | `semantic_vad` | served | run as xAI's `server_vad` (its schema names only `server_vad` or null); the eagerness is not sent |
 | Output modalities | `session.output_modalities`, one per response | no documented session field: the session's modalities are sent as `response.modalities` on every `response.create` the client does not override (every response of a push-to-talk session is created by one); a `server_vad` response xAI creates itself carries xAI's own modalities. xAI answers aloud whatever it is asked (measured, below), so a set without `audio` is served by asking for `["audio"]`: the audio is measured (billed) and not relayed, and its transcript is the response's `text.delta` |
 | `response.status_details` | an object (`{type, reason}`) or `null` | the string `"unimplemented"` on `response.created` and `response.done` (measured): read as no details, so an incomplete xAI response has no finish reason. Any other non-object is unreadable, and OpenAI's dialect still refuses a string |

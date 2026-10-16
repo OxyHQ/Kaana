@@ -354,9 +354,11 @@ func TestTheDialectTranslatesEveryContractValue(t *testing.T) {
 }
 
 // TestXAITranslatesWhatItsWireSpellsDifferently pins the translations onto
-// xAI's wire: semantic_vad runs as its server_vad, the contract's threshold is
-// mapped onto xAI's 0.1-0.9, `none` withholds the tools, a cap past the wire's
-// is the wire's, and a prompt (a hint) is not sent where xAI has none.
+// xAI's wire: semantic_vad runs as its server_vad, a detection that names no
+// silence waits Kaana's default and one that does waits its own, the
+// contract's threshold is mapped onto xAI's 0.1-0.9, `none` withholds the
+// tools, a cap past the wire's is the wire's, and a prompt (a hint) is not
+// sent where xAI has none.
 func TestXAITranslatesWhatItsWireSpellsDifferently(t *testing.T) {
 	yes := true
 	config := pushToTalk()
@@ -367,7 +369,7 @@ func TestXAITranslatesWhatItsWireSpellsDifferently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := asJSON(t, wire.TurnDetection); got != `{"type":"server_vad"}` {
+	if got := asJSON(t, wire.TurnDetection); got != `{"silence_duration_ms":500,"type":"server_vad"}` {
 		t.Errorf("semantic_vad on xAI = %s", got)
 	}
 	if wire.Tools == nil || len(*wire.Tools) != 0 || wire.ToolChoice != nil {
@@ -377,8 +379,8 @@ func TestXAITranslatesWhatItsWireSpellsDifferently(t *testing.T) {
 	if transcription.Prompt != nil || transcription.LanguageHint == nil || *transcription.LanguageHint != "pt-BR" {
 		t.Errorf("transcription = %+v; want pt-BR and no prompt", transcription)
 	}
-	config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionServerVAD, Threshold: pointer(0.5), CreateResponse: &yes, InterruptResponse: &yes}
-	if wire, err = xAIDialect.wireSession(config); err != nil || asJSON(t, wire.TurnDetection) != `{"threshold":0.5,"type":"server_vad"}` {
+	config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionServerVAD, Threshold: pointer(0.5), SilenceDurationMs: pointer(800), CreateResponse: &yes, InterruptResponse: &yes}
+	if wire, err = xAIDialect.wireSession(config); err != nil || asJSON(t, wire.TurnDetection) != `{"silence_duration_ms":800,"threshold":0.5,"type":"server_vad"}` {
 		t.Errorf("the contract's middle threshold on xAI = %s, %v; want xAI's middle", asJSON(t, wire.TurnDetection), err)
 	}
 	openAI := conversationConfig()

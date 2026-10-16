@@ -112,7 +112,8 @@ func TestTheCompatibilityFixturesAreWhatKaanaSends(t *testing.T) {
 // volatile are the values that differ between two runs of the same exchange.
 var volatile = regexp.MustCompile(`^(req|grt|gen|stl|rcpt|att|sess|evt|cost)_[a-z0-9]+$|^\d{4}-\d\d-\d\dT[\d:.]+Z$|^[0-9a-f]{8}-[0-9a-f]{4}-`)
 
-// volatileFields are measured by the clock rather than fixed by the exchange.
+// volatileFields are measured by the clock rather than fixed by the exchange,
+// and left out of the comparison.
 var volatileFields = map[string]bool{"latencyMs": true, "durationMs": true, "timeToFirstTokenMs": true, "quantity": true}
 
 func masked(t *testing.T, document []byte) any {
@@ -123,29 +124,30 @@ func masked(t *testing.T, document []byte) any {
 	if err := decoder.Decode(&value); err != nil {
 		t.Fatalf("the fixture is not JSON: %v", err)
 	}
-	var mask func(key string, value any) any
-	mask = func(key string, value any) any {
+	var mask func(value any) any
+	mask = func(value any) any {
 		switch typed := value.(type) {
 		case map[string]any:
 			for field, inner := range typed {
-				typed[field] = mask(field, inner)
+				// A measured value may round to zero, which is omitted.
+				if volatileFields[field] {
+					delete(typed, field)
+					continue
+				}
+				typed[field] = mask(inner)
 			}
 		case []any:
 			for index, inner := range typed {
-				typed[index] = mask(key, inner)
+				typed[index] = mask(inner)
 			}
 		case string:
 			if volatile.MatchString(typed) {
 				return "<volatile>"
 			}
-		case json.Number:
-			if volatileFields[key] {
-				return "<measured>"
-			}
 		}
 		return value
 	}
-	masked := mask("", value).(map[string]any)
+	masked := mask(value).(map[string]any)
 	// Oxy receives the grants and settlements of concurrent work in no fixed
 	// order.
 	for _, unordered := range []string{"authorizations", "settlements"} {

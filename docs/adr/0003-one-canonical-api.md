@@ -58,8 +58,21 @@ cualquier otro. Ningún cliente tiene código ni decisiones por proveedor.**
    - `maxOutputTokens`: se recorta al tope del cable.
    - Detección de turno: `semantic_vad` corre como el `server_vad` del
      proveedor si no lo tiene; el umbral del contrato (0–1) se proyecta
-     linealmente sobre el rango del proveedor (xAI 0.1–0.9). Sin umbral,
-     el valor por defecto del proveedor.
+     linealmente sobre el rango del proveedor (xAI 0.1–0.9). Un `server_vad`
+     sin `silenceDurationMs` espera el valor por defecto de KAANA,
+     `REALTIME_DEFAULT_SILENCE_DURATION_MS` = 500 ms, en todos los
+     proveedores, nunca el del proveedor. Medido en
+     `x-ai/grok-voice-3.0` (2026-10-16), con una frase con pausas de 0,56 s y
+     0,79 s:
+
+     | Silencio | Respuestas | Canceladas | Latencia |
+     |---|---|---|---|
+     | el de xAI | 3 | 2 | empieza a hablar 39 ms antes de acabar la frase |
+     | 500 ms | 1 | 0 | 490–576 ms |
+     | 800 ms | 1 | 0 | 762 ms |
+     | 1000 ms | 1 | 0 | 1031 ms |
+
+     xAI respeta `silence_duration_ms` aunque su esquema no lo documente.
    - Idiomas: el cliente envía su propia etiqueta BCP 47 (`es-AR`). Kaana
      envía la grafía del proveedor (`providerconfig.NormalizeLanguage`:
      exacta, el idioma solo, la variante por defecto del proveedor, la

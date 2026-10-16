@@ -71,6 +71,10 @@ const milliseconds = z.number().int().nonnegative().safe();
  * them: whether the model answers on its own, and whether new speech cuts it
  * off, are the two behaviours a caller most needs to have chosen, and a default
  * would choose them silently — and differently per provider.
+ *
+ * A `server_vad` that names no `silenceDurationMs` waits Kaana's
+ * {@link REALTIME_DEFAULT_SILENCE_DURATION_MS}, on every provider (contract set
+ * 6.0.0), never the provider's own default.
  */
 export const realtimeTurnDetectionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }).strict(),
@@ -692,6 +696,17 @@ export const realtimeOpenLimitsSchema = realtimeSessionLimitsSchema.partial().st
  * frame closes the connection before it is read.
  */
 export const MAX_REALTIME_OPEN_FRAME_BYTES = 1024 * 1024;
+
+/**
+ * The silence, in milliseconds, after which `server_vad` ends a caller's turn
+ * when the session names none (contract set 6.0.0, Kaana ADR 0003). Kaana
+ * sends it to every provider, so a turn ends the same way whichever serves
+ * the session. Measured on x-ai/grok-voice-3.0 (2026-10-16): with xAI's own
+ * default a phrase with pauses of 0.56 s and 0.79 s was cut into three
+ * responses, two cancelled, the model speaking before the phrase ended; at
+ * 500 ms it was one response, answered 490–576 ms after the phrase.
+ */
+export const REALTIME_DEFAULT_SILENCE_DURATION_MS = 500;
 
 /**
  * The first frame a client sends on `GET /v1/realtime?model=…` to OPEN a
