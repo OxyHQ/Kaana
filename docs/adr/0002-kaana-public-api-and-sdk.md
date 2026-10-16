@@ -505,7 +505,11 @@ lista paquetes (2026-10-15).
     publicador de confianza, la **primera** versión de cada paquete se
     publica una vez con un token granular limitado al scope `@kaana.ai` y de
     caducidad corta, como secreto del repositorio, que se borra en cuanto
-    OIDC queda configurado.
+    OIDC queda configurado. *(2026-10-16: los dos paquetes ya tienen su
+    publicador de confianza; `release-packages.yml` llama al `npm-release.yml`
+    compartido de `OxyHQ/oxy`, el mismo para todos los repos de OxyHQ, y las
+    puertas de cada paquete son su `prepublishOnly` —
+    `O:docs/engineering/package-rules.md#publishing`.)*
 
 12. **Documentación para developers** vive en Oxy: Console
     (`routes/_layout/documentation/*`) y `O:docs/inference/*`, apuntando a

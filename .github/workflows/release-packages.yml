@@ -1,46 +1,22 @@
 name: Release packages
 
-# Publishes a workspace package (`@kaana.ai/contracts` or `@kaana.ai/sdk`) to
-# npm from ONE exact protected `main` commit, with npm trusted publishing (OIDC)
-# and provenance. Kaana ADR 0002, decision 11.
+# Publishes one package of this repository (`@kaana.ai/contracts` or
+# `@kaana.ai/sdk`) to npm through Oxy's shared `npm-release.yml`, with npm
+# trusted publishing (OIDC) and provenance; there is no NPM_TOKEN. Each
+# package's own pre-flight is its `prepublishOnly`. ADR 0002, decision 11;
+# O:docs/engineering/package-rules.md#publishing.
 #
 # Order: the SDK depends on the exact `@kaana.ai/contracts` version of its
-# commit (`bun pm pack` rewrites `workspace:*` to it), so that contracts version
-# is published first; the build job refuses an SDK whose contracts version is
-# not on the registry yet.
-#
-# Two jobs, the pattern Oxy's package releases use:
-#
-#   build    frozen-lockfile install, every gate the package has, then
-#            `bun pm pack`. Uploads the tarball and its SHA-512 as the trusted
-#            bytes. No credential of any kind, and no `id-token`.
-#   publish  protected environment `npm`, `id-token: write`. A fresh checkout
-#            rebuilds and repacks; the result must equal the trusted bytes, the
-#            version must be absent from the registry (asked anonymously), and
-#            only then `npm publish <tgz> --provenance --access public`. npm
-#            exchanges this job's OIDC token for a one-use publish credential:
-#            there is no NPM_TOKEN.
-#
-# Dry run is the default: it builds, verifies and preflights, and never reaches
-# the publish job.
-#
-# First release of a package. npm may refuse to configure a trusted publisher
-# for a package that does not exist yet. Only then, the FIRST version is
-# published once with `bootstrap: true`, which hands the publish step the
-# repository secret NPM_BOOTSTRAP_TOKEN: a granular token limited to the
-# `@kaana.ai` scope with a short expiry, deleted as soon as the trusted
-# publisher is configured. Every later release runs without it.
+# commit, so that contracts version is published first; the release refuses an
+# SDK whose contracts range does not resolve on the registry yet.
 
 on:
   workflow_dispatch:
     inputs:
       package:
-        description: Workspace package to release (packages/<name>)
-        type: choice
+        description: Package name to release, e.g. @kaana.ai/sdk
         required: true
-        options:
-          - contracts
-          - sdk
+        type: string
       expected_source_sha:
         description: Exact protected main commit to build and publish
         required: true
@@ -50,167 +26,26 @@ on:
         required: true
         type: boolean
         default: true
-      bootstrap:
-        description: First version only, before OIDC can be configured (uses NPM_BOOTSTRAP_TOKEN)
+      dist_tag:
+        description: npm dist-tag (latest only moves forward)
         required: true
-        type: boolean
-        default: false
+        type: string
+        default: latest
 
+# The shared workflow's publish job is the only one that keeps id-token.
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: release-packages
   cancel-in-progress: false
 
-env:
-  PACKAGE_DIR: packages/${{ inputs.package }}
-  EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
-
 jobs:
-  build:
-    name: build the trusted bytes
-    if: github.ref == 'refs/heads/main' && github.ref_protected
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - name: the run is the exact commit that was reviewed
-        run: |
-          if [ "$GITHUB_SHA" != "$EXPECTED_SOURCE_SHA" ]; then
-            echo "main is at $GITHUB_SHA, not the expected $EXPECTED_SOURCE_SHA"
-            exit 1
-          fi
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.7"
-          cache: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.3"
-
-      - name: install the TypeScript workspace
-        run: bun install --frozen-lockfile
-
-      - name: the package's own gates
-        # The same commands as `make contract-lint contract-package
-        # sdk-package contract-generate`: a package is never released from a
-        # tree whose generated descriptor or openapi.json is stale. The
-        # contracts are built first because the SDK imports their dist.
-        run: |
-          bunx biome ci .
-          (cd packages/contracts && bun run build)
-          (cd "$PACKAGE_DIR" && bun run typecheck && bun run test)
-          (cd tools/contract && bun run generate)
-          git diff --exit-code -- internal/contract/descriptor.json packages/contracts/openapi.json
-
-      - name: the SDK's contracts version is already published
-        if: inputs.package == 'sdk'
-        run: |
-          version="$(node -p "require('./packages/contracts/package.json').version")"
-          if ! npm view "@kaana.ai/contracts@$version" version --userconfig /dev/null >/dev/null 2>&1; then
-            echo "@kaana.ai/sdk depends on @kaana.ai/contracts@$version, which is not on the registry; release contracts first"
-            exit 1
-          fi
-
-      - name: pack
-        run: |
-          mkdir -p release
-          (cd "$PACKAGE_DIR" && bun run build && bun pm pack --destination ../../release)
-          tarballs=(release/*.tgz)
-          if [ "${#tarballs[@]}" -ne 1 ]; then
-            echo "expected exactly one tarball, found ${#tarballs[@]}"
-            exit 1
-          fi
-          # Summed from inside release/, so the file names the tarball by its bare
-          # name: the artifact is downloaded flat into trusted/, where a
-          # `release/…` path does not exist and the check fails before publishing
-          # (the first run, for contracts 4.4.1, failed exactly that way).
-          (cd release && sha512sum "$(basename "${tarballs[0]}")" | tee SHA512SUMS)
-
-      - name: the version is not on the registry yet (anonymous preflight)
-        run: |
-          name="$(node -p "require('./$PACKAGE_DIR/package.json').name")"
-          version="$(node -p "require('./$PACKAGE_DIR/package.json').version")"
-          if npm view "$name@$version" version --userconfig /dev/null >/dev/null 2>&1; then
-            echo "$name@$version is already published; bump the version"
-            exit 1
-          fi
-          echo "$name@$version is not on the registry"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ inputs.package }}-${{ github.run_id }}
-          path: release/
-          if-no-files-found: error
-          retention-days: 30
-
-  publish:
-    name: publish with provenance
-    needs: build
-    if: inputs.dry_run == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: npm
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.3"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24.x"
-          registry-url: https://registry.npmjs.org
-
-      - name: rebuild from the exact source
-        run: |
-          bun install --frozen-lockfile
-          (cd packages/contracts && bun run build)
-          mkdir -p rebuilt
-          (cd "$PACKAGE_DIR" && bun run build && bun pm pack --destination ../../rebuilt)
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-${{ inputs.package }}-${{ github.run_id }}
-          path: trusted
-
-      - name: the rebuilt bytes are the trusted bytes
-        run: |
-          (cd trusted && sha512sum --check SHA512SUMS)
-          trusted=(trusted/*.tgz)
-          rebuilt=(rebuilt/*.tgz)
-          cmp "${trusted[0]}" "${rebuilt[0]}"
-
-      - name: the version is not on the registry yet (anonymous preflight)
-        run: |
-          name="$(node -p "require('./$PACKAGE_DIR/package.json').name")"
-          version="$(node -p "require('./$PACKAGE_DIR/package.json').version")"
-          if npm view "$name@$version" version --userconfig /dev/null >/dev/null 2>&1; then
-            echo "$name@$version is already published; bump the version"
-            exit 1
-          fi
-
-      - name: publish the trusted tarball
-        env:
-          # Empty unless this is the one-time bootstrap: npm then uses OIDC.
-          NODE_AUTH_TOKEN: ${{ inputs.bootstrap && secrets.NPM_BOOTSTRAP_TOKEN || '' }}
-        run: |
-          trusted=(trusted/*.tgz)
-          # "./": npm reads a bare `trusted/<file>.tgz` as the GitHub shorthand
-          # `user/repo` and tries to clone it (the 5.0.0 release failed exactly
-          # so); a path that starts with ./ is a local tarball.
-          npm publish "./${trusted[0]}" --provenance --access public
+  release:
+    uses: OxyHQ/oxy/.github/workflows/npm-release.yml@main
+    with:
+      package: ${{ inputs.package }}
+      expected_source_sha: ${{ inputs.expected_source_sha }}
+      dry_run: ${{ inputs.dry_run }}
+      dist_tag: ${{ inputs.dist_tag }}

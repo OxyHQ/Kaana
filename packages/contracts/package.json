@@ -38,7 +38,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test src"
+    "test": "bun test src",
+    "prepublishOnly": "bun run typecheck && bun run test && bun run build && make -C ../.. contract-generate"
   },
   "dependencies": {
     "zod": ">=4.4.3 <4.5.0"
