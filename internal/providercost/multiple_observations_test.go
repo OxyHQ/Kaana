@@ -33,7 +33,7 @@ func loadSeparate(t *testing.T, second string) (*providercost.Cards, *providerco
 func TestSeparateObservationsPreserveOldXaiAndOwnJevWindow(t *testing.T) {
 	old, combined := loadSeparate(t, separateJev)
 	original, _ := old.Observation()
-	xai := contract.DeploymentID("dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30")
+	xai := contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
 	retained, ok := combined.ObservationForDeployment(xai)
 	if !ok || !reflect.DeepEqual(original, retained) {
 		t.Fatal("xAI observation re-dated, re-versioned or changed")

@@ -81,24 +81,30 @@ func discoverXAIRealtimeSessions(ctx context.Context, client *http.Client, targe
 			// attributed here is dropped by the snapshot builder anyway.
 			continue
 		}
-		served, err := probeXAIRealtimeSession(ctx, client, target, id)
+		refusal, err := probeXAIRealtimeSession(ctx, client, target, id)
 		if err != nil {
 			return nil, err
 		}
-		if served {
-			models = append(models, DiscoveredModel{UpstreamModelID: id})
-		}
+		// Not served is still reported, so the snapshot builder can name it:
+		// a voice model xAI stopped serving must never vanish without a line
+		// in the log (it did on 2026-10-14, and voice calls failed silently).
+		models = append(models, DiscoveredModel{UpstreamModelID: id, NotServed: refusal})
 	}
 	return models, nil
 }
 
+// maxXAIRealtimeRefusalBytes bounds what of xAI's own error text reaches the
+// log.
+const maxXAIRealtimeRefusalBytes = 200
+
 // probeXAIRealtimeSession opens one session naming model, reads xAI's answer
-// and closes. It reports whether xAI said it runs the session on exactly that
-// model; an error means xAI gave no answer at all.
-func probeXAIRealtimeSession(ctx context.Context, client *http.Client, target Provider, model string) (bool, error) {
+// and closes. It returns "" when xAI said it runs the session on exactly that
+// model, and otherwise what xAI answered instead (another model's name, or its
+// error); an error means xAI gave no answer at all.
+func probeXAIRealtimeSession(ctx context.Context, client *http.Client, target Provider, model string) (string, error) {
 	endpoint, err := xaiRealtimeSessionEndpoint(target, model)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	probeContext, cancel := context.WithTimeout(ctx, xaiRealtimeProbeTimeout)
 	defer cancel()
@@ -116,9 +122,9 @@ func probeXAIRealtimeSession(ctx context.Context, client *http.Client, target Pr
 		if response != nil && response.StatusCode != http.StatusSwitchingProtocols {
 			// The refusal body is xAI's and may quote the request; only the
 			// status leaves this function.
-			return false, fmt.Errorf("publisher: %s refused a voice session for %q with status %d", target.Slug, model, response.StatusCode)
+			return "", fmt.Errorf("publisher: %s refused a voice session for %q with status %d", target.Slug, model, response.StatusCode)
 		}
-		return false, fmt.Errorf("publisher: opening a %s voice session for %q: %s", target.Slug, model, provider.RedactSecret(err.Error(), target.APIKey))
+		return "", fmt.Errorf("publisher: opening a %s voice session for %q: %s", target.Slug, model, provider.RedactSecret(err.Error(), target.APIKey))
 	}
 	// Nothing is ever written: the close below is the only frame Kaana sends.
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
@@ -128,34 +134,52 @@ func probeXAIRealtimeSession(ctx context.Context, client *http.Client, target Pr
 		kind, data, err := conn.Read(probeContext)
 		if err != nil {
 			if errors.Is(probeContext.Err(), context.DeadlineExceeded) {
-				return false, fmt.Errorf("publisher: %s's voice session for %q sent no session.created within %s", target.Slug, model, xaiRealtimeProbeTimeout)
+				return "", fmt.Errorf("publisher: %s's voice session for %q sent no session.created within %s", target.Slug, model, xaiRealtimeProbeTimeout)
 			}
-			return false, fmt.Errorf("publisher: %s's voice session for %q ended before session.created: %s", target.Slug, model, provider.RedactSecret(err.Error(), target.APIKey))
+			return "", fmt.Errorf("publisher: %s's voice session for %q ended before session.created: %s", target.Slug, model, provider.RedactSecret(err.Error(), target.APIKey))
 		}
 		if kind != websocket.MessageText {
-			return false, fmt.Errorf("publisher: %s's voice session for %q sent a non-JSON frame before session.created", target.Slug, model)
+			return "", fmt.Errorf("publisher: %s's voice session for %q sent a non-JSON frame before session.created", target.Slug, model)
 		}
 		var event struct {
 			Type    string `json:"type"`
 			Session *struct {
 				Model string `json:"model"`
 			} `json:"session"`
+			Error *struct {
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
 		}
 		if err := json.Unmarshal(data, &event); err != nil {
-			return false, fmt.Errorf("publisher: %s's voice session for %q sent an event that is not JSON", target.Slug, model)
+			return "", fmt.Errorf("publisher: %s's voice session for %q sent an event that is not JSON", target.Slug, model)
 		}
 		switch event.Type {
 		case "error":
 			// xAI's own answer about this session on this key: not served.
-			return false, nil
+			refusal := "xAI answered an error event"
+			if event.Error != nil {
+				detail := strings.TrimSpace(strings.Join([]string{event.Error.Type, event.Error.Code, event.Error.Message}, " "))
+				if len(detail) > maxXAIRealtimeRefusalBytes {
+					detail = detail[:maxXAIRealtimeRefusalBytes]
+				}
+				if detail != "" {
+					refusal += ": " + provider.RedactSecret(detail, target.APIKey)
+				}
+			}
+			return refusal, nil
 		case "session.created":
 			if event.Session == nil {
-				return false, fmt.Errorf("publisher: %s's session.created for %q carries no session", target.Slug, model)
+				return "", fmt.Errorf("publisher: %s's session.created for %q carries no session", target.Slug, model)
 			}
-			return event.Session.Model == model, nil
+			if event.Session.Model != model {
+				return fmt.Sprintf("xAI opened the session on %q instead", event.Session.Model), nil
+			}
+			return "", nil
 		}
 	}
-	return false, fmt.Errorf("publisher: %s's voice session for %q sent %d events without session.created", target.Slug, model, maxXAIRealtimeProbeEvents)
+	return "", fmt.Errorf("publisher: %s's voice session for %q sent %d events without session.created", target.Slug, model, maxXAIRealtimeProbeEvents)
 }
 
 // xaiRealtimeSessionEndpoint is the session URL on the provider's own root:

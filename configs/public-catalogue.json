@@ -20694,13 +20694,13 @@
       "audience": "platform_internal"
     },
     {
-      "modelId": "x-ai/grok-voice-think-fast-2.0",
+      "modelId": "x-ai/grok-voice-3.0",
       "publisher": {
         "slug": "x-ai",
         "displayName": "xAI",
         "websiteUrl": "https://x.ai/"
       },
-      "displayName": "Grok Voice Think Fast 2.0",
+      "displayName": "Grok Voice 3.0",
       "description": "Hosted speech-to-speech voice agent served as push-to-talk realtime conversation sessions.",
       "capabilities": {
         "inputModalities": [
@@ -20751,7 +20751,7 @@
         "policyUrl": "https://docs.x.ai/developers/faq/security"
       },
       "pricing": {
-        "priceVersionId": "01a0f432-e4a1-7699-b735-ea1ca8e7c909",
+        "priceVersionId": "01a14202-11ab-7414-bf4d-b371039da104",
         "currency": "USD",
         "unitPrices": [
           {

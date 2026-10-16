@@ -131,6 +131,9 @@ type BuildResult struct {
 	// reason: an OpenRouter model with no zero-data-retention endpoint. A
 	// route to one would fail every request it was ever given.
 	Unservable []string
+	// NotServed names attributed (provider, upstream id) pairs the provider
+	// itself answered it does not serve to this account, with that answer.
+	NotServed []string
 	// Withheld are the deployments Kaana's evidence says cannot be served now,
 	// sorted by deployment id. Absent from the routes, present in the file's
 	// `withheld` list.
@@ -185,6 +188,7 @@ func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 		unattributed []string
 		inexecutable []string
 		unservable   []string
+		notServed    []string
 		withheld     []snapshotWithheld
 		decisions    []WithheldDeployment
 	)
@@ -201,6 +205,10 @@ func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 			}
 			if model.Unservable != "" {
 				unservable = append(unservable, string(discovery.Provider.Slug)+"/"+model.UpstreamModelID+": "+model.Unservable)
+				continue
+			}
+			if model.NotServed != "" {
+				notServed = append(notServed, string(discovery.Provider.Slug)+"/"+model.UpstreamModelID+": "+model.NotServed)
 				continue
 			}
 
@@ -326,6 +334,7 @@ func buildSnapshotWithholding(discoveries []Discovery, attribution *Attribution,
 		Unattributed:              unattributed,
 		Inexecutable:              inexecutable,
 		Unservable:                unservable,
+		NotServed:                 notServed,
 	}
 	if reportOnly {
 		result.WouldWithhold = decisions

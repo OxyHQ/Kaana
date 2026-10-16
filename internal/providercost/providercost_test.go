@@ -530,10 +530,10 @@ func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 		t.Fatalf("the production rate card is not loadable: %v", err)
 	}
 	observation, loaded := cards.Observation()
-	if !loaded || observation.VersionID != "rc_xai_realtime_2026_09_30" || observation.Source != providercost.RateCardProviderDocumentation {
+	if !loaded || observation.VersionID != "rc_xai_realtime_2026_10_16" || observation.Source != providercost.RateCardProviderDocumentation {
 		t.Fatalf("production observation = %+v", observation)
 	}
-	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30")
+	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
 	if !cards.Priced(deployment) {
 		t.Fatalf("%s is not priced", deployment)
 	}

@@ -32,7 +32,7 @@ func TestReviewedCardAppendPreservesEachObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != "5a094d5d27005f7182c99cb19129d328f48576147940db91bbb5fc0008219968" {
+	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != "0c77b6f6c709e57693c1a1e7770e4d74d14985e9d4fcab91d0f2e7632102ccfc" {
 		t.Fatal("historical xAI observation bytes changed")
 	}
 	baseline, err := providercost.Load(ordinary)
@@ -45,10 +45,10 @@ func TestReviewedCardAppendPreservesEachObservation(t *testing.T) {
 			if err != nil || len(cards.Observations()) != 2 {
 				t.Fatalf("separate observations not loaded: %v", err)
 			}
-			xai := contract.DeploymentID("dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30")
+			xai := contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
 			before, _ := baseline.ObservationForDeployment(xai)
 			after, _ := cards.ObservationForDeployment(xai)
-			if !reflect.DeepEqual(before, after) || after.ExpiresAt != nil || after.ObservedAt.Format(time.RFC3339) != "2026-09-30T00:00:00Z" {
+			if !reflect.DeepEqual(before, after) || after.ExpiresAt != nil || after.ObservedAt.Format(time.RFC3339) != "2026-10-16T00:00:00Z" {
 				t.Fatal("append changed xAI identity/time/expiry")
 			}
 			usage := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}

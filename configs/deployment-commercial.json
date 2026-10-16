@@ -1851,7 +1851,7 @@
       }
     },
     {
-      "deploymentId": "dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30",
+      "deploymentId": "dep_xai_realtime_grok_voice_3_0_observed_2026_10_16",
       "commercial": {
         "availabilityScope": "platform_internal",
         "commercialPermission": "standard_application_use"
