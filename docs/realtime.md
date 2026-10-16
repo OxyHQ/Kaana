@@ -618,6 +618,7 @@ change to what the slug's sessions are billed for.
 | A language it has no code for | not sent: the model detects it | the same (xAI silently ignores an unknown hint, so none is sent) |
 | `prompt` | sent | not sent: a hint, and xAI has key terms, not a prompt |
 | Events | `.delta` relayed; `.completed` → `transcript.done`; `.failed` → non-fatal error; `.segment` (diarize) dropped | cumulative `.updated` and the "completed" ones before the commit → deltas that extend what was relayed; the first `.completed` after `input_audio_buffer.committed` → the one `transcript.done` (no `content_index`: the caller's audio item has one part, index 0); repeats after it dropped |
+| Charge | the ASR model's own usage on each `.completed`: `duration` → `input_transcription_milliseconds`, read to the microsecond and rounded up per turn | none: xAI's Voice Agent bills "duration and text events sent without audio", with no transcription line, so the session meter is unchanged |
 
 **One transcript per item** (contract set 6.0.0). Whatever the provider sends,
 each committed input item gets exactly one `transcript.done`, its final
@@ -630,7 +631,22 @@ never comes is given the text it has when the next item is committed, before
 that commit. A running transcript that rewrites what was relayed adds no delta
 (the contract's delta only appends); the `transcript.done` carries the whole
 text.
-| Charge | the ASR model's own usage on each `.completed`: `duration` → `input_transcription_milliseconds`, read to the microsecond and rounded up per turn | none: xAI's Voice Agent bills "duration and text events sent without audio", with no transcription line, so the session meter is unchanged |
+
+**Each item, its own words** (`@kaana.ai/contracts` 6.1.0; no parsed byte
+changes, so the contract set stays 6.0.0). An item's deltas and its
+`transcript.done` are the text of that item's audio, never of an earlier
+item's. xAI's transcriber restarts when a response ends, not per item: when the
+caller goes on talking while a response is generated, xAI commits what came
+before as one item and the rest as another, and every transcript of the second
+starts with the first one's words (measured on grok-voice-3.0, 2026-10-16;
+replayed by `testdata/xai-interrupted-turn.jsonl` and, with a pause in which
+the answer ends, `testdata/xai-ended-turn.jsonl`). On a dialect with
+`continuesInterruptedTurns`, an item begun before any response.done since the
+previous item carries that item; Kaana cuts its words from every transcript of
+the new one, word by word ignoring case and punctuation (`inputItem.ownText`).
+A transcript that no longer starts with them is relayed whole, so no word is
+lost. OpenAI transcribes each committed item's own audio ("the transcription of
+the audio in the item", server-events reference), so it carries nothing.
 
 **Units.** OpenAI bills input transcription "according to the ASR model's
 pricing rather than the realtime model's". Reporting that as

@@ -157,6 +157,30 @@ describe('a session', () => {
     expect(await session.close()).toHaveLength(2);
   });
 
+  it('closes a dropped session by reattaching it, as a promise, once', async () => {
+    const session = await kaana.realtime.connect(open as never);
+    const events = session[Symbol.asyncIterator]();
+    fake.dropAfter = 'input_audio.commit';
+    session.send({ type: 'input_audio.commit' });
+    await expect(
+      (async () => {
+        while (!(await events.next()).done) {}
+      })(),
+    ).rejects.toBeInstanceOf(KaanaConnectionError);
+
+    // Never a synchronous throw: the dropped session is resumed, then closed,
+    // and settles now with what it consumed.
+    let closing: Promise<unknown> | undefined;
+    expect(() => {
+      closing = session.close();
+    }).not.toThrow();
+    expect(session.close()).toBe(closing as Promise<never>);
+    expect(await closing).toHaveLength(2);
+    const sent = fake.frames.map((frame) => (frame as { type: string }).type);
+    expect(sent.slice(-2)).toEqual(['session.resume', 'session.close']);
+    expect(await session.close()).toHaveLength(2);
+  });
+
   it('ends iteration after session.closed', async () => {
     const session = await kaana.realtime.connect(open as never);
     const closing = session.close();

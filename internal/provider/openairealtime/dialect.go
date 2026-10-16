@@ -136,6 +136,12 @@ type transcriptionDialect struct {
 	// (OpenAI). Otherwise the session's own price includes it (xAI) and it
 	// adds no unit.
 	billed bool
+	// continuesInterruptedTurns is a provider whose transcriber keeps running
+	// across the caller's items while no response has ended: an item the caller
+	// starts by talking over a response is transcribed together with the items
+	// before it (xAI, measured below). Kaana relays each item only the text of
+	// its own audio (session.ownText).
+	continuesInterruptedTurns bool
 }
 
 // openAITranscription is OpenAI's input transcription inside a Realtime
@@ -176,7 +182,20 @@ var openAITranscription = &transcriptionDialect{model: "gpt-transcribe", billed:
 // transcription line, so it adds no unit to the session's meter. UNVERIFIED
 // until the first signed canary: that xAI's invoice shows no separate
 // transcription charge.
-var xAITranscription = &transcriptionDialect{model: "grok-transcribe", languageHint: true}
+//
+// Measured on production sessions of grok-voice-3.0 (2026-10-16, server_vad,
+// one recording of "Hello Alia. … Please tell me, in one short sentence, what
+// is the capital of France?"): when the caller goes on talking while the
+// response to "Hello Alia." is being generated, xAI commits "Hello Alia." as
+// one item and the rest as a second item whose audio starts after the first
+// one's (`audio_start_ms`), yet every transcript of the second item —
+// running and completed — begins with "Hello Alia."; xAI then drops the
+// interrupted response without a response.done. With the same audio and a
+// 4 s pause, the response ends with its response.done before the caller goes
+// on, and the second item's transcript holds only its own words. So xAI's
+// transcriber restarts when a response ends, not per item
+// (continuesInterruptedTurns). testdata/xai-interrupted-turn.jsonl replays it.
+var xAITranscription = &transcriptionDialect{model: "grok-transcribe", languageHint: true, continuesInterruptedTurns: true}
 
 // contractPartType maps a provider's content part type to the contract's. xAI
 // names an assistant's parts `text` and `audio` (and documents `text` as

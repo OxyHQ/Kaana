@@ -44,6 +44,14 @@ export const MAX_REALTIME_SESSION_AUDIO_BYTES = 172_800_000;
 /** The longest a dropped connection may be resumed after: one minute. */
 export const MAX_REALTIME_RESUME_WINDOW_MS = 60_000;
 
+/**
+ * The most characters (UTF-16 code units, a JavaScript string's `length`) the
+ * text of one conversation item may hold: an `input_text` part, or a
+ * `function_call_output`'s `output`. A client that bounds a tool's result
+ * reads it here, never copies it.
+ */
+export const MAX_REALTIME_ITEM_TEXT_CHARS = 1_048_576;
+
 /** A client-chosen command identity, unique within one session. */
 export const realtimeCommandIdSchema = z.string().min(1).max(128);
 
@@ -107,8 +115,11 @@ export const realtimeTurnDetectionSchema = z.discriminatedUnion('type', [
  * so (`capabilities.realtime.inputAudioTranscription`, contract set 4.1.0),
  * and each transcribed turn arrives as deltas that only append and EXACTLY
  * ONE `transcript.done` with `source: 'input_audio'`, the final transcript of
- * that item (contract set 6.0.0), whatever its provider sends. What it costs
- * is settled with the session: where the provider bills the transcription
+ * that item (contract set 6.0.0), whatever its provider sends. Both hold only
+ * the words of that item's own audio, never an earlier item's
+ * (`@kaana.ai/contracts` 6.1.0), even where the provider transcribes a turn
+ * the caller went on with as one text. What it costs is settled with the
+ * session: where the provider bills the transcription
  * apart from the session model, as `input_transcription_milliseconds` (see
  * `USAGE_UNITS`); where the session's own price includes it, as nothing more.
  */
@@ -217,7 +228,9 @@ export const realtimeSessionLimitsSchema = z
  * item echoing it carries only the format and, once known, the transcript.
  */
 export const realtimeContentPartSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('input_text'), text: z.string().max(1_048_576) }).strict(),
+  z
+    .object({ type: z.literal('input_text'), text: z.string().max(MAX_REALTIME_ITEM_TEXT_CHARS) })
+    .strict(),
   z
     .object({
       type: z.literal('input_audio'),
@@ -268,7 +281,7 @@ export const realtimeConversationItemSchema = z
         type: z.literal('function_call_output'),
         itemId: realtimeItemIdSchema.optional(),
         callId: z.string().min(1).max(128),
-        output: z.string().max(1_048_576),
+        output: z.string().max(MAX_REALTIME_ITEM_TEXT_CHARS),
       })
       .strict(),
   ])

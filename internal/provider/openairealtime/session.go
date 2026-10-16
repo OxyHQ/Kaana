@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/coder/websocket"
 
@@ -84,6 +85,12 @@ type session struct {
 	// awaiting are the committed items without their final transcript yet,
 	// in the order they were committed.
 	awaiting []string
+	// lastInput is the caller's latest item, and responseEnded a response
+	// having ended (the provider's response.done) since it began: what a
+	// transcriber that continues interrupted turns carries into the next
+	// item (inputItem).
+	lastInput     *inputItem
+	responseEnded bool
 
 	closeOnce sync.Once
 }
@@ -97,7 +104,14 @@ type inputItem struct {
 	// committed is the item's audio having been committed: the provider's
 	// next completed transcript of it is the final one.
 	committed bool
-	// text is the transcript relayed so far as deltas.
+	// transcribed is the provider's latest transcript of the item, whole:
+	// on a provider that continues interrupted turns, it starts with the
+	// text of the items before it (carried).
+	transcribed string
+	// carried is the earlier item whose transcript the provider's transcripts
+	// of this one start with; nil when they hold only this item's audio.
+	carried *inputItem
+	// text is the transcript relayed so far as deltas: this item's own words.
 	text string
 	// done is the item's one transcript.done having been relayed.
 	done         bool
@@ -344,6 +358,7 @@ func (s *session) translate(event serverEvent) ([]provider.RealtimeUpstreamEvent
 	case "conversation.item.truncated":
 		return one(&contract.RealtimeItemTruncatedEvent{ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: event.ContentIndex, AudioEndMs: event.AudioEndMs}), nil
 	case "input_audio_buffer.speech_started":
+		s.inputBegun(event.ItemID)
 		return one(&contract.RealtimeSpeechStartedEvent{ItemID: contract.RealtimeItemID(event.ItemID), AudioStartMs: event.AudioStartMs}), nil
 	case "input_audio_buffer.speech_stopped":
 		return one(&contract.RealtimeSpeechStoppedEvent{ItemID: contract.RealtimeItemID(event.ItemID), AudioEndMs: event.AudioEndMs}), nil
@@ -452,19 +467,42 @@ func (s *session) transcribingInput() bool {
 // transcript is relayed as the deltas that extend what was relayed; one that
 // rewrites it adds no delta (the contract's delta only appends), and the
 // final transcript.done carries the whole text.
+//
+// Each item's transcript is the text of that item's audio only (Kaana ADR
+// 0003). xAI transcribes an item the caller starts by talking over a response
+// together with the items before it (continuesInterruptedTurns); what it
+// carried is cut here (ownText), so the client never sees a phrase twice.
 
+// inputItem is the item id names, begun now if this is the first event about
+// it. Called with s.mu held.
 func (s *session) inputItem(id string, contentIndex int) *inputItem {
 	item, ok := s.inputs[id]
 	if !ok {
 		item = &inputItem{contentIndex: contentIndex}
+		if s.dialect.transcription.continuesInterruptedTurns && !s.responseEnded {
+			item.carried = s.lastInput
+		}
+		s.lastInput, s.responseEnded = item, false
 		s.inputs[id] = item
 	}
 	return item
 }
 
-// inputRunning relays the extension of an item's running transcript, which
-// next computes from what was relayed so far.
-func (s *session) inputRunning(id string, contentIndex int, next func(relayed string) string) []provider.RealtimeUpstreamEvent {
+// inputBegun notes an item of the caller's speech when the provider reports it
+// started, so that what a transcriber carries into it is decided when its
+// audio began, not when its first transcript arrives.
+func (s *session) inputBegun(id string) {
+	if !s.transcribingInput() || id == "" {
+		return
+	}
+	s.mu.Lock()
+	s.inputItem(id, 0)
+	s.mu.Unlock()
+}
+
+// inputRunning relays the extension of an item's running transcript; next
+// computes the provider's whole transcript from its previous one.
+func (s *session) inputRunning(id string, contentIndex int, next func(previous string) string) []provider.RealtimeUpstreamEvent {
 	if id == "" {
 		return nil
 	}
@@ -474,7 +512,8 @@ func (s *session) inputRunning(id string, contentIndex int, next func(relayed st
 		s.mu.Unlock()
 		return nil
 	}
-	text := next(item.text)
+	item.transcribed = next(item.transcribed)
+	text := item.ownText()
 	delta, extends := strings.CutPrefix(text, item.text)
 	if !extends || delta == "" {
 		s.mu.Unlock()
@@ -483,6 +522,48 @@ func (s *session) inputRunning(id string, contentIndex int, next func(relayed st
 	item.text = text
 	s.mu.Unlock()
 	return one(&contract.RealtimeTranscriptDeltaEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(id), ContentIndex: item.contentIndex, Text: delta})
+}
+
+// ownText is the part of the provider's transcript of an item that is the
+// item's own audio: what follows the words of the item it carried, matched
+// word by word ignoring case and punctuation (which a transcriber revises as
+// it hears more). A transcript that has not yet passed those words has none
+// of its own so far; one that no longer starts with them is the item's whole,
+// so that no word the caller said is lost.
+func (item *inputItem) ownText() string {
+	if item.carried == nil {
+		return item.transcribed
+	}
+	rest := item.transcribed
+	for _, word := range strings.Fields(item.carried.transcribed) {
+		rest = strings.TrimLeftFunc(rest, unicode.IsSpace)
+		end := strings.IndexFunc(rest, unicode.IsSpace)
+		if end < 0 {
+			end = len(rest)
+		}
+		heard, carried := wordKey(rest[:end]), wordKey(word)
+		switch {
+		case heard == carried:
+			rest = rest[end:]
+		case end == len(rest) && strings.HasPrefix(carried, heard):
+			// The transcript ends inside the carried words.
+			return ""
+		default:
+			return item.transcribed
+		}
+	}
+	return strings.TrimLeftFunc(rest, unicode.IsSpace)
+}
+
+// wordKey is a word as a transcriber's revisions leave it: lower case, letters
+// and digits only.
+func wordKey(word string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, word)
 }
 
 // inputCommitted marks an item committed: its next completed transcript is
@@ -550,11 +631,13 @@ func (s *session) inputTranscript(event serverEvent) ([]provider.RealtimeUpstrea
 	final := item.committed && !item.done
 	if final {
 		item.done = true
-		item.text = event.Transcript
+		item.transcribed = event.Transcript
+		item.text = item.ownText()
 	}
+	transcript := item.text
 	s.mu.Unlock()
 	if final {
-		events = append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: item.contentIndex, Transcript: event.Transcript}})
+		events = append(events, provider.RealtimeUpstreamEvent{Event: &contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: contract.RealtimeItemID(event.ItemID), ContentIndex: item.contentIndex, Transcript: transcript}})
 	}
 	return charge(events), nil
 }
@@ -744,6 +827,9 @@ func (s *session) responseDone(event serverEvent) ([]provider.RealtimeUpstreamEv
 	if s.openResponse == id {
 		s.openResponse = ""
 	}
+	// A response the provider ended itself restarts a transcriber that
+	// continues interrupted turns; one it dropped (endedUnannounced) does not.
+	s.responseEnded = true
 	s.mu.Unlock()
 	done := &contract.RealtimeResponseDoneEvent{
 		ResponseID: id, Status: status,

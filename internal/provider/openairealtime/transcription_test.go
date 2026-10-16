@@ -419,3 +419,93 @@ func TestEveryCommittedItemGetsOneTranscript(t *testing.T) {
 		t.Errorf("transcripts = %+v, %+v", first, second)
 	}
 }
+
+// TestEachItemIsTranscribedWithItsOwnWords replays xAI's sessions of
+// 2026-10-16 (dialect.go, xAITranscription): the caller says "Hello Alia." and
+// goes on while xAI answers it. testdata/xai-interrupted-turn.jsonl is xAI's
+// event sequence of that session, rebuilt from what Kaana relayed of it (ids,
+// order, offsets; each running transcript is xAI's whole text, of which Kaana
+// relayed the extensions): every transcript of the second item starts with
+// the first one's words. testdata/xai-ended-turn.jsonl is the same speech
+// with a pause in which the answer ends: the second item's transcripts hold
+// only its own words. In both, each item's deltas and its one transcript.done
+// are the text of its own audio (the final transcript revises punctuation the
+// deltas had, which adds no delta).
+func TestEachItemIsTranscribedWithItsOwnWords(t *testing.T) {
+	for _, replay := range []struct {
+		name, first string
+		// secondDeltas is what the second item's deltas append.
+		secondDeltas string
+	}{
+		{"xai-interrupted-turn.jsonl", "db853da1-93f9-4d9a-970d-2d131a2bdadf", "Please tell me, in one short sentence."},
+		{"xai-ended-turn.jsonl", "9a96ccb3-b4f1-422e-a04a-b34cd56cb159", "Please tell me in one"},
+	} {
+		t.Run(replay.name, func(t *testing.T) {
+			events := capture(t, replay.name)
+			upstream := fake.NewXAI(t)
+			upstream.Script = func(conn *fake.Conn) {
+				for _, event := range events {
+					conn.Send(event)
+				}
+			}
+			session := xaiOpen(t, upstream, transcribed(serverVAD(), contract.RealtimeInputTranscription{Language: pointer("en-US")}))
+			relayed := collectUntil(t, session, contract.RealtimeEventInputAudioClearedType)
+			deltas, dones := map[contract.RealtimeItemID]string{}, map[contract.RealtimeItemID][]string{}
+			var order []contract.RealtimeItemID
+			for _, event := range relayed {
+				switch e := event.Event.(type) {
+				case *contract.RealtimeTranscriptDeltaEvent:
+					deltas[e.ItemID] += e.Text
+				case *contract.RealtimeTranscriptDoneEvent:
+					if len(dones[e.ItemID]) == 0 {
+						order = append(order, e.ItemID)
+					}
+					dones[e.ItemID] = append(dones[e.ItemID], e.Transcript)
+				}
+			}
+			if len(order) != 2 || order[0] != contract.RealtimeItemID(replay.first) {
+				t.Fatalf("transcribed items = %v", order)
+			}
+			for index, want := range []struct{ done, deltas string }{
+				{"Hello Alia.", "Hello Alia."},
+				{"Please tell me, in one short sentence, what is the capital of France?", replay.secondDeltas},
+			} {
+				item := order[index]
+				if len(dones[item]) != 1 || dones[item][0] != want.done {
+					t.Errorf("item %s: transcript.done %q, want one %q", item, dones[item], want.done)
+				}
+				if deltas[item] != want.deltas {
+					t.Errorf("item %s: the deltas append %q, want %q", item, deltas[item], want.deltas)
+				}
+			}
+		})
+	}
+}
+
+// TestACarriedTranscriptIsCutWordByWord: what xAI carried into an item is cut
+// however its transcriber revised the case and punctuation of those words; a
+// running transcript still inside them has no words of the item yet; one that
+// no longer starts with them is relayed whole, so no word is lost; and a chain
+// of interrupted items each keeps only its own.
+func TestACarriedTranscriptIsCutWordByWord(t *testing.T) {
+	first := &inputItem{transcribed: "Hello Alia."}
+	for transcribed, want := range map[string]string{
+		"hello alia, please":       "please",
+		"Hello Ali":                "",
+		"Hello Alia.":              "",
+		"Hi Alia. Please tell me":  "Hi Alia. Please tell me",
+		"Hello Alia.   What time?": "What time?",
+	} {
+		if got := (&inputItem{carried: first, transcribed: transcribed}).ownText(); got != want {
+			t.Errorf("ownText(%q) = %q, want %q", transcribed, got, want)
+		}
+	}
+	second := &inputItem{carried: first, transcribed: "Hello Alia. Please"}
+	third := &inputItem{carried: second, transcribed: "Hello Alia. Please tell me the time."}
+	if got := third.ownText(); got != "tell me the time." {
+		t.Errorf("a chain's third item = %q", got)
+	}
+	if got := (&inputItem{transcribed: "Hello Alia."}).ownText(); got != "Hello Alia." {
+		t.Errorf("an item that carried nothing = %q", got)
+	}
+}
