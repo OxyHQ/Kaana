@@ -13,6 +13,7 @@ import {
   inferenceMessageSchema,
   inferenceReasoningSchema,
   inferenceSpeechParametersSchema,
+  inferenceTranscriptionParametersSchema,
   responseFormatSchema,
   samplingParametersSchema,
   toolChoiceSchema,
@@ -114,6 +115,8 @@ const inferenceRequestObjectSchema = z.object({
   /** Absent means the route's own default reasoning behaviour. */
   reasoning: inferenceReasoningSchema.optional(),
   speech: inferenceSpeechParametersSchema.optional(),
+  /** File transcription parameters. Contract set 4.5.0. */
+  transcription: inferenceTranscriptionParametersSchema.optional(),
   /** Spoken output from a conversational model. Contract set 3.2.0. */
   audioOutput: inferenceAudioOutputParametersSchema.optional(),
   tools: z.array(toolDefinitionSchema).default([]),
@@ -188,6 +191,7 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
       request.responseFormat !== undefined ||
       request.reasoning !== undefined ||
       request.speech !== undefined ||
+      request.transcription !== undefined ||
       request.audioOutput !== undefined
     ) {
       ctx.addIssue({
@@ -217,6 +221,19 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
       code: 'custom',
       path: ['speech'],
       message: 'speech parameters require the audio_speech API format',
+    });
+  }
+  if (
+    request.transcription !== undefined &&
+    (request.client.apiFormat !== 'audio_transcriptions' ||
+      request.modality !== 'audio' ||
+      request.input.format !== 'messages')
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['transcription'],
+      message:
+        'transcription parameters require the audio_transcriptions API format with audio messages input',
     });
   }
   if (request.audioOutput !== undefined) {

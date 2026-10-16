@@ -8,7 +8,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/audioprobe"
@@ -22,8 +21,6 @@ const (
 	maxTranscriptionPromptLength = 4096
 	maxTranscriptionFieldBytes   = 16 << 10
 )
-
-var languageTagPattern = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
 
 // transcriptionUpload is one transcription request in either form.
 type transcriptionUpload struct {
@@ -101,6 +98,11 @@ func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
 			}},
 		}},
 	})
+	if upload.fields.Language != nil {
+		// Carried, never dropped: the adapter sends it in its provider's own
+		// parameter, or refuses a language its provider cannot take.
+		envelope.Transcription = &contract.TranscriptionParameters{Language: upload.fields.Language}
+	}
 	var text strings.Builder
 	result := s.execute(r.Context(), admitted, &envelope, func(event contract.StreamEvent) error {
 		if delta, isDelta := event.(*contract.StreamDeltaEvent); isDelta && delta.Channel == contract.ChannelOutputText {
@@ -204,9 +206,10 @@ func parseTranscriptionJSON(requestID contract.RequestID, body []byte) (transcri
 }
 
 // validateTranscription applies the contract's bounds and refuses what this
-// build cannot carry to a model rather than dropping it silently: the signed
-// envelope has no language, prompt or timing field, so a request that sets
-// one is refused until it does, never served without it.
+// build cannot carry to a model rather than dropping it silently. The language
+// travels in the envelope's `transcription` member (contract set 4.5.0); the
+// envelope has no prompt or timing field, so a request that sets one is
+// refused until it does, never served without it.
 func validateTranscription(requestID contract.RequestID, upload transcriptionUpload) *contract.PublicError {
 	fields := upload.fields
 	switch {
@@ -218,14 +221,12 @@ func validateTranscription(requestID contract.RequestID, upload transcriptionUpl
 		return invalid(requestID, "file", "the audio is empty")
 	case len(upload.audio) > maxTranscriptionFileBytes:
 		return contract.NewPublicError(requestID, "request_too_large", "the audio exceeds 20 MiB").WithParam("file")
-	case fields.Language != nil && !languageTagPattern.MatchString(string(*fields.Language)):
+	case fields.Language != nil && !fields.Language.Valid():
 		return invalid(requestID, "language", "language is a BCP 47 tag")
 	case fields.Prompt != nil && utf16Length(*fields.Prompt) > maxTranscriptionPromptLength:
 		return invalid(requestID, "prompt", "prompt is at most 4096 characters")
 	case fields.Timestamps != nil && !fields.Timestamps.Valid():
 		return invalid(requestID, "timestamps", "timestamps is none, segment or word")
-	case fields.Language != nil:
-		return invalid(requestID, "language", "language is not yet carried to transcription models; omit it")
 	case fields.Prompt != nil:
 		return invalid(requestID, "prompt", "prompt is not yet carried to transcription models; omit it")
 	case fields.Timestamps != nil && *fields.Timestamps != "none":

@@ -79,6 +79,10 @@ type DiscoveredModel struct {
 // Alibaba uses its authenticated native, paginated catalogue. A provider with
 // no reviewed list contract is refused by the caller rather than guessed at —
 // serving compatibility is never evidence that `/models` exists.
+// xaiTranscriptionModel is xAI's one documented speech-to-text model
+// (https://docs.x.ai/developers/model-capabilities/audio/speech-to-text).
+const xaiTranscriptionModel = "grok-voice-transcribe-2.0"
+
 func Discover(ctx context.Context, client *http.Client, target Provider) ([]DiscoveredModel, error) {
 	if target.APIKey == "" {
 		// Unreachable through Publish, which filters keyless providers out
@@ -164,6 +168,12 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	// xAI's speech endpoint has no model selector and is absent from /models.
 	// Its authenticated voice catalogue is the capability discovery authority.
 	// "tts" names that one endpoint; Translate refuses it as a chat deployment.
+	//
+	// The same read stands for xAI's file transcription, POST /v1/stt: xAI
+	// lists no speech-to-text model anywhere and documents exactly one,
+	// `grok-voice-transcribe-2.0` (the endpoint's default `model`), on the same
+	// voice API the voice catalogue answers for. A key that cannot read that
+	// catalogue publishes neither.
 	if target.Discovery == providerconfig.DiscoveryXAIModels {
 		if target.Slug != "xai" {
 			return nil, fmt.Errorf("publisher: xAI speech discovery requires the xai provider")
@@ -186,6 +196,11 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 				return nil, fmt.Errorf("publisher: xai returned a model that collides with its speech endpoint")
 			}
 			models = append(models, DiscoveredModel{UpstreamModelID: "tts"})
+		}
+		if len(voices.Voices) > 0 {
+			if _, listed := seen[xaiTranscriptionModel]; !listed {
+				models = append(models, DiscoveredModel{UpstreamModelID: xaiTranscriptionModel})
+			}
 		}
 	}
 

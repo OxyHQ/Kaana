@@ -402,6 +402,31 @@ rollout is pending published contract 1.2.0, a reviewed catalogue binding and
 an exact-artifact product canary; the local descriptor currently reflects that
 candidate, while the registry dependency pin is deliberately still unchanged.
 
+## xAI speech-to-text
+
+The same adapter translates `audio_transcriptions` for xAI's `POST /v1/stt`
+(`internal/provider/openaicompat/transcription.go`). The deployment is
+`grok-voice-transcribe-2.0`, the one model xAI documents for the endpoint; xAI
+lists it nowhere, so the publisher adds it from the authenticated
+`/tts/voices` read that proves the key reaches the voice API. A chat request
+cannot reach it and a transcription cannot reach a chat deployment.
+
+The upload is multipart: `model`, the caller's `language` when the envelope's
+`transcription` member names one (contract set 4.5.0; absent, the model
+detects it), and the audio as the last field, which xAI requires. Containers
+are WAV, MP3, Ogg, FLAC, AAC, MP4/M4A and WebM (Matroska); raw PCM is refused
+because its rate is not in the upload. Audio is bounded to the contract's
+20 MiB. The billed quantity is the `duration` xAI reports, as
+`audio_input_milliseconds` (provider reported); a response without a positive
+duration or without `text` is a provider error, never a free request. The
+transcript is emitted as one `output_text` delta.
+
+`openai-audio` and `deepgram` take no language from the envelope: they refuse
+one rather than dropping it, and their catalogue lines declare no languages, so
+a caller choosing by language never sends them one.
+
+Primary wire specification: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
+
 
 ### Dormant System One decisions
 

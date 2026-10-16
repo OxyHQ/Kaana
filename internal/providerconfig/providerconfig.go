@@ -225,7 +225,7 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 		case "siliconflow":
 			formats = append(formats, contract.APIFormatEmbeddings)
 		case "xai":
-			formats = append(formats, contract.APIFormatAudioSpeech)
+			formats = append(formats, contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions)
 		}
 		return formats
 	case ProtocolAnthropicMessages:

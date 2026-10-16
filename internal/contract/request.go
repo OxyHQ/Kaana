@@ -357,6 +357,14 @@ type SpeechParameters struct {
 	Speed          *float64     `json:"speed,omitempty"`
 }
 
+// TranscriptionParameters carries a file transcription's controls (contract
+// set 4.5.0). Language is the caller's statement of what is spoken, in the tag
+// the model's catalogue declares; nil lets the model detect it. An adapter whose
+// provider takes no language refuses one rather than dropping it.
+type TranscriptionParameters struct {
+	Language *LanguageTag `json:"language,omitempty"`
+}
+
 // AudioOutputParameters asks a conversational model to answer in its own
 // voice (contract set 3.2.0), as opposed to Speech, which reads given text
 // aloud. The audio streams as audio events and the words on the
@@ -378,26 +386,27 @@ func (f AudioOutputFormat) Valid() bool { return isMember(f, audioOutputFormatVa
 
 type Request struct {
 	// Private Auto is a separately negotiated v4 wrapper, never an additive legacy field.
-	PrivateAutoExecution *PrivateAutoExecution  `json:"-"`
-	ScopedExecution      *ScopedExecution       `json:"scopedExecution,omitempty"`
-	Speech               *SpeechParameters      `json:"speech,omitempty"`
-	AudioOutput          *AudioOutputParameters `json:"audioOutput,omitempty"`
-	SchemaVersion        int                    `json:"schemaVersion"`
-	Attribution          Attribution            `json:"attribution"`
-	Target               RoutingTarget          `json:"target"`
-	Modality             Modality               `json:"modality"`
-	Input                Input                  `json:"input"`
-	Stream               bool                   `json:"stream"`
-	MaxOutputTokens      *int                   `json:"maxOutputTokens,omitempty"`
-	Sampling             SamplingParameters     `json:"sampling"`
-	Reasoning            *ReasoningParameters   `json:"reasoning,omitempty"`
-	Tools                []ToolDefinition       `json:"tools,omitempty"`
-	ToolChoice           *ToolChoice            `json:"toolChoice,omitempty"`
-	ResponseFormat       *ResponseFormat        `json:"responseFormat,omitempty"`
-	Client               ClientRequestMetadata  `json:"client"`
-	IdempotencyKey       *IdempotencyKey        `json:"idempotencyKey,omitempty"`
-	RoutingPolicy        RoutingPolicyReference `json:"routingPolicy"`
-	AuthorizedRoutes     []AuthorizedRoute      `json:"authorizedRoutes,omitempty"`
+	PrivateAutoExecution *PrivateAutoExecution    `json:"-"`
+	ScopedExecution      *ScopedExecution         `json:"scopedExecution,omitempty"`
+	Speech               *SpeechParameters        `json:"speech,omitempty"`
+	Transcription        *TranscriptionParameters `json:"transcription,omitempty"`
+	AudioOutput          *AudioOutputParameters   `json:"audioOutput,omitempty"`
+	SchemaVersion        int                      `json:"schemaVersion"`
+	Attribution          Attribution              `json:"attribution"`
+	Target               RoutingTarget            `json:"target"`
+	Modality             Modality                 `json:"modality"`
+	Input                Input                    `json:"input"`
+	Stream               bool                     `json:"stream"`
+	MaxOutputTokens      *int                     `json:"maxOutputTokens,omitempty"`
+	Sampling             SamplingParameters       `json:"sampling"`
+	Reasoning            *ReasoningParameters     `json:"reasoning,omitempty"`
+	Tools                []ToolDefinition         `json:"tools,omitempty"`
+	ToolChoice           *ToolChoice              `json:"toolChoice,omitempty"`
+	ResponseFormat       *ResponseFormat          `json:"responseFormat,omitempty"`
+	Client               ClientRequestMetadata    `json:"client"`
+	IdempotencyKey       *IdempotencyKey          `json:"idempotencyKey,omitempty"`
+	RoutingPolicy        RoutingPolicyReference   `json:"routingPolicy"`
+	AuthorizedRoutes     []AuthorizedRoute        `json:"authorizedRoutes,omitempty"`
 }
 
 // Validate carries the per-variant and cross-field rules the Go types cannot
@@ -446,6 +455,14 @@ func (r *Request) Validate() error {
 		}
 		if r.Speech.Speed != nil && (*r.Speech.Speed < 0.25 || *r.Speech.Speed > 4) {
 			return fmt.Errorf("contract: invalid speech speed")
+		}
+	}
+	if r.Transcription != nil {
+		if r.Client.APIFormat != APIFormatAudioTranscriptions || r.Modality != ModalityAudio || r.Input.Format != InputMessages {
+			return fmt.Errorf("contract: transcription parameters require audio_transcriptions with audio messages input")
+		}
+		if r.Transcription.Language != nil && !r.Transcription.Language.Valid() {
+			return fmt.Errorf("contract: transcription.language is not a BCP 47 language tag")
 		}
 	}
 

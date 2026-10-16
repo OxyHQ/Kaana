@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { languageTagSchema } from './audioFormats.js';
 import { reasoningEffortSchema } from './catalogue.js';
 
 /**
@@ -236,6 +237,19 @@ export const inferenceSpeechParametersSchema = z
   .strict();
 
 /**
+ * Parameters for a file transcription, preserved in the signed request
+ * (contract set 4.5.0). `language` is the caller's statement of what is spoken,
+ * in the tag the model's catalogue `audio.languages` declares; absent lets the
+ * model detect it. An adapter whose provider takes no language refuses one
+ * rather than dropping it.
+ */
+export const inferenceTranscriptionParametersSchema = z
+  .object({
+    language: languageTagSchema.optional(),
+  })
+  .strict();
+
+/**
  * Spoken output from a CONVERSATIONAL model (contract set 3.2.0) — an audio chat
  * model answering in its own voice, as opposed to `speech`, which reads given
  * text aloud. Presence is the request: a chat request carrying this asks for
@@ -271,6 +285,9 @@ export const requestLabelsSchema = z
   );
 
 export type InferenceSpeechParameters = z.infer<typeof inferenceSpeechParametersSchema>;
+export type InferenceTranscriptionParameters = z.infer<
+  typeof inferenceTranscriptionParametersSchema
+>;
 export type InferenceAudioOutputParameters = z.infer<typeof inferenceAudioOutputParametersSchema>;
 export type InferenceContentSource = z.infer<typeof inferenceContentSourceSchema>;
 export type InferenceContentPart = z.infer<typeof inferenceContentPartSchema>;

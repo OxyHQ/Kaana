@@ -11,25 +11,26 @@ import (
 
 // PrivateAutoRequest is the v4 wire shape. The ordinary Request stays v2/3.
 type PrivateAutoRequest struct {
-	Speech               *SpeechParameters      `json:"speech,omitempty"`
-	AudioOutput          *AudioOutputParameters `json:"audioOutput,omitempty"`
-	SchemaVersion        int                    `json:"schemaVersion"`
-	Attribution          Attribution            `json:"attribution"`
-	Target               RoutingTarget          `json:"target"`
-	Modality             Modality               `json:"modality"`
-	Input                Input                  `json:"input"`
-	Stream               bool                   `json:"stream"`
-	MaxOutputTokens      *int                   `json:"maxOutputTokens,omitempty"`
-	Sampling             SamplingParameters     `json:"sampling"`
-	Reasoning            *ReasoningParameters   `json:"reasoning,omitempty"`
-	Tools                []ToolDefinition       `json:"tools,omitempty"`
-	ToolChoice           *ToolChoice            `json:"toolChoice,omitempty"`
-	ResponseFormat       *ResponseFormat        `json:"responseFormat,omitempty"`
-	Client               ClientRequestMetadata  `json:"client"`
-	IdempotencyKey       *IdempotencyKey        `json:"idempotencyKey,omitempty"`
-	RoutingPolicy        RoutingPolicyReference `json:"routingPolicy"`
-	AuthorizedRoutes     []AuthorizedRoute      `json:"authorizedRoutes,omitempty"`
-	PrivateAutoExecution PrivateAutoExecution   `json:"privateAutoExecution"`
+	Speech               *SpeechParameters        `json:"speech,omitempty"`
+	Transcription        *TranscriptionParameters `json:"transcription,omitempty"`
+	AudioOutput          *AudioOutputParameters   `json:"audioOutput,omitempty"`
+	SchemaVersion        int                      `json:"schemaVersion"`
+	Attribution          Attribution              `json:"attribution"`
+	Target               RoutingTarget            `json:"target"`
+	Modality             Modality                 `json:"modality"`
+	Input                Input                    `json:"input"`
+	Stream               bool                     `json:"stream"`
+	MaxOutputTokens      *int                     `json:"maxOutputTokens,omitempty"`
+	Sampling             SamplingParameters       `json:"sampling"`
+	Reasoning            *ReasoningParameters     `json:"reasoning,omitempty"`
+	Tools                []ToolDefinition         `json:"tools,omitempty"`
+	ToolChoice           *ToolChoice              `json:"toolChoice,omitempty"`
+	ResponseFormat       *ResponseFormat          `json:"responseFormat,omitempty"`
+	Client               ClientRequestMetadata    `json:"client"`
+	IdempotencyKey       *IdempotencyKey          `json:"idempotencyKey,omitempty"`
+	RoutingPolicy        RoutingPolicyReference   `json:"routingPolicy"`
+	AuthorizedRoutes     []AuthorizedRoute        `json:"authorizedRoutes,omitempty"`
+	PrivateAutoExecution PrivateAutoExecution     `json:"privateAutoExecution"`
 }
 
 // PrivateAutoInput is the strict private input shape, separate from the public
@@ -42,6 +43,7 @@ type PrivateAutoInput struct {
 func (r *PrivateAutoRequest) InferenceRequest() Request {
 	return Request{
 		Speech:               r.Speech,
+		Transcription:        r.Transcription,
 		AudioOutput:          r.AudioOutput,
 		SchemaVersion:        r.SchemaVersion,
 		Attribution:          r.Attribution,

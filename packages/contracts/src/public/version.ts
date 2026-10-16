@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '4.4.0';
+export const INFERENCE_CONTRACT_VERSION = '4.5.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -137,6 +137,11 @@ export const INFERENCE_CONTRACT_VERSION = '4.4.0';
  * permission, dedicated capacity), and `sameModelFailover` on
  * `grantStepLimitsSchema` (default `true`: what 4.3.0 did). Nothing in 4.3.0
  * changes.
+ *
+ * Contract set 4.5.0 is additive: the signed envelope's optional
+ * `transcription` member (`inferenceTranscriptionParametersSchema`), which
+ * carries a file transcription's `language` to the model instead of the
+ * public API refusing it. Nothing in 4.4.0 changes.
  */
 
 /** The public API's one origin and version. */

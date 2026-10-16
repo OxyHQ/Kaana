@@ -205,8 +205,14 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	if request.Client.APIFormat == contract.APIFormatAudioSpeech {
 		return a.translateSpeech(request, route)
 	}
+	if request.Client.APIFormat == contract.APIFormatAudioTranscriptions {
+		return a.translateTranscription(request, route)
+	}
 	if a.config.Provider == "xai" && route.UpstreamModelID == "tts" {
 		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the speech deployment requires audio_speech"}
+	}
+	if isTranscriptionModel(a.config.Provider, route.UpstreamModelID) {
+		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the transcription deployment requires audio_transcriptions"}
 	}
 	if request.Modality == contract.ModalityEmbedding {
 		// Whether this slug has an embeddings endpoint is the capability
