@@ -150,6 +150,28 @@ stream event), `requestId`, `retryable`, `retryAfterMs`, `param` and
 response outside the contract and is never retried; `KaanaConnectionError` is
 the network or a timeout (`timedOut`) before a response.
 
+## Testing
+
+`@kaana.ai/sdk/testing` runs the real client against `https://kaana.ai/v1` in
+memory, so code that uses Kaana is tested without reaching it:
+
+```ts
+import { createFakeKaana } from '@kaana.ai/sdk/testing';
+
+const { kaana, server } = createFakeKaana({
+  transcribe: () => ({ text: 'hola', durationMs: 1200 }),
+});
+const session = await kaana.realtime.connect(open); // your session.open
+server.sessions[0].emit({ type: 'input_audio.cleared' });
+```
+
+The fake decides with the same schemas and `check*` functions of
+`@kaana.ai/contracts` Kaana applies before a grant, against `voiceCatalogue`
+— what Kaana serves for its voice models, held to Kaana's own render — so a
+request it accepts is one Kaana accepts, and a refusal arrives as the same
+error class with the same `code` and `param`. A session records the commands
+it applied (`commands`) and is driven by the test (`emit`, `drop`, `end`).
+
 ## React Native
 
 Non-streaming methods work with React Native's built-in `fetch`. The streaming
