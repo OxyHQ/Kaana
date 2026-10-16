@@ -675,8 +675,8 @@ nothing, reads at most four events within ten seconds, and closes:
 | xAI's answer | Result |
 |---|---|
 | `session.created` naming exactly the id | discovered, as if the list had named it |
-| `session.created` naming anything else (the substitution above, the alias, another case) | absent; discovery continues |
-| an `error` event | absent; discovery continues |
+| `session.created` naming anything else (the substitution above, the alias, another case) | absent, with a warning naming the model and the model xAI named; discovery continues |
+| an `error` event | absent, with a warning naming the model and xAI's error type, code and message (bounded, the key redacted); discovery continues |
 | handshake refused, a close, a timeout, a binary or non-JSON frame, a `session.created` with no session, four events without one | that provider's discovery fails this cycle |
 
 Failure follows the speech profile: an ANSWER that the model is not served is
@@ -685,7 +685,12 @@ is absent from that snapshot with an error logged, and the other providers are
 unaffected. For `xai-realtime` the two differ only in the log line, because
 the text models on its list are never published under it.
 
-Because `grok-voice-think-fast-2.0` is also xAI's fallback, a `session.created`
+This is what happened on 2026-10-14: xAI retired `grok-voice-think-fast-2.0`,
+its sessions opened on the new default, and the line left the snapshot from
+the 16:34Z publication. Until 2026-10-16 that absence logged nothing; the
+attributed line is now `grok-voice-3.0` (docs/realtime.md, item 10).
+
+Because `grok-voice-think-fast-2.0` was also xAI's fallback, a `session.created`
 naming it cannot tell "served because asked for" from "served as the default".
 It does not need to: `session.model` is what xAI says will run the session,
 and that is the fact a deployment asserts. The day xAI's default moves to

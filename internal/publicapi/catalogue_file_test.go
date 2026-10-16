@@ -64,7 +64,7 @@ func TestTheDeclaredCatalogueFileParsesAndCarriesListPrices(t *testing.T) {
 	want := map[string]string{
 		"openai/gpt-4o-transcribe":                 "input_tokens",
 		"openai/gpt-4o-mini-transcribe-2025-12-15": "output_tokens",
-		"x-ai/grok-voice-think-fast-2.0":           "session_milliseconds",
+		"x-ai/grok-voice-3.0":                      "session_milliseconds",
 		"x-ai/grok-voice-transcribe-2.0":           "audio_input_milliseconds",
 	}
 	for model, unit := range want {

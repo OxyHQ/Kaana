@@ -62,13 +62,13 @@ func TestXAIVoiceIsAttributedOnlyToTheRealtimeAdapter(t *testing.T) {
 	if got := len(table.byProvider["xai-realtime"]); got != 1 {
 		t.Fatalf("xai-realtime has %d attributions, want exactly the pinned voice model", got)
 	}
-	if got, ok := table.ModelLine("xai-realtime", "grok-voice-think-fast-2.0"); !ok || got != "x-ai/grok-voice-think-fast-2.0" {
-		t.Errorf("xai-realtime/grok-voice-think-fast-2.0 = %q, %t", got, ok)
+	if got, ok := table.ModelLine("xai-realtime", "grok-voice-3.0"); !ok || got != "x-ai/grok-voice-3.0" {
+		t.Errorf("xai-realtime/grok-voice-3.0 = %q, %t", got, ok)
 	}
-	if !executable(Provider{Slug: "xai-realtime", Protocol: providerconfig.ProtocolXAIRealtime}, "grok-voice-think-fast-2.0") {
+	if !executable(Provider{Slug: "xai-realtime", Protocol: providerconfig.ProtocolXAIRealtime}, "grok-voice-3.0") {
 		t.Error("the voice model is attributed and the xAI realtime adapter would not publish it")
 	}
-	if executable(Provider{Slug: "xai", Protocol: providerconfig.ProtocolOpenAICompatible}, "grok-voice-think-fast-2.0") {
+	if executable(Provider{Slug: "xai", Protocol: providerconfig.ProtocolOpenAICompatible}, "grok-voice-3.0") {
 		t.Error("the voice model would be published under the xai request adapter")
 	}
 	for _, slug := range []contract.ProviderSlug{"xai", "xai-realtime"} {
@@ -76,7 +76,7 @@ func TestXAIVoiceIsAttributedOnlyToTheRealtimeAdapter(t *testing.T) {
 			t.Errorf("%s/grok-voice-latest is attributed; it is a moving alias", slug)
 		}
 	}
-	if _, ok := table.ModelLine("xai", "grok-voice-think-fast-2.0"); ok {
+	if _, ok := table.ModelLine("xai", "grok-voice-3.0"); ok {
 		t.Error("the voice model is attributed to the xai request adapter")
 	}
 }

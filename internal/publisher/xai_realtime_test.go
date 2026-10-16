@@ -1,10 +1,13 @@
 package publisher
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +18,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
-const xaiVoiceModel = "grok-voice-think-fast-2.0"
+const xaiVoiceModel = "grok-voice-3.0"
 
 // sessionCreated is the event xAI sent the production key on 2026-09-30, the
 // session id and event id replaced: session.created first, unprompted.
@@ -123,13 +126,20 @@ func discoveredIDs(models []DiscoveredModel) []string {
 	return ids
 }
 
+// hasID is whether discovery reports id as served: present, and not carrying
+// the provider's own "not served" answer.
 func hasID(models []DiscoveredModel, id string) bool {
+	return notServed(models, id) == "" && slices.ContainsFunc(models, func(model DiscoveredModel) bool { return model.UpstreamModelID == id })
+}
+
+// notServed is the provider's "not served" answer discovery recorded for id.
+func notServed(models []DiscoveredModel, id string) string {
 	for _, model := range models {
 		if model.UpstreamModelID == id {
-			return true
+			return model.NotServed
 		}
 	}
-	return false
+	return ""
 }
 
 // TestXAIVoiceIsDiscoveredOnlyWhenSessionCreatedNamesIt is the positive
@@ -142,13 +152,16 @@ func TestXAIVoiceIsDiscoveredOnlyWhenSessionCreatedNamesIt(t *testing.T) {
 		name   string
 		events []string
 		want   bool
+		// answer is what the "not served" reason must say, so the publisher's
+		// warning names xAI's own answer.
+		answer string
 	}{
-		{"session.created names the model", []string{sessionCreated(xaiVoiceModel), conversationCreated, xaiPing}, true},
-		{"session.created after other events", []string{conversationCreated, xaiPing, sessionCreated(xaiVoiceModel)}, true},
-		{"an error event", []string{`{"type":"error","event_id":"evt_e","error":{"type":"invalid_request_error","code":"invalid_request_error","message":"model not available"}}`}, false},
-		{"xAI substitutes another model", []string{sessionCreated("grok-voice-think-fast-3.0"), conversationCreated}, false},
-		{"xAI substitutes its alias", []string{sessionCreated("grok-voice-latest")}, false},
-		{"a case-folded name", []string{sessionCreated(strings.ToUpper(xaiVoiceModel))}, false},
+		{"session.created names the model", []string{sessionCreated(xaiVoiceModel), conversationCreated, xaiPing}, true, ""},
+		{"session.created after other events", []string{conversationCreated, xaiPing, sessionCreated(xaiVoiceModel)}, true, ""},
+		{"an error event", []string{`{"type":"error","event_id":"evt_e","error":{"type":"invalid_request_error","code":"model_not_found","message":"model not available test-key"}}`}, false, "xAI answered an error event: invalid_request_error model_not_found model not available [redacted]"},
+		{"xAI substitutes another model", []string{sessionCreated("grok-voice-4.0"), conversationCreated}, false, `xAI opened the session on "grok-voice-4.0" instead`},
+		{"xAI substitutes its alias", []string{sessionCreated("grok-voice-latest")}, false, `xAI opened the session on "grok-voice-latest" instead`},
+		{"a case-folded name", []string{sessionCreated(strings.ToUpper(xaiVoiceModel))}, false, `xAI opened the session on "GROK-VOICE-3.0" instead`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := newFakeXAIVoice(t, tc.events...)
@@ -158,6 +171,9 @@ func TestXAIVoiceIsDiscoveredOnlyWhenSessionCreatedNamesIt(t *testing.T) {
 			}
 			if got := hasID(models, xaiVoiceModel); got != tc.want {
 				t.Fatalf("voice model discovered = %t, want %t (models %v)", got, tc.want, discoveredIDs(models))
+			}
+			if got := notServed(models, xaiVoiceModel); got != tc.answer {
+				t.Fatalf("not-served answer = %q, want %q", got, tc.answer)
 			}
 			// The list is still read and passed through; the snapshot builder,
 			// not discovery, drops its text models under xai-realtime.
@@ -314,7 +330,7 @@ func TestTheXAIVoiceSessionIsTheServingAdaptersEndpoint(t *testing.T) {
 // out of the voice slug.
 func TestThePublisherPublishesAnObservedXAIVoiceModel(t *testing.T) {
 	fake := newFakeXAIVoice(t, sessionCreated(xaiVoiceModel), conversationCreated)
-	table, err := ParseAttribution([]byte(`{"attribution":{"xai-realtime":{"grok-voice-think-fast-2.0":"x-ai/grok-voice-think-fast-2.0"}}}`))
+	table, err := ParseAttribution([]byte(`{"attribution":{"xai-realtime":{"grok-voice-3.0":"x-ai/grok-voice-3.0"}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +353,43 @@ func TestThePublisherPublishesAnObservedXAIVoiceModel(t *testing.T) {
 	}
 	deployment := published.Deployments[0]
 	if deployment.Provider != "xai-realtime" || deployment.UpstreamModelID != xaiVoiceModel ||
-		deployment.ModelReference != "x-ai/grok-voice-think-fast-2.0@observed-2026-09-30" {
+		deployment.ModelReference != "x-ai/grok-voice-3.0@observed-2026-09-30" {
 		t.Fatalf("deployment = %+v", deployment)
+	}
+}
+
+// TestThePublisherNamesAVoiceModelXAIDoesNotServe is the silent failure of
+// 2026-10-14 made loud: xAI opened sessions for a retired voice model on its
+// new default, the model left the snapshot, and nothing was logged. Now the
+// deployment is still absent, and a warning names the model and xAI's answer.
+func TestThePublisherNamesAVoiceModelXAIDoesNotServe(t *testing.T) {
+	fake := newFakeXAIVoice(t, sessionCreated("grok-voice-4.0"), conversationCreated)
+	// A healthy provider alongside, as in production: a snapshot is never empty.
+	cerebras := newFakeUpstream(t, "c-key", "gemma-4-31b")
+	table, err := ParseAttribution([]byte(`{"attribution":{"xai-realtime":{"grok-voice-3.0":"x-ai/grok-voice-3.0"},"cerebras":{"gemma-4-31b":"google/gemma-4-31b"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	store := &fakeStore{}
+	inventoryPublisher, err := New(Config{
+		Providers:   []Provider{fake.provider(), {Slug: "cerebras", BaseURL: cerebras.baseURL(), APIKey: "c-key"}},
+		Attribution: table, Store: store,
+		Client: fake.server.Client(), Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Now: func() time.Time { return time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inventoryPublisher.PublishOnce(context.Background()); err != nil {
+		t.Fatalf("publishing: %v", err)
+	}
+	published := parseSnapshot(t, store.written()[0])
+	if len(published.Deployments) != 1 || published.Deployments[0].Provider != "cerebras" {
+		t.Fatalf("a model xAI does not serve was published: %+v", published.Deployments)
+	}
+	want := `level=WARN msg="the provider answered that it does not serve an attributed model to this account; it is absent from the snapshot" model="xai-realtime/grok-voice-3.0: xAI opened the session on \"grok-voice-4.0\" instead"`
+	if !strings.Contains(logs.String(), want) {
+		t.Fatalf("no warning names the model and xAI's answer:\n%s", logs.String())
 	}
 }

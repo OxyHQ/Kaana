@@ -70,6 +70,10 @@ type DiscoveredModel struct {
 	// this provider can never be served by the model (an OpenRouter model with
 	// no zero-data-retention endpoint). BuildSnapshot drops it and names it.
 	Unservable string
+	// NotServed, when non-empty, is the provider's own answer that it does not
+	// serve this attributed id to this account (an xAI voice session opened on
+	// another model). BuildSnapshot drops it and names it with that answer.
+	NotServed string
 }
 
 // Discover asks a provider which models it serves.

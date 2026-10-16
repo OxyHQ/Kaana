@@ -27,7 +27,7 @@ var allRealtimeFormats = []contract.RealtimeAudioFormat{contract.RealtimeALaw, c
 // xAI's documented voices and languages, and a gender only where reviewed.
 func TestThePublisherPublishesWhatAnXAIVoiceSessionServes(t *testing.T) {
 	fake := newFakeXAIVoice(t, sessionCreated(xaiVoiceModel), conversationCreated)
-	table, err := ParseAttribution([]byte(`{"attribution":{"xai-realtime":{"grok-voice-think-fast-2.0":"x-ai/grok-voice-think-fast-2.0"}}}`))
+	table, err := ParseAttribution([]byte(`{"attribution":{"xai-realtime":{"grok-voice-3.0":"x-ai/grok-voice-3.0"}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestThePublisherPublishesWhatAnXAIVoiceSessionServes(t *testing.T) {
 		t.Fatalf("the published snapshot does not parse: %v", err)
 	}
 	catalogue := parsed.Catalogue()
-	if len(catalogue) != 1 || catalogue[0].Model != "x-ai/grok-voice-think-fast-2.0" {
+	if len(catalogue) != 1 || catalogue[0].Model != "x-ai/grok-voice-3.0" {
 		t.Fatalf("catalogue = %+v", catalogue)
 	}
 	entry := catalogue[0]

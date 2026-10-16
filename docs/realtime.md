@@ -397,7 +397,7 @@ shared code, and every documented difference is a dialect field.
 | Session endpoint | `wss://api.x.ai/v1/realtime?model=<signed upstream id>`, fixed in `providerconfig` |
 | Authentication | `Authorization: Bearer <key>` on the handshake |
 | Session kinds | `conversation` only (xAI documents no other) |
-| Model | `grok-voice-think-fast-2.0`, the pinned flagship; `grok-voice-latest` is xAI's alias for it and is not attributed |
+| Model | `grok-voice-3.0` (attributed 2026-10-16); `grok-voice-latest` is xAI's moving alias and `grok-voice-2.0` is deprecated, so neither is attributed. `grok-voice-think-fast-2.0`, attributed until then, stopped being served on 2026-10-14 (item 10 below) |
 | Turn detection | `none` (push-to-talk, billed by audio) or `server_vad` (billed by session wall clock) — see "Metering" |
 | Session limit | xAI's own: 120 minutes, 10 concurrent sessions per team at tier 0 |
 
@@ -674,7 +674,7 @@ languages and voice genders from reviewed evidence.
 
 ## Publishing
 
-`configs/model-attribution.json` attributes `grok-voice-think-fast-2.0` to
+`configs/model-attribution.json` attributes `grok-voice-3.0` to
 `xai-realtime` only (`TestXAIVoiceIsAttributedOnlyToTheRealtimeAdapter`). xAI's
 ids are classified by `providerconfig.ClassifyModel`: `grok-voice*` is a
 conversation session, published only under a slug whose adapter opens one, so
@@ -777,10 +777,12 @@ pins the set and proves each row publishable there and nowhere else.
   `session_milliseconds` and `requests` (above); without one every session's
   operator cost is unknown. A rate card is keyed by deployment id, and a
   deployment id carries the date the publisher first observed the line
-  (`dep_xai_realtime_grok_voice_think_fast_2_0_observed_<date>`), so the card
-  is written after the first snapshot names it, never guessed. It is
-  `rc_xai_realtime_2026_09_30` in `configs/provider-rates.json`, for
-  `dep_xai_realtime_grok_voice_think_fast_2_0_observed_2026_09_30`, read by the
+  (`dep_xai_realtime_grok_voice_3_0_observed_<date>`). It is
+  `rc_xai_realtime_2026_10_16` in `configs/provider-rates.json`, for
+  `dep_xai_realtime_grok_voice_3_0_observed_2026_10_16` — the line's first
+  observation on the day the card ships, the same id
+  `configs/deployment-commercial.json` sells (it replaced
+  `rc_xai_realtime_2026_09_30`, whose 2.0 deployment xAI stopped serving) — read by the
   serving task through `KAANA_PROVIDER_RATES_PATH=/etc/kaana-rates/provider-rates.json`. Oxy's price
   version for the route must price `session_milliseconds` too (Oxy holds it for
   every realtime session and refuses a route that leaves it unpriced).
@@ -837,12 +839,16 @@ pins the set and proves each row publishable there and nowhere else.
    second session under a settled request id is the edge's idempotency to
    refuse, exactly as a replayed one-shot envelope is (`architecture.md`,
    "Replay protection beyond the signature time window").
-10. **xAI lists `grok-voice-2.0` as deprecated** beside `grok-voice-3.0`, at
-    the same $0.08/min (pricing page, read 2026-10-15), and its session schema
-    now names `grok-voice-latest`, `grok-voice-3.0` and `grok-voice-2.0`. The
-    attributed `grok-voice-think-fast-2.0` is not re-reviewed here; attributing
-    `grok-voice-3.0` is a reviewed attribution change with its own discovery
-    probe and rate card.
+10. **xAI retired `grok-voice-think-fast-2.0` (resolved 2026-10-16).** From the
+    2026-10-14T16:34Z publication xAI answered the discovery session for it on
+    another model, so the line left the snapshot — silently, because a
+    "not served" answer was not logged — and every Alia voice call failed with
+    no realtime model. xAI's models page and Voice API now name
+    `grok-voice-3.0` (current), `grok-voice-2.0` (deprecated) and the alias
+    `grok-voice-latest`, at the same $0.08/min. `grok-voice-3.0` is now the
+    attributed line, with its own catalogue line, rate card and commercial
+    entry; and a "not served" answer is logged as a warning naming the model
+    and xAI's answer (`DiscoveredModel.NotServed`).
 
 ## Rules a reviewer applies
 

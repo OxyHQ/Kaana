@@ -61,7 +61,7 @@ func TestIndependentCardObservationsRegisterAndReplayWithoutChangingXai(t *testi
 		}
 	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM provider_rate_card_versions WHERE version_id IN ('rc_jev_registration_fixture','rc_xai_realtime_2026_09_30')`).Scan(&count); err != nil || count != 2 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM provider_rate_card_versions WHERE version_id IN ('rc_jev_registration_fixture','rc_xai_realtime_2026_10_16')`).Scan(&count); err != nil || count != 2 {
 		t.Fatal("not exact two registrations", err)
 	}
 }
