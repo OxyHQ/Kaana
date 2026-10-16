@@ -80,3 +80,47 @@ func TestAnUnreadableRefusalIsUnavailableForTheWaitOxyStated(t *testing.T) {
 		})
 	}
 }
+
+// Oxy's global limiters answer its API error (oxy
+// packages/api/src/middleware/rateLimiter.ts). Over Kaana's own service
+// credential that is all of Kaana's control traffic, so it is still not a
+// verdict on the caller — 503 for Oxy's wait — but Kaana reads it by name and
+// logs it as Oxy rate-limiting Kaana, never as an unreadable answer.
+func TestOxyRateLimitingKaanaItselfIsUnavailableForOxysWait(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	h.oxy.refusal = refuseWith(http.StatusTooManyRequests, "application/json; charset=utf-8",
+		`{"error":"RATE_LIMITED","message":"Too many requests for this service credential, please slow down.","details":{"retryAfterSeconds":37}}`,
+		"Retry-After", "37")
+
+	response := h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel"})
+	failure := publicError(t, response, http.StatusServiceUnavailable)
+	if failure.Code != "service_unavailable" || !failure.Retryable || failure.RetryAfterMs == nil || *failure.RetryAfterMs != 37_000 {
+		t.Errorf("Oxy rate-limiting Kaana = %+v", failure)
+	}
+	if got := response.Header.Get("Retry-After"); got != "37" {
+		t.Errorf("Retry-After = %q, want 37", got)
+	}
+	if strings.Contains(string(response.Body), "service credential") {
+		t.Error("Oxy's own wording reached the caller")
+	}
+	logs := h.logs.String()
+	if !strings.Contains(logs, "Oxy is rate-limiting Kaana's own authorizations") || strings.Contains(logs, "without a readable error") {
+		t.Errorf("logs = %s", logs)
+	}
+	if h.adapter.called() != 0 {
+		t.Error("a refused request reached the provider")
+	}
+}
+
+// Oxy's shared shape nested under `error` is read like the flat one.
+func TestOxysNestedPublicErrorIsReadLikeTheFlatOne(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	h.oxy.refusal = refuseWith(http.StatusTooManyRequests, "application/json; charset=utf-8",
+		`{"error":{"code":"rate_limited","retryAfterMs":5000}}`)
+
+	response := h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel"})
+	failure := publicError(t, response, http.StatusTooManyRequests)
+	if failure.Code != "rate_limited" || failure.RetryAfterMs == nil || *failure.RetryAfterMs != 5000 {
+		t.Errorf("nested refusal = %+v", failure)
+	}
+}

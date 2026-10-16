@@ -266,25 +266,40 @@ func (a *OxyAuthorizer) post(ctx context.Context, requestID contract.RequestID, 
 // retryAfterMs, param); its message may be about the account and is replaced
 // by the code's public text, which links to Oxy Console where it matters.
 //
-// An answer without that shape is not the caller's refusal — it is Oxy, or
-// something in front of it, turning Kaana away — so it is service_unavailable,
-// retryable after the Retry-After Oxy sent, or a second when it sent none.
+// Anything else is not the caller's refusal — it is Oxy, or something in front
+// of it, turning Kaana away — so it is service_unavailable, retryable after the
+// Retry-After Oxy sent, or a second when it sent none. One such answer Kaana
+// reads by name: Oxy's API error `RATE_LIMITED` (`{"error":"RATE_LIMITED",…}`),
+// which its global limiters answer when Kaana's own service credential is over
+// its budget. That budget is all of Kaana's control traffic, never the
+// caller's, so it is still service_unavailable for Oxy's stated wait; what
+// changes is that it is logged as what it is, an operator's problem.
 func (a *OxyAuthorizer) refusal(requestID contract.RequestID, status int, header http.Header, body []byte) *contract.PublicError {
 	var answer struct {
 		Code         contract.ErrorCode `json:"code"`
 		RetryAfterMs *int               `json:"retryAfterMs"`
 		Param        *string            `json:"param"`
-		Error        *struct {
+		// The shared shape nested under `error`, or Oxy's API error code.
+		Error json.RawMessage `json:"error"`
+	}
+	_ = json.Unmarshal(body, &answer)
+	var apiCode string
+	if answer.Code == "" && len(answer.Error) > 0 && json.Unmarshal(answer.Error, &apiCode) != nil {
+		var nested struct {
 			Code         contract.ErrorCode `json:"code"`
 			RetryAfterMs *int               `json:"retryAfterMs"`
 			Param        *string            `json:"param"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(body, &answer) == nil && answer.Code == "" && answer.Error != nil {
-		answer.Code, answer.RetryAfterMs, answer.Param = answer.Error.Code, answer.Error.RetryAfterMs, answer.Error.Param
+		}
+		if json.Unmarshal(answer.Error, &nested) == nil {
+			answer.Code, answer.RetryAfterMs, answer.Param = nested.Code, nested.RetryAfterMs, nested.Param
+		}
 	}
 	if answer.Code == "" {
-		a.logger.Warn("Oxy refused an authorization without a readable error", "requestId", requestID, "status", status)
+		if status == http.StatusTooManyRequests && apiCode == oxyRateLimited {
+			a.logger.Error("Oxy is rate-limiting Kaana's own authorizations", "requestId", requestID, "retryAfterMs", retryAfterMs(header), "errorType", "oxy_rate_limited")
+		} else {
+			a.logger.Warn("Oxy refused an authorization without a readable error", "requestId", requestID, "status", status, "oxyCode", apiCode)
+		}
 		if status >= 500 || status == http.StatusTooManyRequests {
 			return contract.NewPublicError(requestID, "service_unavailable", contract.PublicMessage("service_unavailable")).WithRetryAfter(retryAfterMs(header))
 		}
@@ -299,6 +314,10 @@ func (a *OxyAuthorizer) refusal(requestID contract.RequestID, status int, header
 	}
 	return contract.PublicErrorFrom(internal)
 }
+
+// oxyRateLimited is the code Oxy's API errors carry when one of its limiters
+// refused the request (oxy packages/api/src/middleware/rateLimiter.ts).
+const oxyRateLimited = "RATE_LIMITED"
 
 // maxStatedRetryAfter bounds the wait an unreadable refusal's Retry-After can
 // pass on: Oxy's longest rate-limit window.
