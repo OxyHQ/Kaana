@@ -29,6 +29,10 @@ bun install --frozen-lockfile && bunx biome ci .
 (cd tools/contract && bun run generate && bun run validate)
 ```
 
+npm releases: Actions → Release packages (`release-packages.yml`, which calls
+Oxy's shared `npm-release.yml`; a package's gates are its `prepublishOnly`).
+Never `npm publish` from a laptop — ~/Oxy/docs/npm-releases.md.
+
 Biome (root `biome.json`) covers ONLY `packages/**` and `tools/**` (ADR 0002).
 Never widen it further: `configs/**`, `.github/*.json`, the descriptor and
 `packages/contracts/openapi.json` are byte-exact inputs or outputs.
