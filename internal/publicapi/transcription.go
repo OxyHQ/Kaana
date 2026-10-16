@@ -8,6 +8,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/audioprobe"
@@ -62,6 +63,10 @@ func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, failure)
 		return
 	}
+	if failure := s.checkTranscription(requestID, upload); failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
 	// The duration is measured from the container before anything is held:
 	// it sizes Oxy's hold, and an upload whose duration cannot be read is
 	// refused rather than guessed from its byte count.
@@ -98,10 +103,10 @@ func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
 			}},
 		}},
 	})
-	if upload.fields.Language != nil {
-		// Carried, never dropped: the adapter sends it in its provider's own
-		// parameter, or refuses a language its provider cannot take.
-		envelope.Transcription = &contract.TranscriptionParameters{Language: upload.fields.Language}
+	if upload.fields.Language != nil || upload.fields.Prompt != nil {
+		// Carried, never dropped: the adapter sends each in its provider's own
+		// parameter (checkTranscription refused one it does not take).
+		envelope.Transcription = &contract.TranscriptionParameters{Language: upload.fields.Language, Prompt: upload.fields.Prompt}
 	}
 	var text strings.Builder
 	result := s.execute(r.Context(), admitted, &envelope, func(event contract.StreamEvent) error {
@@ -120,7 +125,7 @@ func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, requestID, http.StatusOK, contract.Transcription{
 		SchemaVersion: contract.SchemaVersion, RequestID: requestID, Model: result.Report.ResolvedModelReference,
-		Text: text.String(), DurationMs: durationMs, Usage: nonNilUnits(result.Report.Units),
+		Text: text.String(), Language: result.DetectedLanguage, DurationMs: durationMs, Usage: nonNilUnits(result.Report.Units),
 	})
 }
 
@@ -155,7 +160,7 @@ func parseTranscriptionMultipart(requestID contract.RequestID, body []byte, boun
 				return upload, invalid(requestID, "file", "the file part could not be read")
 			}
 			upload.audio = audio
-		case "model", "language", "prompt", "timestamps":
+		case "model", "language", "prompt":
 			value, err := io.ReadAll(io.LimitReader(part, maxTranscriptionFieldBytes+1))
 			if err != nil || len(value) > maxTranscriptionFieldBytes {
 				return upload, invalid(requestID, name, name+" is too long")
@@ -169,9 +174,6 @@ func parseTranscriptionMultipart(requestID contract.RequestID, body []byte, boun
 				upload.fields.Language = &tag
 			case "prompt":
 				upload.fields.Prompt = &text
-			case "timestamps":
-				timestamps := contract.TranscriptionTimestamps(text)
-				upload.fields.Timestamps = &timestamps
 			}
 		default:
 			return upload, invalid(requestID, name, fmt.Sprintf("%q is not a field of a transcription request", name))
@@ -197,19 +199,14 @@ func parseTranscriptionJSON(requestID contract.RequestID, body []byte) (transcri
 		return transcriptionUpload{}, invalid(requestID, "audio.data", "audio.data is padded standard base64")
 	}
 	return transcriptionUpload{
-		fields: contract.TranscriptionRequest{
-			Model: request.Model, Language: request.Language, Prompt: request.Prompt, Timestamps: request.Timestamps,
-		},
+		fields:    contract.TranscriptionRequest{Model: request.Model, Language: request.Language, Prompt: request.Prompt},
 		mediaType: request.Audio.MediaType,
 		audio:     audio,
 	}, nil
 }
 
-// validateTranscription applies the contract's bounds and refuses what this
-// build cannot carry to a model rather than dropping it silently. The language
-// travels in the envelope's `transcription` member (contract set 4.5.0); the
-// envelope has no prompt or timing field, so a request that sets one is
-// refused until it does, never served without it.
+// validateTranscription applies the contract's own bounds: what any model's
+// request must satisfy. What one model takes is checkTranscription's.
 func validateTranscription(requestID contract.RequestID, upload transcriptionUpload) *contract.PublicError {
 	fields := upload.fields
 	switch {
@@ -225,12 +222,36 @@ func validateTranscription(requestID contract.RequestID, upload transcriptionUpl
 		return invalid(requestID, "language", "language is a BCP 47 tag")
 	case fields.Prompt != nil && utf16Length(*fields.Prompt) > maxTranscriptionPromptLength:
 		return invalid(requestID, "prompt", "prompt is at most 4096 characters")
-	case fields.Timestamps != nil && !fields.Timestamps.Valid():
-		return invalid(requestID, "timestamps", "timestamps is none, segment or word")
-	case fields.Prompt != nil:
-		return invalid(requestID, "prompt", "prompt is not yet carried to transcription models; omit it")
-	case fields.Timestamps != nil && *fields.Timestamps != "none":
-		return invalid(requestID, "timestamps", "segment and word timestamps are not yet served; omit timestamps")
+	}
+	return nil
+}
+
+// checkTranscription is `checkTranscriptionRequest` of `@kaana.ai/contracts`,
+// restated against the inventory's catalogue entry for the line (what every
+// route of it serves): an upload, a language or a prompt the model does not
+// take is refused with invalid_request BEFORE a grant is asked for, so nothing
+// is held for a request no route could serve. A line whose audio is
+// undeclared (a snapshot from before the statement) is not checked.
+func (s *Server) checkTranscription(requestID contract.RequestID, upload transcriptionUpload) *contract.PublicError {
+	entry, found := s.catalogueEntry(upload.fields.Model)
+	if !found {
+		return contract.NewPublicError(requestID, "model_not_found", contract.PublicMessage("model_not_found")).WithParam("model")
+	}
+	audio := entry.Audio
+	if audio == nil || audio.InputMediaTypes == nil {
+		return nil
+	}
+	fields := upload.fields
+	switch {
+	case !slices.Contains(audio.InputMediaTypes, upload.mediaType):
+		return invalid(requestID, "file", fmt.Sprintf("this model does not take %s audio", upload.mediaType))
+	case fields.Language != nil && !slices.Contains(audio.Languages, string(*fields.Language)):
+		if audio.DetectsLanguage {
+			return invalid(requestID, "language", fmt.Sprintf("this model does not declare the language %s; omit it to let the model detect the language", *fields.Language))
+		}
+		return invalid(requestID, "language", fmt.Sprintf("this model does not declare the language %s", *fields.Language))
+	case fields.Prompt != nil && !audio.TranscriptionPrompt:
+		return invalid(requestID, "prompt", "this model takes no prompt")
 	}
 	return nil
 }

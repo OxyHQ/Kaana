@@ -4,7 +4,8 @@
     "Validated by publicapi.ParsePublicCatalogue and, against @kaana.ai/contracts declaredCatalogueSchema, by tools/contract/validate.mjs.",
     "MIGRATION: the first 252 models are a ONE-TIME export of Oxy's catalogue taken 2026-10-15, not a second source: from this commit Oxy's copy is retired (ADR 0002 phase 5). The export was corrected to fit the contract: servingProviders, availabilityScope and commercialPermission are dropped (they describe a route, and servingProviders would name an operator on the public surface), and the licence id LicenseRef-Oxy-Serving-Provider-Terms is renamed LicenseRef-Kaana-Serving-Provider-Terms. Every export entry keeps audience platform_internal until a commercial review makes it public.",
     "TRANSCRIPTION (added 2026-10-15, from OpenAI's own pages only): openai/gpt-4o-transcribe, openai/gpt-4o-mini-transcribe-2025-03-20 and openai/gpt-4o-mini-transcribe-2025-12-15. Prices: https://developers.openai.com/api/docs/pricing (Transcription models: $2.50 in / $10.00 out and $1.25 in / $5.00 out per 1M tokens) and the model pages https://developers.openai.com/api/docs/models/gpt-4o-transcribe and https://developers.openai.com/api/docs/models/gpt-4o-mini-transcribe (16,000 context, 2,000 output, knowledge cutoff 2024-06-01). Data policy: https://developers.openai.com/api/docs/guides/your-data (abuse-monitoring logs kept up to 30 days, no training on API data by default, zero data retention by approval, /v1/audio/transcriptions eligible). Licence: https://openai.com/policies/services-agreement/ (section 4.1 assigns the output to the customer). Deprecations: https://developers.openai.com/api/docs/deprecations (shutdown dates are published as days; midnight UTC is recorded). ABSENT for lack of evidence of a required field: openai/gpt-transcribe ($0.0045/min is published, but its context and output token limits are not stated anywhere, and the contract requires them), openai/whisper-1 (the same) and every Deepgram model (the deepgram adapter publishes no model inventory and model-attribution.json has no Deepgram entry).",
-    "EMBEDDINGS (added 2026-10-15): qwen/qwen3-embedding-8b, served through OpenRouter's POST /embeddings (https://openrouter.ai/docs/api/api-reference/embeddings/create-embeddings) at Kaana's fixed 1024 dimensions. PRICE is OpenRouter's published list price, read 2026-10-15 from GET https://openrouter.ai/api/v1/models?output_modalities=embeddings (`pricing.prompt` \"0.00000001\" USD per token = $0.01 per 1M input tokens, `pricing.completion` \"0\"); OpenRouter publishes no per-request or per-vector fee, so `requests` and `embeddings` are priced at zero (both are in every embeddings quote Oxy makes and must be priced). LIMITS: maxContextTokens 32000 and maxOutputTokens 28800 are the smallest `context_length` and `max_completion_tokens` among the model's zero-data-retention endpoints (Nebius, DeepInfra, SiliconFlow) on GET https://openrouter.ai/api/v1/models/qwen/qwen3-embedding-8b/endpoints and https://openrouter.ai/api/v1/endpoints/zdr, since every Kaana request to OpenRouter requires zero data retention and any of them may serve it; an embedding emits no tokens and Oxy reserves none for it. LICENCE, identity and provenance from Qwen's model card https://huggingface.co/Qwen/Qwen3-Embedding-8B (Apache-2.0, open weights, 32k context, output dimension 32 to 4096). releasedAt is OpenRouter's `created` (1761680622). Data policy: OpenRouter with zdr and data_collection deny, as every OpenRouter entry above."
+    "EMBEDDINGS (added 2026-10-15): qwen/qwen3-embedding-8b, served through OpenRouter's POST /embeddings (https://openrouter.ai/docs/api/api-reference/embeddings/create-embeddings) at Kaana's fixed 1024 dimensions. PRICE is OpenRouter's published list price, read 2026-10-15 from GET https://openrouter.ai/api/v1/models?output_modalities=embeddings (`pricing.prompt` \"0.00000001\" USD per token = $0.01 per 1M input tokens, `pricing.completion` \"0\"); OpenRouter publishes no per-request or per-vector fee, so `requests` and `embeddings` are priced at zero (both are in every embeddings quote Oxy makes and must be priced). LIMITS: maxContextTokens 32000 and maxOutputTokens 28800 are the smallest `context_length` and `max_completion_tokens` among the model's zero-data-retention endpoints (Nebius, DeepInfra, SiliconFlow) on GET https://openrouter.ai/api/v1/models/qwen/qwen3-embedding-8b/endpoints and https://openrouter.ai/api/v1/endpoints/zdr, since every Kaana request to OpenRouter requires zero data retention and any of them may serve it; an embedding emits no tokens and Oxy reserves none for it. LICENCE, identity and provenance from Qwen's model card https://huggingface.co/Qwen/Qwen3-Embedding-8B (Apache-2.0, open weights, 32k context, output dimension 32 to 4096). releasedAt is OpenRouter's `created` (1761680622). Data policy: OpenRouter with zdr and data_collection deny, as every OpenRouter entry above.",
+    "TRANSCRIPTION AUDIO (contract set 5.0.0): a transcription line declares no `audio`; its uploads, languages, language detection and prompt are the serving adapter's reviewed statement (providerconfig.TranscriptionCapabilities), which the publisher writes into the inventory and the catalogue serves, so the file cannot advertise an upload the adapter refuses. GROQ WHISPER (2026-10-16): openai/whisper-large-v3 at $0.111 and openai/whisper-large-v3-turbo at $0.04 per hour of audio, Groq's list prices (https://console.groq.com/docs/speech-to-text), which bills at least 10 seconds a request (reported as such by the adapter)."
   ],
   "schemaVersion": 1,
   "models": [
@@ -11647,21 +11648,6 @@
           "audio_transcriptions"
         ]
       },
-      "audio": {
-        "voices": [],
-        "languages": [],
-        "audioFormats": {
-          "input": [
-            "audio/mpeg",
-            "audio/mp4",
-            "audio/wav",
-            "audio/ogg",
-            "audio/webm",
-            "audio/flac"
-          ],
-          "output": []
-        }
-      },
       "license": {
         "licenseId": "OpenAI-Services-Agreement",
         "displayName": "OpenAI Services Agreement",
@@ -11742,21 +11728,6 @@
           "audio_transcriptions"
         ]
       },
-      "audio": {
-        "voices": [],
-        "languages": [],
-        "audioFormats": {
-          "input": [
-            "audio/mpeg",
-            "audio/mp4",
-            "audio/wav",
-            "audio/ogg",
-            "audio/webm",
-            "audio/flac"
-          ],
-          "output": []
-        }
-      },
       "license": {
         "licenseId": "OpenAI-Services-Agreement",
         "displayName": "OpenAI Services Agreement",
@@ -11833,21 +11804,6 @@
         "apiFormats": [
           "audio_transcriptions"
         ]
-      },
-      "audio": {
-        "voices": [],
-        "languages": [],
-        "audioFormats": {
-          "input": [
-            "audio/mpeg",
-            "audio/mp4",
-            "audio/wav",
-            "audio/ogg",
-            "audio/webm",
-            "audio/flac"
-          ],
-          "output": []
-        }
       },
       "license": {
         "licenseId": "OpenAI-Services-Agreement",
@@ -20793,6 +20749,154 @@
       "audience": "platform_internal"
     },
     {
+      "modelId": "openai/whisper-large-v3",
+      "publisher": {
+        "slug": "openai",
+        "displayName": "OpenAI",
+        "websiteUrl": "https://openai.com/"
+      },
+      "displayName": "Whisper Large v3",
+      "description": "OpenAI's open-weight speech recognition model, served as file transcription (POST /v1/audio/transcriptions).",
+      "capabilities": {
+        "inputModalities": [
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "tools": false,
+        "parallelToolCalls": false,
+        "structuredOutput": false,
+        "jsonMode": false,
+        "reasoning": false,
+        "reasoningEfforts": [],
+        "streaming": false,
+        "promptCaching": false,
+        "maxContextTokens": 1,
+        "maxOutputTokens": 1,
+        "apiFormats": [
+          "audio_transcriptions"
+        ]
+      },
+      "license": {
+        "licenseId": "MIT",
+        "displayName": "MIT License",
+        "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+        "commercialUseAllowed": true,
+        "requiresAttribution": true
+      },
+      "provenance": {
+        "releaseKind": "open_weight",
+        "trainingOrganization": "OpenAI"
+      },
+      "regions": [],
+      "dataPolicy": {
+        "retainsPayloads": true,
+        "retentionDays": 30,
+        "trainsOnCustomerData": false,
+        "zeroDataRetentionAvailable": true,
+        "subprocessors": [],
+        "policyUrl": "https://console.groq.com/docs/your-data"
+      },
+      "pricing": {
+        "priceVersionId": "01a142b3-b09d-7562-a51b-4e2e3238d4a0",
+        "currency": "USD",
+        "unitPrices": [
+          {
+            "unit": "audio_input_milliseconds",
+            "amount": "0.111000000000",
+            "per": 3600000,
+            "currency": "USD"
+          }
+        ]
+      },
+      "deprecation": {
+        "status": "active"
+      },
+      "evaluations": [],
+      "safety": {
+        "contentFilteringDefault": "provider_default",
+        "knownLimitations": [],
+        "provenanceMarking": "none"
+      },
+      "modelCardUrl": "https://github.com/openai/whisper/blob/main/model-card.md",
+      "audience": "platform_internal"
+    },
+    {
+      "modelId": "openai/whisper-large-v3-turbo",
+      "publisher": {
+        "slug": "openai",
+        "displayName": "OpenAI",
+        "websiteUrl": "https://openai.com/"
+      },
+      "displayName": "Whisper Large v3 Turbo",
+      "description": "OpenAI's distilled open-weight speech recognition model, served as file transcription (POST /v1/audio/transcriptions).",
+      "capabilities": {
+        "inputModalities": [
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "tools": false,
+        "parallelToolCalls": false,
+        "structuredOutput": false,
+        "jsonMode": false,
+        "reasoning": false,
+        "reasoningEfforts": [],
+        "streaming": false,
+        "promptCaching": false,
+        "maxContextTokens": 1,
+        "maxOutputTokens": 1,
+        "apiFormats": [
+          "audio_transcriptions"
+        ]
+      },
+      "license": {
+        "licenseId": "MIT",
+        "displayName": "MIT License",
+        "url": "https://github.com/openai/whisper/blob/main/LICENSE",
+        "commercialUseAllowed": true,
+        "requiresAttribution": true
+      },
+      "provenance": {
+        "releaseKind": "open_weight",
+        "trainingOrganization": "OpenAI"
+      },
+      "regions": [],
+      "dataPolicy": {
+        "retainsPayloads": true,
+        "retentionDays": 30,
+        "trainsOnCustomerData": false,
+        "zeroDataRetentionAvailable": true,
+        "subprocessors": [],
+        "policyUrl": "https://console.groq.com/docs/your-data"
+      },
+      "pricing": {
+        "priceVersionId": "01a142b3-b09d-71a3-bf7d-04b2a777f681",
+        "currency": "USD",
+        "unitPrices": [
+          {
+            "unit": "audio_input_milliseconds",
+            "amount": "0.040000000000",
+            "per": 3600000,
+            "currency": "USD"
+          }
+        ]
+      },
+      "deprecation": {
+        "status": "active"
+      },
+      "evaluations": [],
+      "safety": {
+        "contentFilteringDefault": "provider_default",
+        "knownLimitations": [],
+        "provenanceMarking": "none"
+      },
+      "modelCardUrl": "https://github.com/openai/whisper/blob/main/model-card.md",
+      "audience": "platform_internal"
+    },
+    {
       "modelId": "x-ai/grok-voice-transcribe-2.0",
       "publisher": {
         "slug": "x-ai",
@@ -20821,68 +20925,6 @@
         "apiFormats": [
           "audio_transcriptions"
         ]
-      },
-      "audio": {
-        "voices": [],
-        "languages": [
-          "ar",
-          "ar-AE",
-          "ar-EG",
-          "ar-SA",
-          "bg",
-          "bs",
-          "ca",
-          "cs",
-          "da",
-          "de",
-          "el",
-          "en",
-          "es",
-          "es-ES",
-          "es-MX",
-          "fa",
-          "fi",
-          "fil",
-          "fr",
-          "hi",
-          "hr",
-          "hu",
-          "id",
-          "it",
-          "ja",
-          "ko",
-          "mk",
-          "ms",
-          "nb",
-          "nl",
-          "pl",
-          "pt",
-          "pt-BR",
-          "pt-PT",
-          "ro",
-          "ru",
-          "sk",
-          "sv",
-          "th",
-          "tr",
-          "uk",
-          "ur",
-          "vi",
-          "yue",
-          "zh"
-        ],
-        "audioFormats": {
-          "input": [
-            "audio/wav",
-            "audio/mpeg",
-            "audio/ogg",
-            "audio/flac",
-            "audio/aac",
-            "audio/mp4",
-            "audio/webm"
-          ],
-          "output": []
-        }
       },
       "license": {
         "licenseId": "xAI-Enterprise-Terms",

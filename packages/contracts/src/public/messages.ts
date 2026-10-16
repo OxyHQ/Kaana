@@ -246,6 +246,8 @@ export const inferenceSpeechParametersSchema = z
 export const inferenceTranscriptionParametersSchema = z
   .object({
     language: languageTagSchema.optional(),
+    /** Vocabulary or context, never an instruction (contract set 5.0.0). */
+    prompt: z.string().max(4096).optional(),
   })
   .strict();
 

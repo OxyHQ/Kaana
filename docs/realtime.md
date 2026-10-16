@@ -275,11 +275,13 @@ on this key and is classified like a refused request. The open is bounded at
 | `turnDetection` `none` | `audio.input.turn_detection: null` |
 | `turnDetection` `server_vad` | `{type:"server_vad", threshold?, prefix_padding_ms?, silence_duration_ms?, create_response, interrupt_response}` |
 | `turnDetection` `semantic_vad` | `{type:"semantic_vad", eagerness, create_response, interrupt_response}` |
-| `tools` (function) | `tools: [{type:"function", name, description?, parameters}]`; `strict` is refused (GA has none) |
+| `tools` (function) | `tools: [{type:"function", name, description?, parameters}]`; a realtime tool has no `strict` (contract set 5.0.0: `realtimeToolDefinitionSchema`) |
 | `toolChoice` | `tool_choice`: the mode string, or `{type:"function", name}` |
 | `maxOutputTokens` | `max_output_tokens`; above 4096 is refused (GA schema: 1..4096 or `"inf"`) |
-| `temperature` | refused: absent from the GA session and response schemas |
-| `inputAudioTranscription` | `audio.input.transcription {model: "gpt-transcribe", language?, prompt?}`; `language` is a two-letter ISO 639-1 code, anything else refused (see "Input transcription") |
+| `inputAudioTranscription` | `audio.input.transcription {model: "gpt-transcribe", language?, prompt?}`; OpenAI publishes no language list, so none is published and a session names none: the model detects it (see "Input transcription") |
+
+There is no `temperature`: OpenAI removed it from the GA session and response
+schemas and xAI has none, so contract set 5.0.0 removed it from the contract.
 
 ### Commands
 
@@ -656,7 +658,42 @@ model list says anything about sessions; `inventory.Parse` validates it and
 `GET /internal/v1/models` serves the line's intersection across its routes
 (`realtime`, `audio` on the catalogue entry). Contract shapes:
 `capabilities.realtime {transports, sessionKinds, inputAudioTranscription,
-audioFormats}` and `audio {voices, languages}`.
+audioFormats, parameters}` and `audio {voices, languages, detectsLanguage}`.
+
+### What a session may set: `capabilities.realtime.parameters`
+
+Contract set 5.0.0 publishes, per model, what a session configuration may
+set and within which bounds (`contract.RealtimeParameters`). It is ONE
+statement with three readers, so none of them can disagree with another:
+
+- the adapter's dialect refuses exactly what it omits
+  (`dialect.refuseIssues`, which calls `RealtimeParameters.Issues`; the
+  dialect holds only how a served value is SPELLED on the provider's wire);
+- the public API refuses it before a grant (`checkRealtimeOpen`);
+- a client builds its `session.open` from it, or filters models with
+  `realtimeParameterIssues` / `checkRealtimeSessionOpen` from
+  `@kaana.ai/contracts`, which apply the same rules
+  (`internal/contract/testdata/realtime-parameter-issues.json` holds Go and
+  TypeScript to the same vectors).
+
+`TestTheDialectServesExactlyWhatTheStatementDeclares` crosses the statement
+with the dialect field by field: every served value is written to the wire and
+every other value of the contract is refused naming its field.
+
+| | OpenAI | xAI |
+|---|---|---|
+| `turnDetection` | `none`, `server_vad`, `semantic_vad`, each with its own `createResponse`/`interruptResponse` | `none`; `server_vad` with `fixedResponses` (both `true`) and `threshold` 0.1–0.9 |
+| `meteredUnits` | the token units and `input_transcription_milliseconds`, under every detection | `none`: audio in and out ms and `requests`; `server_vad`: `session_milliseconds` and `requests` |
+| `outputModalities` | `["audio"]` or `["text"]` | `["audio"]` or `["audio","text"]` (it answers aloud whatever it is asked) |
+| `toolChoice` | `auto`, `none`, `required`, `function` | `auto` only (no field; `auto` is sent as nothing) |
+| `maxOutputTokens` | 4096 | absent: refused |
+| `inputTranscriptionPrompt` | `true` | `false` |
+
+`audio.detectsLanguage` is `true` for both: a session that names no
+`inputAudioTranscription.language` is transcribed in the language the model
+hears, so a caller whose language is not in `audio.languages` omits it instead
+of losing the model. A language that IS named must be one of
+`audio.languages`, exactly (xAI silently ignores a code it does not know).
 
 | | OpenAI | xAI |
 |---|---|---|
@@ -670,7 +707,7 @@ audioFormats}` and `audio {voices, languages}`.
 published rather than guessed. A consequence for Alia ADR 0017 §2, which picks
 a model whose `audio.languages` covers the session language and which has a
 voice of the product gender: only xAI qualifies until someone states OpenAI's
-languages and voice genders from reviewed evidence.
+voice genders from reviewed evidence; OpenAI's language is detected.
 
 ## Publishing
 

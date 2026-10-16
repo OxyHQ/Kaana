@@ -29,6 +29,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	fake "github.com/OxyHQ/Kaana/internal/provider/openairealtime/openairealtimetest"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/publicapi"
 	"github.com/OxyHQ/Kaana/internal/realtime"
@@ -53,10 +54,25 @@ const chargedRecord = `{"schemaVersion":1,"kind":"charge","requestId":"req_1","g
 "billedAmount":"0.000006","currency":"USD","platformFeeOnly":false}`
 
 // realtimeObserved is what the realtime deployment publishes: a conversation
-// over WebSocket, input transcription, two voices and two languages.
-const realtimeObserved = `{"realtime":{"transports":["websocket"],"sessionKinds":["conversation","transcription"],"inputAudioTranscription":true,
-  "audioFormats":{"input":["g711_alaw","g711_ulaw","pcm16_24khz"],"output":["g711_alaw","g711_ulaw","pcm16_24khz"]}},
-  "audio":{"languages":["en","es"],"voices":[{"id":"marin","name":"Marin","languages":["en","es"]}]}}`
+// over WebSocket, input transcription, one voice, no language list (OpenAI
+// publishes none, so a session names none and the model detects it), and the
+// parameters OpenAI's session serves, as its adapter states them.
+func realtimeObserved(t *testing.T) json.RawMessage {
+	t.Helper()
+	statement, _ := providerconfig.RealtimeCapabilities(openairealtime.Slug, providerconfig.ProtocolOpenAIRealtime)
+	parameters, err := json.Marshal(statement.Parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return json.RawMessage(`{"realtime":{"transports":["websocket"],"sessionKinds":["conversation","transcription"],"inputAudioTranscription":true,
+  "audioFormats":{"input":["g711_alaw","g711_ulaw","pcm16_24khz"],"output":["g711_alaw","g711_ulaw","pcm16_24khz"]},"parameters":` + string(parameters) + `},
+  "audio":{"languages":[],"detectsLanguage":true,"voices":[{"id":"marin","name":"Marin","languages":[]}]}}`)
+}
+
+// whisperObserved is what the transcription deployment publishes: the uploads
+// it takes, two languages, detection of any other, and no prompt.
+const whisperObserved = `{"audio":{"voices":[],"languages":["en","es-ES"],"detectsLanguage":true,
+  "inputMediaTypes":["audio/mp4","audio/wav","audio/webm"],"transcriptionPrompt":false}}`
 
 const (
 	textModel     = contract.ModelReference("stub/model@2026-05-01")
@@ -573,9 +589,10 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_stub_b", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-b", "regions": []string{"eu"}, "current": true},
 		{"deploymentId": "dep_fallback", "provider": "stub", "modelReference": fallbackModel, "upstreamModelId": "stub-fallback", "current": true},
 		{"deploymentId": "dep_speech", "provider": "stub", "modelReference": speechModel, "upstreamModelId": "stub-voice", "current": true},
-		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true},
+		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true,
+			"observed": json.RawMessage(whisperObserved)},
 		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true,
-			"observed": json.RawMessage(realtimeObserved)},
+			"observed": realtimeObserved(t)},
 	}
 	document, _ := json.Marshal(map[string]any{"snapshotId": "snap_public", "issuedAt": contract.NewTimestamp(time.Now()), "deployments": deployments})
 	path := filepath.Join(t.TempDir(), "inventory.json")

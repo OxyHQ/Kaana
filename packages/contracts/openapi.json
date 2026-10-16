@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "4.5.0",
+    "version": "5.0.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -3196,6 +3196,10 @@
         "properties": {
           "language": {
             "$ref": "#/components/schemas/LanguageTag"
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 4096
           }
         },
         "additionalProperties": false
@@ -3366,6 +3370,12 @@
             "items": {
               "$ref": "#/components/schemas/LanguageTag"
             }
+          },
+          "detectsLanguage": {
+            "type": "boolean"
+          },
+          "transcriptionPrompt": {
+            "type": "boolean"
           },
           "audioFormats": {
             "type": "object",
@@ -3693,6 +3703,9 @@
               "output"
             ],
             "additionalProperties": false
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/RealtimeParameters"
           }
         },
         "required": [
@@ -3878,6 +3891,22 @@
         "required": [
           "amount",
           "currency"
+        ],
+        "additionalProperties": false
+      },
+      "NumberRange": {
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "min",
+          "max"
         ],
         "additionalProperties": false
       },
@@ -4769,11 +4798,6 @@
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 10000
-          },
-          "maxTextItems": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 10000
           }
         },
         "additionalProperties": false
@@ -4883,6 +4907,52 @@
           "text",
           "audio"
         ]
+      },
+      "RealtimeParameters": {
+        "type": "object",
+        "properties": {
+          "turnDetection": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RealtimeTurnDetectionParameters"
+            }
+          },
+          "outputModalities": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "minItems": 1,
+              "maxItems": 2,
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/RealtimeOutputModality"
+              }
+            }
+          },
+          "toolChoice": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RealtimeToolChoiceKind"
+            }
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "inputTranscriptionPrompt": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "turnDetection",
+          "outputModalities",
+          "toolChoice",
+          "inputTranscriptionPrompt"
+        ],
+        "additionalProperties": false
       },
       "RealtimePublicErrorEvent": {
         "type": "object",
@@ -5361,16 +5431,11 @@
             "maxItems": 128,
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ToolDefinition"
+              "$ref": "#/components/schemas/RealtimeToolDefinition"
             }
           },
           "toolChoice": {
             "$ref": "#/components/schemas/ToolChoice"
-          },
-          "temperature": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 2
           },
           "maxOutputTokens": {
             "type": "integer",
@@ -5409,16 +5474,11 @@
             "maxItems": 128,
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ToolDefinition"
+              "$ref": "#/components/schemas/RealtimeToolDefinition"
             }
           },
           "toolChoice": {
             "$ref": "#/components/schemas/ToolChoice"
-          },
-          "temperature": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 2
           },
           "maxOutputTokens": {
             "type": "integer",
@@ -5829,6 +5889,46 @@
           "complete"
         ]
       },
+      "RealtimeToolChoiceKind": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "none",
+          "required",
+          "function"
+        ]
+      },
+      "RealtimeToolDefinition": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "function"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "parameters": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "parameters"
+        ],
+        "additionalProperties": false
+      },
       "RealtimeTranscriptDeltaEvent": {
         "type": "object",
         "properties": {
@@ -5952,6 +6052,33 @@
         ],
         "additionalProperties": false
       },
+      "RealtimeTurnDetectionParameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/RealtimeTurnDetectionType"
+          },
+          "fixedResponses": {
+            "type": "boolean"
+          },
+          "threshold": {
+            "$ref": "#/components/schemas/NumberRange"
+          },
+          "meteredUnits": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageUnit"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "fixedResponses",
+          "meteredUnits"
+        ],
+        "additionalProperties": false
+      },
       "RealtimeTurnDetection": {
         "oneOf": [
           {
@@ -6034,6 +6161,14 @@
             ],
             "additionalProperties": false
           }
+        ]
+      },
+      "RealtimeTurnDetectionType": {
+        "type": "string",
+        "enum": [
+          "none",
+          "server_vad",
+          "semantic_vad"
         ]
       },
       "ReasoningEffort": {
@@ -6691,14 +6826,6 @@
             "type": "string",
             "maxLength": 4096
           },
-          "timestamps": {
-            "type": "string",
-            "enum": [
-              "none",
-              "segment",
-              "word"
-            ]
-          },
           "audio": {
             "type": "object",
             "properties": {
@@ -6737,14 +6864,6 @@
           "prompt": {
             "type": "string",
             "maxLength": 4096
-          },
-          "timestamps": {
-            "type": "string",
-            "enum": [
-              "none",
-              "segment",
-              "word"
-            ]
           }
         },
         "required": [
@@ -6775,60 +6894,6 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
-          },
-          "segments": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "startMs": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "endMs": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "text": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "startMs",
-                "endMs",
-                "text"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "words": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "startMs": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "endMs": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "word": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "startMs",
-                "endMs",
-                "word"
-              ],
-              "additionalProperties": false
-            }
           },
           "usage": {
             "$ref": "#/components/schemas/Usage"

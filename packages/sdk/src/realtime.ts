@@ -23,7 +23,7 @@ import {
   KaanaConnectionError,
   KaanaProtocolError,
 } from './errors.js';
-import type { RequestOptions, Transport } from './http.js';
+import type { RealtimeConnectOptions, Transport } from './http.js';
 import { deferred } from './stream.js';
 
 /** What `realtime.connect` opens: the `session.open` frame and the model it is for. */
@@ -90,7 +90,7 @@ type State = 'opening' | 'open' | 'resuming' | 'dropped' | 'closed';
 export async function connectRealtime(
   transport: Transport,
   request: RealtimeConnectRequest,
-  options: RequestOptions,
+  options: RealtimeConnectOptions,
 ): Promise<RealtimeSession> {
   const { model, ...open } = request;
   if (!modelReferenceSchema.safeParse(model).success) {

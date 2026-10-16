@@ -45,7 +45,13 @@ import {
 } from './audio.js';
 import { chatStream } from './chat.js';
 import { clientRefusal } from './errors.js';
-import { type KaanaOptions, type RequestOptions, type SafeParse, Transport } from './http.js';
+import {
+  type KaanaOptions,
+  type RealtimeConnectOptions,
+  type RequestOptions,
+  type SafeParse,
+  Transport,
+} from './http.js';
 import { connectRealtime, type RealtimeConnectRequest, type RealtimeSession } from './realtime.js';
 import { responsesStream } from './responses.js';
 import type { KaanaStream } from './stream.js';
@@ -120,7 +126,10 @@ export class Kaana {
     getByIdempotencyKey(key: string, options?: RequestOptions): Promise<GenerationRecord>;
   };
   readonly realtime: {
-    connect(request: RealtimeConnectRequest, options?: RequestOptions): Promise<RealtimeSession>;
+    connect(
+      request: RealtimeConnectRequest,
+      options?: RealtimeConnectOptions,
+    ): Promise<RealtimeSession>;
   };
 
   constructor(options: KaanaOptions) {

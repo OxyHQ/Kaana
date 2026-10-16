@@ -5,10 +5,12 @@
  */
 
 import { z } from 'zod';
-import { realtimeAudioFormatSchema } from './audioFormats.js';
+import { realtimeAudioFormatSchema, realtimeOutputModalitySchema } from './audioFormats.js';
 import {
   type ModelAudioCapabilities,
   type ModelCapabilities,
+  type RealtimeParameters,
+  type RealtimeToolChoiceKind,
   realtimeSessionKindSchema,
   realtimeSessionTransportSchema,
 } from './catalogue.js';
@@ -52,9 +54,6 @@ export const realtimeItemIdSchema = z.string().min(1).max(128);
 
 /** A response's identity within one session. */
 export const realtimeResponseIdSchema = z.string().min(1).max(128);
-
-/** What a session's responses produce. */
-export const realtimeOutputModalitySchema = z.enum(['text', 'audio']);
 
 const audioFrameSchema = z
   .string()
@@ -129,6 +128,12 @@ export const realtimeTranslationSchema = z
   .strict();
 
 /**
+ * A function tool a session may call: the chat tool without `strict`, which no
+ * realtime provider's session schema has (contract set 5.0.0).
+ */
+export const realtimeToolDefinitionSchema = toolDefinitionSchema.omit({ strict: true });
+
+/**
  * A session's full configuration, as signed at open and as echoed back by
  * `session.created` and `session.updated`.
  *
@@ -147,9 +152,8 @@ export const realtimeSessionConfigSchema = z
     turnDetection: realtimeTurnDetectionSchema,
     inputAudioTranscription: realtimeInputTranscriptionSchema.optional(),
     translation: realtimeTranslationSchema.optional(),
-    tools: z.array(toolDefinitionSchema).max(128).optional(),
+    tools: z.array(realtimeToolDefinitionSchema).max(128).optional(),
     toolChoice: toolChoiceSchema.optional(),
-    temperature: z.number().min(0).max(2).optional(),
     /** Per response, not per session: the session's ceiling is `limits`. */
     maxOutputTokens: z.number().int().positive().safe().optional(),
   })
@@ -169,9 +173,8 @@ export const realtimeSessionConfigUpdateSchema = z
     outputModalities: z.array(realtimeOutputModalitySchema).min(1).max(2).optional(),
     turnDetection: realtimeTurnDetectionSchema.optional(),
     inputAudioTranscription: realtimeInputTranscriptionSchema.optional(),
-    tools: z.array(toolDefinitionSchema).max(128).optional(),
+    tools: z.array(realtimeToolDefinitionSchema).max(128).optional(),
     toolChoice: toolChoiceSchema.optional(),
-    temperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().positive().safe().optional(),
   })
   .strict()
@@ -676,22 +679,17 @@ export function realtimeConfigIssues(
 /* -------------------------------------------------------------------------- */
 
 /**
- * The most text `conversation.item.create` commands a session may be opened
- * for: the bound a duration-priced route's hold is sized from.
+ * The customer's partial limits request: every signed limit, each filled from
+ * Kaana's defaults when omitted, never above them.
  */
-export const MAX_REALTIME_TEXT_ITEMS = 10_000;
+export const realtimeOpenLimitsSchema = realtimeSessionLimitsSchema.partial().strict();
 
 /**
- * The customer's partial limits request: every signed limit, each filled from
- * Kaana's defaults when omitted, plus `maxTextItems`, the most billable text
- * items the session may send (absent, it defaults to `maxResponses`).
+ * The largest first frame of `GET /v1/realtime`: a `session.open` with its
+ * instructions and up to 128 tool definitions (contract set 5.0.0). A larger
+ * frame closes the connection before it is read.
  */
-export const realtimeOpenLimitsSchema = realtimeSessionLimitsSchema
-  .partial()
-  .extend({
-    maxTextItems: z.number().int().nonnegative().max(MAX_REALTIME_TEXT_ITEMS).optional(),
-  })
-  .strict();
+export const MAX_REALTIME_OPEN_FRAME_BYTES = 1024 * 1024;
 
 /**
  * The first frame a client sends on `GET /v1/realtime?model=…` to OPEN a
@@ -814,8 +812,123 @@ export function checkRealtimeSessionOpen(
   ) {
     issues.push({
       param: 'config.inputAudioTranscription.language',
-      message: `this model does not declare the language ${transcription.language}`,
+      message:
+        `this model does not declare the language ${transcription.language}` +
+        (audio.detectsLanguage === true ? '; omit it to let the model detect the language' : ''),
     });
+  }
+  if (realtime.parameters !== undefined) {
+    issues.push(...realtimeParameterIssues('config', config, realtime.parameters));
+  }
+  return issues;
+}
+
+/**
+ * The part of a session configuration, of a `session.update` or of a
+ * `response.create` that a model's {@link RealtimeParameters} govern.
+ */
+export interface RealtimeGovernedFields {
+  readonly outputModalities?: readonly RealtimeOutputModality[];
+  readonly turnDetection?: RealtimeTurnDetection;
+  readonly inputAudioTranscription?: { readonly prompt?: string };
+  readonly toolChoice?: z.infer<typeof toolChoiceSchema>;
+  readonly maxOutputTokens?: number;
+}
+
+function toolChoiceKind(choice: z.infer<typeof toolChoiceSchema>): RealtimeToolChoiceKind {
+  return typeof choice === 'string' ? choice : 'function';
+}
+
+function sameModalities(
+  a: readonly RealtimeOutputModality[],
+  b: readonly RealtimeOutputModality[],
+): boolean {
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/**
+ * Every field that `parameters` do not serve, each with the `param` Kaana's
+ * refusal names (`prefix` is `config` for an open or a `session.update`,
+ * `response` for a `response.create`), in the order Kaana checks them. It is
+ * exactly Kaana's own check (Go's `RealtimeParameters.Issues`, held to the
+ * same vectors), so a client that builds its session from a model's
+ * parameters, or filters models with this, is never refused for one.
+ */
+export function realtimeParameterIssues(
+  prefix: 'config' | 'response',
+  fields: RealtimeGovernedFields,
+  parameters: RealtimeParameters,
+): RealtimeOpenIssue[] {
+  const issues: RealtimeOpenIssue[] = [];
+  const issue = (param: string, message: string) =>
+    issues.push({ param: `${prefix}.${param}`, message });
+  if (
+    fields.outputModalities !== undefined &&
+    !parameters.outputModalities.some((set) => sameModalities(set, fields.outputModalities ?? []))
+  ) {
+    issue(
+      'outputModalities',
+      `this model produces ${parameters.outputModalities.map((set) => `[${set.join(' ')}]`).join(' or ')} in one response`,
+    );
+  }
+  const detection = fields.turnDetection;
+  if (detection !== undefined) {
+    const served = parameters.turnDetection.find((candidate) => candidate.type === detection.type);
+    if (served === undefined) {
+      issue('turnDetection', `this model has no ${detection.type} turn detection`);
+    } else {
+      if (served.fixedResponses && detection.type !== 'none') {
+        if (!detection.createResponse) {
+          issue(
+            'turnDetection.createResponse',
+            `this model's ${detection.type} always answers the turn it detected; createResponse must be true`,
+          );
+        }
+        if (!detection.interruptResponse) {
+          issue(
+            'turnDetection.interruptResponse',
+            `this model's ${detection.type} lets the caller's speech interrupt an answer; interruptResponse must be true`,
+          );
+        }
+      }
+      if (detection.type === 'server_vad') {
+        const threshold = served.threshold;
+        if (
+          threshold !== undefined &&
+          detection.threshold !== undefined &&
+          (detection.threshold < threshold.min || detection.threshold > threshold.max)
+        ) {
+          issue(
+            'turnDetection.threshold',
+            `this model's ${detection.type} threshold is ${threshold.min} to ${threshold.max}`,
+          );
+        }
+      }
+    }
+  }
+  if (
+    fields.inputAudioTranscription?.prompt !== undefined &&
+    !parameters.inputTranscriptionPrompt
+  ) {
+    issue('inputAudioTranscription.prompt', "this model's input transcription takes no prompt");
+  }
+  if (
+    fields.toolChoice !== undefined &&
+    !parameters.toolChoice.includes(toolChoiceKind(fields.toolChoice))
+  ) {
+    issue('toolChoice', `this model serves the tool choices ${parameters.toolChoice.join(', ')}`);
+  }
+  if (fields.maxOutputTokens !== undefined) {
+    if (parameters.maxOutputTokens === undefined) {
+      issue('maxOutputTokens', 'this model has no output token cap');
+    } else if (fields.maxOutputTokens > parameters.maxOutputTokens) {
+      issue(
+        'maxOutputTokens',
+        `this model caps a response at most at ${parameters.maxOutputTokens} output tokens`,
+      );
+    }
   }
   return issues;
 }

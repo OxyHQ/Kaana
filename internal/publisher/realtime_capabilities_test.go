@@ -52,16 +52,20 @@ func TestThePublisherPublishesWhatAnXAIVoiceSessionServes(t *testing.T) {
 		t.Fatalf("catalogue = %+v", catalogue)
 	}
 	entry := catalogue[0]
+	statement, _ := providerconfig.RealtimeCapabilities("xai-realtime", providerconfig.ProtocolXAIRealtime)
 	wantRealtime := &inventory.RealtimeObservation{
 		Transports:              []contract.RealtimeSessionTransport{contract.RealtimeWebSocket},
 		SessionKinds:            []contract.RealtimeSessionKind{contract.RealtimeConversation},
 		InputAudioTranscription: true,
 		AudioFormats:            inventory.RealtimeAudioFormats{Input: allRealtimeFormats, Output: allRealtimeFormats},
+		// What a session may set is the adapter's own statement, published
+		// as it is enforced.
+		Parameters: &statement.Parameters,
 	}
 	if !reflect.DeepEqual(entry.Realtime, wantRealtime) {
 		t.Errorf("realtime = %+v, want %+v", entry.Realtime, wantRealtime)
 	}
-	if entry.Audio == nil || len(entry.Audio.Voices) != 26 || len(entry.Audio.Languages) != 20 {
+	if entry.Audio == nil || len(entry.Audio.Voices) != 26 || len(entry.Audio.Languages) != 20 || !entry.Audio.DetectsLanguage {
 		t.Fatalf("audio = %+v", entry.Audio)
 	}
 	genders := map[string]string{}
@@ -134,5 +138,27 @@ func TestARequestSlugPublishesNoRealtimeStatement(t *testing.T) {
 		if model.Observed != nil {
 			t.Errorf("%s was stated under openai: %+v", model.UpstreamModelID, model.Observed)
 		}
+	}
+}
+
+// A transcription model's `audio` is its adapter's statement: the uploads it
+// reads, the languages a request may name, whether it detects one, whether it
+// takes a prompt. A chat model of the same slug is left alone.
+func TestThePublisherPublishesWhatATranscriptionAdapterTakes(t *testing.T) {
+	models := []DiscoveredModel{{UpstreamModelID: "whisper-large-v3-turbo"}, {UpstreamModelID: "openai/gpt-oss-120b"}}
+	applyStatedTranscription(Provider{Slug: "groq", Protocol: providerconfig.ProtocolOpenAICompatible}, models)
+	statement, _ := providerconfig.TranscriptionCapabilities("groq", providerconfig.ProtocolOpenAICompatible)
+	want := &inventory.AudioObservation{
+		Voices: []inventory.VoiceObservation{}, Languages: []string{}, DetectsLanguage: true,
+		InputMediaTypes: statement.MediaTypes, TranscriptionPrompt: true,
+	}
+	if models[0].Observed == nil || !reflect.DeepEqual(models[0].Observed.Audio, want) {
+		t.Errorf("whisper audio = %+v, want %+v", models[0].Observed, want)
+	}
+	if err := models[0].Observed.Audio.Validate(); err != nil {
+		t.Errorf("the published audio does not validate: %v", err)
+	}
+	if models[1].Observed != nil {
+		t.Errorf("a chat model was given transcription audio: %+v", models[1].Observed)
 	}
 }

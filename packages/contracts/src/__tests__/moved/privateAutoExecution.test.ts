@@ -47,7 +47,7 @@ describe('independent private Auto contract', () => {
       INFERENCE_CONTRACT_VERSION,
       SCOPED_EXECUTION_CONTRACT_VERSION,
       SCOPED_REQUEST_ENVELOPE_VERSION,
-    ]).toEqual(['4.5.0', '3.6.0', 3]);
+    ]).toEqual(['5.0.0', '3.6.0', 3]);
     expect([
       PRIVATE_AUTO_EXECUTION_CONTRACT_VERSION,
       PRIVATE_AUTO_REQUEST_ENVELOPE_VERSION,

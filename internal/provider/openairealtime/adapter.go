@@ -159,13 +159,13 @@ func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest
 		return nil, opened, err
 	}
 	upstream := newSession(d, conn, request, key, request.Config.InputAudioFormat)
-	if d.tokenUsage {
+	if d.tokenUsage() {
 		return upstream, opened, nil
 	}
 	// A provider that bills by what Kaana can measure, not by the tokens it
 	// reports, is metered (meter.go): by its wall clock when the session's turn
 	// detection is the one the provider bills by duration, else by its audio.
-	clock := d.sessionClock != "" && request.Config.TurnDetection.Type == d.sessionClock
+	clock := d.clockBilled(request.Config.TurnDetection.Type)
 	upstream.meter = newMeter(request.Config, clock, handshakeAt, a.now)
 	return meteredSession{upstream}, opened, nil
 }

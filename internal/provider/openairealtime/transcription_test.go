@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -65,10 +66,10 @@ func TestOpenAITranscribesTheCallersSpeechAndBillsItsASRModel(t *testing.T) {
 		conn.Send(fake.Event{"type": "response.created", "response": fake.Event{"id": "resp_1", "status": "in_progress", "output": []any{}}})
 		conn.Send(fake.Event{"type": "response.done", "response": fake.Event{"id": "resp_1", "status": "completed", "output": []any{}, "usage": fake.Usage(10, 120, 0, 0, 5, 200)}})
 	}
-	session := open(t, upstream, transcribed(conversationConfig(), contract.RealtimeInputTranscription{Language: pointer("ES"), Prompt: pointer("names: Kaana, Alia")}))
+	session := open(t, upstream, transcribed(conversationConfig(), contract.RealtimeInputTranscription{Prompt: pointer("names: Kaana, Alia")}))
 
 	update := upstream.Received()[0]
-	wantTranscription := map[string]any{"model": "gpt-transcribe", "language": "es", "prompt": "names: Kaana, Alia"}
+	wantTranscription := map[string]any{"model": "gpt-transcribe", "prompt": "names: Kaana, Alia"}
 	input := sessionOf(t, update)["audio"].(map[string]any)["input"].(map[string]any)
 	if got := input["transcription"]; !reflect.DeepEqual(got, wantTranscription) {
 		t.Errorf("audio.input.transcription = %v, want %v", got, wantTranscription)
@@ -161,7 +162,7 @@ func TestATranscriptNobodyAskedForIsNotRelayedButItsChargeIsSettled(t *testing.T
 		conn.Send(fake.Event{"type": "conversation.item.input_audio_transcription.completed", "item_id": "item_2", "content_index": 0, "transcript": "no usage"})
 		update := conn.Expect("session.update")
 		got := update["session"].(map[string]any)["audio"].(map[string]any)["input"].(map[string]any)["transcription"]
-		if want := map[string]any{"model": "gpt-transcribe", "language": "en"}; !reflect.DeepEqual(got, want) {
+		if want := map[string]any{"model": "gpt-transcribe"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the enabling update sent %v, want %v", got, want)
 		}
 		conn.Send(fake.Event{"type": "session.updated", "session": update["session"]})
@@ -173,10 +174,10 @@ func TestATranscriptNobodyAskedForIsNotRelayedButItsChargeIsSettled(t *testing.T
 		t.Fatalf("an unrequested transcription = %+v; want only its charge", silent)
 	}
 	send(t, session, &contract.RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_transcribe",
-		Config: contract.RealtimeSessionConfigUpdate{InputAudioTranscription: &contract.RealtimeInputTranscription{Language: pointer("en")}}})
+		Config: contract.RealtimeSessionConfigUpdate{InputAudioTranscription: &contract.RealtimeInputTranscription{}}})
 	confirmed := next(t, session)
 	updated := confirmed.Event.(*contract.RealtimeSessionUpdatedEvent)
-	if updated.Config.InputAudioTranscription == nil || *updated.Config.InputAudioTranscription.Language != "en" {
+	if updated.Config.InputAudioTranscription == nil {
 		t.Errorf("the effective configuration lost the transcription: %+v", updated.Config)
 	}
 	relayed := next(t, session)
@@ -264,16 +265,120 @@ func TestTheCatalogueStatementIsWhatTheAdapterServes(t *testing.T) {
 				t.Errorf("%s publishes %s, which the wire cannot carry", d.slug, format)
 			}
 		}
-		for _, language := range statement.Languages {
-			if _, ok := d.transcription.language(language); !ok {
-				t.Errorf("%s publishes %s, which its transcription refuses", d.slug, language)
-			}
+		if err := statement.Parameters.Validate(); err != nil {
+			t.Errorf("%s publishes parameters the catalogue refuses: %v", d.slug, err)
 		}
 	}
-	if _, ok := xAITranscription.language("es"); ok {
-		t.Error("xAI's transcription took a Spanish tag without the region xAI requires")
-	}
-	if language, ok := openAITranscription.language("EN"); !ok || language != "en" {
-		t.Errorf("OpenAI's transcription = %q, %t; want the lowercased ISO 639-1 code", language, ok)
+}
+
+// TestTheDialectServesExactlyWhatTheStatementDeclares crosses the published
+// parameters (providerconfig.RealtimeCapabilities) with the dialect field by
+// field: every value the statement serves is written to the wire, and every
+// value of the contract it does not serve is refused naming its field. A
+// catalogue that advertised what a session refuses, or a session that refused
+// what the catalogue advertised, fails here.
+func TestTheDialectServesExactlyWhatTheStatementDeclares(t *testing.T) {
+	for _, d := range []*dialect{openAIDialect, xAIDialect} {
+		statement := d.statement()
+		parameters := statement.Parameters
+		base := func() contract.RealtimeSessionConfig {
+			config := conversationConfig()
+			config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionNone}
+			config.OutputModalities = parameters.OutputModalities[0]
+			config.InputAudioTranscription = nil
+			config.ToolChoice, config.MaxOutputTokens = nil, nil
+			return config
+		}
+		check := func(name, param string, served bool, mutate func(*contract.RealtimeSessionConfig)) {
+			t.Helper()
+			config := base()
+			mutate(&config)
+			_, err := d.wireSession(config)
+			var unsupported provider.ErrUnsupported
+			switch {
+			case served && err != nil:
+				t.Errorf("%s %s: the statement serves it and the dialect refused it: %v", d.slug, name, err)
+			case !served && (!errors.As(err, &unsupported) || unsupported.Param != param):
+				t.Errorf("%s %s: the statement does not serve it; wireSession = %v, want a refusal naming %s", d.slug, name, err, param)
+			}
+		}
+		if _, err := d.wireSession(base()); err != nil {
+			t.Fatalf("%s: the control configuration was refused: %v", d.slug, err)
+		}
+
+		fixed := true
+		detections := map[contract.RealtimeTurnDetectionType]contract.RealtimeTurnDetection{
+			contract.TurnDetectionNone:        {Type: contract.TurnDetectionNone},
+			contract.TurnDetectionServerVAD:   {Type: contract.TurnDetectionServerVAD, CreateResponse: &fixed, InterruptResponse: &fixed},
+			contract.TurnDetectionSemanticVAD: {Type: contract.TurnDetectionSemanticVAD, Eagerness: pointer(contract.RealtimeVADEagerness("low")), CreateResponse: &fixed, InterruptResponse: &fixed},
+		}
+		for kind, detection := range detections {
+			served, ok := parameters.TurnDetectionOf(kind)
+			check("turn detection "+string(kind), "config.turnDetection", ok, func(c *contract.RealtimeSessionConfig) { c.TurnDetection = detection })
+			if !ok || kind == contract.TurnDetectionNone {
+				continue
+			}
+			unfixed := false
+			check(string(kind)+" without createResponse", "config.turnDetection.createResponse", !served.FixedResponses, func(c *contract.RealtimeSessionConfig) {
+				c.TurnDetection = detection
+				c.TurnDetection.CreateResponse = &unfixed
+			})
+			check(string(kind)+" without interruptResponse", "config.turnDetection.interruptResponse", !served.FixedResponses, func(c *contract.RealtimeSessionConfig) {
+				c.TurnDetection = detection
+				c.TurnDetection.InterruptResponse = &unfixed
+			})
+			if served.Threshold != nil {
+				check(string(kind)+" threshold below its range", "config.turnDetection.threshold", false, func(c *contract.RealtimeSessionConfig) {
+					c.TurnDetection = detection
+					c.TurnDetection.Threshold = pointer(served.Threshold.Min / 2)
+				})
+				check(string(kind)+" threshold inside its range", "", true, func(c *contract.RealtimeSessionConfig) {
+					c.TurnDetection = detection
+					c.TurnDetection.Threshold = pointer(served.Threshold.Min)
+				})
+			}
+		}
+
+		for _, set := range [][]contract.RealtimeOutputModality{
+			{contract.RealtimeOutputAudio}, {contract.RealtimeOutputText}, {contract.RealtimeOutputText, contract.RealtimeOutputAudio},
+		} {
+			check(fmt.Sprintf("output modalities %v", set), "config.outputModalities", parameters.ServesOutputModalities(set), func(c *contract.RealtimeSessionConfig) {
+				c.OutputModalities = set
+			})
+		}
+
+		choices := map[contract.RealtimeToolChoice]contract.ToolChoice{
+			contract.RealtimeToolChoiceAuto:     {Mode: pointer(contract.ToolChoiceAuto)},
+			contract.RealtimeToolChoiceNone:     {Mode: pointer(contract.ToolChoiceNone)},
+			contract.RealtimeToolChoiceRequired: {Mode: pointer(contract.ToolChoiceRequired)},
+			contract.RealtimeToolChoiceFunction: {Function: &contract.ToolChoiceFunction{Type: "function", Name: "lookup"}},
+		}
+		for kind, choice := range choices {
+			check("tool choice "+string(kind), "config.toolChoice", slices.Contains(parameters.ToolChoice, kind), func(c *contract.RealtimeSessionConfig) {
+				c.ToolChoice = &choice
+			})
+		}
+
+		if parameters.MaxOutputTokens == nil {
+			check("an output token cap", "config.maxOutputTokens", false, func(c *contract.RealtimeSessionConfig) { c.MaxOutputTokens = pointer(100) })
+		} else {
+			check("the largest output token cap", "", true, func(c *contract.RealtimeSessionConfig) { c.MaxOutputTokens = pointer(*parameters.MaxOutputTokens) })
+			check("an output token cap past it", "config.maxOutputTokens", false, func(c *contract.RealtimeSessionConfig) { c.MaxOutputTokens = pointer(*parameters.MaxOutputTokens + 1) })
+		}
+
+		check("a transcription prompt", "config.inputAudioTranscription.prompt", parameters.InputTranscriptionPrompt, func(c *contract.RealtimeSessionConfig) {
+			c.InputAudioTranscription = &contract.RealtimeInputTranscription{Prompt: pointer("names: Kaana, Alia")}
+		})
+		for _, language := range statement.Languages {
+			check("the published language "+language, "", true, func(c *contract.RealtimeSessionConfig) {
+				c.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer(language)}
+			})
+		}
+		check("a language it does not publish", "config.inputAudioTranscription.language", false, func(c *contract.RealtimeSessionConfig) {
+			c.InputAudioTranscription = &contract.RealtimeInputTranscription{Language: pointer("gl")}
+		})
+		check("no language, which the model detects", "", statement.DetectsLanguage, func(c *contract.RealtimeSessionConfig) {
+			c.InputAudioTranscription = &contract.RealtimeInputTranscription{}
+		})
 	}
 }

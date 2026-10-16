@@ -4,7 +4,6 @@ package deepgram
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,37 +104,17 @@ func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provide
 		call.Header.Set("Content-Type", "application/json")
 		call.Header.Set("Accept", "audio/mpeg")
 	case contract.APIFormatAudioTranscriptions:
-		if r.Transcription != nil && r.Transcription.Language != nil {
-			return refuse("transcription.language", "this transcription deployment takes no language; omit it to let the model detect it")
+		statement, _ := providerconfig.TranscriptionCapabilities(Slug, providerconfig.ProtocolDeepgramVoice)
+		upload, err := provider.ReadTranscription(r, statement)
+		if err != nil {
+			return nil, err
 		}
-		if r.Speech != nil || r.Input.Format != contract.InputMessages || len(r.Input.Messages) != 1 || r.Input.Text != nil || len(r.Input.Texts) != 0 {
-			return refuse("input", "transcription requires one user message containing one inline audio part")
-		}
-		message := r.Input.Messages[0]
-		if message.Role != contract.RoleUser || len(message.Content) != 1 || len(message.ToolCalls) != 0 || message.Name != nil || message.ToolCallID != nil {
-			return refuse("input", "transcription requires one user audio part without message metadata")
-		}
-		part := message.Content[0]
-		if part.Type != contract.ContentPartAudio || part.Source == nil || part.Source.Kind != contract.ContentSourceInline || part.Source.URL != nil || part.Source.Data == nil || part.Source.MediaType == nil || part.Text != nil || part.Detail != nil || part.Filename != nil {
-			return refuse("input", "only inline audio is supported; remote audio is not fetched")
-		}
-		switch *part.Source.MediaType {
-		case "audio/wav", "audio/x-wav", "audio/mpeg", "audio/flac", "audio/ogg":
-		default:
-			return refuse("input.mediaType", "audio must use a supported self-describing container")
-		}
-		if len(*part.Source.Data) > base64.StdEncoding.EncodedLen(maxBody) {
-			return refuse("input", "audio exceeds 20 MiB")
-		}
-		data, err := base64.StdEncoding.Strict().DecodeString(*part.Source.Data)
-		if err != nil || len(data) == 0 || len(data) > maxBody {
-			return refuse("input", "audio must be nonempty base64 of at most 20 MiB")
-		}
+		data := upload.Audio
 		if strings.HasPrefix(route.UpstreamModelID, "aura-") {
 			return refuse("model", "an Aura synthesis model cannot transcribe audio")
 		}
 		call.Body = data
-		call.Header.Set("Content-Type", *part.Source.MediaType)
+		call.Header.Set("Content-Type", string(upload.MediaType))
 		call.Header.Set("Accept", "application/json")
 		call.URL = a.base + "/listen?" + query.Encode()
 	default:

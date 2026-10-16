@@ -123,7 +123,7 @@ func TestARealtimeSessionWithToolsIsGrantedServedAndSettled(t *testing.T) {
 		conn.Expect("response.create")
 		conn.Send(fake.Event{"type": "response.done", "response": fake.Event{"id": "resp_2", "status": "completed", "output": []any{}, "usage": fake.Usage(4, 0, 0, 0, 3, 0)}})
 	}
-	ws := h.dialRealtime(validKey, conversationOpen(map[string]any{"inputAudioTranscription": map[string]any{"language": "es"}}))
+	ws := h.dialRealtime(validKey, conversationOpen(map[string]any{"inputAudioTranscription": map[string]any{}}))
 
 	created := readEvent(t, ws)
 	var session contract.RealtimePublicSessionCreatedEvent
@@ -200,12 +200,15 @@ func TestARealtimeSessionWithoutAGrantIsOneErrorAndNoUpstream(t *testing.T) {
 }
 
 // A session the model cannot hold is refused before Oxy is asked: an
-// undeclared voice, a language it does not declare.
+// undeclared voice, a language it does not declare, and what its published
+// parameters do not serve.
 func TestARealtimeOpenIsCheckedAgainstTheModelBeforeAnyGrant(t *testing.T) {
 	h := newHarness(t, harnessOptions{})
 	for param, extra := range map[string]map[string]any{
 		"config.voice": {"voice": "nobody", "outputModalities": []string{"audio"}, "outputAudioFormat": "pcm16_24khz"},
 		"config.inputAudioTranscription.language": {"inputAudioTranscription": map[string]any{"language": "fr"}},
+		"config.outputModalities":                 {"outputModalities": []string{"text", "audio"}, "voice": "marin", "outputAudioFormat": "pcm16_24khz"},
+		"config.maxOutputTokens":                  {"maxOutputTokens": 4097},
 	} {
 		ws := h.dialRealtime(validKey, conversationOpen(extra))
 		refused := readEvent(t, ws)

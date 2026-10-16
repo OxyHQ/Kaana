@@ -73,10 +73,9 @@ const open = (config: Record<string, unknown> = {}, fields: Record<string, unkno
   });
 
 describe('contract set 4.1.0', () => {
-  it('is in the set this package declares (4.1.0 or a later minor)', () => {
-    const [major, minor] = INFERENCE_CONTRACT_VERSION.split('.').map(Number);
-    expect(major).toBe(4);
-    expect(minor).toBeGreaterThanOrEqual(1);
+  it('is in the set this package declares (4.1.0 or later)', () => {
+    const [major = 0, minor = 0] = INFERENCE_CONTRACT_VERSION.split('.').map(Number);
+    expect(major > 4 || (major === 4 && minor >= 1)).toBe(true);
   });
 });
 

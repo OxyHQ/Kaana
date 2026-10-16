@@ -352,8 +352,13 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 				t.Errorf("%s/%s attributes a router rather than one model", slug, upstreamModelID)
 			case strings.HasSuffix(upstreamModelID, ":batch"), strings.HasSuffix(upstreamModelID, ":thinking"):
 				t.Errorf("%s/%s attributes a delivery mode rather than weights", slug, upstreamModelID)
-			case slug == "groq" && (strings.HasPrefix(upstreamModelID, "canopylabs/orpheus-") || strings.HasPrefix(upstreamModelID, "whisper-") || strings.HasPrefix(upstreamModelID, "groq/compound")):
+			case slug == "groq" && (strings.HasPrefix(upstreamModelID, "canopylabs/orpheus-") || strings.HasPrefix(upstreamModelID, "groq/compound")):
 				t.Errorf("%s/%s cannot produce the chat contract Kaana serves", slug, upstreamModelID)
+			case slug == "groq" && strings.HasPrefix(upstreamModelID, "whisper-"):
+				// Whisper is served, but as file transcription, never as chat.
+				if family, classified, _ := providerconfig.ClassifyModel(slug, upstreamModelID); !classified || family.Format != contract.APIFormatAudioTranscriptions {
+					t.Errorf("%s/%s is attributed without being classified as a transcription model", slug, upstreamModelID)
+				}
 			case slug == "xai" && strings.HasPrefix(upstreamModelID, "grok-imagine-"):
 				t.Errorf("%s/%s cannot produce the chat contract Kaana serves", slug, upstreamModelID)
 			}

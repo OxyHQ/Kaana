@@ -159,7 +159,10 @@ type Result struct {
 	Decisions *contract.DecisionResult
 
 	Embedding *contract.EmbeddingSuccess
-	Report    *contract.UsageReport
+	// DetectedLanguage is the language a transcription's provider says it
+	// heard, as a BCP 47 tag; nil when it says none.
+	DetectedLanguage *contract.LanguageTag
+	Report           *contract.UsageReport
 	// Failure is the terminal error, if the request ended in one. It has been
 	// emitted on the stream, except when the client cancelled: writing to a
 	// client that withdrew is pointless, and a cancelled request whose events
@@ -1051,6 +1054,9 @@ func (e *Executor) settle(
 		if err := emit.finishWithDone(finishReasonOr(last.outcome.FinishReason, contract.FinishStop), completedAt); err != nil {
 			return e.finalize(report, nil, err, cost)
 		}
+		result := e.finalize(report, nil, sinkErr, cost)
+		result.DetectedLanguage = last.outcome.DetectedLanguage
+		return result
 	case last.cancelled:
 		// The stream is not written to again: the client that cancelled is not
 		// listening, and a cancelled request whose events kept flowing would be

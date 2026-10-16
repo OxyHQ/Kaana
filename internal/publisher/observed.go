@@ -385,6 +385,20 @@ func applyStatedReasoningEfforts(slug contract.ProviderSlug, models []Discovered
 	}
 }
 
+// StatedObservation is what Kaana itself states about one model of a slug,
+// beside what the provider's model list says: a realtime session model's
+// `realtime` and `audio`, a transcription model's `audio`. It is exactly what
+// the publisher writes into the inventory for that model (applyStatedRealtime,
+// applyStatedTranscription), for a reader that needs the published facts of a
+// model without discovering it; nil when nothing is stated.
+func StatedObservation(slug contract.ProviderSlug, protocol string, upstreamModelID string) *inventory.Observed {
+	models := []DiscoveredModel{{UpstreamModelID: upstreamModelID}}
+	target := Provider{Slug: slug, Protocol: protocol}
+	applyStatedRealtime(target, models)
+	applyStatedTranscription(target, models)
+	return models[0].Observed
+}
+
 // applyStatedRealtime publishes a realtime session adapter's reviewed
 // statement (providerconfig.RealtimeCapabilities) as each session model's
 // `realtime` and `audio` observation: the transports and session kinds it
@@ -425,6 +439,7 @@ func realtimeObservation(statement providerconfig.RealtimeStatement) (*inventory
 	if languages == nil {
 		languages = []string{}
 	}
+	parameters := statement.Parameters
 	realtime := &inventory.RealtimeObservation{
 		Transports:              slices.Sorted(slices.Values(statement.Transports)),
 		SessionKinds:            slices.Sorted(slices.Values(statement.SessionKinds)),
@@ -433,13 +448,49 @@ func realtimeObservation(statement providerconfig.RealtimeStatement) (*inventory
 			Input:  slices.Sorted(slices.Values(statement.InputAudioFormats)),
 			Output: append([]contract.RealtimeAudioFormat{}, slices.Sorted(slices.Values(statement.OutputAudioFormats))...),
 		},
+		Parameters: &parameters,
 	}
-	audio := &inventory.AudioObservation{Languages: languages, Voices: make([]inventory.VoiceObservation, 0, len(statement.Voices))}
+	audio := &inventory.AudioObservation{Languages: languages, DetectsLanguage: statement.DetectsLanguage, Voices: make([]inventory.VoiceObservation, 0, len(statement.Voices))}
 	for _, voice := range statement.Voices {
 		audio.Voices = append(audio.Voices, inventory.VoiceObservation{ID: voice.ID, Name: voice.Name, Gender: voice.Gender, Languages: slices.Clone(languages)})
 	}
 	sort.Slice(audio.Voices, func(i, j int) bool { return audio.Voices[i].ID < audio.Voices[j].ID })
 	return realtime, audio
+}
+
+// applyStatedTranscription publishes a file transcription adapter's reviewed
+// statement (providerconfig.TranscriptionCapabilities) as each transcription
+// model's `audio` observation: the uploads it takes, the languages a request
+// may name, whether it detects one, and whether it takes a prompt. No
+// provider's model list says any of it, and the adapter reads its requests
+// with exactly this statement (provider.ReadTranscription), so it is what the
+// catalogue publishes.
+func applyStatedTranscription(target Provider, models []DiscoveredModel) {
+	protocol := target.Protocol
+	if protocol == "" {
+		protocol = providerconfig.Known[target.Slug].Protocol
+	}
+	statement, stated := providerconfig.TranscriptionCapabilities(target.Slug, protocol)
+	if !stated {
+		return
+	}
+	// Lists, never absent: an empty one says the statement names none.
+	languages := append([]string{}, slices.Sorted(slices.Values(statement.Languages))...)
+	for index := range models {
+		model := &models[index]
+		family, classified, _ := providerconfig.ClassifyModel(target.Slug, model.UpstreamModelID)
+		if !classified || family.Format != contract.APIFormatAudioTranscriptions {
+			continue
+		}
+		if model.Observed == nil {
+			model.Observed = &inventory.Observed{}
+		}
+		model.Observed.Audio = &inventory.AudioObservation{
+			Voices: []inventory.VoiceObservation{}, Languages: slices.Clone(languages),
+			DetectsLanguage: statement.DetectsLanguage, InputMediaTypes: slices.Sorted(slices.Values(statement.MediaTypes)),
+			TranscriptionPrompt: statement.Prompt,
+		}
+	}
 }
 
 // applyStatedAcceptedParameters publishes the Anthropic Messages adapter's own

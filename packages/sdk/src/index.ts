@@ -24,7 +24,13 @@ export {
   KaanaRateLimitError,
   KaanaUnavailableError,
 } from './errors.js';
-export type { KaanaCredential, KaanaFetch, KaanaOptions, RequestOptions } from './http.js';
+export type {
+  KaanaCredential,
+  KaanaFetch,
+  KaanaOptions,
+  RealtimeConnectOptions,
+  RequestOptions,
+} from './http.js';
 export {
   MAX_REALTIME_AUDIO_FRAME_BYTES,
   type RealtimeClientEventInput,

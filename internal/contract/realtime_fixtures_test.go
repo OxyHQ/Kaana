@@ -315,11 +315,10 @@ func sampleRealtimeSessions(t *testing.T) (RealtimeSessionRequest, RealtimeSessi
 		OutputAudioFormat:       pointerTo(RealtimePCM16),
 		TurnDetection:           serverVAD,
 		InputAudioTranscription: &RealtimeInputTranscription{Language: pointerTo("en"), Prompt: pointerTo("names")},
-		Tools: []ToolDefinition{{
+		Tools: []RealtimeToolDefinition{{
 			Type: "function", Name: "lookup", Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
 		}},
 		ToolChoice:      &ToolChoice{Mode: pointerTo(ToolChoiceAuto)},
-		Temperature:     pointerTo(0.8),
 		MaxOutputTokens: pointerTo(4096),
 	}
 	limits := RealtimeSessionLimits{

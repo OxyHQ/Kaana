@@ -77,12 +77,18 @@ func TestGroqPromptGuardIsAClassifierNothingExecutes(t *testing.T) {
 			t.Errorf("groq/%s = classified %t, expressible %t; want an inexpressible classifier", id, classified, expressible)
 		}
 	}
-	// Controls: a generative safety model and an ordinary chat model on Groq,
-	// and Whisper (a transcription model the chat classification must not
-	// reach), are left to attribution.
-	for _, id := range []string{"openai/gpt-oss-safeguard-20b", "openai/gpt-oss-120b", "whisper-large-v3"} {
+	// Controls: a generative safety model and an ordinary chat model on Groq
+	// are left to attribution.
+	for _, id := range []string{"openai/gpt-oss-safeguard-20b", "openai/gpt-oss-120b"} {
 		if _, classified, _ := ClassifyModel("groq", id); classified {
-			t.Errorf("groq/%s is classified; only Prompt Guard is", id)
+			t.Errorf("groq/%s is classified; only Prompt Guard and Whisper are", id)
+		}
+	}
+	// Whisper is a transcription model, never a chat one.
+	for _, id := range []string{"whisper-large-v3", "whisper-large-v3-turbo"} {
+		family, classified, expressible := ClassifyModel("groq", id)
+		if !classified || !expressible || family.Format != contract.APIFormatAudioTranscriptions {
+			t.Errorf("groq/%s = %+v, classified %t, expressible %t; want an audio_transcriptions model", id, family, classified, expressible)
 		}
 	}
 }

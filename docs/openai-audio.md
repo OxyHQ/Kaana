@@ -39,15 +39,22 @@ behalf.
 
 ### Request mapping
 
-- `audio_transcriptions`, audio modality, one user message with one inline
+- The request is read by `provider.ReadTranscription` against the slug's
+  reviewed statement (`providerconfig.TranscriptionCapabilities`), the same
+  statement the publisher writes into the inventory and the catalogue
+  publishes as the model's `audio`, and the public API checks before the grant
+  (`checkTranscription`): audio modality, one user message with one inline
   base64 audio part of at most 20 MiB (the contract's ceiling; OpenAI accepts
-  25 MB). WAV, MP3, FLAC, Ogg, WebM and MP4/M4A containers are accepted; the
-  upload's file name carries the matching extension because OpenAI infers the
-  container from it.
-- The multipart form carries exactly `model` (the signed upstream id), `file`
-  and `response_format`: `json`, or `verbose_json` for `whisper-1`, whose
-  `json` response carries no duration. No language, prompt, temperature,
-  timestamp or chunking default is invented.
+  25 MB), in one of the statement's containers (WAV, MP3, FLAC, Ogg, WebM,
+  MP4/M4A). OpenAI publishes no language list, so a request names none and the
+  model detects it (`audio.detectsLanguage`); a `prompt` is taken
+  (`audio.transcriptionPrompt`).
+- The wire is `internal/provider/openaitranscription`, shared with every
+  provider that documents OpenAI's endpoint (Groq): `model` (the signed
+  upstream id), `response_format` (`json`, or `verbose_json` for a Whisper
+  model, whose `json` response carries no duration), the caller's `prompt`,
+  and `file`, whose name carries the extension OpenAI infers the container
+  from. No temperature or chunking default is invented.
 - The transcript is emitted as one `output_text` delta.
 
 Streaming (`stream: true`, OpenAI's `transcript.text.delta` events), remote

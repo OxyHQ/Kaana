@@ -196,6 +196,9 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		}
 		realtime := map[string]any{"transports": entry.Realtime.Transports, "sessionKinds": entry.Realtime.SessionKinds,
 			"inputAudioTranscription": entry.Realtime.InputAudioTranscription, "audioFormats": entry.Realtime.AudioFormats}
+		if entry.Realtime.Parameters != nil {
+			realtime["parameters"] = entry.Realtime.Parameters
+		}
 		encoded, err := json.Marshal(realtime)
 		if err != nil {
 			return nil, err
@@ -214,10 +217,19 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 			}
 			voices = append(voices, rendered)
 		}
-		// A realtime line names no file media types: its encodings are
-		// capabilities.realtime.audioFormats.
-		if err := set("audio", map[string]any{"voices": voices, "languages": entry.Audio.Languages,
-			"audioFormats": map[string]any{"input": []string{}, "output": []string{}}}); err != nil {
+		// A realtime line names no file media types (its encodings are
+		// capabilities.realtime.audioFormats); a transcription line names the
+		// uploads its adapter takes.
+		input := entry.Audio.InputMediaTypes
+		if input == nil {
+			input = []contract.AudioInputMediaType{}
+		}
+		audio := map[string]any{"voices": voices, "languages": entry.Audio.Languages, "detectsLanguage": entry.Audio.DetectsLanguage,
+			"audioFormats": map[string]any{"input": input, "output": []string{}}}
+		if entry.Audio.TranscriptionPrompt {
+			audio["transcriptionPrompt"] = true
+		}
+		if err := set("audio", audio); err != nil {
 			return nil, err
 		}
 	}

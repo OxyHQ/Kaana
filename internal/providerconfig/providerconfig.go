@@ -226,6 +226,8 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 			formats = append(formats, contract.APIFormatEmbeddings)
 		case "xai":
 			formats = append(formats, contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions)
+		case "groq":
+			formats = append(formats, contract.APIFormatAudioTranscriptions)
 		}
 		return formats
 	case ProtocolAnthropicMessages:

@@ -15,6 +15,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/openaitranscription"
 )
 
 const fakeKey = "sk-openai-audio-synthetic-credential-not-valid"
@@ -215,7 +216,7 @@ func TestAResponseWithoutUsageOrTranscriptIsRefused(t *testing.T) {
 		"zero duration":          `{"text":"Hola","usage":{"type":"duration","seconds":0}}`,
 		"no transcript":          `{"usage":{"type":"duration","seconds":1}}`,
 		"not json":               `<html>`,
-		"oversized response":     `{"text":"` + strings.Repeat("a", maxResponseBytes) + `"}`,
+		"oversized response":     `{"text":"` + strings.Repeat("a", openaitranscription.MaxResponseBytes) + `"}`,
 		"no duration on whisper": `{"text":"Hola","segments":[]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -250,7 +251,7 @@ func TestAResponseWithoutUsageOrTranscriptIsRefused(t *testing.T) {
 func TestContainerAndSizeBoundsAreEnforcedBeforeSending(t *testing.T) {
 	a := adapter(t, func(http.ResponseWriter, *http.Request) { t.Error("a refused request reached the upstream") })
 	accepted := map[string]string{
-		"audio/wav": "audio.wav", "audio/x-wav": "audio.wav", "audio/mpeg": "audio.mp3", "audio/flac": "audio.flac",
+		"audio/wav": "audio.wav", "audio/mpeg": "audio.mp3", "audio/flac": "audio.flac",
 		"audio/ogg": "audio.ogg", "audio/webm": "audio.webm", "audio/mp4": "audio.m4a",
 	}
 	for mediaType, name := range accepted {
@@ -260,17 +261,18 @@ func TestContainerAndSizeBoundsAreEnforcedBeforeSending(t *testing.T) {
 			t.Errorf("%s: %v", mediaType, err)
 		}
 	}
-	for _, mediaType := range []string{"audio/pcm", "audio/aac", "video/mp4", "text/plain"} {
+	// audio/x-wav is no media type the contract names; audio/wav is.
+	for _, mediaType := range []string{"audio/pcm", "audio/aac", "audio/x-wav", "video/mp4", "text/plain"} {
 		r, route := transcriptionRequest("gpt-transcribe", mediaType, []byte("synthetic"))
 		if _, err := a.Translate(r, route); err == nil {
 			t.Errorf("%s accepted", mediaType)
 		}
 	}
-	limit, route := transcriptionRequest("gpt-transcribe", "audio/wav", make([]byte, maxAudioBytes))
+	limit, route := transcriptionRequest("gpt-transcribe", "audio/wav", make([]byte, provider.MaxTranscriptionAudioBytes))
 	if _, err := a.Translate(limit, route); err != nil {
 		t.Fatalf("audio at the 20 MiB ceiling refused: %v", err)
 	}
-	over, route := transcriptionRequest("gpt-transcribe", "audio/wav", make([]byte, maxAudioBytes+1))
+	over, route := transcriptionRequest("gpt-transcribe", "audio/wav", make([]byte, provider.MaxTranscriptionAudioBytes+1))
 	if _, err := a.Translate(over, route); err == nil {
 		t.Fatal("audio over 20 MiB accepted")
 	}

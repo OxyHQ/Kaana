@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import {
   checkSpeechRequest,
+  checkTranscriptionRequest,
   type ModelAudioCapabilities,
   modelAudioCapabilitiesSchema,
   modelSchema,
   speechMediaType,
   speechRequestSchema,
   transcriptionJsonRequestSchema,
+  transcriptionRequestSchema,
   transcriptionSchema,
   MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH,
   MAX_TRANSCRIPTION_FILE_BYTES,
@@ -167,17 +169,51 @@ describe('speech and speechStream requests', () => {
 });
 
 describe('transcription', () => {
-  it('refuses a span that ends before it starts', () => {
+  it('refuses timing fields no model serves (contract set 5.0.0)', () => {
     expect(
       transcriptionSchema.safeParse({
         schemaVersion: 1,
         requestId,
         model: 'openai/whisper-1@2023-03-01',
         text: 'Hola',
-        words: [{ startMs: 500, endMs: 100, word: 'Hola' }],
+        words: [{ startMs: 0, endMs: 100, word: 'Hola' }],
         usage: [{ unit: 'audio_input_milliseconds', quantity: 500 }],
       }).success,
     ).toBe(false);
+    expect(
+      transcriptionRequestSchema.safeParse({ model: 'openai/whisper-1', timestamps: 'word' })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('checkTranscriptionRequest', () => {
+  const transcriber: ModelAudioCapabilities = {
+    voices: [],
+    languages: ['es', 'es-ES'],
+    detectsLanguage: true,
+    audioFormats: { input: ['audio/mp4', 'audio/webm'], output: [] },
+  };
+
+  it('accepts what the model declares, and an omitted language it detects', () => {
+    expect(checkTranscriptionRequest({ language: 'es-ES' }, 'audio/mp4', transcriber)).toEqual([]);
+    expect(checkTranscriptionRequest({}, 'audio/webm', transcriber)).toEqual([]);
+  });
+
+  it('names every field the model does not take', () => {
+    const issues = checkTranscriptionRequest(
+      { language: 'gl', prompt: 'Kaana' },
+      'audio/wav',
+      transcriber,
+    );
+    expect(issues.map((issue) => issue.param)).toEqual(['file', 'language', 'prompt']);
+    expect(issues[1]?.message).toContain('omit it to let the model detect the language');
+    expect(
+      checkTranscriptionRequest({ prompt: 'Kaana' }, 'audio/mp4', {
+        ...transcriber,
+        transcriptionPrompt: true,
+      }),
+    ).toEqual([]);
   });
 });
 

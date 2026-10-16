@@ -240,6 +240,18 @@ type RealtimeTranslationTarget struct {
 	TargetLanguage string `json:"targetLanguage"`
 }
 
+// RealtimeToolDefinition is a function tool a session may call: the chat tool
+// without `strict`, which no realtime provider's session schema has
+// (realtimeToolDefinitionSchema, contract set 5.0.0).
+type RealtimeToolDefinition struct {
+	Type        string         `json:"type"`
+	Name        string         `json:"name"`
+	Description *string        `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+func (t RealtimeToolDefinition) toolName() string { return t.Name }
+
 // RealtimeSessionConfig is a session's full configuration.
 type RealtimeSessionConfig struct {
 	Instructions            *string                     `json:"instructions,omitempty"`
@@ -250,9 +262,8 @@ type RealtimeSessionConfig struct {
 	TurnDetection           RealtimeTurnDetection       `json:"turnDetection"`
 	InputAudioTranscription *RealtimeInputTranscription `json:"inputAudioTranscription,omitempty"`
 	Translation             *RealtimeTranslationTarget  `json:"translation,omitempty"`
-	Tools                   []ToolDefinition            `json:"tools,omitempty"`
+	Tools                   []RealtimeToolDefinition    `json:"tools,omitempty"`
 	ToolChoice              *ToolChoice                 `json:"toolChoice,omitempty"`
-	Temperature             *float64                    `json:"temperature,omitempty"`
 	MaxOutputTokens         *int                        `json:"maxOutputTokens,omitempty"`
 }
 
@@ -263,9 +274,8 @@ type RealtimeSessionConfigUpdate struct {
 	OutputModalities        []RealtimeOutputModality    `json:"outputModalities,omitempty"`
 	TurnDetection           *RealtimeTurnDetection      `json:"turnDetection,omitempty"`
 	InputAudioTranscription *RealtimeInputTranscription `json:"inputAudioTranscription,omitempty"`
-	Tools                   []ToolDefinition            `json:"tools,omitempty"`
+	Tools                   []RealtimeToolDefinition    `json:"tools,omitempty"`
 	ToolChoice              *ToolChoice                 `json:"toolChoice,omitempty"`
-	Temperature             *float64                    `json:"temperature,omitempty"`
 	MaxOutputTokens         *int                        `json:"maxOutputTokens,omitempty"`
 }
 
@@ -479,7 +489,7 @@ func (c RealtimeSessionConfig) validate() error {
 	if c.Translation != nil && !boundedText(&c.Translation.TargetLanguage, 2, 35) {
 		return fmt.Errorf("config.translation.targetLanguage is a BCP 47 tag")
 	}
-	return validateSharedConfig(c.Tools, c.ToolChoice, c.Temperature, c.MaxOutputTokens)
+	return validateSharedConfig(c.Tools, c.ToolChoice, c.MaxOutputTokens)
 }
 
 func validateOutputModalities(modalities []RealtimeOutputModality) error {
@@ -499,8 +509,8 @@ func validateOutputModalities(modalities []RealtimeOutputModality) error {
 	return nil
 }
 
-func validateSharedConfig(tools []ToolDefinition, choice *ToolChoice, temperature *float64, maxOutputTokens *int) error {
-	if err := validateTuning(tools, temperature, maxOutputTokens); err != nil {
+func validateSharedConfig(tools []RealtimeToolDefinition, choice *ToolChoice, maxOutputTokens *int) error {
+	if err := validateTuning(tools, maxOutputTokens); err != nil {
 		return err
 	}
 	return validateToolDeclarations(tools, choice, "session")
@@ -508,12 +518,9 @@ func validateSharedConfig(tools []ToolDefinition, choice *ToolChoice, temperatur
 
 // validateTuning holds the ranges a session configuration and a session update
 // share. The update schema has no tool-declaration refinement, so it stops here.
-func validateTuning(tools []ToolDefinition, temperature *float64, maxOutputTokens *int) error {
+func validateTuning(tools []RealtimeToolDefinition, maxOutputTokens *int) error {
 	if len(tools) > 128 {
 		return fmt.Errorf("config.tools holds at most 128 tools")
-	}
-	if temperature != nil && (*temperature < 0 || *temperature > 2) {
-		return fmt.Errorf("config.temperature is between 0 and 2")
 	}
 	if maxOutputTokens != nil && *maxOutputTokens <= 0 {
 		return fmt.Errorf("config.maxOutputTokens must be positive")
@@ -681,7 +688,7 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 		update := c.Config
 		if update.Instructions == nil && update.OutputModalities == nil && update.TurnDetection == nil &&
 			update.InputAudioTranscription == nil && update.Tools == nil && update.ToolChoice == nil &&
-			update.Temperature == nil && update.MaxOutputTokens == nil {
+			update.MaxOutputTokens == nil {
 			return fmt.Errorf("contract: a session update changes at least one field")
 		}
 		if !boundedText(update.Instructions, 0, maxRealtimeInstructions) {
@@ -700,7 +707,7 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 				return fmt.Errorf("contract: %w", err)
 			}
 		}
-		if err := validateTuning(update.Tools, update.Temperature, update.MaxOutputTokens); err != nil {
+		if err := validateTuning(update.Tools, update.MaxOutputTokens); err != nil {
 			return fmt.Errorf("contract: %w", err)
 		}
 	case *RealtimeItemCreateCommand:

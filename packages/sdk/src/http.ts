@@ -59,6 +59,14 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 
+/**
+ * A realtime session's options: a request's, without `idempotencyKey`. A
+ * session is opened once over one WebSocket and resumed by its own
+ * `session.resume`, so there is no retried open for a key to deduplicate, and
+ * a key that changed nothing is not offered (SDK 2.0.0).
+ */
+export type RealtimeConnectOptions = Omit<RequestOptions, 'idempotencyKey'>;
+
 export type ErrorDialect = 'public' | 'chat';
 
 export interface SendInit {

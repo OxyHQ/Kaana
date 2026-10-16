@@ -120,11 +120,11 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 // admitUpdate refuses, before anything is written, an update whose effect the
 // provider does not document how to bill: switching between a clock-billed
 // turn detection and one billed by audio (xAI documents each mode's billing,
-// not a session that changes mode). A text-only update on a provider that
-// always speaks is refused by wireModalities, before this.
+// not a session that changes mode). An update the statement does not serve is
+// refused by refuseIssues, before this.
 func (s *session) admitUpdate(update contract.RealtimeSessionConfigUpdate) error {
 	d := s.dialect
-	if update.TurnDetection == nil || d.sessionClock == "" {
+	if update.TurnDetection == nil || !d.billsClock() {
 		return nil
 	}
 	s.mu.Lock()
@@ -135,8 +135,8 @@ func (s *session) admitUpdate(update contract.RealtimeSessionConfigUpdate) error
 		}
 	}
 	s.mu.Unlock()
-	if (update.TurnDetection.Type == d.sessionClock) != (turnDetection == d.sessionClock) {
-		return refused("config.turnDetection", fmt.Sprintf("%s bills a %s session by its duration and any other by its audio, and does not document a session that changes between them; open a new session instead", d.name, d.sessionClock))
+	if d.clockBilled(update.TurnDetection.Type) != d.clockBilled(turnDetection) {
+		return refused("config.turnDetection", fmt.Sprintf("%s bills a session by its duration under one turn detection and by its audio under another, and does not document a session that changes between them; open a new session instead", d.name))
 	}
 	return nil
 }
@@ -516,7 +516,7 @@ func (s *session) responseDone(event serverEvent) ([]provider.RealtimeUpstreamEv
 	}
 	units, source := []contract.UsageQuantity{}, contract.UsageProviderReported
 	switch {
-	case !s.dialect.tokenUsage:
+	case !s.dialect.tokenUsage():
 		// The provider's token counts are not what it bills (xAI bills audio
 		// by the minute), so none is settled; the session's measured units
 		// are reported when it closes (meter.go).
