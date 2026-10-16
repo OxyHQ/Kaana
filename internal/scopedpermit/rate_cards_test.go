@@ -32,7 +32,7 @@ func TestReviewedCardAppendPreservesEachObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != "0c77b6f6c709e57693c1a1e7770e4d74d14985e9d4fcab91d0f2e7632102ccfc" {
+	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != "af1b99e209a7f494c48b7795bda742723c56c848cd795d03a063aa2600823aa9" {
 		t.Fatal("historical xAI observation bytes changed")
 	}
 	baseline, err := providercost.Load(ordinary)

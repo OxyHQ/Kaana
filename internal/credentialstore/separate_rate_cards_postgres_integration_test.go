@@ -60,8 +60,13 @@ func TestIndependentCardObservationsRegisterAndReplayWithoutChangingXai(t *testi
 			t.Fatal("existing observation could be re-dated")
 		}
 	}
+	// Each document registered once, whatever version the production card is.
+	versions := make([]string, 0, len(observations))
+	for _, observation := range observations {
+		versions = append(versions, observation.VersionID)
+	}
 	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM provider_rate_card_versions WHERE version_id IN ('rc_jev_registration_fixture','rc_xai_realtime_2026_10_16')`).Scan(&count); err != nil || count != 2 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM provider_rate_card_versions WHERE version_id = ANY($1)`, versions).Scan(&count); err != nil || count != 2 {
 		t.Fatal("not exact two registrations", err)
 	}
 }

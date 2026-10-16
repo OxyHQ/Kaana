@@ -530,7 +530,7 @@ func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 		t.Fatalf("the production rate card is not loadable: %v", err)
 	}
 	observation, loaded := cards.Observation()
-	if !loaded || observation.VersionID != "rc_xai_realtime_2026_10_16" || observation.Source != providercost.RateCardProviderDocumentation {
+	if !loaded || observation.VersionID != "rc_voice_2026_10_16" || observation.Source != providercost.RateCardProviderDocumentation {
 		t.Fatalf("production observation = %+v", observation)
 	}
 	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
@@ -549,6 +549,27 @@ func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 	text := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}})
 	if len(text.UnpricedUnits) != 0 || text.Cost.Amount != 4_000_000_000 {
 		t.Errorf("one text item = %+v, want USD 0.004", text)
+	}
+}
+
+// File transcription is priced at each provider's list price per hour of
+// audio, truncated per millisecond: xAI $0.10, Groq Whisper $0.111 and its
+// turbo $0.04.
+func TestTheProductionRateCardPricesTranscriptionAtItsListPrice(t *testing.T) {
+	cards, err := providercost.Load("../../configs/provider-rates.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const hour = 3_600_000
+	for deployment, want := range map[contract.DeploymentID]int64{
+		"dep_xai_grok_voice_transcribe_2_0_observed_2026_10_16": 99_997_200_000,
+		"dep_groq_whisper_large_v3_observed_2026_10_16":         110_998_800_000,
+		"dep_groq_whisper_large_v3_turbo_observed_2026_10_16":   39_999_600_000,
+	} {
+		measured := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitAudioInputMilliseconds, Quantity: hour}})
+		if len(measured.UnpricedUnits) != 0 || measured.Cost.Currency != "USD" || measured.Cost.Amount != want {
+			t.Errorf("an hour on %s = %+v, want %d", deployment, measured, want)
+		}
 	}
 }
 
