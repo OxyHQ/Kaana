@@ -155,44 +155,9 @@ func requireVerifiedPostgresTLS(config *pgxpool.Config) error {
 // Close releases the pool.
 func (p *Postgres) Close() { p.pool.Close() }
 
-// Migrate applies schema and grants with the dedicated migrator identity. Role
-// creation and password rotation are a separate master-authority one-shot.
-func (p *Postgres) Migrate(ctx context.Context) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("credential store: beginning migration: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := migratePostgres(ctx, tx); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("credential store: committing migrations: %w", err)
-	}
-	return nil
-}
-
 type migrationExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-func migratePostgres(ctx context.Context, tx migrationExecutor) error {
-	if _, err := tx.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS kaana_schema_migrations (
-			version TEXT PRIMARY KEY,
-			checksum TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`); err != nil {
-		return fmt.Errorf("credential store: creating migration ledger: %w", err)
-	}
-
-	for _, migration := range schemaMigrations() {
-		if err := applyMigration(ctx, tx, migration.version, migration.body); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 type schemaMigration struct{ version, body string }

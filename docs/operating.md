@@ -318,7 +318,20 @@ Run with a migration database role, not the serving role:
 kaana-credentials migrate
 ```
 
-The migration is idempotent. Runtime never applies DDL at startup; granting a
+The migration is idempotent. Each pending migration commits in its own
+transaction, so its locks are released before the next one runs. Every
+statement runs with a 3 s `lock_timeout` (a migration may raise its own with
+`SET LOCAL`) and a 120 s `statement_timeout`. A migration that needs longer
+declares `-- oxy:statement-timeout=600s` in its file. A lock timeout or deadlock
+rolls that migration back and retries it, up to 8 attempts with jittered
+backoff from 1 s to 30 s. This is the contract `@oxy.so/db` gives Oxy's
+TypeScript backends (oxy#1778). `TestEveryNewMigrationKeepsItsLocksShort` gates
+every migration after `0022` with the same rules as oxy's migration lock check:
+foreign keys go on existing tables `NOT VALID`, no backfill or index build sits
+beside an `ACCESS EXCLUSIVE` lock, and indexes on existing tables use
+`IF NOT EXISTS`. A reviewed exception carries `-- oxy:lock-review=<reason>`.
+
+Runtime never applies DDL at startup; granting a
 serving process schema authority to make deployment convenient would make every
 request-serving task a migration principal.
 
