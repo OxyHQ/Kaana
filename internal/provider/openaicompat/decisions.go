@@ -241,8 +241,7 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 			}
 			// TypeSafe computes Score on normalized mass, even when its wire
 			// probabilities retain a small rounding residual. Validate the raw
-			// distribution before normalizing; never repair invalid probabilities
-			// or widen the contract's existing 1e-6 mass/score tolerances.
+			// distribution before normalizing; never repair invalid probabilities.
 			mass := 0.0
 			for _, p := range answer.Distribution {
 				if math.IsNaN(p) || math.IsInf(p, 0) || p < 0 || p > 1 {
@@ -250,17 +249,54 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 				}
 				mass += p
 			}
-			if math.Abs(mass-1) > 1e-6 {
+			// Jev prints a Score answer at two decimals (TypeSafe's published
+			// examples and every answer it has served Kaana): each printed
+			// probability, and the score, may be up to half a hundredth from the
+			// value TypeSafe computed. Only an answer printed wholly on that grid
+			// gets the tolerance that rounding implies; any other keeps the
+			// contract's 1e-6.
+			grid := wire.Score != nil && onSystemOneGrid(*wire.Score)
+			for _, p := range answer.Distribution {
+				grid = grid && onSystemOneGrid(p)
+			}
+			massTolerance := 1e-6
+			if grid {
+				massTolerance = float64(len(answer.Distribution))*systemOneHalfUnit + 1e-9
+			}
+			if mass <= 0 || math.Abs(mass-1) > massTolerance {
 				return fail("probability_sum")
 			}
 			for i := range answer.Distribution {
 				answer.Distribution[i] /= mass
 			}
-			// Keep the actual provider score/reply. The unchanged contract below
-			// still rejects disagreement with the normalized weighted mean.
-			answer.Mean = wire.Score
-			answer.Reply = &contract.DecisionReply{Score: wire.Score}
 			answer.Confidence = wire.Confidence
+			if !grid {
+				// Keep the actual provider score/reply. The unchanged contract below
+				// still rejects disagreement with the normalized weighted mean.
+				answer.Mean = wire.Score
+				answer.Reply = &contract.DecisionReply{Score: wire.Score}
+				break
+			}
+			// A printed score agrees with the printed distribution to the
+			// precision both were printed in: half a unit for the score itself,
+			// plus what rounding each probability can have moved the mean,
+			// |level - mean| x half a unit, over the printed mass. The answer
+			// then carries that mean, as the OpenAI adapter does
+			// (decisions_openai.go), so the contract's 1e-6 holds on what is
+			// returned.
+			mean := 0.0
+			for i, p := range answer.Distribution {
+				mean += float64(i) * p
+			}
+			spread := 0.0
+			for i := range answer.Distribution {
+				spread += math.Abs(float64(i) - mean)
+			}
+			if math.Abs(*wire.Score-mean) > systemOneHalfUnit+systemOneHalfUnit*spread/mass+1e-6 {
+				return fail("score_distribution")
+			}
+			answer.Mean = &mean
+			answer.Reply = &contract.DecisionReply{Score: &mean}
 		case "noul":
 			if wire.Confidence != nil || wire.Choice != nil || wire.Score != nil || wire.Probabilities != nil {
 				return fail("noul_fields")
@@ -275,6 +311,16 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 	outcome.Decisions = answers
 	outcome.FinishReason = contract.FinishStop
 	return outcome, nil
+}
+
+// systemOneHalfUnit is half of the hundredth Jev prints its answers in.
+const systemOneHalfUnit = 0.005
+
+// onSystemOneGrid reports whether a number was printed at two decimals or
+// fewer: 0.57 and 1 are, 0.7499995 is not.
+func onSystemOneGrid(value float64) bool {
+	scaled := value * 100
+	return math.Abs(scaled-math.Round(scaled)) <= 1e-9
 }
 
 // jsonShape says how Go's decoder reads one JSON object. A struct matches

@@ -42,8 +42,8 @@ func TestDecisionsMentionShapeAndFiniteDiagnostics(t *testing.T) {
 		{"score_null", `"4":0}`, `"4":null}`, "score_probability_key"},
 		{"confidence", `"confidence":0.35`, `"confidence":null`, "reply_confidence"},
 		{"range", `"1":0.57`, `"1":1.1`, "probability_value"},
-		{"sum", `"1":0.57`, `"1":0.56`, "probability_sum"},
-		{"mean", `"score":1.43`, `"score":1.44`, "score_distribution"},
+		{"sum", `"1":0.57`, `"1":0.5`, "probability_sum"},
+		{"mean", `"score":1.43`, `"score":1.5`, "score_distribution"},
 		{"score_missing", `"score":1.43`, `"score":null`, "score_value"},
 		{"duplicate", `"noul":0}`, `"noul":0,"noul":0}`, "ambiguous_json"},
 	} {
@@ -71,5 +71,31 @@ func TestDecisionDiagnosticUnknownValidatorErrorIsClosed(t *testing.T) {
 	reason := decisionAnswerFailureReason(errors.New("PRIVATE_UNRECOGNIZED_ERROR_CANARY"))
 	if reason != "answer_contract" || provider.DecisionResponseDiagnostic("invalid systemone response: "+reason) != reason {
 		t.Fatal("unknown validator error did not use fixed fallback")
+	}
+}
+
+// Jev prints answers at two decimals, so a printed distribution can miss one by
+// a hundredth and the printed score can miss the printed distribution's mean.
+// Synthetic values in that shape; the answer carries the distribution's mean.
+func TestDecisionsTwoDecimalRounding(t *testing.T) {
+	req, route := decisionFixture()
+	req.Input.Decisions.Questions = []contract.DecisionQuestion{
+		{ID: "feedScore", Kind: "score", Question: "Rate", Levels: []string{"zero", "one", "two", "three", "four"}},
+	}
+	call := &provider.Call{Route: route, Decisions: req.Input.Decisions}
+	a := &Adapter{config: Config{Provider: "openrouter"}}
+	for _, answer := range []string{
+		`{"type":"score","score":1,"confidence":0.4,"probabilities":{"0":0.33,"1":0.33,"2":0.33,"3":0,"4":0}}`,
+		`{"type":"score","score":1.57,"confidence":0.4,"probabilities":{"0":0.01,"1":0.44,"2":0.53,"3":0.02,"4":0}}`,
+	} {
+		body := `{"model":"typesafe/jev-1.13-20260917","id":"synthetic","provider":"TypeSafe","answers":{"feedScore":` + answer + `},"usage":{"input_tokens":1,"output_tokens":1}}`
+		out, err := a.readDecisions(strings.NewReader(body), call)
+		if err != nil {
+			t.Fatalf("two-decimal answer refused: %v", err)
+		}
+		got := out.Decisions[0]
+		if err := contract.ValidateDecisionAnswers(*req.Input.Decisions, out.Decisions); err != nil || *got.Mean != *got.Reply.Score {
+			t.Fatalf("answer does not satisfy the contract: %v", err)
+		}
 	}
 }

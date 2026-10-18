@@ -11,6 +11,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // authorization is what one request asks Oxy to grant, in content-free terms.
@@ -135,6 +136,9 @@ func (a *admission) request(modality contract.Modality, format contract.APIForma
 // writes both in one transaction.
 func (s *Server) execute(ctx context.Context, a *admission, request *contract.Request, sink kaana.Sink) kaana.Result {
 	result := s.executor.Execute(kaana.DeferCostRecording(ctx), request, sink)
+	if result.Failure != nil {
+		s.logFailure(a, result)
+	}
 	// The settlement is written beside the response, not before it: the
 	// customer's last frame does not wait on Kaana's database, and Drain
 	// waits for every settlement still being written before the task stops.
@@ -144,6 +148,24 @@ func (s *Server) execute(ctx context.Context, a *admission, request *contract.Re
 		s.settle(context.WithoutCancel(ctx), a, result)
 	}()
 	return result
+}
+
+// logFailure records a failed execution in content-free terms: the code, how
+// many upstream attempts ran (each may have been billed) and, for a decisions
+// answer Kaana refused, the finite validation reason. Never the failure's
+// message, which can carry upstream text.
+func (s *Server) logFailure(a *admission, result kaana.Result) {
+	attributes := []any{
+		"requestId", a.requestID, "grantId", a.grant.GrantID,
+		"code", result.Failure.Code, "retryable", result.Failure.Retryable,
+		"upstreamAttempts", len(result.UpstreamCost.Attempts),
+	}
+	if result.Failure.Code == contract.CodeProviderError {
+		if reason := provider.DecisionResponseDiagnostic(result.Failure.Message); reason != "" {
+			attributes = append(attributes, "decisionResponseValidation", reason)
+		}
+	}
+	s.logger.Warn("inference request failed", attributes...)
 }
 
 // Drain waits for every settlement still being written, or for ctx.

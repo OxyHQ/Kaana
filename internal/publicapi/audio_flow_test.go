@@ -258,6 +258,9 @@ func TestStreamedSpeechOverSSEAndAFailureMidStream(t *testing.T) {
 	if failure.Error.Code != "provider_error" || failure.Error.Message != contract.PublicMessage("provider_error") {
 		t.Errorf("error frame = %+v", failure)
 	}
+	if logs := h.logs.String(); !strings.Contains(logs, `"msg":"inference request failed"`) || !strings.Contains(logs, `"code":"provider_error"`) {
+		t.Errorf("the failure is not in the operator log: %s", logs)
+	}
 	h.settle()
 	settlement := h.oxy.settled()["grt_2"]
 	if settlement.Report.Outcome != contract.OutcomePartial || len(settlement.Report.Units) == 0 || settlement.ServedStep == nil {
