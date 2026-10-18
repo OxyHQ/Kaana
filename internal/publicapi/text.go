@@ -723,18 +723,25 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input := contract.DecisionInput{State: request.State, Instructions: request.Instructions, Questions: request.Questions, Effort: request.Effort}
-	if !request.Model.Valid() || !request.Model.Pinned() {
-		writeError(w, requestID, invalid(requestID, "model", "decisions require a revision-pinned model"))
+	if request.Model != nil && (!request.Model.Valid() || !request.Model.Pinned()) {
+		writeError(w, requestID, invalid(requestID, "model", "a decisions model is revision-pinned"))
 		return
 	}
 	if err := input.Validate(); err != nil {
 		writeError(w, requestID, invalid(requestID, "questions", err.Error()))
 		return
 	}
-	target := contract.ModelTarget(request.Model)
+	// A pinned model is the only revision that may answer. Without one, Oxy
+	// grants the application's decisions profile, line by line, and the first
+	// line Kaana can serve answers (docs/decisions.md).
+	var target *contract.GrantTarget
+	if request.Model != nil {
+		pinned := contract.ModelTarget(*request.Model)
+		target = &pinned
+	}
 	estimate := (len(body) + 3) / 4
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
-		operation: contract.GrantDecisions, target: &target, body: body, endpoint: "/v1/decisions",
+		operation: contract.GrantDecisions, target: target, body: body, endpoint: "/v1/decisions",
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate},
 	})
 	if failure != nil {

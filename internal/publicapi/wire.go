@@ -409,7 +409,7 @@ type embeddingsResponse struct {
 
 // decisionRequest is decisionRequestSchema.
 type decisionRequest struct {
-	Model        contract.ModelReference     `json:"model"`
+	Model        *contract.ModelReference    `json:"model,omitempty"`
 	State        string                      `json:"state"`
 	Instructions *string                     `json:"instructions,omitempty"`
 	Questions    []contract.DecisionQuestion `json:"questions"`

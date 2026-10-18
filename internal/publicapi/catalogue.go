@@ -397,7 +397,7 @@ func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) 
 func (s *Server) served(audience contract.CatalogueAudience) []servedModel {
 	current := s.inventory.Current()
 	revisions := make(map[contract.ModelID][]string)
-	for _, endpoint := range current.PublicDeployments() {
+	for _, endpoint := range current.Deployments() {
 		route, err := current.Deployment(endpoint.DeploymentID)
 		if err != nil {
 			continue

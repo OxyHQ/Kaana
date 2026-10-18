@@ -1,7 +1,6 @@
 package publisher
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -12,8 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/OxyHQ/Kaana/internal/contract"
 )
 
 func decisionsFixture(t *testing.T, name string) []byte {
@@ -43,18 +40,20 @@ func decisionsFixture(t *testing.T, name string) []byte {
 	return b
 }
 
-func TestDecisionDiscoveryAuthenticatedListToPrivateSnapshot(t *testing.T) {
-	text := decisionsFixture(t, "text")
+// Jev is an ordinary OpenRouter deployment: the authenticated decisions list
+// and the public zero-retention list publish it under its dated canonical
+// slug, and without a zero-retention endpoint it is not published at all.
+func TestJevPublishesUnderItsDatedCanonicalSlug(t *testing.T) {
 	expanded := decisionsFixture(t, "text-decisions")
 	zdr := decisionsFixture(t, "zdr")
-	for _, missingZDR := range []bool{false, true} {
-		name := "exact-private-candidate"
-		if missingZDR {
-			name = "no-zdr-refused"
-		}
-		t.Run(name, func(t *testing.T) {
+	attribution, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, withZDR := range []bool{true, false} {
+		t.Run(map[bool]string{true: "zero-retention", false: "no-zero-retention"}[withZDR], func(t *testing.T) {
 			currentZDR := zdr
-			if missingZDR {
+			if !withZDR {
 				var list struct {
 					Data []json.RawMessage `json:"data"`
 				}
@@ -74,120 +73,57 @@ func TestDecisionDiscoveryAuthenticatedListToPrivateSnapshot(t *testing.T) {
 					}
 				}
 				list.Data = kept
-				var err error
-				currentZDR, err = json.Marshal(list)
-				if err != nil {
+				if currentZDR, err = json.Marshal(list); err != nil {
 					t.Fatal(err)
 				}
 			}
-			listReads, zdrReads := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodGet {
-					t.Errorf("unexpected method %s", r.Method)
-					w.WriteHeader(405)
-					return
-				}
 				switch r.URL.Path {
 				case "/v1/models":
-					listReads++
-					if r.Header.Get("Authorization") != "Bearer synthetic-test-key" {
-						t.Error("model discovery lost authentication")
-						w.WriteHeader(401)
-						return
+					if r.URL.Query().Get("output_modalities") != "text,decisions,embeddings" || r.Header.Get("Authorization") != "Bearer synthetic-test-key" {
+						t.Errorf("decisions discovery changed: %s", r.URL.String())
 					}
-					if r.URL.Query().Get("output_modalities") == "text,decisions,embeddings" {
-						_, _ = w.Write(expanded)
-					} else {
-						_, _ = w.Write(text)
-					}
+					_, _ = w.Write(expanded)
 				case "/v1/endpoints/zdr":
-					zdrReads++
-					if r.Header.Get("Authorization") != "" {
-						t.Error("credential sent to public ZDR list")
-					}
 					_, _ = w.Write(currentZDR)
 				default:
 					t.Errorf("unexpected path %s", r.URL.Path)
-					w.WriteHeader(404)
+					w.WriteHeader(http.StatusNotFound)
 				}
 			}))
 			defer server.Close()
-			discoveries, permit := privateFixture(t)
-			target := discoveries[0].Provider
-			target.BaseURL = server.URL + "/v1"
+			target := Provider{Slug: "openrouter", BaseURL: server.URL + "/v1", APIKey: "synthetic-test-key"}
 			models, err := Discover(context.Background(), server.Client(), target)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if listReads != 1 || zdrReads != 1 {
-				t.Fatalf("expected one authenticated list plus public ZDR, got %d/%d", listReads, zdrReads)
+			at := time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+			built, err := BuildSnapshot([]Discovery{{Provider: target, Models: models}}, attribution, Observations{}, at)
+			if err != nil {
+				t.Fatal(err)
 			}
-			discoveries[0] = Discovery{Provider: target, Models: models}
-			allowed := func(contract.DeploymentID, contract.ProviderSlug) (Withholding, bool) { return Withholding{}, false }
-			at := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
-			candidate, err := scopedCandidate(discoveries, permit, at, allowed, false)
-			if missingZDR {
-				if err == nil || candidate != nil {
-					t.Fatal("private candidate admitted without ZDR")
+			var file snapshotFile
+			if err := json.Unmarshal(built.Body, &file); err != nil {
+				t.Fatal(err)
+			}
+			var jev []snapshotDeployment
+			for _, deployment := range file.Deployments {
+				if strings.HasPrefix(deployment.UpstreamModelID, "typesafe/") {
+					jev = append(jev, deployment)
+				}
+			}
+			if !withZDR {
+				if len(jev) != 0 {
+					t.Fatalf("Jev published without a zero-retention endpoint: %+v", jev)
 				}
 				return
 			}
-			if err != nil || candidate == nil {
-				t.Fatalf("authenticated decisions discovery omitted exact private candidate: %v", err)
+			want := snapshotDeployment{
+				DeploymentID: "dep_openrouter_typesafe_jev_1_13_20260917_observed_2026_10_19", Provider: "openrouter",
+				ModelReference: "typesafe/jev-1.13@observed-2026-10-19", UpstreamModelID: "typesafe/jev-1.13-20260917", Current: true,
 			}
-			if candidate.Current || candidate.ScopedExecution == nil || !candidate.ScopedExecution.Equal(&permit.Audience) {
-				t.Fatal("private candidate authority changed")
-			}
-			attribution, err := LoadAttribution("../../configs/model-attribution.json")
-			if err != nil {
-				t.Fatal(err)
-			}
-			ordinary, err := BuildSnapshot(discoveries, attribution, Observations{}, at)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Remove only the 13 new IDs using the retained default catalogue, then
-			// compare complete rendered ordinary inventory bytes, not just counts.
-			var defaultList struct {
-				Data []struct {
-					ID string `json:"id"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(text, &defaultList); err != nil {
-				t.Fatal(err)
-			}
-			ids := map[string]bool{}
-			for _, row := range defaultList.Data {
-				ids[row.ID] = true
-			}
-			oldModels := []DiscoveredModel{}
-			added := 0
-			for _, model := range models {
-				if ids[model.UpstreamModelID] {
-					oldModels = append(oldModels, model)
-				} else {
-					added++
-					if _, ok := attribution.ModelLine(target.Slug, model.UpstreamModelID); ok {
-						t.Fatalf("new decision ID gained ordinary attribution: %s", model.UpstreamModelID)
-					}
-				}
-			}
-			if len(oldModels) != 466 || added != 13 {
-				t.Fatalf("retained fixture changed: %d old/%d new", len(oldModels), added)
-			}
-			before, err := BuildSnapshot([]Discovery{{Provider: target, Models: oldModels}}, attribution, Observations{}, at)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(before.Body, ordinary.Body) {
-				t.Fatal("ordinary inventory changed when adding decisions")
-			}
-			private, err := buildSnapshotWithholding(discoveries, attribution, Observations{}, at, allowed, false, permit)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if private.Deployments != ordinary.Deployments+1 || private.PrivatePublicationOmitted {
-				t.Fatal("expected exactly one additional scoped route")
+			if len(jev) != 1 || jev[0].DeploymentID != want.DeploymentID || jev[0].ModelReference != want.ModelReference || jev[0].UpstreamModelID != want.UpstreamModelID || !jev[0].Current {
+				t.Fatalf("Jev deployment = %+v, want %+v", jev, want)
 			}
 		})
 	}

@@ -933,6 +933,22 @@ Se añade a la lista de la fase 5, punto 1 (OxyHQServices):
 Lo que Oxy necesita para leer los precios está en `docs/operating.md`, «El
 catálogo declarado».
 
+## Enmienda 2026-10-18: decisions es una concesión ordinaria
+
+Decisión del dueño: una aprobación estable en lugar de permisos de un solo
+post. Contract set 7.0.0 retira de la decisión 4 el `exactRoute` de la
+concesión y el `canonicalInputSha256` de la autorización (con `canonicalJson`),
+y con ellos los sobres v3 (scoped) y v4 (Private Auto), la ruta firmada
+`POST /internal/v1/decisions` y toda aprobación compilada en el código. Una
+petición de decisions es una concesión de pasos ordenados como cualquier otra:
+`model` es opcional (fijado si está; si falta, Oxy concede el perfil de
+decisions de la aplicación, línea a línea), y cada ruta de decisions necesita su
+tarifa revisada en `configs/provider-rates.json`, que es su techo de precio; sin
+tarifa no se sirve. Jev se publica como un deployment ordinario de OpenRouter con
+su `canonical_slug` fechado; el adaptador de la Decisions API de OpenAI
+(`openai-decisions`) queda construido sin clave ni deployment. Detalle:
+`docs/decisions.md`.
+
 ## Consumidores del corte en `origin/main` (2026-10-15)
 
 `git grep` de `OxyInferenceClient|createInferenceClient|@oxy.so/core/inference`

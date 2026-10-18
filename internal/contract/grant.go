@@ -242,18 +242,17 @@ type AuthorizationClient struct {
 // operation. Credential is the caller's bearer, forwarded opaque and never
 // stored or logged.
 type InferenceAuthorizationRequest struct {
-	SchemaVersion        int                 `json:"schemaVersion"`
-	Kind                 string              `json:"kind"`
-	Credential           string              `json:"credential"`
-	RequestID            RequestID           `json:"requestId"`
-	Operation            GrantOperation      `json:"operation"`
-	Target               *GrantTarget        `json:"target,omitempty"`
-	Facts                GrantRequestFacts   `json:"facts"`
-	IdempotencyKey       *IdempotencyKey     `json:"idempotencyKey,omitempty"`
-	OnBehalfOfUserID     *UserID             `json:"onBehalfOfUserId,omitempty"`
-	BodySHA256           string              `json:"bodySha256"`
-	CanonicalInputSHA256 *string             `json:"canonicalInputSha256,omitempty"`
-	Client               AuthorizationClient `json:"client"`
+	SchemaVersion    int                 `json:"schemaVersion"`
+	Kind             string              `json:"kind"`
+	Credential       string              `json:"credential"`
+	RequestID        RequestID           `json:"requestId"`
+	Operation        GrantOperation      `json:"operation"`
+	Target           *GrantTarget        `json:"target,omitempty"`
+	Facts            GrantRequestFacts   `json:"facts"`
+	IdempotencyKey   *IdempotencyKey     `json:"idempotencyKey,omitempty"`
+	OnBehalfOfUserID *UserID             `json:"onBehalfOfUserId,omitempty"`
+	BodySHA256       string              `json:"bodySha256"`
+	Client           AuthorizationClient `json:"client"`
 }
 
 // CatalogueAuthorizationRequest asks what a credential may see of the
@@ -331,28 +330,6 @@ type GrantStep struct {
 	Limits GrantStepLimits `json:"limits"`
 }
 
-// GrantExactRouteApproval names the source approval an exact route carries.
-type GrantExactRouteApproval string
-
-const (
-	ApprovalScopedExecution   GrantExactRouteApproval = "scoped_execution"
-	ApprovalPrivateAuto       GrantExactRouteApproval = "private_auto"
-	ApprovalMentionClassifier GrantExactRouteApproval = "mention_classifier"
-)
-
-var grantExactRouteApprovalValues = []GrantExactRouteApproval{ApprovalScopedExecution, ApprovalPrivateAuto, ApprovalMentionClassifier}
-
-// GrantExactRoute is the exact route of an operation with a source approval.
-type GrantExactRoute struct {
-	Approval       GrantExactRouteApproval `json:"approval"`
-	DeploymentID   DeploymentID            `json:"deploymentId"`
-	Provider       ProviderSlug            `json:"provider"`
-	KeyID          string                  `json:"keyId"`
-	ModelReference ModelReference          `json:"modelReference"`
-	PriceVersionID string                  `json:"priceVersionId"`
-	InputSHA256    string                  `json:"inputSha256"`
-}
-
 // GrantEconomics is how Oxy charges the grant.
 type GrantEconomics struct {
 	Treatment      EconomicTreatment `json:"treatment"`
@@ -392,7 +369,6 @@ type Grant struct {
 	Reservation                *GrantReservation           `json:"reservation,omitempty"`
 	Capacity                   *GrantCapacity              `json:"capacity,omitempty"`
 	Steps                      []GrantStep                 `json:"steps"`
-	ExactRoute                 *GrantExactRoute            `json:"exactRoute,omitempty"`
 	CustomerProviderCredential *CustomerProviderCredential `json:"customerProviderCredential,omitempty"`
 	IdempotencyKey             *IdempotencyKey             `json:"idempotencyKey,omitempty"`
 	Client                     GrantClient                 `json:"client"`
@@ -489,27 +465,6 @@ func (g *Grant) Validate() error {
 		}
 		if byok && step.Limits.MaxFundingTier != nil {
 			return fmt.Errorf("contract: steps[%d]: a funding ceiling bounds platform keys; a customer credential is billed to the customer", index)
-		}
-	}
-	if route := g.ExactRoute; route != nil {
-		line, revision, pinned := strings.Cut(string(route.ModelReference), "@")
-		step := g.Steps[0]
-		if !pinned || len(g.Steps) != 1 || step.Target.Kind != GrantTargetModel ||
-			string(*step.Target.ModelLine) != line || step.Target.Revision == nil ||
-			string(*step.Target.Revision) != revision || byok {
-			return errors.New("contract: an exact route is one platform route for the one pinned model the grant serves")
-		}
-		admitted := false
-		for _, candidate := range step.Limits.AdmittedModelLines {
-			if string(candidate.ModelLine) == line && candidate.PriceVersionID == route.PriceVersionID {
-				admitted = true
-			}
-		}
-		if !admitted {
-			return errors.New("contract: the exact route settles at its admitted price")
-		}
-		if !isMember(route.Approval, grantExactRouteApprovalValues) || !ValidSHA256Hex(route.InputSHA256) {
-			return errors.New("contract: the exact route names its approval and input hash")
 		}
 	}
 	return nil

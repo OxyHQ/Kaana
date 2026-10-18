@@ -14,7 +14,7 @@ const request = {
   state: 'Synthetic state',
   questions: [{ id: 'q', kind: 'noul' as const, question: 'Is this synthetic?' }],
 };
-it('accepts only the declared effort range and exact immutable model', () => {
+it('accepts only the declared effort range and, when named, an exact immutable model', () => {
   for (const effort of ['instant', 'low', 'medium', 'high', 'xhigh'])
     expect(decisionRequestSchema.safeParse({ ...request, effort }).success).toBe(true);
   for (const effort of ['auto', 'pro', 'ultra', 'max', '', null])
@@ -23,6 +23,8 @@ it('accepts only the declared effort range and exact immutable model', () => {
     false,
   );
   expect(decisionRequestSchema.safeParse({ ...request, stream: true }).success).toBe(false);
+  const { model: _model, ...profile } = request;
+  expect(decisionRequestSchema.safeParse(profile).success).toBe(true);
 });
 it('bounds exclusive options, ordered levels and exact unique IDs', () => {
   const question = {

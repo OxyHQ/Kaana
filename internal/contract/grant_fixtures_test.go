@@ -118,10 +118,9 @@ func grantValidFixtures(t *testing.T) []fixture {
 			AudioInputMilliseconds: pointerTo(1500), EmbeddingInputs: pointerTo(2), Images: pointerTo(1),
 			DeclaredTools: 2, Stream: true, RealtimeSessionKind: &kind,
 		},
-		IdempotencyKey:       &idempotency,
-		OnBehalfOfUserID:     &user,
-		BodySHA256:           commercial.BodySHA256,
-		CanonicalInputSHA256: pointerTo(aliaPro.BodySHA256),
+		IdempotencyKey:   &idempotency,
+		OnBehalfOfUserID: &user,
+		BodySHA256:       commercial.BodySHA256,
 		Client: AuthorizationClient{
 			Endpoint: "/v1/realtime", ClientRequestID: &clientRequestID,
 			ReceivedAt: "2026-10-15T10:00:00.000Z", Labels: RequestLabels{"feature": "voice"},

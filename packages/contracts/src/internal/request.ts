@@ -1,5 +1,5 @@
 /**
- * The signed Oxy→Kaana request envelope (versions 1–4).
+ * The signed Oxy→Kaana request envelope (versions 1–2).
  *
  * Moved from `@oxy.so/contracts` 4.12.0 (`src/inference/request.ts`) by Kaana ADR 0002.
  */
@@ -21,13 +21,7 @@ import {
 } from '../public/messages.js';
 import { routingPolicyReferenceSchema } from '../public/policy.js';
 import { inferenceAttributionSchema } from './attribution.js';
-import {
-  PRIVATE_AUTO_REQUEST_ENVELOPE_VERSION,
-  privateAutoExecutionSchema,
-  privateAutoInputSchema,
-} from './privateAutoExecution.js';
 import { authorizedRouteSchema, routingTargetSchema } from './routing.js';
-import { SCOPED_REQUEST_ENVELOPE_VERSION, scopedExecutionSchema } from './scopedExecution.js';
 
 /**
  * The request's input.
@@ -103,8 +97,6 @@ const modelLineOf = (reference: string): string => {
 const inferenceRequestObjectSchema = z.object({
   /** See `version.ts`: this is the Oxy→data-plane request envelope. */
   schemaVersion: z.literal(2),
-  /** Recognized so v2 refuses rather than silently stripping a restriction. */
-  scopedExecution: scopedExecutionSchema.optional(),
   attribution: inferenceAttributionSchema,
   target: routingTargetSchema,
   modality: inferenceModalitySchema,
@@ -162,20 +154,25 @@ const inferenceRequestObjectSchema = z.object({
 });
 
 export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((request, ctx) => {
-  if (request.scopedExecution !== undefined)
-    ctx.addIssue({
-      code: 'custom',
-      path: ['scopedExecution'],
-      message: 'Scoped execution requires envelope v3.',
-    });
   if (request.input.format === 'decisions' || request.client.apiFormat === 'decisions') {
+    // A pinned model is served on exactly that revision, and an unpinned one
+    // on one revision of its line. A request that named no model carries its
+    // policy's target and is served on whichever pinned line the first
+    // admissible route names. Either way no route substitutes a revision, and
+    // an attempt never moves after dispatch.
+    const target = request.target;
+    const routes = request.authorizedRoutes ?? [];
+    const revision =
+      target.kind === 'model' && target.modelReference.includes('@')
+        ? target.modelReference
+        : routes[0]?.modelReference;
     const exactModel =
-      request.target.kind === 'model' && request.target.modelReference.includes('@');
-    const foreignRoute = request.authorizedRoutes?.some(
-      (route) =>
-        request.target.kind !== 'model' ||
-        route.modelReference !== request.target.modelReference ||
-        route.substitution !== 'same_model',
+      target.kind === 'routing_profile_id' ||
+      (revision !== undefined && revision.split('@')[0] === target.modelReference.split('@')[0]);
+    const foreignRoute = routes.some((route) =>
+      target.kind === 'model'
+        ? route.modelReference !== revision || route.substitution !== 'same_model'
+        : !route.modelReference.includes('@'),
     );
     if (
       request.input.format !== 'decisions' ||
@@ -198,7 +195,7 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
         code: 'custom',
         path: ['input'],
         message:
-          'Decisions require exact-model typed nonstreaming input without generation controls or model substitution.',
+          'Decisions require typed nonstreaming input on pinned routes without generation controls or revision substitution.',
       });
     }
   }
@@ -373,103 +370,6 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
   }
 });
 
-/** Explicit restrictive generation: old v2 receivers reject this version whole. */
-export const scopedInferenceRequestSchema = inferenceRequestObjectSchema
-  .extend({
-    schemaVersion: z.literal(SCOPED_REQUEST_ENVELOPE_VERSION),
-    scopedExecution: scopedExecutionSchema,
-  })
-  .superRefine((request, ctx) => {
-    const { scopedExecution: scope, ...base } = request;
-    const legacy = inferenceRequestSchema.safeParse({ ...base, schemaVersion: 2 });
-    if (!legacy.success)
-      for (const issue of legacy.error.issues)
-        ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
-    const principal = request.attribution.principal;
-    const route = request.authorizedRoutes?.[0];
-    if (
-      request.input.format !== 'decisions' ||
-      request.client.apiFormat !== 'decisions' ||
-      scope.requestId !== request.attribution.requestId ||
-      scope.idempotencyKey !== request.idempotencyKey ||
-      scope.principal.accountId !== principal.billing.accountId ||
-      scope.principal.applicationId !== principal.applicationId ||
-      scope.principal.credentialId !== principal.credentialId ||
-      scope.principal.environment !== principal.environment ||
-      scope.policy.routingPolicyId !== request.routingPolicy.routingPolicyId ||
-      scope.policy.policyVersion !== request.routingPolicy.policyVersion ||
-      request.authorizedRoutes?.length !== 1 ||
-      route?.customerProviderCredential !== undefined ||
-      route?.deploymentId !== scope.deploymentId ||
-      route?.provider !== scope.provider ||
-      route?.modelReference !== scope.modelReference ||
-      request.target.kind !== 'model' ||
-      request.target.modelReference !== scope.modelReference
-    ) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['scopedExecution'],
-        message:
-          'Scoped execution must restrict the exact attributed decisions request and one platform route.',
-      });
-    }
-  });
-
-/** Private repeated Auto is independently negotiated, never a v3 fixture renewal. */
-export const privateAutoInferenceRequestSchema = inferenceRequestObjectSchema
-  .omit({ scopedExecution: true })
-  .extend({
-    schemaVersion: z.literal(PRIVATE_AUTO_REQUEST_ENVELOPE_VERSION),
-    privateAutoExecution: privateAutoExecutionSchema,
-  })
-  .strict()
-  .superRefine((request, ctx) => {
-    const { privateAutoExecution: permit, ...base } = request;
-    const legacy = inferenceRequestSchema.safeParse({ ...base, schemaVersion: 2 });
-    if (!legacy.success)
-      for (const issue of legacy.error.issues)
-        ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
-    const input = privateAutoInputSchema.safeParse(request.input);
-    if (!input.success)
-      for (const issue of input.error.issues)
-        ctx.addIssue({ code: 'custom', path: ['input', ...issue.path], message: issue.message });
-    const principal = request.attribution.principal;
-    const route = request.authorizedRoutes?.[0];
-    if (
-      request.attribution.userId !== undefined ||
-      request.client.apiFormat !== 'decisions' ||
-      permit.requestId !== request.attribution.requestId ||
-      permit.operationId !== request.idempotencyKey ||
-      permit.principal.accountId !== principal.billing.accountId ||
-      permit.principal.applicationId !== principal.applicationId ||
-      permit.principal.credentialId !== principal.credentialId ||
-      permit.principal.environment !== principal.environment ||
-      !principal.inferenceScopes.includes('inference:invoke') ||
-      request.client.endpoint !== '/internal/auto-classification' ||
-      permit.policy.routingPolicyId !== request.routingPolicy.routingPolicyId ||
-      permit.policy.policyVersion !== request.routingPolicy.policyVersion ||
-      request.authorizedRoutes?.length !== 1 ||
-      route?.customerProviderCredential !== undefined ||
-      route?.deploymentId !== permit.deploymentId ||
-      route?.provider !== permit.provider ||
-      route?.modelReference !== permit.modelReference ||
-      request.target.kind !== 'model' ||
-      request.target.modelReference !== permit.modelReference ||
-      route.regions.length !== permit.regions.length ||
-      route.regions.some((region) => !permit.regions.includes(region)) ||
-      Date.parse(permit.runtimeExpiresAt) <= Date.parse(request.client.receivedAt) ||
-      Date.parse(permit.runtimeExpiresAt) > Date.parse(request.client.receivedAt) + 1000
-    ) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['privateAutoExecution'],
-        message: 'Private Auto must bind one exact attributed decisions child and platform route.',
-      });
-    }
-  });
-
-export type ScopedInferenceRequest = z.infer<typeof scopedInferenceRequestSchema>;
-export type PrivateAutoInferenceRequest = z.infer<typeof privateAutoInferenceRequestSchema>;
 export type InferenceInput = z.infer<typeof inferenceInputSchema>;
 export type ClientRequestMetadata = z.infer<typeof clientRequestMetadataSchema>;
 export type InferenceRequest = z.infer<typeof inferenceRequestSchema>;

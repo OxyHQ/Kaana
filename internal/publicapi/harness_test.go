@@ -78,6 +78,7 @@ const (
 	textModel     = contract.ModelReference("stub/model@2026-05-01")
 	fallbackModel = contract.ModelReference("stub/fallback@2026-05-01")
 	speechModel   = contract.ModelReference("stub/voice@v1")
+	judgeModel    = contract.ModelReference("stub/judge@2026-05-01")
 	whisperModel  = contract.ModelReference("stub/whisper@v1")
 	realtimeModel = contract.ModelReference("openai/gpt-realtime-2.1@observed-2026-09-30")
 )
@@ -105,7 +106,7 @@ func (*stubAdapter) Provider() contract.ProviderSlug { return "stub" }
 func (s *stubAdapter) PlatformCredentials() *provider.KeyPool { return s.pool }
 func (*stubAdapter) APIFormats() []contract.APIFormat {
 	return []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions,
-		contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions, contract.APIFormatEmbeddings}
+		contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions, contract.APIFormatEmbeddings, contract.APIFormatDecisions}
 }
 func (s *stubAdapter) Translate(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	s.mu.Lock()
@@ -141,6 +142,15 @@ func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provi
 	failAfter, chunks := s.failAfter, max(s.chunks, 3)
 	s.mu.Unlock()
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}
+	if request.Client.APIFormat == contract.APIFormatDecisions {
+		// Every question answered as an even proposition, on input alone.
+		for _, question := range request.Input.Decisions.Questions {
+			half := 0.5
+			outcome.Decisions = append(outcome.Decisions, contract.DecisionAnswer{ID: question.ID, Kind: question.Kind, Probability: &half})
+		}
+		outcome.Units = []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: 9}, {Unit: contract.UnitRequests, Quantity: 1}}
+		return outcome, nil
+	}
 	if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 		return outcome, err
 	}
@@ -607,6 +617,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_stub_b", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-b", "regions": []string{"eu"}, "current": true},
 		{"deploymentId": "dep_fallback", "provider": "stub", "modelReference": fallbackModel, "upstreamModelId": "stub-fallback", "current": true},
 		{"deploymentId": "dep_speech", "provider": "stub", "modelReference": speechModel, "upstreamModelId": "stub-voice", "current": true},
+		{"deploymentId": "dep_judge", "provider": "stub", "modelReference": judgeModel, "upstreamModelId": "stub-judge", "current": true},
 		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true,
 			"observed": json.RawMessage(whisperObserved)},
 		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true,
@@ -651,12 +662,14 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{DeploymentID: "dep_stub_b", Provider: "stub", KeyID: "key_free"},
 		{DeploymentID: "dep_fallback", Provider: "stub", KeyID: "key_free"},
 		{DeploymentID: "dep_speech", Provider: "stub", KeyID: "key_paid"},
+		{DeploymentID: "dep_judge", Provider: "stub", KeyID: "key_paid"},
 		{DeploymentID: "dep_whisper", Provider: "stub", KeyID: "key_paid"},
 	}, adapter, realtimeAdapter); err != nil {
 		t.Fatal(err)
 	}
 	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_public_v1","source":"operator","sourceVersion":"test","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
-		{"deploymentId":"dep_realtime","currency":"USD","rates":[{"unit":"output_tokens","amountPerUnit":24000000}]}]}`))
+		{"deploymentId":"dep_realtime","currency":"USD","rates":[{"unit":"output_tokens","amountPerUnit":24000000}]},
+		{"deploymentId":"dep_judge","currency":"USD","rates":[{"unit":"input_tokens","amountPerUnit":100000},{"unit":"output_tokens","amountPerUnit":0}]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

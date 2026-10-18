@@ -41,20 +41,19 @@ func TestScoreNormalizedMassRealWire(t *testing.T) {
 		{"nonfinite_number", `{"0":0,"1":0.25,"2":0,"3":0,"4":1e999}`, 3.25, "ambiguous_json"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req, route := decisionFixture("openrouter")
+			req, route := decisionFixture()
 			req.Input.Decisions.Questions = []contract.DecisionQuestion{
 				{ID: "score", Kind: "score", Question: "Rate synthetic content", Levels: []string{"zero", "one", "two", "three", "four"}},
 				{ID: "noul", Kind: "noul", Question: "Synthetic yes/no?"},
 			}
 			var calls atomic.Int32
-			a := decisionAdapter(t, "openrouter", func(w http.ResponseWriter, r *http.Request) {
+			a := decisionAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/systemone" {
 					t.Error("unexpected wire method/path")
 				}
 				_, _ = fmt.Fprintf(w, `{"model":"%s","id":"synthetic-normalized-score","provider":"TypeSafe","answers":{"score":{"type":"score","score":%.17g,"confidence":0.5,"probabilities":%s},"noul":{"type":"noul","noul":0.125}},"usage":{"input_tokens":12,"output_tokens":4,"cost":0.000000000123}}`, route.UpstreamModelID, tc.score, tc.probabilities)
 			})
-			a.decisions = decisionReview{true, true, true, true, true}
 			call, err := a.Translate(req, route)
 			if err != nil {
 				t.Fatal(err)

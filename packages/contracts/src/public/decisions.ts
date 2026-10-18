@@ -184,12 +184,17 @@ function validateInput(payload: DecisionInput, ctx: z.RefinementCtx): void {
 
 export const decisionInputSchema = z.object(payloadFields).strict().superRefine(validateInput);
 
+/**
+ * `model`, when present, pins the exact revision that must answer, and is
+ * never substituted. Absent, the application's decisions profile chooses: Oxy
+ * grants its lines in order and the first one Kaana can serve answers; the
+ * success names the revision that did (contract set 7.0.0).
+ */
 export const decisionRequestSchema = z
   .object({
-    model: modelReferenceSchema.refine(
-      (model) => model.includes('@'),
-      'Decisions require a revision-pinned model.',
-    ),
+    model: modelReferenceSchema
+      .refine((model) => model.includes('@'), 'Decisions require a revision-pinned model.')
+      .optional(),
     ...payloadFields,
   })
   .strict()

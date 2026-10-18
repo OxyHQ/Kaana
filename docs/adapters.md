@@ -428,12 +428,12 @@ a caller choosing by language never sends them one.
 Primary wire specification: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
 
 
-### Dormant System One decisions
+### Decisions
 
-The same provider-configured adapter implements the typed `decisions` family
-for direct `typesafe` and the existing `openrouter` slug, using `/systemone`.
-Their production rights/privacy/ZDR/eligibility gates remain closed. Decisions
-have an explicit stricter routing object, actual reply/confidence signals,
-nonstreaming JSON output, and separate synthetic real-wire tests; see
-[decisions.md](decisions.md) for wire mapping, refused efforts, failure
-semantics, and the pending contracts publication. Existing chat conformance still runs unchanged.
+Two adapters execute the typed `decisions` family, each a branch of the
+provider-configured `openaicompat` adapter: OpenRouter's `/systemone` for
+TypeSafe's Jev, and OpenAI's `/decisions` under the decisions-only slug
+`openai-decisions`. Both refuse a call without the route's rate-card ceiling,
+refuse an effort, and pass `conformance.RunDecisions`; the chat suite does not
+run on `openai-decisions`, which executes nothing else. Mapping, prices,
+refusals and failure semantics: [decisions.md](decisions.md).

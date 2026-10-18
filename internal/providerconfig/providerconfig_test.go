@@ -18,8 +18,8 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 32 {
-		t.Fatalf("built-in providers = %d, want the 32 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 33 {
+		t.Fatalf("built-in providers = %d, want the 33 documented in README.md and docs/operating.md", got)
 	}
 	if endpoint := providerconfig.Known["elevenlabs"]; endpoint.Protocol != providerconfig.ProtocolElevenLabsSpeech || endpoint.Discovery != providerconfig.DiscoveryElevenLabsModels || endpoint.BaseURL != "https://api.elevenlabs.io/v1" {
 		t.Fatalf("ElevenLabs speech configuration = %+v", endpoint)

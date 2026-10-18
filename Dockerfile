@@ -139,9 +139,9 @@ RUN mkdir -p /out/etc/kaana-cutovers \
 # The reviewed production rate card (docs/cost.md), in a directory of its own
 # for the reason the attribution table has one: /etc/kaana is a mount point.
 # It is read only when the task sets KAANA_PROVIDER_RATES_PATH to it, and the
-# example file is never baked. The separate Jev observation stays inert until
-# its independent compiled authority is reviewed; neither Jev card replaces xAI.
-RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json configs/provider-rates-jev-scoped.json configs/provider-rates-jev-private-auto.json /out/etc/kaana-rates/ \
+# example file is never baked. A decisions route without a card there is
+# refused (docs/decisions.md), never priced at zero.
+RUN mkdir -p /out/etc/kaana-rates && cp configs/provider-rates.json /out/etc/kaana-rates/ \
     && chown -R 65532:65532 /out/etc/kaana-rates
 
 # The declared catalogue (docs/operating.md, "The declared catalogue"): identity,

@@ -39,9 +39,13 @@ package contract
 // timestamps, segments and words); 6.0.0 is one canonical API (Kaana ADR
 // 0003): the catalogue loses what 5.0.0 published of each provider's wire
 // (capabilities.realtime.parameters, audio.detectsLanguage and
-// audio.transcriptionPrompt) and gains each voice model's pricePerMinute.
+// audio.transcriptionPrompt) and gains each voice model's pricePerMinute;
+// 7.0.0 serves decisions as an ordinary grant (the request's model is
+// optional) and removes the one-off source approvals: the grant's exactRoute,
+// the canonical input hash, the scoped and Private Auto envelopes v3 and v4,
+// and a deployment's scopedExecution.
 // Oxy reads it from the health handshake but compares no version against it.
-const ContractVersion = "6.0.0"
+const ContractVersion = "7.0.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set
@@ -63,7 +67,7 @@ const RequestEnvelopeVersion = 2
 // window. Callers must still validate the version-specific target rules before
 // interpreting the rest of the envelope.
 func SupportsRequestEnvelopeVersion(version int) bool {
-	return version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion || version == ScopedRequestEnvelopeVersion || version == PrivateAutoRequestEnvelopeVersion
+	return version == LegacyRequestEnvelopeVersion || version == RequestEnvelopeVersion
 }
 
 // UsageReportSchemaVersion is the normalized usage-report schema this build

@@ -43,8 +43,6 @@ on:
       - 'configs/model-attribution.json'
       - 'configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json'
       - 'configs/provider-rates.json'
-      - 'configs/provider-rates-jev-scoped.json'
-      - 'configs/provider-rates-jev-private-auto.json'
       - 'configs/public-catalogue.json'
       - 'configs/deployment-commercial.json'
       - '.github/credential-admin-operations.json'

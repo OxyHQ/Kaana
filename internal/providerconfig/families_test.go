@@ -147,22 +147,24 @@ func TestElevenLabsModelsAreSpeech(t *testing.T) {
 	}
 }
 
-func TestJevFamiliesRemainUnpublishable(t *testing.T) {
+func TestDecisionsFamilies(t *testing.T) {
 	for _, item := range []struct {
 		slug  contract.ProviderSlug
 		model string
 	}{
-		{"typesafe", "jev-1.13.0"}, {"typesafe", "jev-latest"},
-		{"openrouter", "typesafe/jev-1.13"}, {"openrouter", "typesafe/jev-1.13-20260917"},
-		{"openrouter", "~typesafe/jev-latest"}, {"openrouter", "typesafe/jev-router"},
+		{"openrouter", "typesafe/jev-1.13-20260917"}, {"openai-decisions", "gpt-6-luna"},
 	} {
 		family, classified, expressible := ClassifyModel(item.slug, item.model)
-		if !classified || expressible || family.Format != contract.APIFormatDecisions {
-			t.Fatalf("Jev row can publish: %s/%s", item.slug, item.model)
+		if !classified || !expressible || family.Format != contract.APIFormatDecisions {
+			t.Errorf("%s/%s = %+v (%t, %t), want decisions", item.slug, item.model, family, classified, expressible)
 		}
 	}
-	family, classified, expressible := ClassifyModel("openrouter", "openai/gpt-6-sol")
-	if !classified || !expressible || family.Format != contract.APIFormatChatCompletions {
-		t.Fatal("ordinary chat positive control blocked")
+	// The decisions slug executes nothing else, and gpt-6-luna stays a chat
+	// model on OpenAI's chat slug.
+	if _, _, expressible := ClassifyModel("openai-decisions", "gpt-6-sol"); expressible {
+		t.Error("openai-decisions can publish a chat model")
+	}
+	if family, _, _ := ClassifyModel("openai", "gpt-6-luna"); family.Format != contract.APIFormatChatCompletions {
+		t.Errorf("openai/gpt-6-luna = %+v, want chat", family)
 	}
 }

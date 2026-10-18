@@ -51,7 +51,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/rotation"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
@@ -82,7 +81,6 @@ const MaxDeploymentDescriptorQueryIDs = 64
 
 // Server serves the Oxy-facing surface.
 type Server struct {
-	privateAutoSource   func() *contract.PrivateAutoSourceApproval
 	executor            *kaana.Executor
 	verifier            *edgeauth.Verifier
 	validationVerifier  *edgeauth.Verifier
@@ -203,11 +201,9 @@ func New(config Config) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/inference", s.handleInference)
-	mux.HandleFunc("POST /internal/v1/decisions", s.handleInference)
 	mux.Handle("GET /internal/v1/realtime", s.realtime)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
-	mux.HandleFunc("POST /internal/v1/models/query", s.handleScopedModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
 	mux.HandleFunc("POST /internal/v1/customer-provider-credentials/validations", s.handleCredentialValidation)
 	mux.HandleFunc("POST /internal/v1/provider-telemetry/attempts", s.handleAttemptFeed)
@@ -306,18 +302,6 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate signed Unicode escapes before encoding/json can replace an
-	// unpaired surrogate with U+FFFD. Oxy owns holds; rejection here precedes
-	// every Kaana executor, adapter and provider operation.
-	if r.URL.Path == "/internal/v1/decisions" {
-		w.Header().Set("Cache-Control", "no-store")
-		if err := contract.ValidateDecisionJSONUnicode(body); err != nil {
-			s.writeRejection(w, http.StatusBadRequest,
-				contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
-			return
-		}
-	}
-
 	if version, err := envelopeVersion(body); err != nil {
 		s.writeRejection(w, http.StatusBadRequest,
 			contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
@@ -343,34 +327,6 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := request.ValidateScopedExecution(); err != nil {
-		failure := contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error())
-		if request.SchemaVersion == contract.ScopedRequestEnvelopeVersion && request.ScopedExecution == nil {
-			failure = failure.WithParam("schemaVersion")
-		}
-		s.writeRejection(w, http.StatusBadRequest, failure)
-		return
-	}
-	if request.SchemaVersion == contract.ScopedRequestEnvelopeVersion {
-		var scoped contract.ScopedRequest
-		if err := json.Unmarshal(body, &scoped); err != nil {
-			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "invalid scoped request"))
-			return
-		}
-		request = scoped.InferenceRequest()
-	}
-	if request.SchemaVersion == contract.PrivateAutoRequestEnvelopeVersion {
-		var private contract.PrivateAutoRequest
-		if err := json.Unmarshal(body, &private); err != nil {
-			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "invalid private Auto request"))
-			return
-		}
-		request = private.InferenceRequest()
-	}
-	if err := request.ValidateScopedInputBytes(body); err != nil {
-		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, err.Error()))
-		return
-	}
 	requestID := request.Attribution.RequestID
 	if requestID == "" {
 		s.writeRejection(w, http.StatusBadRequest,
@@ -379,16 +335,10 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(HeaderRequestID, string(requestID))
-	if r.URL.Path == "/internal/v1/decisions" || request.Client.APIFormat == contract.APIFormatDecisions || request.Input.Format == contract.InputDecisions {
-		w.Header().Set("Cache-Control", "no-store")
-		if r.URL.Path != "/internal/v1/decisions" || request.Client.APIFormat != contract.APIFormatDecisions || request.Input.Format != contract.InputDecisions {
-			s.writeRejection(w, http.StatusBadRequest, contract.NewError(requestID, contract.CodeInvalidRequest, "decisions require the signed decisions endpoint and family"))
-			return
-		}
-		startedAt := time.Now()
-		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })
-		s.writeDecisions(w, requestID, result)
-		s.logResult(requestID, result, time.Since(startedAt))
+	if request.Client.APIFormat == contract.APIFormatDecisions || request.Input.Format == contract.InputDecisions {
+		// Decisions are an ordinary grant on https://kaana.ai/v1/decisions;
+		// the signed envelope lane serves none (docs/decisions.md).
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(requestID, contract.CodeInvalidRequest, "decisions are served on https://kaana.ai/v1/decisions").WithParam("client.apiFormat"))
 		return
 	}
 
@@ -446,65 +396,6 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logResult(requestID, result, time.Since(startedAt))
-}
-
-// writeDecisions answers a decisions request in the three ways Oxy tells apart.
-//
-// A refusal before any provider attempt is a 4xx (or, for capacity, a typed 503
-// with no usage): nothing executed. Once an attempt reached an adapter, the
-// body may have been accepted and billed, so the answer is a typed
-// DecisionFailure with HTTP 502 and retryable false, carrying the usage report
-// only when the provider measured something. Absent usage means unmeasured.
-func (s *Server) writeDecisions(w http.ResponseWriter, requestID contract.RequestID, result kaana.Result) {
-	if result.Failure == nil && result.Decisions != nil {
-		writeJSON(w, http.StatusOK, result.Decisions)
-		return
-	}
-	failure := result.Failure
-	if failure == nil {
-		failure = contract.NewError(requestID, contract.CodeInternalError, "the adapter returned no decisions")
-	}
-	failure = new(*failure)
-	if len(result.UpstreamCost.Attempts) == 0 {
-		if status, refused := decisionRefusalStatus(failure.Code); refused {
-			s.writeRejection(w, status, failure)
-			return
-		}
-		w.Header().Set(HeaderRequestID, string(requestID))
-		writeJSON(w, http.StatusServiceUnavailable, contract.DecisionFailure{SchemaVersion: contract.DecisionSchemaVersion, RequestID: requestID, Error: *failure})
-		return
-	}
-	body := contract.DecisionFailure{SchemaVersion: contract.DecisionSchemaVersion, RequestID: requestID, Error: *failure.WithoutRetry()}
-	if report := result.Report; report != nil && len(report.Units) > 0 {
-		body.Usage = report
-		if err := body.Validate(); err != nil {
-			// Usage Oxy would refuse would cost the typed code as well; an
-			// unmeasured failure is the truthful fallback, and the operator
-			// record still holds what the provider reported.
-			s.logger.Error("decisions failure usage is not settleable", "requestId", requestID, "error", err)
-			body.Usage = nil
-		}
-	}
-	w.Header().Set(HeaderRequestID, string(requestID))
-	writeJSON(w, http.StatusBadGateway, body)
-}
-
-// decisionRefusalStatus maps a refusal made before any provider attempt to the
-// 4xx Oxy reads as "rejected before execution".
-func decisionRefusalStatus(code contract.ErrorCode) (int, bool) {
-	switch code {
-	case contract.CodeInvalidRequest, contract.CodeUnsupportedModality, contract.CodeContextLengthExceeded, contract.CodeOutputLimitExceeded:
-		return http.StatusBadRequest, true
-	case contract.CodeRequestTooLarge:
-		return http.StatusRequestEntityTooLarge, true
-	case contract.CodePermissionDenied, contract.CodeInsufficientScope, contract.CodeCommercialPermissionDenied, contract.CodePolicyViolation, contract.CodeBYOKCredentialInvalid:
-		return http.StatusForbidden, true
-	case contract.CodeModelNotFound:
-		return http.StatusNotFound, true
-	case contract.CodeRateLimited:
-		return http.StatusTooManyRequests, true
-	}
-	return 0, false
 }
 
 // logResult records what happened. It names ids, a route and an outcome, and
@@ -596,7 +487,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		response.Providers = append(response.Providers, adapter.Health(r.Context()))
 	}
 
-	endpoints := s.inventory.Current().PublicDeployments()
+	endpoints := s.inventory.Current().Deployments()
 	ids := make([]contract.DeploymentID, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		ids = append(ids, endpoint.DeploymentID)
@@ -615,10 +506,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 /* -------------------------------------------------------------------------- */
 
 type deploymentDescriptorsResponse struct {
-	PrivateAutoExecutionContractVersion string                           `json:"privateAutoExecutionContractVersion,omitempty"`
-	ScopedExecutionContractVersion      string                           `json:"scopedExecutionContractVersion,omitempty"`
-	SnapshotID                          string                           `json:"snapshotId"`
-	Deployments                         []inventory.DeploymentDescriptor `json:"deployments"`
+	SnapshotID  string                           `json:"snapshotId"`
+	Deployments []inventory.DeploymentDescriptor `json:"deployments"`
 }
 
 var (
@@ -658,17 +547,6 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 
 	current := s.inventory.Current()
 	descriptors := current.DeploymentDescriptors()
-	if query.ScopedExecutionContractVersion != "" {
-		descriptors = current.DeploymentDescriptorsScoped()
-	}
-	if query.PrivateAutoExecutionContractVersion != "" {
-		approval := s.privateAutoApproval()
-		if approval == nil || !approval.NotExpired(time.Now()) {
-			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodePermissionDenied, "private Auto negotiation unavailable"))
-			return
-		}
-		descriptors = current.DeploymentDescriptorsPrivateAutoAt(time.Now(), approval)
-	}
 	s.attachCommercial(descriptors)
 	if err := validateUniqueDeploymentDescriptors(descriptors); err != nil {
 		// Inventory loading already refuses duplicate ids. Keep the read surface's
@@ -712,16 +590,12 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, deploymentDescriptorsResponse{
-		SnapshotID:                          current.SnapshotID(),
-		PrivateAutoExecutionContractVersion: query.PrivateAutoExecutionContractVersion,
-		ScopedExecutionContractVersion:      query.ScopedExecutionContractVersion,
-		Deployments:                         descriptors,
+		SnapshotID:  current.SnapshotID(),
+		Deployments: descriptors,
 	})
 }
 
 type deploymentDescriptorQuery struct {
-	PrivateAutoExecutionContractVersion string
-	ScopedExecutionContractVersion      string
 	// nil means the explicit {} operator list. A non-nil slice is one exact
 	// selector or a bounded batch; the parser refuses an empty batch.
 	DeploymentIDs []contract.DeploymentID
@@ -749,15 +623,13 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 	query := deploymentDescriptorQuery{}
 	seenDeploymentID := false
 	seenDeploymentIDs := false
-	seenScopedVersion := false
-	seenPrivateAutoVersion := false
 	for decoder.More() {
 		keyToken, err := decoder.Token()
 		if err != nil {
 			return deploymentDescriptorQuery{}, fmt.Errorf("reading field name: %w", err)
 		}
 		key, ok := keyToken.(string)
-		if !ok || (key != "deploymentId" && key != "deploymentIds" && key != "scopedExecutionContractVersion" && key != "privateAutoExecutionContractVersion") {
+		if !ok || (key != "deploymentId" && key != "deploymentIds") {
 			return deploymentDescriptorQuery{}, errors.New("the query contains an unknown field")
 		}
 
@@ -770,22 +642,6 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 		}
 
 		switch key {
-		case "privateAutoExecutionContractVersion":
-			if seenPrivateAutoVersion {
-				return deploymentDescriptorQuery{}, errors.New("duplicate private Auto version")
-			}
-			seenPrivateAutoVersion = true
-			if json.Unmarshal(raw, &query.PrivateAutoExecutionContractVersion) != nil || query.PrivateAutoExecutionContractVersion != contract.PrivateAutoExecutionContractVersion {
-				return deploymentDescriptorQuery{}, errors.New("unsupported private Auto version")
-			}
-		case "scopedExecutionContractVersion":
-			if seenScopedVersion {
-				return deploymentDescriptorQuery{}, errors.New("duplicate scoped version")
-			}
-			seenScopedVersion = true
-			if json.Unmarshal(raw, &query.ScopedExecutionContractVersion) != nil || query.ScopedExecutionContractVersion != "3.6.0" {
-				return deploymentDescriptorQuery{}, errors.New("unsupported scoped version")
-			}
 		case "deploymentId":
 			if seenDeploymentID {
 				return deploymentDescriptorQuery{}, errors.New("deploymentId appears more than once")
@@ -826,9 +682,6 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 				query.DeploymentIDs = append(query.DeploymentIDs, deploymentID)
 			}
 		}
-	}
-	if seenScopedVersion && seenPrivateAutoVersion {
-		return deploymentDescriptorQuery{}, errors.New("private extensions cannot be combined")
 	}
 	if seenDeploymentID && seenDeploymentIDs {
 		return deploymentDescriptorQuery{}, errors.New("deploymentId and deploymentIds cannot be combined")
@@ -963,11 +816,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 type modelsResponse struct {
-	PrivateAutoExecutionContractVersion string                           `json:"privateAutoExecutionContractVersion,omitempty"`
-	Deployments                         []inventory.DeploymentDescriptor `json:"deployments,omitempty"`
-	ScopedExecutionContractVersion      string                           `json:"scopedExecutionContractVersion,omitempty"`
-	ContractVersion                     string                           `json:"contractVersion"`
-	CheckedAt                           contract.Timestamp               `json:"checkedAt"`
+	ContractVersion string             `json:"contractVersion"`
+	CheckedAt       contract.Timestamp `json:"checkedAt"`
 	// Configuration is the same snapshot identity the health surface reports, so
 	// a catalogue read and a health read can be compared without guessing
 	// whether they saw the same file.
@@ -1071,56 +921,10 @@ func newLocalRequestID() contract.RequestID {
 	return contract.RequestID("req_kaana_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(entropy[:])))
 }
 
-// handleScopedModels negotiates with a signed body; a URL/query flag cannot
-// activate private projection because the signature authenticates body bytes.
-func (s *Server) handleScopedModels(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	body, failure := s.readSignedBody(w, r)
-	if failure != nil {
-		s.writeRejection(w, http.StatusUnauthorized, failure)
-		return
-	}
-	query, err := parseDeploymentDescriptorQuery(body)
-	if err != nil || r.URL.RawQuery != "" || (query.ScopedExecutionContractVersion != "3.6.0" && query.PrivateAutoExecutionContractVersion != contract.PrivateAutoExecutionContractVersion) || query.DeploymentIDs != nil {
-		s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodeInvalidRequest, "explicit scoped catalogue negotiation required"))
-		return
-	}
-	current := s.inventory.Current()
-	now := time.Now()
-	entries := current.CatalogueScoped(now)
-	descriptors := current.DeploymentDescriptorsScopedAt(now)
-	if query.PrivateAutoExecutionContractVersion != "" {
-		approval := s.privateAutoApproval()
-		if approval == nil || !approval.NotExpired(now) {
-			s.writeRejection(w, http.StatusBadRequest, contract.NewError(newLocalRequestID(), contract.CodePermissionDenied, "private Auto negotiation unavailable"))
-			return
-		}
-		entries = current.CataloguePrivateAuto(now, approval)
-		descriptors = current.DeploymentDescriptorsPrivateAutoAt(now, approval)
-	}
-	s.attachCommercial(descriptors)
-	seenModels := map[contract.ModelID]contract.ModelReference{}
-	for _, entry := range entries {
-		if existing, duplicate := seenModels[entry.Model]; duplicate && existing != entry.Reference {
-			s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(newLocalRequestID(), contract.CodeServiceUnavailable, "scoped catalogue revision identity is ambiguous"))
-			return
-		}
-		seenModels[entry.Model] = entry.Reference
-	}
-	writeJSON(w, http.StatusOK, modelsResponse{PrivateAutoExecutionContractVersion: query.PrivateAutoExecutionContractVersion, ScopedExecutionContractVersion: query.ScopedExecutionContractVersion, ContractVersion: contract.ContractVersion, CheckedAt: contract.NewTimestamp(now), Configuration: s.inventory.Status(), ServesUnpinned: current.ServesUnpinned(now), Models: entries, Deployments: descriptors, PinnedOnlyReferences: current.PinnedOnlyReferences()})
-}
-
 // attachCommercial sets `commercial` on each descriptor from the reviewed file.
 // A deployment the file does not list is not sold and keeps none.
 func (s *Server) attachCommercial(descriptors []inventory.DeploymentDescriptor) {
 	for index := range descriptors {
 		descriptors[index].Commercial = s.commercial.For(descriptors[index].DeploymentID)
 	}
-}
-
-func (s *Server) privateAutoApproval() *contract.PrivateAutoSourceApproval {
-	if s.privateAutoSource != nil {
-		return s.privateAutoSource()
-	}
-	return scopedpermit.SourceReviewedPrivateAutoApproval()
 }

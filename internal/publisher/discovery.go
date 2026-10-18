@@ -166,6 +166,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 			return nil, err
 		}
 		restrictToZeroRetention(models, zeroRetention)
+		pinTypeSafeToCanonicalSlugs(models)
 	}
 	applyStatedReasoningEfforts(target.Slug, models)
 
@@ -669,9 +670,9 @@ func discoveryEndpoint(target Provider, page int) (string, error) {
 		if target.Slug == "openrouter" {
 			// The upstream default is text-only. Include decisions and
 			// embeddings in the same authenticated list (both are documented
-			// values of `output_modalities`); attribution, the capability table
-			// and scoped permits still decide what can be published,
-			// independently of discovery visibility.
+			// values of `output_modalities`); attribution and the capability
+			// table still decide what can be published, independently of
+			// discovery visibility.
 			return base + "/models?output_modalities=text,decisions,embeddings", nil
 		}
 		return base + "/models", nil
@@ -725,3 +726,32 @@ func discoveryEndpoint(target Provider, page int) (string, error) {
 }
 
 const alibabaModelListPageSize = 100
+
+// pinTypeSafeToCanonicalSlugs publishes TypeSafe's Jev under the id that names
+// its weights. OpenRouter lists Jev under an alias (`typesafe/jev-1.13`), and
+// its zero-retention list names that alias, which is why this runs after
+// restrictToZeroRetention; the row's own `canonical_slug`
+// (`typesafe/jev-1.13-20260917`) names the dated weights, and `/systemone`
+// accepts it and answers with it. An upstream id must name the same weights
+// tomorrow (docs/inventory.md), so a Jev row is published under its canonical
+// slug, and one that names no dated slug of its alias is unservable.
+func pinTypeSafeToCanonicalSlugs(models []DiscoveredModel) {
+	listed := make(map[string]bool, len(models))
+	for _, model := range models {
+		listed[model.UpstreamModelID] = true
+	}
+	for index := range models {
+		model := &models[index]
+		if !strings.HasPrefix(model.UpstreamModelID, "typesafe/") || model.Unservable != "" {
+			continue
+		}
+		switch {
+		case !strings.HasPrefix(model.CanonicalSlug, model.UpstreamModelID+"-"):
+			model.Unservable = "OpenRouter names no dated canonical slug for it, and a decisions route must name the same weights tomorrow"
+		case listed[model.CanonicalSlug]:
+			model.Unservable = "OpenRouter also lists its canonical slug as a model of its own"
+		default:
+			model.UpstreamModelID = model.CanonicalSlug
+		}
+	}
+}

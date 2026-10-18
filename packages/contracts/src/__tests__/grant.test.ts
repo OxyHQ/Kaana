@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   authorizationRequestSchema,
-  canonicalInputSha256,
-  canonicalJson,
   deploymentCommercialSchema,
   GRANT_SIGNATURE_DOMAIN,
   grantSchema,
@@ -86,39 +81,6 @@ describe('the grant carries today’s funding model', () => {
             limits: commercialGrant.steps[0].limits,
           },
         ],
-      }),
-    ).toBe(true);
-  });
-
-  it('binds an approval-bound operation to one exact route at its admitted price', () => {
-    const exact = {
-      ...commercialGrant,
-      steps: [
-        {
-          target: { kind: 'model', modelLine: 'openai/gpt-5', revision: '2026-06-01' },
-          limits: commercialGrant.steps[0].limits,
-        },
-      ],
-      reservation: { ...commercialGrant.reservation, fundingRestriction: 'promotional-only' },
-      exactRoute: {
-        approval: 'scoped_execution',
-        deploymentId: 'dep_openai_gpt5_use1',
-        provider: 'openai',
-        keyId: 'key_scoped_1',
-        modelReference: 'openai/gpt-5@2026-06-01',
-        priceVersionId: 'pv_1',
-        inputSha256: 'b'.repeat(64),
-      },
-    };
-    expect(grantSchema.safeParse(exact).success).toBe(true);
-    expect(refused({ ...exact, steps: [...exact.steps, ...exact.steps] })).toBe(true);
-    expect(
-      refused({ ...exact, exactRoute: { ...exact.exactRoute, priceVersionId: 'pv_other' } }),
-    ).toBe(true);
-    expect(
-      refused({
-        ...exact,
-        exactRoute: { ...exact.exactRoute, modelReference: 'openai/gpt-5@2026-07-01' },
       }),
     ).toBe(true);
   });
@@ -287,7 +249,7 @@ describe('settlement', () => {
   });
 });
 
-describe('signing and the canonical input hash', () => {
+describe('signing', () => {
   it('signs the scheme every Oxy↔Kaana body already uses, under its own domains', () => {
     expect(GRANT_SIGNATURE_DOMAIN).toBe('oxy-kaana-grant:v1');
     expect(SETTLEMENT_SIGNATURE_DOMAIN).toBe('kaana-oxy-settlement:v1');
@@ -303,25 +265,5 @@ describe('signing and the canonical input hash', () => {
     expect(settlementReadQuery(null)).toBe('');
     expect(settlementReadQuery('42')).toBe('cursor=42');
     expect(settlementReadQuery('a b/c')).toBe('cursor=a%20b%2Fc');
-  });
-
-  it('hashes the canonical JSON of the input, as Oxy and Go compute it', async () => {
-    const input = { format: 'text', text: 'Hola 👋', z: [1, 2], a: { b: true } };
-    const expected = createHash('sha256').update(canonicalJson(input), 'utf8').digest('hex');
-    expect(await canonicalInputSha256(input)).toBe(expected);
-    expect(canonicalJson(input)).toBe(
-      '{"a":{"b":true},"format":"text","text":"Hola 👋","z":[1,2]}',
-    );
-  });
-
-  it('reproduces the frozen cross-language vectors', async () => {
-    const golden = JSON.parse(
-      readFileSync(join(import.meta.dir, 'moved', 'scopedExecution.golden.json'), 'utf8'),
-    ) as { canonicalInputs: { input: unknown; canonical: string; sha256: string }[] };
-    expect(golden.canonicalInputs.length).toBeGreaterThan(0);
-    for (const vector of golden.canonicalInputs) {
-      expect(canonicalJson(vector.input)).toBe(vector.canonical);
-      expect(await canonicalInputSha256(vector.input)).toBe(vector.sha256);
-    }
   });
 });

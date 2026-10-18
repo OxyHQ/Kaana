@@ -329,13 +329,37 @@ func ValidateDecisionAnswers(input DecisionInput, answers []DecisionAnswer) erro
 
 // ValidateDecisionsEnvelope also runs in Translate, before any upstream spend.
 func (r *Request) ValidateDecisionsEnvelope() error {
-	if r.Client.APIFormat != APIFormatDecisions || r.Input.Format != InputDecisions || r.Input.Decisions == nil || r.Modality != ModalityText || r.Stream || r.Target.Kind != TargetModel || r.Target.ModelReference == nil || !r.Target.ModelReference.Pinned() || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || r.Reasoning != nil || r.Speech != nil || r.Transcription != nil || r.AudioOutput != nil || r.Input.Messages != nil || r.Input.Text != nil || r.Input.Texts != nil {
-		return fmt.Errorf("contract: decisions require exact-model typed nonstreaming text without generation controls")
+	if r.Client.APIFormat != APIFormatDecisions || r.Input.Format != InputDecisions || r.Input.Decisions == nil || r.Modality != ModalityText || r.Stream || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || r.Reasoning != nil || r.Speech != nil || r.Transcription != nil || r.AudioOutput != nil || r.Input.Messages != nil || r.Input.Text != nil || r.Input.Texts != nil {
+		return fmt.Errorf("contract: decisions require typed nonstreaming text without generation controls")
 	}
-	for _, route := range r.AuthorizedRoutes {
-		if route.ModelReference != *r.Target.ModelReference || route.Substitution != SubstitutionSameModel {
-			return fmt.Errorf("contract: decisions cannot substitute model revisions")
+	// A pinned model is served on exactly that revision, and an unpinned one
+	// on one revision of its line. A request that named no model is carried as
+	// its policy's target and served on whichever pinned line the first
+	// admissible route names. Either way no route substitutes a revision, and
+	// an attempt never moves after dispatch.
+	switch r.Target.Kind {
+	case TargetModel:
+		if r.Target.ModelReference == nil {
+			return fmt.Errorf("contract: a decisions model target names its model")
 		}
+		target := *r.Target.ModelReference
+		for _, route := range r.AuthorizedRoutes {
+			revision := r.AuthorizedRoutes[0].ModelReference
+			if target.Pinned() {
+				revision = target
+			}
+			if route.ModelReference != revision || !revision.Pinned() || revision.ModelID() != target.ModelID() || route.Substitution != SubstitutionSameModel {
+				return fmt.Errorf("contract: decisions cannot substitute model revisions")
+			}
+		}
+	case TargetRoutingProfileID:
+		for _, route := range r.AuthorizedRoutes {
+			if !route.ModelReference.Pinned() {
+				return fmt.Errorf("contract: decisions are served on pinned routes")
+			}
+		}
+	default:
+		return fmt.Errorf("contract: decisions require a model or policy target")
 	}
 	s := r.Sampling
 	if s.Temperature != nil || s.TopP != nil || s.TopK != nil || s.FrequencyPenalty != nil || s.PresencePenalty != nil || s.Seed != nil || s.StopSequences != nil {

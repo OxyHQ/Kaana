@@ -32,7 +32,7 @@ func TestOpenRouterProviderPolicyOnTheUpstreamWire(t *testing.T) {
 		{slug: "custom-compatible", wantPolicy: false, stream: false},
 	}
 	for slug, endpoint := range providerconfig.Known {
-		if endpoint.Protocol == providerconfig.ProtocolOpenAICompatible && slug != "openrouter" {
+		if servesChat(slug, endpoint) && slug != "openrouter" {
 			testCases = append(testCases, wireCase{slug: slug})
 		}
 	}

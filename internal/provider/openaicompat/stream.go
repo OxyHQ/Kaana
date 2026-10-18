@@ -15,7 +15,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/spokenchat"
 	"github.com/OxyHQ/Kaana/internal/providercost"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"github.com/OxyHQ/Kaana/internal/sse"
 )
 
@@ -40,23 +39,10 @@ const doneSentinel = "[DONE]"
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 	if call.Decisions != nil {
-		if child := call.PrivateAutoExecution; child != nil {
-			if a.privateAutoSource == nil || !child.MatchesSource(a.privateAutoSource(), time.Now()) || !call.Route.PrivateAutoSourceApproval.Equal(a.privateAutoSource()) || call.Route.ScopedExecution != nil || call.ScopedAttempt == nil || call.ScopedAttempt.KeyID != child.KeyID || call.Route.ScopedDecisionPriceLimit == nil {
-				return outcome, decisionsUnavailable()
-			}
-			deadline, err := time.Parse(time.RFC3339Nano, child.RuntimeExpiresAt)
-			if err != nil {
-				return outcome, decisionsUnavailable()
-			}
-			var stop context.CancelFunc
-			ctx, stop = context.WithDeadline(ctx, deadline)
-			defer stop()
-		} else if call.Route.ScopedExecution != nil {
-			if a.scopedSource == nil || !scopedpermit.Matches(call.Route.ScopedExecution, a.scopedSource(), time.Now()) || call.ScopedAttempt == nil || call.ScopedAttempt.KeyID != call.Route.ScopedExecution.KeyID || call.Route.ScopedDecisionPriceLimit == nil {
-				return outcome, decisionsUnavailable()
-			}
-		} else if !a.decisions.approved() || call.ScopedAttempt != nil || call.Route.PrivateAutoSourceApproval != nil {
-			return outcome, decisionsUnavailable()
+		if call.Route.DecisionPriceLimit == nil {
+			// The executor sets a limit on every decisions route; a call
+			// without one reached here some other way and is not sent.
+			return outcome, errNoDecisionPrice
 		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, a.decisionDeadline())

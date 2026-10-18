@@ -8,6 +8,7 @@ import {
   chatCompletionsRequestSchema,
   type DecisionRequest,
   type DecisionSuccess,
+  decisionAnswersMatch,
   decisionRequestSchema,
   decisionSuccessSchema,
   type EmbeddingsRequest,
@@ -44,7 +45,7 @@ import {
   transcribe,
 } from './audio.js';
 import { chatStream } from './chat.js';
-import { clientRefusal } from './errors.js';
+import { clientRefusal, KaanaProtocolError } from './errors.js';
 import {
   type KaanaOptions,
   type RealtimeConnectOptions,
@@ -233,8 +234,22 @@ export class Kaana {
         ),
     };
     this.decisions = {
-      create: async (request, options) =>
-        post('/decisions', body(request, decisionRequestSchema), decisionSuccessSchema, options),
+      create: async (request, options) => {
+        const sent = body(request, decisionRequestSchema);
+        const success = await post('/decisions', sent, decisionSuccessSchema, options);
+        // A schema-valid answer can still answer a different question: bind it
+        // to this request, and to the pinned revision when one was named.
+        if (
+          !decisionAnswersMatch(request, success.data) ||
+          (request.model !== undefined && success.model !== request.model)
+        ) {
+          throw new KaanaProtocolError(
+            'The decisions do not answer the questions or the model this request named.',
+            success.requestId,
+          );
+        }
+        return success;
+      },
     };
     this.generations = {
       get: async (id, options) => {

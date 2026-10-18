@@ -278,8 +278,8 @@ func TestCheckedInAttributionClassifiesTheLiveCatalogueDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attribution: %v", err)
 	}
-	if got := len(table.byProvider["openrouter"]); got != 384 {
-		t.Fatalf("OpenRouter attributions = %d, want the 383 transcribed entries plus the reviewed embedding model, as the checked-in file declares", got)
+	if got := len(table.byProvider["openrouter"]); got != 385 {
+		t.Fatalf("OpenRouter attributions = %d, want the 383 transcribed entries plus the reviewed embedding model and TypeSafe's Jev, as the checked-in file declares", got)
 	}
 
 	supported := map[contract.ProviderSlug]map[string]contract.ModelID{

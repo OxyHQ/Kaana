@@ -351,22 +351,6 @@ func (d *Decider) pool(deploymentID contract.DeploymentID, slug contract.Provide
 	return keys, len(keys) > 0
 }
 
-// executesOn reports whether a deployment may execute on one exact key — its
-// pin is that key, or it is unpinned and its provider holds that key — and
-// returns that key's evidence. A scoped execution narrows to exactly that key.
-func (d *Decider) executesOn(deploymentID contract.DeploymentID, slug contract.ProviderSlug, keyID string) (KeyEvidence, bool) {
-	pool, resolved := d.pool(deploymentID, slug, d.evidence.Keys[slug])
-	if !resolved {
-		return KeyEvidence{}, false
-	}
-	for _, key := range pool {
-		if key.KeyID == keyID {
-			return key, true
-		}
-	}
-	return KeyEvidence{}, false
-}
-
 func (d *Decider) noUsableKey(keys []KeyEvidence) (Withholding, bool) {
 	if len(keys) == 0 {
 		return Withholding{}, false
