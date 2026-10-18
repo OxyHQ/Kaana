@@ -205,6 +205,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
+	// LEGACY: remove once Oxy stops negotiating (OxyHQ/oxy#1809).
+	mux.HandleFunc("POST /internal/v1/models/query", s.handleLegacyModelsQuery)
 	mux.HandleFunc("POST /internal/v1/customer-provider-credentials/validations", s.handleCredentialValidation)
 	mux.HandleFunc("POST /internal/v1/provider-telemetry/attempts", s.handleAttemptFeed)
 	mux.HandleFunc("POST /internal/v1/provider-telemetry/credentials", s.handleCredentialEconomics)
@@ -506,6 +508,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 /* -------------------------------------------------------------------------- */
 
 type deploymentDescriptorsResponse struct {
+	// LEGACY: the echoed negotiation; remove once Oxy stops negotiating
+	// (OxyHQ/oxy#1809).
+	legacyNegotiation
 	SnapshotID  string                           `json:"snapshotId"`
 	Deployments []inventory.DeploymentDescriptor `json:"deployments"`
 }
@@ -590,12 +595,17 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, deploymentDescriptorsResponse{
-		SnapshotID:  current.SnapshotID(),
-		Deployments: descriptors,
+		legacyNegotiation: query.Legacy,
+		SnapshotID:        current.SnapshotID(),
+		Deployments:       descriptors,
 	})
 }
 
 type deploymentDescriptorQuery struct {
+	// Legacy is the old scoped / Private Auto negotiation, accepted only at
+	// its exact old values and echoed; it selects nothing (no such rows
+	// exist). Remove once Oxy stops negotiating (OxyHQ/oxy#1809).
+	Legacy legacyNegotiation
 	// nil means the explicit {} operator list. A non-nil slice is one exact
 	// selector or a bounded batch; the parser refuses an empty batch.
 	DeploymentIDs []contract.DeploymentID
@@ -606,6 +616,11 @@ type deploymentDescriptorQuery struct {
 //	{}
 //	{"deploymentId":"<opaque exact id>"}
 //	{"deploymentIds":["<opaque exact id>", "..."]}
+//
+// each optionally with ONE LEGACY negotiation key at its exact old value
+// ("scopedExecutionContractVersion":"3.6.0" or
+// "privateAutoExecutionContractVersion":"3.7.0"), echoed and selecting
+// nothing; remove once Oxy stops negotiating (OxyHQ/oxy#1809).
 //
 // A struct plus DisallowUnknownFields would still accept a duplicate JSON key.
 // Token-level parsing makes duplicates, null, trailing JSON and unknown fields
@@ -629,7 +644,7 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 			return deploymentDescriptorQuery{}, fmt.Errorf("reading field name: %w", err)
 		}
 		key, ok := keyToken.(string)
-		if !ok || (key != "deploymentId" && key != "deploymentIds") {
+		if !ok || (key != "deploymentId" && key != "deploymentIds" && !isLegacyNegotiationKey(key)) {
 			return deploymentDescriptorQuery{}, errors.New("the query contains an unknown field")
 		}
 
@@ -642,6 +657,10 @@ func parseDeploymentDescriptorQuery(body []byte) (deploymentDescriptorQuery, err
 		}
 
 		switch key {
+		case legacyScopedExecutionKey, legacyPrivateAutoExecutionKey:
+			if err := query.Legacy.accept(key, raw); err != nil {
+				return deploymentDescriptorQuery{}, err
+			}
 		case "deploymentId":
 			if seenDeploymentID {
 				return deploymentDescriptorQuery{}, errors.New("deploymentId appears more than once")
@@ -799,9 +818,13 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeJSON(w, http.StatusOK, s.modelsPayload(time.Now()))
+}
+
+// modelsPayload is the GET /internal/v1/models body.
+func (s *Server) modelsPayload(now time.Time) modelsResponse {
 	current := s.inventory.Current()
-	now := time.Now()
-	writeJSON(w, http.StatusOK, modelsResponse{
+	return modelsResponse{
 		ContractVersion: contract.ContractVersion,
 		CheckedAt:       contract.NewTimestamp(now),
 		Configuration:   s.inventory.Status(),
@@ -812,7 +835,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Models:               current.Catalogue(),
 		PinnedOnlyReferences: current.PinnedOnlyReferences(),
 		DeclaredCatalogue:    s.declaredCatalogue,
-	})
+	}
 }
 
 type modelsResponse struct {
