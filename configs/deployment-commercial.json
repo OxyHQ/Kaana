@@ -1657,6 +1657,13 @@
       }
     },
     {
+      "deploymentId": "dep_openrouter_typesafe_jev_1_13_20260917_observed_2026_10_18",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
       "deploymentId": "dep_openrouter_undi95_remm_slerp_l2_13b_observed_2026_09_01",
       "commercial": {
         "availabilityScope": "platform_internal",
