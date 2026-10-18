@@ -259,10 +259,9 @@ export const modelDeploymentSchema = z
 
 /**
  * The commercial facts Kaana publishes about ONE deployment on the descriptors
- * it serves to Oxy (`POST /internal/v1/deployments/query` and
- * `/internal/v1/models/query`), from the reviewed file
- * `configs/deployment-commercial.json`. A deployment that is not sold carries
- * no `commercial` at all, which is why the member is optional on the
+ * it serves to Oxy (`POST /internal/v1/deployments/query`), from the reviewed
+ * file `configs/deployment-commercial.json`. A deployment that is not sold
+ * carries no `commercial` at all, which is why the member is optional on the
  * descriptor. New in contract set 4.4.0.
  *
  * `customer_byok` is the commercial basis of a `byok_only` route and of no
