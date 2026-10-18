@@ -103,7 +103,6 @@ describe('the two entry points', () => {
       'inferenceProviderSlugSchema',
       'modelDeploymentSchema',
       'realtimeServerEventSchema',
-      'canonicalInputSha256',
     ]) {
       expect(name in publicContract).toBe(false);
       expect(name in internalContract).toBe(true);

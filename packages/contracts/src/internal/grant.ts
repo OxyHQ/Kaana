@@ -12,8 +12,10 @@
  * executes inside the grant; without a valid grant no provider is called.
  *
  * The grant carries the funding model as it is today, field for field: it
- * invents no policy. New in contract set 4.0.0; it replaces what the v1–v4
- * envelopes signed (`authorizedRoutes`, the scoped and Private Auto bindings).
+ * invents no policy. New in contract set 4.0.0; it replaces what the v1–v2
+ * envelopes signed (`authorizedRoutes`). Contract set 7.0.0 removes the exact
+ * route and the canonical input hash of the one-off source approvals: every
+ * operation, decisions included, is an ordinary grant of ordered steps.
  */
 
 import { z } from 'zod';
@@ -27,7 +29,6 @@ import {
   inferenceRegionSchema,
   inferenceTimestampSchema,
   modelIdSchema,
-  modelReferenceSchema,
   modelRevisionLabelSchema,
   oxyApplicationIdSchema,
   oxyCredentialIdSchema,
@@ -39,7 +40,6 @@ import { routingPolicyReferenceSchema } from '../public/policy.js';
 import { inferenceScopeSchema } from './attribution.js';
 import { inferenceEconomicTreatmentSchema } from './economics.js';
 import {
-  deploymentIdSchema,
   inferenceFundingTierSchema,
   inferenceProviderSlugSchema,
   oxyAccountIdSchema,
@@ -167,12 +167,6 @@ export const inferenceAuthorizationRequestSchema = z
     onBehalfOfUserId: delegatedUserIdSchema.optional(),
     /** SHA-256 of the normalized request body; the grant is bound to it. */
     bodySha256: sha256HexSchema,
-    /**
-     * For an operation under a source approval (scoped execution, Private Auto,
-     * the Jev classifier): `canonicalInputSha256(input)`, which Oxy compares
-     * with the hash the approval fixed.
-     */
-    canonicalInputSha256: sha256HexSchema.optional(),
     client: z
       .object({
         /** The public path, e.g. `/v1/responses`. */
@@ -346,35 +340,6 @@ export const grantStepSchema = z
     }
   });
 
-/**
- * The exact route of an operation with a source approval (scoped execution,
- * Private Auto, the Mention classifier): the deployment, provider, key and
- * price the approval fixed, and the input it was approved for.
- */
-export const grantExactRouteSchema = z
-  .object({
-    approval: z.enum(['scoped_execution', 'private_auto', 'mention_classifier']),
-    deploymentId: deploymentIdSchema,
-    provider: inferenceProviderSlugSchema,
-    /** The provider key the approval fixed (opaque Kaana key identity). */
-    keyId: z.string().min(1).max(256),
-    /** Always revision-pinned. */
-    modelReference: modelReferenceSchema,
-    priceVersionId: z.string().min(1).max(128),
-    /** `canonicalInputSha256` of the approved input. */
-    inputSha256: sha256HexSchema,
-  })
-  .strict()
-  .superRefine((route, ctx) => {
-    if (!route.modelReference.includes('@')) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['modelReference'],
-        message: 'an exact route pins an immutable revision',
-      });
-    }
-  });
-
 /** The BYOK binding, exactly as an authorized route carries it today. */
 const customerProviderCredentialBinding =
   authorizedRouteSchema.options[0].shape.customerProviderCredential;
@@ -410,7 +375,7 @@ export const grantSchema = z
         reservationId: z.string().min(1).max(128),
         /** The most the hold covers. Shown, never spent by Kaana. */
         ceiling: moneySchema,
-        /** `promotional-only` for a scoped permit. */
+        /** `promotional-only`: the hold draws on promotional credit alone. */
         fundingRestriction: z.literal('promotional-only').optional(),
       })
       .strict()
@@ -421,7 +386,6 @@ export const grantSchema = z
       .strict()
       .optional(),
     steps: z.array(grantStepSchema).min(1).max(8),
-    exactRoute: grantExactRouteSchema.optional(),
     /** BYOK: the customer's own provider key. Excludes `maxFundingTier`. */
     customerProviderCredential: customerProviderCredentialBinding,
     idempotencyKey: idempotencyKeySchema.optional(),
@@ -458,32 +422,6 @@ export const grantSchema = z
           ['steps', index, 'limits', 'maxFundingTier'],
           'a funding ceiling bounds platform keys; a customer credential is billed to the customer',
         );
-      }
-    }
-    if (grant.exactRoute !== undefined) {
-      const [step] = grant.steps;
-      const route = grant.exactRoute;
-      const [line, revision] = route.modelReference.split('@');
-      if (
-        grant.steps.length !== 1 ||
-        step.target.kind !== 'model' ||
-        step.target.modelLine !== line ||
-        step.target.revision !== revision ||
-        byok
-      ) {
-        issue(
-          ['exactRoute'],
-          'an exact route is one platform route for the one pinned model the grant serves',
-        );
-      }
-      if (
-        step !== undefined &&
-        !step.limits.admittedModelLines.some(
-          (admitted) =>
-            admitted.modelLine === line && admitted.priceVersionId === route.priceVersionId,
-        )
-      ) {
-        issue(['exactRoute', 'priceVersionId'], 'the exact route settles at its admitted price');
       }
     }
   });
@@ -525,7 +463,6 @@ export type GrantPrincipal = z.infer<typeof grantPrincipalSchema>;
 export type AdmittedModelLine = z.infer<typeof admittedModelLineSchema>;
 export type GrantStepLimits = z.infer<typeof grantStepLimitsSchema>;
 export type GrantStep = z.infer<typeof grantStepSchema>;
-export type GrantExactRoute = z.infer<typeof grantExactRouteSchema>;
 export type Grant = z.infer<typeof grantSchema>;
 export type CatalogueAccess = z.infer<typeof catalogueAccessSchema>;
 export type ReceiptAccess = z.infer<typeof receiptAccessSchema>;

@@ -47,26 +47,18 @@ later price change cannot erase which observation produced the estimate.
 
 The typed loader may load several separate documents. Their deployment sets
 and version IDs must be disjoint; neither file order nor a later file may
-overwrite a price. Measurement and private publication resolve the observation
-for that exact deployment. Each original observation is registered separately,
-so adding an October card cannot re-date a September card or extend its expiry.
-Serving and publisher now use the same source-gated loader. With no compiled
-private audience, serving retains its optional ordinary path and publisher does
-not load private pricing. With a reviewed audience, both append the separate
-baked `/etc/kaana-rates/provider-rates-jev-scoped.json` observation and verify its
-exact deployment, card version and provider source version against that audience.
-A missing or conflicting card fails closed. Card loading does not grant
-inference authority; the independently reviewed source and admission checks do.
+overwrite a price. Measurement resolves the observation for that exact
+deployment. Each original observation is registered separately, so adding an
+October card cannot re-date a September card or extend its expiry. Serving
+loads the one baked `/etc/kaana-rates/provider-rates.json` when
+`KAANA_PROVIDER_RATES_PATH` names it; the publisher loads no prices. Card
+loading grants no inference authority.
 
-The independent Jev document preserves the observed October 4 dated TypeSafe
-list price (USD0.042 per million input tokens, output0), including its original
-observation/effective timestamp and source-response hash. It is an estimate, not
-an invoice or approval of provider terms. No observation expiry was supplied;
-this is not a promise of indefinite price validity. Before activation, root must
-review card validity and freeze the real bounded audience. Private publication
-still requires exact authenticated discovery/list-price equality and same-cycle
-canonical key eligibility; permit expiry and the SQL claim lease remain separate.
-The September xAI document, effective date and absent expiry are unchanged.
+A decisions deployment's card is also its price ceiling
+(`Cards.DecisionPriceLimit`: a positive input-token rate and a zero
+output-token rate). A decisions route without one is refused, never priced at
+zero, and OpenRouter's `/systemone` is sent that ceiling as `max_price`
+([decisions.md](decisions.md)).
 
 When an upstream returns the exact amount it billed for the request, that fact
 outranks the rate-card calculation for the same attempt. It is parsed directly
@@ -89,28 +81,6 @@ window. An unavailable, stale or malformed provider response becomes an
 explicit unknown observation. The controlled projection contains no plaintext
 credential and is intended only for a separately authenticated operator path
 into Oxy; it is never attached to an inference response.
-
-## Independent private observations
-
-`scopedpermit.LoadRateCards` appends private observations only when their own
-compiled source getter is present. With neither authority, ordinary pricing
-remains optional. Fixed commissioning (`3.6`) reads
-`/etc/kaana-rates/provider-rates-jev-scoped.json`; private Auto (`3.7`) reads
-`/etc/kaana-rates/provider-rates-jev-private-auto.json`. Each source is checked
-against its own deployment, card version and upstream source version. Both
-may coexist on distinct deployments, with three separately immutable
-observations; Auto never substitutes the commissioning file or bypasses its
-validation. Serving and publisher use the same loader, and either authority
-makes the publisher load its cards.
-
-The reviewed own-Alia Auto source binds the separate October 4 22:51 observation
-and expires at 2026-10-05T22:51:12Z. Its exact third filename is included in the
-Docker context allowlist and image copy. Runtime acceptance still requires the
-actual image, key binding, signed publication and Oxy private legal review; a
-source commit alone does not establish production admission. If the Auto getter
-is absent, the third file is not required. Historical ordinary and commissioning
-card bytes and observation times stay unchanged. No loader flag grants inference
-authority or repairs a missing, mismatched or unapproved observation.
 
 ## Per-attempt telemetry and rate-card history
 

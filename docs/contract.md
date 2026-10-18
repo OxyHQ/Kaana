@@ -150,11 +150,10 @@ profile ID carries no routing semantics into Kaana: Oxy's signed
 `authorizedRoutes` are the complete ordered authority, and Kaana neither looks
 up nor normalizes the ID. Both supported versions require that list to be
 non-empty; compatibility never authorizes a deployment by inventory position.
-Private commissioning negotiates contract 3.6.0 and envelope v3 separately.
-Private Auto classification negotiates contract 3.7.0 and envelope v4 separately;
-neither enables the public decisions lane. The private request must match its
-reviewed source authority, exact caller and route. Any other envelope version is
-refused whole before the body is interpreted.
+Any other envelope version — including the retired scoped (v3) and Private Auto
+(v4) envelopes, removed with contract set 7.0.0 — is refused whole before the
+body is interpreted. A decisions envelope is refused on this lane: decisions are
+served on `https://kaana.ai/v1/decisions` (decisions.md).
 
 **1. A generated descriptor, compared field by field.**
 `tools/contract/generate.mjs` imports every module under the workspace
@@ -197,14 +196,6 @@ minimal fixture — and `tools/contract/validate.mjs` parses each with the
 contract's own schema. It also feeds deliberately invalid fixtures that
 the schemas must **reject**, and fails if it saw no fixtures at all: a validator
 with a broken schema lookup would otherwise report the same clean run.
-
-**Private Auto validation.** The same generated descriptor accounts for the
-private source approval, execution, principal, input and v4 envelope. The strict
-private input has its own Go wire type; the public input union remains unchanged.
-`bun run validate` checks both the ordinary wire fixtures and private Auto's six
-produced fixtures, eight rejection controls and actual signed deployment
-negotiation against the workspace contract. The earlier provisional
-candidate evidence remains in dated audits; it is not the release dependency.
 
 Regenerate after any change to `packages/contracts/src` (it also writes
 `packages/contracts/openapi.json`, OpenAPI 3.1 from `z.toJSONSchema`):

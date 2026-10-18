@@ -92,13 +92,6 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 	if failure != nil {
 		return nil, failure
 	}
-	if grant.ExactRoute != nil {
-		// A source-approval grant (scoped execution, Private Auto, the Mention
-		// classifier) pins a key and a claim this server does not execute yet;
-		// it is refused before any provider is called.
-		s.releaseUnserved(ctx, grant)
-		return nil, contract.NewPublicError(requestID, "permission_denied", "operations under a source approval are not served on https://kaana.ai/v1 yet")
-	}
 	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.now())
 	if failure != nil {
 		s.releaseUnserved(ctx, grant)

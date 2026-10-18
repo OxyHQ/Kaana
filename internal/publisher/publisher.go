@@ -41,8 +41,6 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
-	"github.com/OxyHQ/Kaana/internal/providercost"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 // DefaultInterval is how often the snapshot is re-issued.
@@ -59,10 +57,6 @@ const DefaultInterval = 15 * time.Minute
 
 // Config wires a Publisher.
 type Config struct {
-	// Cards is the actual immutable upstream observation loaded by the canonical
-	// process. It grants no publication; only source-reviewed private authority
-	// can consume it, with the same cycle's fresh Decider.
-	Cards *providercost.Cards
 	// Providers are the upstreams to ask. Their order schedules discovery only;
 	// BuildSnapshot sorts exact deployment identities before rendering.
 	// Only providers holding a credential belong here: a snapshot may not name
@@ -90,7 +84,6 @@ type Config struct {
 
 // Publisher re-issues the inventory snapshot.
 type Publisher struct {
-	cards       *providercost.Cards
 	providersMu sync.RWMutex
 	providers   []Provider
 	attribution *Attribution
@@ -149,7 +142,6 @@ func New(config Config) (*Publisher, error) {
 	}
 
 	return &Publisher{
-		cards:       config.Cards,
 		providers:   config.Providers,
 		attribution: config.Attribution,
 		store:       config.Store,
@@ -266,14 +258,10 @@ func (p *Publisher) PublishOnce(ctx context.Context) error {
 	}
 
 	now := p.now()
-	withhold, eligibility := p.withholdFor(ctx, discoveries, previousBody, published, now)
-	permit := p.privatePermitForCycle(scopedpermit.SourceReviewedAudience(), eligibility, now)
-	built, err := buildSnapshotWithholding(discoveries, p.attribution, observations, now, withhold, p.withholding.ReportOnly, permit, p.privateAutoPermitForCycle(scopedpermit.SourceReviewedPrivateAutoApproval(), eligibility, now))
+	withhold := p.withholdFor(ctx, discoveries, previousBody, published, now)
+	built, err := BuildSnapshotWithholding(discoveries, p.attribution, observations, now, withhold, p.withholding.ReportOnly)
 	if err != nil {
 		return err
-	}
-	if built.PrivatePublicationOmitted {
-		p.logger.Warn("private deployment omitted; ordinary inventory refresh continues", "reason", "private_discovery_unverified")
 	}
 	for _, decision := range built.Withheld {
 		p.logger.Warn("a deployment its provider lists is withheld from the snapshot: Kaana's evidence says it cannot be served now",
@@ -338,9 +326,9 @@ func snapshotIDOf(body []byte) string {
 // everything instead would flap each withheld deployment back into routing
 // for one cycle per database blip; refusing the cycle would let the snapshot
 // age toward the horizon over a question about publication, not identity.
-func (p *Publisher) withholdFor(ctx context.Context, discoveries []Discovery, previousBody []byte, published bool, now time.Time) (Withhold, *Decider) {
+func (p *Publisher) withholdFor(ctx context.Context, discoveries []Discovery, previousBody []byte, published bool, now time.Time) Withhold {
 	if p.evidence == nil {
-		return nil, nil
+		return nil
 	}
 	slugs := make([]contract.ProviderSlug, 0, len(discoveries))
 	for _, discovery := range discoveries {
@@ -348,8 +336,7 @@ func (p *Publisher) withholdFor(ctx context.Context, discoveries []Discovery, pr
 	}
 	evidence, err := p.evidence.PublicationEvidence(ctx, slugs, now.Add(-p.withholding.Lookback))
 	if err == nil {
-		decider := NewDecider(evidence, p.withholding, now)
-		return decider.Decide, decider
+		return NewDecider(evidence, p.withholding, now).Decide
 	}
 	carried := map[contract.DeploymentID]Withholding{}
 	if published {
@@ -360,7 +347,7 @@ func (p *Publisher) withholdFor(ctx context.Context, discoveries []Discovery, pr
 	return func(id contract.DeploymentID, _ contract.ProviderSlug) (Withholding, bool) {
 		decision, withheld := carried[id]
 		return decision, withheld
-	}, nil
+	}
 }
 
 // withholdingsFrom reads the previous snapshot's unexpired withholdings. An

@@ -33,9 +33,6 @@
 # The reviewed PRODUCTION rate card (real list prices, read back deployment ids),
 # by exact name: the example rate card beside it stays out.
 !configs/provider-rates.json
-# The separately reviewed private Jev observation; never admit configs/**.
-!configs/provider-rates-jev-scoped.json
-!configs/provider-rates-jev-private-auto.json
 
 # The declared catalogue (identity, licence, data policy, capabilities and list
 # prices; docs/operating.md), by exact name. It is what the image serves on

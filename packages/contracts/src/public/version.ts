@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '6.0.0';
+export const INFERENCE_CONTRACT_VERSION = '7.0.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -172,6 +172,17 @@ export const INFERENCE_CONTRACT_VERSION = '6.0.0';
  * per item, and `REALTIME_DEFAULT_SILENCE_DURATION_MS`, the silence a
  * `server_vad` that names none waits on every provider. A client on 5.0.0
  * parses every 6.0.0 response.
+ *
+ * Contract set 7.0.0 serves decisions as an ordinary grant: a decisions
+ * request's `model` is optional (pinned when present; absent, the
+ * application's decisions profile chooses), and the signed envelope admits a
+ * decisions request carried as its policy's target on pinned routes. MAJOR
+ * because it REMOVES the one-off source approvals: the grant's `exactRoute`
+ * (`grantExactRouteSchema`) and the authorization's `canonicalInputSha256`,
+ * `canonicalJson` and `canonicalInputSha256()`, the scoped and Private Auto
+ * envelopes v3 and v4 (`scopedExecutionSchema`, `privateAutoExecutionSchema`
+ * and every shape under them) and a deployment's `scopedExecution`. A grant
+ * or a request that parsed under 6.0.0 without them still parses the same.
  */
 
 /** The public API's one origin and version. */

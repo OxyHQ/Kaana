@@ -126,7 +126,7 @@ func TestAnUnreviewedProviderRefusesTheEffortBeforeSpendingAnything(t *testing.T
 	// reasoningDialectFor, so adding a slug there without a wire test fails.
 	reviewed := map[contract.ProviderSlug]bool{"openai": true, "groq": true, "cerebras": true, "xai": true, "openrouter": true}
 	for slug, endpoint := range providerconfig.Known {
-		if endpoint.Protocol != providerconfig.ProtocolOpenAICompatible || reviewed[slug] {
+		if !servesChat(slug, endpoint) || reviewed[slug] {
 			continue
 		}
 		baseURL, client := upstream.URL, (*http.Client)(nil)

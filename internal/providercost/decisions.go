@@ -65,9 +65,10 @@ func (u DecisionUsage) ReportedCost() *Money {
 	return &Money{Currency: "USD", Amount: amount}
 }
 
-// DecisionPriceLimit defaults to zero spend. No reviewed price authorization
-// exists for these dormant routes; enabling them requires a separately reviewed
-// immutable ceiling, held here rather than in an inference contract.
+// DecisionPriceLimit is a decisions deployment's per-million-token price
+// ceiling, derived only from its reviewed rate card (Cards.DecisionPriceLimit)
+// and held here rather than in an inference contract. Its zero value is zero
+// spend; a route without a card is refused, never sent with it.
 type DecisionPriceLimit struct {
 	Prompt     DecisionTokenPrice `json:"prompt"`
 	Completion DecisionTokenPrice `json:"completion"`

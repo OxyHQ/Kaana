@@ -69,6 +69,9 @@ type ModelFamily struct {
 //   - OpenAI's own slugs (`openai`, `openai-audio`, `openai-realtime`), and
 //     OpenRouter's `openai/` rows, which are the same OpenAI models under the
 //     gateway's namespace;
+//   - `openai-decisions`, whose only executable models are the Decisions
+//     API's (`gpt-6-luna`), and OpenRouter's `typesafe/` rows, TypeSafe's Jev,
+//     which answers only OpenRouter's `/systemone`: both decisions;
 //   - xAI's own slugs (`xai`, `xai-realtime`);
 //   - ElevenLabs (`elevenlabs`), whose published models are all speech;
 //   - Groq's Llama Prompt Guard ids (groqClassifierOnly) and its Whisper ids,
@@ -80,14 +83,20 @@ type ModelFamily struct {
 // nothing the contract names can execute the model at all.
 func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family ModelFamily, classified, expressible bool) {
 	switch slug {
-	case "typesafe":
-		return ModelFamily{Format: contract.APIFormatDecisions}, true, false
+	case "openai-decisions":
+		// The Decisions API's models, and nothing else: every other OpenAI id
+		// is a family this slug's adapter cannot execute.
+		if strings.HasPrefix(strings.ToLower(upstreamModelID), "gpt-6-luna") {
+			return ModelFamily{Format: contract.APIFormatDecisions}, true, true
+		}
+		return ModelFamily{}, true, false
 	case "openai", "openai-audio", "openai-realtime":
 		family, expressible = openAIFamily(upstreamModelID)
 		return family, true, expressible
 	case "openrouter":
-		if strings.HasPrefix(strings.TrimPrefix(strings.ToLower(upstreamModelID), "~"), "typesafe/") {
-			return ModelFamily{Format: contract.APIFormatDecisions}, true, false
+		if strings.HasPrefix(strings.ToLower(upstreamModelID), "typesafe/") {
+			// TypeSafe's Jev answers only OpenRouter's /systemone (decisions).
+			return ModelFamily{Format: contract.APIFormatDecisions}, true, true
 		}
 		if id, found := strings.CutPrefix(upstreamModelID, "openai/"); found {
 			family, expressible = openAIFamily(id)

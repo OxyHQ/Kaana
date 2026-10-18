@@ -51,17 +51,24 @@ func TestOneProtocolServesSeveralProviders(t *testing.T) {
 	}
 }
 
-// compatibleBuiltInSlugs is every built-in provider served by this adapter,
-// sorted so a failure is reported under the same name on every run.
+// compatibleBuiltInSlugs is every built-in provider this adapter serves chat
+// for, sorted so a failure is reported under the same name on every run. The
+// decisions-only slug (`openai-decisions`) runs conformance.RunDecisions
+// instead (decisions_conformance_test.go).
 func compatibleBuiltInSlugs() []contract.ProviderSlug {
 	slugs := make([]contract.ProviderSlug, 0, len(providerconfig.Known))
 	for slug, endpoint := range providerconfig.Known {
-		if endpoint.Protocol == providerconfig.ProtocolOpenAICompatible {
+		if servesChat(slug, endpoint) {
 			slugs = append(slugs, slug)
 		}
 	}
 	slices.Sort(slugs)
 	return slugs
+}
+
+func servesChat(slug contract.ProviderSlug, endpoint providerconfig.Endpoint) bool {
+	return endpoint.Protocol == providerconfig.ProtocolOpenAICompatible &&
+		slices.Contains(providerconfig.ExecutableAPIFormats(slug, endpoint.Protocol), contract.APIFormatChatCompletions)
 }
 
 func subject(slug contract.ProviderSlug) conformance.Subject {

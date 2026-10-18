@@ -41,7 +41,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/publicapi"
 	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/rotation"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
 
@@ -72,9 +71,11 @@ func run(logger *slog.Logger) error {
 	// Upstream rate cards are optional and hold no customer-facing amount. An
 	// absent file means provider cost is not measured, which every measurement
 	// then says rather than reporting zero.
-	costs, err := scopedpermit.LoadRateCards(os.Getenv("KAANA_PROVIDER_RATES_PATH"))
-	if err != nil {
-		return err
+	var costs *providercost.Cards
+	if path := os.Getenv("KAANA_PROVIDER_RATES_PATH"); path != "" {
+		if costs, err = providercost.Load(path); err != nil {
+			return err
+		}
 	}
 
 	keys, err := edgeauth.ParsePublicKeys(os.Getenv("KAANA_EDGE_PUBLIC_KEYS"))
@@ -279,7 +280,6 @@ func run(logger *slog.Logger) error {
 	}
 
 	executor, err := kaana.NewExecutor(kaana.Config{
-		ScopedAttemptClaims: credentialDatabase,
 		Inventory:           inventoryStore,
 		Providers:           registry,
 		Rotation:            rotationRegistry,

@@ -28,7 +28,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 // Config describes one provider that speaks this protocol.
@@ -70,10 +69,6 @@ type Config struct {
 
 // Adapter implements provider.Adapter for one OpenAI-compatible provider.
 type Adapter struct {
-	privateAutoSource func() *contract.PrivateAutoSourceApproval
-	scopedSource      func() *contract.ScopedExecutionAudience
-	scopedHTTPClient  func() *http.Client
-	decisions         decisionReview
 	// decisionTimeout overrides defaultDecisionDeadline; only tests set it.
 	decisionTimeout time.Duration
 
@@ -106,7 +101,7 @@ func New(config Config) (*Adapter, error) {
 	}
 	client := provider.RefuseRedirects(config.HTTPClient)
 	config.BaseURL = strings.TrimSuffix(config.BaseURL, "/")
-	return &Adapter{config: config, client: client, credentials: credentials, privateAutoSource: scopedpermit.SourceReviewedPrivateAutoApproval, scopedSource: scopedpermit.SourceReviewedAudience, scopedHTTPClient: provider.NewSingleAttemptHTTPClient}, nil
+	return &Adapter{config: config, client: client, credentials: credentials}, nil
 }
 
 // quotaHeadersFor is what each provider speaking this protocol declares about
@@ -174,8 +169,9 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	if request.Client.APIFormat == contract.APIFormatDecisions || request.Input.Format == contract.InputDecisions {
 		return a.translateDecisions(request, route)
 	}
-	if a.Provider() == "typesafe" {
-		return nil, decisionsUnavailable()
+	if a.Provider() == "openai-decisions" {
+		// This slug is OpenAI's Decisions API and nothing else (providerconfig).
+		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "client.apiFormat", Detail: "this deployment answers decisions only"}
 	}
 	if request.AudioOutput != nil {
 		// Spoken output is audio events plus a transcript channel. This adapter
@@ -488,9 +484,6 @@ var wireParameters = map[string]provider.RequestParameter{
 // proves both reachability and that the configured credential is accepted,
 // which are the two things a route decision turns on.
 func (a *Adapter) Health(ctx context.Context) provider.Health {
-	if a.Provider() == "typesafe" {
-		return provider.Health{Provider: a.Provider(), CheckedAt: contract.NewTimestamp(time.Now()), Status: provider.HealthUnavailable, Detail: "decisions routes are dormant pending review"}
-	}
 	now := time.Now()
 	pool := a.credentials.Projection(now)
 	health := provider.Health{
@@ -574,18 +567,6 @@ func (a *Adapter) Send(ctx context.Context, call *provider.Call, key provider.Ke
 	}
 	request.Header = call.Header.Clone()
 	a.authorize(request, key)
-	if call.ScopedAttempt != nil {
-		request.GetBody = nil
-		request.Header.Del("Idempotency-Key")
-		request.Header.Del("X-Idempotency-Key")
-		request.Close = true
-		if a.scopedHTTPClient == nil {
-			return nil, errors.New("scoped HTTP transport unavailable")
-		}
-		client := a.scopedHTTPClient()
-		defer client.CloseIdleConnections()
-		return client.Do(request)
-	}
 	return a.client.Do(request)
 }
 

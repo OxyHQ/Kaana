@@ -81,6 +81,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
+	"openai-decisions": {Protocol: ProtocolOpenAICompatible, BaseURL: OpenAIDecisionsBaseURL, Discovery: DiscoveryOpenAIModels},
 	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryXAIRealtimeSessions},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: AnthropicBaseURL, Discovery: DiscoveryAnthropicModels},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
@@ -160,6 +161,16 @@ const (
 	OpenAIRealtimeSessionURL = "wss://api.openai.com/v1/realtime"
 )
 
+// OpenAIDecisionsBaseURL is the only API root the `openai-decisions` slug may
+// name: OpenAI's Decisions API, `POST /v1/decisions` (docs/decisions.md).
+//
+// It is OpenAI's own origin under a fourth slug for the reason `openai-audio`
+// is one: a slug resolves to exactly one adapter family, and `gpt-6-luna` is a
+// chat model under `openai` and a decisions model here. A separate slug also
+// gives decisions their own exact key, so the zero-data-retention evidence
+// that activates it is about the account that key belongs to.
+const OpenAIDecisionsBaseURL = "https://api.openai.com/v1"
+
 // XAIRealtimeBaseURL is the only API root the `xai-realtime` slug may name,
 // and XAIRealtimeSessionURL the only WebSocket endpoint its adapter dials:
 // xAI's Voice Agent (speech-to-speech) API
@@ -215,7 +226,7 @@ func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.R
 func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contract.APIFormat {
 	switch protocol {
 	case ProtocolOpenAICompatible:
-		if slug == "typesafe" {
+		if slug == "openai-decisions" {
 			return []contract.APIFormat{contract.APIFormatDecisions}
 		}
 		formats := []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
@@ -285,6 +296,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 		}
 		return nil
 	}
+	if slug == "openai-decisions" {
+		if raw != OpenAIDecisionsBaseURL {
+			return fmt.Errorf("openai-decisions requires OpenAI's canonical HTTPS API base")
+		}
+		return nil
+	}
 	if slug == "openai-realtime" {
 		if raw != OpenAIRealtimeBaseURL {
 			return fmt.Errorf("openai-realtime requires OpenAI's canonical HTTPS API base")
@@ -302,15 +319,6 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 		return fmt.Errorf("provider endpoint identity: parsing base URL: %w", err)
 	}
 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
-	if slug == "typesafe" {
-		if raw != "https://api.typesafe.ai/v1" {
-			return fmt.Errorf("typesafe requires its canonical HTTPS API base")
-		}
-		return nil
-	}
-	if host == "api.typesafe.ai" {
-		return fmt.Errorf("TypeSafe origin is reserved for typesafe")
-	}
 	_, reservedOpenRouterHost := openRouterHosts[host]
 	if slug != "openrouter" {
 		if reservedOpenRouterHost {

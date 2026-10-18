@@ -16,19 +16,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
-
-// These independent reviews have no production configuration switch. Only
-// synthetic conformance fixtures can affirm them in this package. Ordinary
-// credentials confer none of these rights; see docs/decisions.md.
-type decisionReview struct {
-	resale, internalEligibility, privacy, zdr, immutableRoute bool
-}
-
-func (r decisionReview) approved() bool {
-	return r.resale && r.internalEligibility && r.privacy && r.zdr && r.immutableRoute
-}
 
 // defaultDecisionDeadline bounds one decisions request upstream.
 const defaultDecisionDeadline = 30 * time.Second
@@ -40,9 +28,10 @@ func (a *Adapter) decisionDeadline() time.Duration {
 	return defaultDecisionDeadline
 }
 
-func decisionsUnavailable() error {
-	return provider.ErrUnsupported{Code: contract.CodePermissionDenied, Param: "client.apiFormat", Detail: "decisions are dormant pending independent rights, eligibility, privacy, ZDR and immutable route review"}
-}
+// errNoDecisionPrice refuses a decisions call whose route carries no price
+// ceiling: every decisions route is priced from its rate card, and one without
+// a card is refused, never priced at zero (providercost.Cards.DecisionPriceLimit).
+var errNoDecisionPrice = provider.ErrUnsupported{Code: contract.CodePermissionDenied, Param: "client.apiFormat", Detail: "this decisions route has no reviewed price"}
 
 type decisionProviderPolicy struct {
 	Only              []string                        `json:"only"`
@@ -62,46 +51,39 @@ type systemOneRequest struct {
 	Provider  *decisionProviderPolicy                  `json:"provider,omitempty"`
 }
 
+// translateDecisions builds the one upstream call of a decisions request:
+// OpenRouter's `/systemone` for TypeSafe's Jev, or OpenAI's `/decisions`
+// (decisions_openai.go). Every refusal is made here, before any spend.
 func (a *Adapter) translateDecisions(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	if err := request.ValidateDecisionsEnvelope(); err != nil {
 		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input", Detail: "invalid typed decisions envelope"}
 	}
-	if child := request.PrivateAutoExecution; child != nil {
-		if request.ValidatePrivateAutoExecution() != nil || a.privateAutoSource == nil || !child.MatchesSource(a.privateAutoSource(), time.Now()) || !route.PrivateAutoSourceApproval.Equal(a.privateAutoSource()) || route.ScopedExecution != nil || route.ScopedDecisionPriceLimit == nil || route.ScopedDecisionPriceLimit.Prompt.IsZero() || !route.ScopedDecisionPriceLimit.Completion.IsZero() {
-			return nil, decisionsUnavailable()
-		}
-	} else if request.ScopedExecution != nil {
-		if err := request.ValidateScopedExecution(); err != nil {
-			return nil, decisionsUnavailable()
-		}
-		scope := &request.ScopedExecution.ScopedExecutionAudience
-		if a.scopedSource == nil || !scopedpermit.Matches(scope, a.scopedSource(), time.Now()) || !scope.Equal(route.ScopedExecution) || route.ScopedDecisionPriceLimit == nil || route.ScopedDecisionPriceLimit.Prompt.IsZero() || !route.ScopedDecisionPriceLimit.Completion.IsZero() {
-			return nil, decisionsUnavailable()
-		}
-	} else if !a.decisions.approved() || route.ScopedExecution != nil || route.PrivateAutoSourceApproval != nil {
-		return nil, decisionsUnavailable()
+	if route.DecisionPriceLimit == nil {
+		return nil, errNoDecisionPrice
 	}
-	if route.Provider != a.Provider() || !route.ModelReference.Valid() || !route.ModelReference.Pinned() || *request.Target.ModelReference != route.ModelReference {
-		return nil, decisionsUnavailable()
-	}
-	switch a.Provider() {
-	case "typesafe":
-		if route.UpstreamModelID != "jev-1.13.0" {
-			return nil, decisionsUnavailable()
-		}
-	case "openrouter":
-		// This candidate is deliberately not in production inventory. A returned
-		// dated id alone does not prove it is accepted as an immutable request id.
-		if route.UpstreamModelID != "typesafe/jev-1.13-20260917" {
-			return nil, decisionsUnavailable()
-		}
-	default:
-		return nil, decisionsUnavailable()
+	target := request.Target.ModelReference
+	pinnedElsewhere := request.Target.Kind == contract.TargetModel && target.Pinned() && *target != route.ModelReference
+	if route.Provider != a.Provider() || !route.ModelReference.Pinned() || pinnedElsewhere {
+		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "authorizedRoutes", Detail: "the route does not serve the pinned decisions model"}
 	}
 	input := request.Input.Decisions
 	if input.Effort != nil {
-		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input.decisions.effort", Detail: "the systemone API has no verified effort field"}
+		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "input.decisions.effort", Detail: "the decisions model takes no effort"}
 	}
+	switch {
+	case a.Provider() == "openai-decisions":
+		return a.translateOpenAIDecisions(request, route)
+	case a.Provider() == "openrouter" && strings.HasPrefix(route.UpstreamModelID, "typesafe/"):
+		return a.translateSystemOne(request, route)
+	}
+	return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "client.apiFormat", Detail: "this deployment does not answer decisions"}
+}
+
+// translateSystemOne is OpenRouter's `/systemone`, which only TypeSafe's Jev
+// answers, under a wire policy that pins TypeSafe, forbids fallbacks and
+// requires zero data retention, with the route's price as `max_price`.
+func (a *Adapter) translateSystemOne(request *contract.Request, route provider.Route) (*provider.Call, error) {
+	input := request.Input.Decisions
 	// The body is built from the contract's own wire representation, so what is
 	// measured below is byte for byte what is sent.
 	body := systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(input.Questions)}
@@ -122,31 +104,21 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 			return nil, tooLarge
 		}
 	}
-	if a.Provider() == "openrouter" {
-		// A gateway's limit is on its whole body. The policy must fit inside the
-		// allowance Oxy reserved for it, and the questions with that allowance
-		// must fit inside the gateway's total.
-		core := len(encoded)
-		body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true}
-		if request.ScopedExecution != nil || request.PrivateAutoExecution != nil {
-			body.Provider.MaxPrice = *route.ScopedDecisionPriceLimit
-		}
-		if encoded, err = json.Marshal(body); err != nil {
-			return nil, fmt.Errorf("systemone: encode request: %w", err)
-		}
-		// Oxy's helper bounds the input with a 255-byte model allowance; the
-		// final body is bounded again as sent, so neither can stand in for the
-		// other if the wire shape or the policy grows.
-		if !input.FitsGateway() || !gatewayBodyFits(core, len(encoded)) {
-			return nil, tooLarge
-		}
+	// A gateway's limit is on its whole body. The policy must fit inside the
+	// allowance Oxy reserved for it, and the questions with that allowance
+	// must fit inside the gateway's total.
+	core := len(encoded)
+	body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true, MaxPrice: *route.DecisionPriceLimit}
+	if encoded, err = json.Marshal(body); err != nil {
+		return nil, fmt.Errorf("systemone: encode request: %w", err)
 	}
-	if child := request.PrivateAutoExecution; child != nil {
-		if route.ScopedDecisionPriceLimit == nil || len(encoded) > contract.PrivateAutoMaximumBytes || !providercost.PrivateDecisionQuoteWithin(*route.ScopedDecisionPriceLimit, len(encoded), child.MaxCostUSD) {
-			return nil, provider.ErrUnsupported{Code: contract.CodePermissionDenied, Detail: "private Auto actual quote exceeds source ceiling"}
-		}
+	// Oxy's helper bounds the input with a 255-byte model allowance; the
+	// final body is bounded again as sent, so neither can stand in for the
+	// other if the wire shape or the policy grows.
+	if !input.FitsGateway() || !gatewayBodyFits(core, len(encoded)) {
+		return nil, tooLarge
 	}
-	return &provider.Call{PrivateAutoExecution: request.PrivateAutoExecution, RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/systemone", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
+	return &provider.Call{RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/systemone", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
 }
 
 // gatewayBodyFits bounds a gateway body as sent: the questions plus the
@@ -175,6 +147,9 @@ type systemOneResponse struct {
 }
 
 func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.Outcome, error) {
+	if a.Provider() == "openai-decisions" {
+		return a.readOpenAIDecisions(body, call)
+	}
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported}
 	fail := func(reason string) (provider.Outcome, error) {
 		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "invalid systemone response: " + reason}
@@ -222,7 +197,7 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 	if len(response.Answers) != len(call.Decisions.Questions) {
 		return fail("answer_count")
 	}
-	if a.Provider() == "openrouter" && (response.Provider != "TypeSafe" || response.ID == "") {
+	if response.Provider != "TypeSafe" || response.ID == "" {
 		return fail("provider_identity")
 	}
 	answers := make([]contract.DecisionAnswer, 0, len(response.Answers))

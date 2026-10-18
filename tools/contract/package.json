@@ -6,7 +6,7 @@
   "description": "Derives internal/contract/descriptor.json and packages/contracts/openapi.json from the @kaana.ai/contracts workspace source, and validates Kaana-produced fixtures against its Zod schemas.",
   "scripts": {
     "generate": "bun generate.mjs && bun openapi.mjs",
-    "validate": "bun validate.mjs && bun validate-private-auto.mjs"
+    "validate": "bun validate.mjs"
   },
   "dependencies": {
     "@kaana.ai/contracts": "workspace:*",

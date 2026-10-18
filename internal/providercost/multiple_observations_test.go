@@ -66,9 +66,9 @@ func TestSeparateObservationsPreserveOldXaiAndOwnJevWindow(t *testing.T) {
 		if tc.priced && (record.Attempts[0].RateCardVersionID != "rc_jev_fixture" || record.Attempts[0].Cost.Amount != 420000) {
 			t.Fatal("Jev uses old/global observation or wrong price")
 		}
-		_, quoted := combined.ScopedDecisionPublishedPrice("dep_jev_fixture", tc.at)
-		if quoted != tc.priced {
-			t.Fatal("scoped price ignores own temporal observation")
+		_, limited := combined.DecisionPriceLimit("dep_jev_fixture", tc.at)
+		if limited != tc.priced {
+			t.Fatal("the decisions price limit ignores its own temporal observation")
 		}
 	}
 	if _, ok := combined.ObservationForDeployment("foreign"); ok {

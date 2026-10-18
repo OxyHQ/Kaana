@@ -31,9 +31,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
-	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/publisher"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
 
@@ -182,18 +180,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	// No new environment activation: absent compiled authority keeps today's
-	// publisher behavior and does not load an optional cost table. Once reviewed
-	// authority exists, both publisher and serving read the same baked card path.
-	var cards *providercost.Cards
-	if scopedpermit.SourceReviewedAudience() != nil || scopedpermit.SourceReviewedPrivateAutoApproval() != nil {
-		cards, err = scopedpermit.LoadRateCards(os.Getenv("KAANA_PROVIDER_RATES_PATH"))
-		if err != nil {
-			return err
-		}
-	}
 	inventoryPublisher, err := publisher.New(publisher.Config{
-		Cards:       cards,
 		Providers:   providers,
 		Attribution: attribution,
 		Store:       store,

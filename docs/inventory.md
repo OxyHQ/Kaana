@@ -166,9 +166,12 @@ OpenRouter discovery requests `GET /api/v1/models?output_modalities=text,decisio
 with the existing account credential. The documented default is text-only;
 including decisions and embeddings makes their identities visible to the
 publisher without attributing or authorizing them. The ordinary attribution/executable checks
-remain unchanged, and private Jev publication still requires the exact source
-permit, account discovery, zero-retention endpoint, key eligibility and rate
-card. No additional provider request or inference probe is made. See
+remain unchanged. A `typesafe/` row (TypeSafe's Jev, decisions only) is listed
+under an alias whose zero-retention endpoint the list names; after that filter
+the publisher replaces the alias with the row's dated `canonical_slug`, the id
+that names the same weights tomorrow, and a row without one is unservable
+([decisions.md](decisions.md)). No additional provider request or inference
+probe is made. See
 [OpenRouter's model-list parameter](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties).
 
 **For OpenRouter the parameter list is not the `/models` entry's.** Every Kaana

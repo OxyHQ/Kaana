@@ -36,16 +36,12 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
-	"github.com/OxyHQ/Kaana/internal/scopedpermit"
 )
 
 const providerCostPersistenceTimeout = 5 * time.Second
 
 // Executor turns an envelope into a stream and a usage report.
 type Executor struct {
-	privateAutoSource   func() *contract.PrivateAutoSourceApproval
-	scopedSource        func() *contract.ScopedExecutionAudience
-	scopedClaims        ScopedAttemptClaimer
 	inventory           *inventory.Store
 	registry            *provider.Registry
 	rotation            *rotation.Registry
@@ -58,11 +54,6 @@ type Executor struct {
 	now                 func() time.Time
 }
 
-// ScopedAttemptClaimer retains only the existing runtime mutation authority.
-type ScopedAttemptClaimer interface {
-	ClaimScopedAttempt(context.Context, credentialstore.ScopedAttemptClaim) (bool, error)
-}
-
 // CustomerCredentialResolver is the inference-only authority to resolve the
 // exact non-secret binding Oxy signed into a route. Production supplies
 // credentialstore.CustomerResolver; the interface keeps tests free of AWS.
@@ -72,7 +63,6 @@ type CustomerCredentialResolver interface {
 
 // Config wires an Executor.
 type Config struct {
-	ScopedAttemptClaims ScopedAttemptClaimer
 	// Inventory is the configuration snapshot store. It is a store rather than
 	// an inventory because the snapshot is reloaded under a running process and
 	// a request must read the one that is current when it arrives.
@@ -134,13 +124,11 @@ func NewExecutor(config Config) (*Executor, error) {
 		return nil, fmt.Errorf("kaana: a retry policy cannot be negative: %+v", retry)
 	}
 	return &Executor{
-		inventory:    config.Inventory,
-		registry:     config.Providers,
-		rotation:     config.Rotation,
-		costs:        config.Costs,
-		costRecorder: config.CostRecorder,
-		scopedSource: scopedpermit.SourceReviewedAudience, scopedClaims: config.ScopedAttemptClaims,
-		privateAutoSource:   scopedpermit.SourceReviewedPrivateAutoApproval,
+		inventory:           config.Inventory,
+		registry:            config.Providers,
+		rotation:            config.Rotation,
+		costs:               config.Costs,
+		costRecorder:        config.CostRecorder,
 		customerCredentials: config.CustomerCredentials,
 		validationReporter:  config.ValidationReporter,
 		customerLimits:      customerLimits,
@@ -247,14 +235,6 @@ type candidate struct {
 // are given for the HTTP request, so an adapter that ignores it cannot make an
 // upstream call at all.
 func (e *Executor) Execute(ctx context.Context, request *contract.Request, sink Sink) Result {
-	if s := request.PrivateAutoExecution; s != nil {
-		expires, err := time.Parse(time.RFC3339Nano, s.RuntimeExpiresAt)
-		if err == nil {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithDeadline(ctx, expires)
-			defer cancel()
-		}
-	}
 	result := e.execute(ctx, request, sink)
 	if e.costRecorder == nil || len(result.UpstreamCost.Attempts) == 0 || costRecordingDeferred(ctx) {
 		return result
@@ -402,74 +382,6 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			}
 			_ = emit.finishWithError(failure)
 			return Result{Failure: failure}
-		}
-		if request.ScopedExecution != nil {
-			scope := request.ScopedExecution
-			if platformCredentials == nil {
-				permit.NotAttributable()
-				customerPermit.NotAttributable()
-				failure := contract.NewError(requestID, contract.CodePermissionDenied, "scoped exact credential unavailable")
-				_ = emit.finishWithError(failure)
-				return Result{Failure: failure}
-			}
-			exact, ok := exactKeyView(platformCredentials, scope.KeyID)
-			if !ok {
-				permit.NotAttributable()
-				customerPermit.NotAttributable()
-				failure := contract.NewError(requestID, contract.CodePermissionDenied, "scoped exact credential unavailable")
-				_ = emit.finishWithError(failure)
-				return Result{Failure: failure}
-			}
-			platformCredentials = exact
-
-			call.ScopedAttempt = &provider.ScopedCredentialAttempt{KeyID: scope.KeyID, Claim: func(ctx context.Context) error {
-				at := e.now()
-				if !scopedpermit.Matches(&scope.ScopedExecutionAudience, e.scopedSource(), at) {
-					return errors.New("scoped approval unavailable")
-				}
-				expires, err := time.Parse(time.RFC3339Nano, scope.ExpiresAt)
-				if err != nil {
-					return err
-				}
-				// The source audience covers delivery/review time; this SQL claim
-				// records one short runtime attempt. Its permanent operation PK
-				// never releases or reauthorizes the permit after lease expiry.
-				if bound := at.Add(5 * time.Minute); expires.After(bound) {
-					expires = bound
-				}
-				won, err := e.scopedClaims.ClaimScopedAttempt(ctx, credentialstore.ScopedAttemptClaim{PermitID: scope.PermitID, DeploymentID: scope.DeploymentID, Scope: credentialstore.Scope{Provider: scope.Provider, KeyID: scope.KeyID}, ClaimedAt: at, ExpiresAt: expires})
-				if err != nil || !won {
-					return errors.New("scoped attempt unavailable")
-				}
-				return nil
-			}}
-		}
-		if scope := request.PrivateAutoExecution; scope != nil {
-			exact, ok := exactKeyView(platformCredentials, scope.KeyID)
-			if !ok {
-				permit.NotAttributable()
-				customerPermit.NotAttributable()
-				failure := contract.NewError(requestID, contract.CodePermissionDenied, "private Auto exact credential unavailable")
-				_ = emit.finishWithError(failure)
-				return Result{Failure: failure}
-			}
-			platformCredentials = exact
-			call.ScopedAttempt = &provider.ScopedCredentialAttempt{KeyID: scope.KeyID, Claim: func(ctx context.Context) error {
-				at := e.now()
-				if e.privateAutoSource == nil || !scope.MatchesSource(e.privateAutoSource(), at) {
-					return errors.New("private Auto approval unavailable")
-				}
-				// Re-read the installed snapshot and actual observation immediately before claim/send.
-				if _, failure := e.resolve(request, at); failure != nil {
-					return errors.New("private Auto dispatch evidence unavailable")
-				}
-				expires, _ := time.Parse(time.RFC3339Nano, scope.RuntimeExpiresAt)
-				won, err := e.scopedClaims.ClaimScopedAttempt(ctx, credentialstore.ScopedAttemptClaim{PermitID: scope.OperationID, DeploymentID: scope.DeploymentID, Scope: credentialstore.Scope{Provider: scope.Provider, KeyID: scope.KeyID}, ClaimedAt: at, ExpiresAt: expires})
-				if err != nil || !won || ctx.Err() != nil || !scope.MatchesSource(e.privateAutoSource(), e.now()) {
-					return errors.New("private Auto attempt unavailable")
-				}
-				return nil
-			}}
 		}
 		call.RequestID = requestID
 		call.CredentialAttempts = credentialAttempts
@@ -1142,54 +1054,27 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 			}
 		}
 	}
-	if scope := request.PrivateAutoExecution; scope != nil {
-		snapshot := e.inventory.Current()
-		if e.privateAutoSource == nil || !scope.MatchesSource(e.privateAutoSource(), at) || e.scopedClaims == nil || snapshot.SnapshotID() != scope.SnapshotID {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto source approval unavailable")
-		}
-		observation, ok := e.costs.ObservationForDeployment(scope.DeploymentID)
-		if !ok || observation.VersionID != scope.ProviderRateCardVersionID || observation.SourceVersion != scope.ProviderSourceVersion {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto price identity unavailable")
-		}
-		limit, ok := e.costs.ScopedDecisionPriceLimit(scope.DeploymentID, at)
-		if !ok {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto price ceiling unavailable")
-		}
-		candidates, failure := resolveAuthorizedRoutesPrivate(snapshot, requestID, request.AuthorizedRoutes, at, nil, e.privateAutoSource())
-		if failure != nil {
-			return nil, failure
-		}
-		if len(candidates) != 1 {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "private Auto requires one route")
-		}
-		candidates[0].route.ScopedDecisionPriceLimit = &limit
-		return candidates, nil
+	candidates, failure := resolveAuthorizedRoutes(e.inventory.Current(), requestID, request.AuthorizedRoutes, at)
+	if failure != nil || request.Client.APIFormat != contract.APIFormatDecisions {
+		return candidates, failure
 	}
-	if request.ScopedExecution != nil {
-		scope := request.ScopedExecution
-		snapshot := e.inventory.Current()
-		if e.scopedSource == nil || !scopedpermit.Matches(&scope.ScopedExecutionAudience, e.scopedSource(), at) || e.scopedClaims == nil || scope.SnapshotID != snapshot.SnapshotID() {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped source approval unavailable")
-		}
-		observation, ok := e.costs.ObservationForDeployment(scope.DeploymentID)
-		if !ok || observation.VersionID != scope.ProviderRateCardVersionID || observation.SourceVersion != scope.ProviderSourceVersion {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped actual price identity unavailable")
-		}
-		limit, ok := e.costs.ScopedDecisionPriceLimit(scope.DeploymentID, at)
+	// Every decisions route is priced from its reviewed rate card, which is
+	// the ceiling its adapter enforces (OpenRouter's max_price). A route
+	// without one is not served, and never at a price of zero; when none is
+	// left, nothing is attempted.
+	priced := candidates[:0]
+	for _, candidate := range candidates {
+		limit, ok := e.costs.DecisionPriceLimit(candidate.route.DeploymentID, at)
 		if !ok {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped actual price ceiling unavailable")
+			continue
 		}
-		candidates, failure := resolveAuthorizedRoutesScoped(snapshot, requestID, request.AuthorizedRoutes, at, &scope.ScopedExecutionAudience)
-		if failure != nil {
-			return nil, failure
-		}
-		if len(candidates) != 1 {
-			return nil, contract.NewError(requestID, contract.CodePermissionDenied, "scoped execution requires one route")
-		}
-		candidates[0].route.ScopedDecisionPriceLimit = &limit
-		return candidates, nil
+		candidate.route.DecisionPriceLimit = &limit
+		priced = append(priced, candidate)
 	}
-	return resolveAuthorizedRoutes(e.inventory.Current(), requestID, request.AuthorizedRoutes, at)
+	if len(priced) == 0 {
+		return nil, contract.NewError(requestID, contract.CodeNoRouteAvailable, "no authorized decisions route has a reviewed price")
+	}
+	return priced, nil
 }
 
 // resolveAuthorizedRoutes turns the signed list into executable routes without
@@ -1199,23 +1084,11 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 // A realtime session resolves its signed list through the same function, so a
 // session and a request cannot disagree about what a route means.
 func resolveAuthorizedRoutes(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time) ([]candidate, *contract.Error) {
-	return resolveAuthorizedRoutesScoped(snapshot, requestID, routes, at, nil)
-}
-func resolveAuthorizedRoutesScoped(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time, scope *contract.ScopedExecutionAudience) ([]candidate, *contract.Error) {
-	return resolveAuthorizedRoutesPrivate(snapshot, requestID, routes, at, scope, nil)
-}
-func resolveAuthorizedRoutesPrivate(snapshot *inventory.Inventory, requestID contract.RequestID, routes []contract.AuthorizedRoute, at time.Time, scope *contract.ScopedExecutionAudience, auto *contract.PrivateAutoSourceApproval) ([]candidate, *contract.Error) {
 	candidates := make([]candidate, 0, len(routes))
 	resolvedRevisions := make(map[contract.ModelID]contract.ModelReference)
 
 	for index, authorized := range routes {
 		set, err := snapshot.Resolve(authorized.ModelReference, at)
-		if auto != nil {
-			set, err = snapshot.ResolvePrivateAuto(authorized.ModelReference, at, auto)
-		}
-		if scope != nil {
-			set, err = snapshot.ResolveScoped(authorized.ModelReference, at, scope)
-		}
 		if err != nil {
 			return nil, invalidAuthorizedRoute(requestID, index,
 				fmt.Sprintf("modelReference %q is not present in Kaana's inventory", authorized.ModelReference))
@@ -1437,22 +1310,6 @@ func attemptFunding(credentials *provider.KeyPool, route provider.Route, keyID s
 	}
 	funding, _ := credentials.FundingOf(keyID)
 	return funding
-}
-
-// exactKeyView narrows a deployment's platform credentials to the one key a
-// signed scope names. A deployment pinned to another key refuses it; an
-// unpinned deployment, which executes on its provider's pool, narrows to that
-// key only when the pool holds it. The scope never widens anything: it is
-// always exactly one key.
-func exactKeyView(credentials *provider.KeyPool, keyID string) (*provider.KeyPool, bool) {
-	if credentials == nil || keyID == "" {
-		return nil, false
-	}
-	if pinned, exact := credentials.ExactBinding(); exact {
-		return credentials, pinned == keyID
-	}
-	view, err := credentials.Bind(keyID)
-	return view, err == nil
 }
 
 func (e *Executor) credentialsForRoute(

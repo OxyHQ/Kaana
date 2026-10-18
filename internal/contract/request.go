@@ -390,28 +390,25 @@ var audioOutputFormatValues = []AudioOutputFormat{"wav", "mp3", "flac", "opus", 
 func (f AudioOutputFormat) Valid() bool { return isMember(f, audioOutputFormatValues) }
 
 type Request struct {
-	// Private Auto is a separately negotiated v4 wrapper, never an additive legacy field.
-	PrivateAutoExecution *PrivateAutoExecution    `json:"-"`
-	ScopedExecution      *ScopedExecution         `json:"scopedExecution,omitempty"`
-	Speech               *SpeechParameters        `json:"speech,omitempty"`
-	Transcription        *TranscriptionParameters `json:"transcription,omitempty"`
-	AudioOutput          *AudioOutputParameters   `json:"audioOutput,omitempty"`
-	SchemaVersion        int                      `json:"schemaVersion"`
-	Attribution          Attribution              `json:"attribution"`
-	Target               RoutingTarget            `json:"target"`
-	Modality             Modality                 `json:"modality"`
-	Input                Input                    `json:"input"`
-	Stream               bool                     `json:"stream"`
-	MaxOutputTokens      *int                     `json:"maxOutputTokens,omitempty"`
-	Sampling             SamplingParameters       `json:"sampling"`
-	Reasoning            *ReasoningParameters     `json:"reasoning,omitempty"`
-	Tools                []ToolDefinition         `json:"tools,omitempty"`
-	ToolChoice           *ToolChoice              `json:"toolChoice,omitempty"`
-	ResponseFormat       *ResponseFormat          `json:"responseFormat,omitempty"`
-	Client               ClientRequestMetadata    `json:"client"`
-	IdempotencyKey       *IdempotencyKey          `json:"idempotencyKey,omitempty"`
-	RoutingPolicy        RoutingPolicyReference   `json:"routingPolicy"`
-	AuthorizedRoutes     []AuthorizedRoute        `json:"authorizedRoutes,omitempty"`
+	Speech           *SpeechParameters        `json:"speech,omitempty"`
+	Transcription    *TranscriptionParameters `json:"transcription,omitempty"`
+	AudioOutput      *AudioOutputParameters   `json:"audioOutput,omitempty"`
+	SchemaVersion    int                      `json:"schemaVersion"`
+	Attribution      Attribution              `json:"attribution"`
+	Target           RoutingTarget            `json:"target"`
+	Modality         Modality                 `json:"modality"`
+	Input            Input                    `json:"input"`
+	Stream           bool                     `json:"stream"`
+	MaxOutputTokens  *int                     `json:"maxOutputTokens,omitempty"`
+	Sampling         SamplingParameters       `json:"sampling"`
+	Reasoning        *ReasoningParameters     `json:"reasoning,omitempty"`
+	Tools            []ToolDefinition         `json:"tools,omitempty"`
+	ToolChoice       *ToolChoice              `json:"toolChoice,omitempty"`
+	ResponseFormat   *ResponseFormat          `json:"responseFormat,omitempty"`
+	Client           ClientRequestMetadata    `json:"client"`
+	IdempotencyKey   *IdempotencyKey          `json:"idempotencyKey,omitempty"`
+	RoutingPolicy    RoutingPolicyReference   `json:"routingPolicy"`
+	AuthorizedRoutes []AuthorizedRoute        `json:"authorizedRoutes,omitempty"`
 }
 
 // Validate carries the per-variant and cross-field rules the Go types cannot
@@ -421,12 +418,6 @@ type Request struct {
 // plane's, already resolved, and re-deriving them here is the replica-lag
 // hazard ADR 0006 rejects.
 func (r *Request) Validate() error {
-	if err := r.ValidatePrivateAutoExecution(); err != nil {
-		return err
-	}
-	if err := r.ValidateScopedExecution(); err != nil {
-		return err
-	}
 	if r.Input.Format == InputDecisions || r.Client.APIFormat == APIFormatDecisions {
 		if err := r.ValidateDecisionsEnvelope(); err != nil {
 			return err

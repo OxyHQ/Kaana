@@ -16,11 +16,12 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
 func TestDecisionsUnknownCostKeepsPaidAnswer(t *testing.T) {
-	req, route := decisionFixture("openrouter")
+	req, route := decisionFixture()
 	a := &Adapter{config: Config{Provider: "openrouter"}}
 	call := &provider.Call{Route: route, Decisions: req.Input.Decisions}
 	good := decisionResponse(route.UpstreamModelID)
@@ -53,8 +54,8 @@ func TestDecisionsUnknownCostKeepsPaidAnswer(t *testing.T) {
 }
 
 func TestDecisionsAmbiguousUsageIsUnmeasured(t *testing.T) {
-	req, route := decisionFixture("typesafe")
-	a := &Adapter{config: Config{Provider: "typesafe"}}
+	req, route := decisionFixture()
+	a := &Adapter{config: Config{Provider: "openrouter"}}
 	call := &provider.Call{Route: route, Decisions: req.Input.Decisions}
 	good := decisionResponse(route.UpstreamModelID)
 	for _, mutated := range []string{
@@ -71,7 +72,7 @@ func TestDecisionsAmbiguousUsageIsUnmeasured(t *testing.T) {
 	}
 	// Exact-key maps keep case-distinct ids: questions "A" and "a" are two answers.
 	input := &contract.DecisionInput{State: "s", Questions: []contract.DecisionQuestion{{ID: "A", Kind: "noul", Question: "?"}, {ID: "a", Kind: "noul", Question: "?"}}}
-	body := `{"model":"jev-1.13.0","answers":{"A":{"type":"noul","noul":0.25},"a":{"type":"noul","noul":0.75}},"usage":{"input_tokens":1,"output_tokens":1}}`
+	body := `{"model":"typesafe/jev-1.13-20260917","id":"synthetic","provider":"TypeSafe","answers":{"A":{"type":"noul","noul":0.25},"a":{"type":"noul","noul":0.75}},"usage":{"input_tokens":1,"output_tokens":1}}`
 	out, err := a.readDecisions(strings.NewReader(body), &provider.Call{Route: route, Decisions: input})
 	if err != nil || *out.Decisions[0].Probability != 0.25 || *out.Decisions[1].Probability != 0.75 {
 		t.Fatalf("case-distinct ids conflated: %v", err)
@@ -79,8 +80,8 @@ func TestDecisionsAmbiguousUsageIsUnmeasured(t *testing.T) {
 }
 
 func TestDecisionsFinalBodyBudgets(t *testing.T) {
-	// Oxy measures this input at total 27941, gateway 32037: direct fits, the
-	// gateway does not, because shared instructions repeat in every question.
+	// Oxy measures this input at total 27941, gateway 32037: the gateway does
+	// not fit it, because shared instructions repeat in every question.
 	repeated := func(r *contract.Request) {
 		v := strings.Repeat("i", 3000)
 		r.Input.Decisions.Instructions = &v
@@ -89,29 +90,21 @@ func TestDecisionsFinalBodyBudgets(t *testing.T) {
 			r.Input.Decisions.Questions = append(r.Input.Decisions.Questions, contract.DecisionQuestion{ID: "q" + string(rune('0'+k)), Kind: "noul", Question: "Q" + string(rune('0'+k))})
 		}
 	}
-	for _, slug := range []contract.ProviderSlug{"typesafe", "openrouter"} {
-		req, route := decisionFixture(slug)
-		repeated(req)
-		a := &Adapter{config: Config{Provider: slug, BaseURL: "https://example.invalid/v1"}, decisions: decisionReview{true, true, true, true, true}}
-		call, err := a.Translate(req, route)
-		if slug == "typesafe" && (err != nil || len(call.Body) > contract.DecisionTotalBudget) {
-			t.Fatalf("direct positive control: %v", err)
-		}
-		var refusal provider.ErrUnsupported
-		if slug == "openrouter" && (!errors.As(err, &refusal) || refusal.Code != contract.CodeRequestTooLarge) {
-			t.Fatalf("gateway bound not enforced: %v", err)
-		}
-		// One question fewer fits the gateway, policy included.
-		req.Input.Decisions.Questions = req.Input.Decisions.Questions[:8]
-		call, err = a.Translate(req, route)
-		if err != nil || len(call.Body) > contract.DecisionGatewayBudget {
-			t.Fatalf("%s: fitting body refused: %v", slug, err)
-		}
+	req, route := decisionFixture()
+	repeated(req)
+	a := &Adapter{config: Config{Provider: "openrouter", BaseURL: "https://example.invalid/v1"}}
+	var refusal provider.ErrUnsupported
+	if _, err := a.Translate(req, route); !errors.As(err, &refusal) || refusal.Code != contract.CodeRequestTooLarge {
+		t.Fatalf("gateway bound not enforced: %v", err)
+	}
+	// One question fewer fits the gateway, policy included.
+	req.Input.Decisions.Questions = req.Input.Decisions.Questions[:8]
+	if call, err := a.Translate(req, route); err != nil || len(call.Body) > contract.DecisionGatewayBudget {
+		t.Fatalf("fitting body refused: %v", err)
 	}
 	// Escaping counts: 5400 '<' are 32400 bytes on the wire.
-	req, route := decisionFixture("typesafe")
+	req, route = decisionFixture()
 	req.Input.Decisions.State = strings.Repeat("<", 5400)
-	a := &Adapter{config: Config{Provider: "typesafe", BaseURL: "https://example.invalid/v1"}, decisions: decisionReview{true, true, true, true, true}}
 	if _, err := a.Translate(req, route); err == nil {
 		t.Fatal("escaped state measured by raw length")
 	}
@@ -139,13 +132,12 @@ func TestDecisionsGatewayBodyBound(t *testing.T) {
 func executeDecisions(t *testing.T, timeout time.Duration, handler http.HandlerFunc) (kaana.Result, int32) {
 	t.Helper()
 	var calls atomic.Int32
-	req, route := decisionFixture("typesafe")
-	a := decisionAdapter(t, "typesafe", func(w http.ResponseWriter, r *http.Request) {
+	req, route := decisionFixture()
+	a := decisionAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		_, _ = io.Copy(io.Discard, r.Body)
 		handler(w, r)
 	})
-	a.decisions = decisionReview{true, true, true, true, true}
 	a.decisionTimeout = timeout
 	registry, err := provider.NewRegistry(a)
 	if err != nil {
@@ -167,7 +159,7 @@ func executeDecisions(t *testing.T, timeout time.Duration, handler http.HandlerF
 	if err != nil {
 		t.Fatal(err)
 	}
-	executor, err := kaana.NewExecutor(kaana.Config{Inventory: store, Providers: registry, Rotation: rotation.NewRegistry(rotation.Policy{}, nil)})
+	executor, err := kaana.NewExecutor(kaana.Config{Inventory: store, Providers: registry, Rotation: rotation.NewRegistry(rotation.Policy{}, nil), Costs: decisionCards(t, route.DeploymentID, second.DeploymentID)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,10 +189,10 @@ func TestDecisionsNeverMoveAfterDispatch(t *testing.T) {
 			_, _ = io.WriteString(w, `{"error":{"type":"server_error","message":"synthetic"}}`)
 		}, contract.CodeProviderError, false},
 		{"malformed-body", 0, func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = io.WriteString(w, `{"model":"jev-1.13.0","answers":`)
+			_, _ = io.WriteString(w, `{"model":"typesafe/jev-1.13-20260917","answers":`)
 		}, contract.CodeProviderError, false},
 		{"invalid-answers-measured", 0, func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = io.WriteString(w, strings.Replace(decisionResponse("jev-1.13.0"), `"noul":0`, `"noul":7`, 1))
+			_, _ = io.WriteString(w, strings.Replace(decisionResponse("typesafe/jev-1.13-20260917"), `"noul":0`, `"noul":7`, 1))
 		}, contract.CodeProviderError, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,7 +219,7 @@ func TestDecisionsNeverMoveAfterDispatch(t *testing.T) {
 
 func TestDecisionsSuccessThroughExecutorControl(t *testing.T) {
 	result, calls := executeDecisions(t, 0, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, decisionResponse("jev-1.13.0"))
+		_, _ = io.WriteString(w, decisionResponse("typesafe/jev-1.13-20260917"))
 	})
 	if calls != 1 || result.Failure != nil || result.Decisions == nil || result.Report.Outcome != contract.OutcomeCompleted || len(result.UpstreamCost.Attempts) != 1 {
 		t.Fatalf("positive control: calls=%d %+v", calls, result.Failure)
@@ -251,19 +243,18 @@ func (b cancelOnEOF) Read(p []byte) (int, error) {
 
 func TestDecisionsCompletedResultSurvivesLateDeadline(t *testing.T) {
 	for _, valid := range []bool{true, false} {
-		req, route := decisionFixture("typesafe")
+		req, route := decisionFixture()
 		ctx, cancel := context.WithCancel(context.Background())
 		body := decisionResponse(route.UpstreamModelID)
 		if !valid {
 			body = body[:len(body)-10]
 		}
-		a, err := New(Config{Provider: "typesafe", BaseURL: "https://api.typesafe.ai/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey}), HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		a, err := New(Config{Provider: "openrouter", BaseURL: "https://openrouter.ai/api/v1", Declarations: provider.DeclareKeys([]string{fakeAPIKey}), HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: cancelOnEOF{io.NopCloser(strings.NewReader(body)), cancel}, Request: r}, nil
 		})}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		a.decisions = decisionReview{true, true, true, true, true}
 		call, err := a.Translate(req, route)
 		if err != nil {
 			t.Fatal(err)
@@ -279,4 +270,19 @@ func TestDecisionsCompletedResultSurvivesLateDeadline(t *testing.T) {
 			t.Fatalf("a cut body must report the cancellation: %v", err)
 		}
 	}
+}
+
+// decisionCards is a rate card pricing each deployment as a decisions route:
+// input tokens only, which is what every decisions route needs to be served.
+func decisionCards(t *testing.T, deployments ...contract.DeploymentID) *providercost.Cards {
+	t.Helper()
+	cards := make([]map[string]any, 0, len(deployments))
+	for _, id := range deployments {
+		cards = append(cards, map[string]any{"deploymentId": id, "currency": "USD", "rates": []map[string]any{{"unit": "input_tokens", "amountPerUnit": 42000}, {"unit": "output_tokens", "amountPerUnit": 0}}})
+	}
+	parsed, err := providercost.Parse([]byte(mustJSON(t, map[string]any{"schemaVersion": 1, "rateCardVersionId": "rc_decisions_test", "source": "provider_api", "sourceVersion": "synthetic", "observedAt": "2026-10-01T00:00:00Z", "effectiveAt": "2026-10-01T00:00:00Z", "rateCards": cards})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }

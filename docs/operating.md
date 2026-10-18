@@ -170,11 +170,12 @@ Protocols are a closed list because a binary can only construct adapters it
 contains; provider slugs are not. A built-in serving configuration does not
 imply discovery or publication support.
 
-OpenAI's own origin is served under three locked slugs, one adapter each:
-`openai` (Chat Completions), `openai-audio` (transcription and spoken chat,
-docs/openai-audio.md) and `openai-realtime` (WebSocket realtime sessions on
-`GET /internal/v1/realtime`, docs/realtime.md). Each takes its own credential
-rows and deployment bindings; `realtime.md`, "Operating it", covers the
+OpenAI's own origin is served under four locked slugs, one adapter family
+each: `openai` (Chat Completions), `openai-audio` (transcription and spoken
+chat, docs/openai-audio.md), `openai-realtime` (WebSocket realtime sessions on
+`GET /internal/v1/realtime`, docs/realtime.md) and `openai-decisions` (the
+Decisions API, docs/decisions.md). Each takes its own credential rows and
+deployment bindings; `realtime.md`, "Operating it", covers the
 realtime slug's credential, discovery, health and load-balancer notes.
 
 xAI's origin is served the same way under two locked slugs: `xai` (Chat
@@ -1079,9 +1080,10 @@ Also verify in production:
 
 ### Reviewed scoped claim migration 0020
 
-Serving and publisher startup never migrate. The restricted decisions code remains
-inert while the private source manifest is absent; a healthy deployment does not
-prove claim storage is installed. The credential-admin workflow selects the exact
+Serving and publisher startup never migrate. Nothing claims an attempt any more
+(contract set 7.0.0 removed the scoped and Private Auto lanes,
+[scoped-attempt-claims.md](scoped-attempt-claims.md)); the migration and its
+reviewed procedure stay because an applied migration is never rewritten. The credential-admin workflow selects the exact
 current-main ECR digest for `migrate` only (beside the existing binding operations).
 All rekey, deduplicate and ordinary metadata operations retain their fixed reviewed
 image. Build the reviewed current-main image before dispatching migration; a missing

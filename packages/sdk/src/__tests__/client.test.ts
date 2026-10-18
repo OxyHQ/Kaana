@@ -355,6 +355,24 @@ describe('the other endpoints', () => {
     expect(decision.data[0].id).toBe('q1');
   });
 
+  it('refuses decisions that do not answer the request it sent', async () => {
+    const question = {
+      id: 'q1',
+      kind: 'choice' as const,
+      question: 'Topic?',
+      options: ['pets', 'cars'],
+    };
+    // Unpinned: the profile chooses, so any revision may answer.
+    const chosen = await kaana.decisions.create({ state: 'Cats.', questions: [question] });
+    expect(chosen.model).toBe(MODEL);
+    for (const request of [
+      { state: 'Cats.', questions: [{ ...question, options: ['cars', 'pets', 'boats'] }] },
+      { model: 'openai/gpt-6-luna@observed-2026-10-01', state: 'Cats.', questions: [question] },
+    ]) {
+      await expect(kaana.decisions.create(request)).rejects.toBeInstanceOf(KaanaProtocolError);
+    }
+  });
+
   it('reads generation records by id and by idempotency key', async () => {
     fake.on('GET /generations/*', (_request, recorded) => {
       expect(recorded.path).toBe('/generations/gen_1');

@@ -12,7 +12,7 @@ import (
 // Public TypeSafe Score/Noul shapes composed into Mention's four-question
 // shape. Synthetic values, not a capture of the failed production response.
 func TestDecisionsMentionShapeAndFiniteDiagnostics(t *testing.T) {
-	req, route := decisionFixture("openrouter")
+	req, route := decisionFixture()
 	req.Input.Decisions.Questions = []contract.DecisionQuestion{
 		{ID: "spam", Kind: "noul", Question: "Spam?"},
 		{ID: "repetition", Kind: "noul", Question: "Repetitive?"},

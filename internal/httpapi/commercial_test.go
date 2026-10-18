@@ -61,29 +61,21 @@ func queryDescriptors(t *testing.T, h *harness, path, body string) map[string]ma
 }
 
 // `commercial` is on the descriptor of every listed deployment and absent on
-// every other, on both surfaces Oxy reads: the exact descriptors and the
-// negotiated models query.
+// every other.
 func TestDescriptorsCarryCommercialOnlyForListedDeployments(t *testing.T) {
 	h := commercialHarness(t)
-	for name, call := range map[string]struct{ path, body string }{
-		"deployments": {"/internal/v1/deployments/query", `{}`},
-		"models":      {"/internal/v1/models/query", `{"scopedExecutionContractVersion":"3.6.0"}`},
-	} {
-		t.Run(name, func(t *testing.T) {
-			descriptors := queryDescriptors(t, h, call.path, call.body)
-			if len(descriptors) != 3 {
-				t.Fatalf("descriptors = %d", len(descriptors))
-			}
-			if got := string(descriptors["dep_sold"]["commercial"]); got != `{"availabilityScope":"enterprise","commercialPermission":"wholesale_contract","dedicatedCapacity":true}` {
-				t.Errorf("dep_sold commercial = %s", got)
-			}
-			if got := string(descriptors["dep_sold_plain"]["commercial"]); got != `{"availabilityScope":"platform_internal","commercialPermission":"standard_application_use"}` {
-				t.Errorf("dep_sold_plain commercial = %s", got)
-			}
-			if _, present := descriptors["dep_unsold"]["commercial"]; present {
-				t.Errorf("an unlisted deployment carries commercial: %s", descriptors["dep_unsold"]["commercial"])
-			}
-		})
+	descriptors := queryDescriptors(t, h, "/internal/v1/deployments/query", `{}`)
+	if len(descriptors) != 3 {
+		t.Fatalf("descriptors = %d", len(descriptors))
+	}
+	if got := string(descriptors["dep_sold"]["commercial"]); got != `{"availabilityScope":"enterprise","commercialPermission":"wholesale_contract","dedicatedCapacity":true}` {
+		t.Errorf("dep_sold commercial = %s", got)
+	}
+	if got := string(descriptors["dep_sold_plain"]["commercial"]); got != `{"availabilityScope":"platform_internal","commercialPermission":"standard_application_use"}` {
+		t.Errorf("dep_sold_plain commercial = %s", got)
+	}
+	if _, present := descriptors["dep_unsold"]["commercial"]; present {
+		t.Errorf("an unlisted deployment carries commercial: %s", descriptors["dep_unsold"]["commercial"])
 	}
 	exact := queryDescriptors(t, h, "/internal/v1/deployments/query", `{"deploymentId":"dep_sold"}`)
 	if len(exact) != 1 || exact["dep_sold"]["commercial"] == nil {
