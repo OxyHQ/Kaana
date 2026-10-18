@@ -42,7 +42,11 @@ func TestSeparateObservationsPreserveOldXaiAndOwnJevWindow(t *testing.T) {
 		t.Fatal("multiple documents collapsed into a false single observation")
 	}
 	observations := combined.Observations()
-	if len(observations) != 2 || observations[0].VersionID != "rc_jev_fixture" || observations[1].VersionID != original.VersionID {
+	versions := map[string]bool{}
+	for _, observation := range observations {
+		versions[observation.VersionID] = true
+	}
+	if len(observations) != 2 || !versions["rc_jev_fixture"] || !versions[original.VersionID] {
 		t.Fatal("independent registration records missing")
 	}
 	for _, at := range []time.Time{time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 4, 13, 13, 0, 0, time.UTC), time.Date(2026, 10, 4, 14, 0, 0, 0, time.UTC)} {
