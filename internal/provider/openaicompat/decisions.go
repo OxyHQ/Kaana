@@ -79,44 +79,57 @@ func (a *Adapter) translateDecisions(request *contract.Request, route provider.R
 	return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "client.apiFormat", Detail: "this deployment does not answer decisions"}
 }
 
+var errDecisionsTooLarge = provider.ErrUnsupported{Code: contract.CodeRequestTooLarge, Param: "input.decisions", Detail: "the serialized decisions body exceeds its input budget"}
+
+// encodeDecisionsBody encodes a decisions body and bounds it as sent by the
+// contract's budgets: the whole body, and the body of each question alone.
+func encodeDecisionsBody(questions []contract.DecisionQuestion, encode func([]contract.DecisionQuestion) ([]byte, error)) ([]byte, error) {
+	encoded, err := encode(questions)
+	if err != nil {
+		return nil, fmt.Errorf("decisions: encode request: %w", err)
+	}
+	if len(encoded) > contract.DecisionTotalBudget {
+		return nil, errDecisionsTooLarge
+	}
+	for i := range questions {
+		single, err := encode(questions[i : i+1])
+		if err != nil {
+			return nil, fmt.Errorf("decisions: encode request: %w", err)
+		}
+		if len(single) > contract.DecisionContextBudget {
+			return nil, errDecisionsTooLarge
+		}
+	}
+	return encoded, nil
+}
+
 // translateSystemOne is OpenRouter's `/systemone`, which only TypeSafe's Jev
 // answers, under a wire policy that pins TypeSafe, forbids fallbacks and
 // requires zero data retention, with the route's price as `max_price`.
 func (a *Adapter) translateSystemOne(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	input := request.Input.Decisions
 	// The body is built from the contract's own wire representation, so what is
-	// measured below is byte for byte what is sent.
-	body := systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(input.Questions)}
-	encoded, err := json.Marshal(body)
+	// measured is byte for byte what is sent.
+	encoded, err := encodeDecisionsBody(input.Questions, func(questions []contract.DecisionQuestion) ([]byte, error) {
+		return json.Marshal(systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(questions)})
+	})
 	if err != nil {
-		return nil, fmt.Errorf("systemone: encode request: %w", err)
-	}
-	tooLarge := provider.ErrUnsupported{Code: contract.CodeRequestTooLarge, Param: "input.decisions", Detail: "the serialized systemone body exceeds its input budget"}
-	if len(encoded) > contract.DecisionTotalBudget {
-		return nil, tooLarge
-	}
-	for i := range input.Questions {
-		single, err := json.Marshal(systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(input.Questions[i : i+1])})
-		if err != nil {
-			return nil, fmt.Errorf("systemone: encode request: %w", err)
-		}
-		if len(single) > contract.DecisionContextBudget {
-			return nil, tooLarge
-		}
+		return nil, err
 	}
 	// A gateway's limit is on its whole body. The policy must fit inside the
 	// allowance Oxy reserved for it, and the questions with that allowance
 	// must fit inside the gateway's total.
 	core := len(encoded)
-	body.Provider = &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true, MaxPrice: *route.DecisionPriceLimit}
+	body := systemOneRequest{Model: route.UpstreamModelID, State: input.State, Questions: input.DecisionWireQuestions(input.Questions),
+		Provider: &decisionProviderPolicy{Only: []string{"TypeSafe"}, Order: []string{"TypeSafe"}, Ignore: []string{}, DataCollection: "deny", RequireParameters: true, ZDR: true, MaxPrice: *route.DecisionPriceLimit}}
 	if encoded, err = json.Marshal(body); err != nil {
-		return nil, fmt.Errorf("systemone: encode request: %w", err)
+		return nil, fmt.Errorf("decisions: encode request: %w", err)
 	}
 	// Oxy's helper bounds the input with a 255-byte model allowance; the
 	// final body is bounded again as sent, so neither can stand in for the
 	// other if the wire shape or the policy grows.
 	if !input.FitsGateway() || !gatewayBodyFits(core, len(encoded)) {
-		return nil, tooLarge
+		return nil, errDecisionsTooLarge
 	}
 	return &provider.Call{RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/systemone", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
 }
@@ -146,50 +159,124 @@ type systemOneResponse struct {
 	Provider string                     `json:"provider"`
 }
 
+// readDecisions reads one decisions answer: the provider's own reading
+// (readSystemOne, readOpenAIDecisions), then the contract's validation of
+// every answer against the request. Measured units survive a refused answer.
 func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.Outcome, error) {
+	read := readSystemOne
 	if a.Provider() == "openai-decisions" {
-		return a.readOpenAIDecisions(body, call)
+		read = readOpenAIDecisions
 	}
-	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported}
-	fail := func(reason string) (provider.Outcome, error) {
-		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "invalid systemone response: " + reason}
+	outcome, answers, err := read(body, call)
+	if err != nil {
+		return outcome, err
 	}
-	var response systemOneResponse
-	raw, readErr := io.ReadAll(io.LimitReader(body, (2<<20)+1))
-	if readErr != nil || len(raw) > 2<<20 {
-		return fail("body_read")
+	if err := contract.ValidateDecisionAnswers(*call.Decisions, answers); err != nil {
+		var invalid contract.DecisionAnswerError
+		errors.As(err, &invalid)
+		return outcome, provider.InvalidDecisionResponse(string(invalid))
+	}
+	outcome.Decisions = answers
+	outcome.FinishReason = contract.FinishStop
+	return outcome, nil
+}
+
+// decisionResponseFacts is what a decisions response says about itself: the
+// model that answered and the work it measured.
+type decisionResponseFacts struct {
+	model         string
+	input, output *int
+	cost          *providercost.Money
+}
+
+const maxDecisionResponseBytes = 2 << 20
+
+// decodeDecisionResponse reads one decisions response into response under the
+// rules every decisions adapter shares: at most 2 MiB, one JSON value that the
+// decoder cannot read two ways, from the model the route names. The work the
+// provider measured is kept even when its answer is then refused, never from a
+// usage object that could be read two ways. reason is empty when the body is
+// usable.
+func decodeDecisionResponse(body io.Reader, call *provider.Call, shape *jsonShape, response any, facts func() decisionResponseFacts) (outcome provider.Outcome, reason string) {
+	outcome = provider.Outcome{UsageSource: contract.UsageProviderReported}
+	raw, err := io.ReadAll(io.LimitReader(body, maxDecisionResponseBytes+1))
+	if err != nil || len(raw) > maxDecisionResponseBytes {
+		return outcome, "body_read"
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if err := decoder.Decode(&response); err != nil {
-		return fail("response_json")
+	if err := decoder.Decode(response); err != nil {
+		return outcome, "response_json"
 	}
-	ambiguity := unambiguousDecisionJSON(json.NewDecoder(bytes.NewReader(raw)), systemOneResponseShape)
-	// Account for reported work even when answer identity or money is malformed,
-	// but never from a usage object the decoder could have read two ways.
+	ambiguity := unambiguousDecisionJSON(json.NewDecoder(bytes.NewReader(raw)), shape)
+	stated := facts()
 	if !errors.Is(ambiguity, errAmbiguousUsage) {
-		if response.Usage.InputTokens != nil && *response.Usage.InputTokens >= 0 {
-			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitInputTokens, Quantity: *response.Usage.InputTokens})
+		if stated.input != nil && *stated.input >= 0 {
+			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitInputTokens, Quantity: *stated.input})
 		}
-		if response.Usage.OutputTokens != nil && *response.Usage.OutputTokens >= 0 {
-			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitOutputTokens, Quantity: *response.Usage.OutputTokens})
+		if stated.output != nil && *stated.output >= 0 {
+			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitOutputTokens, Quantity: *stated.output})
 		}
 		// Unknown (nil) when absent or not exactly representable: never zero,
 		// never rounded, and never a reason to discard a paid answer.
-		outcome.ProviderReportedCost = response.Usage.ReportedCost()
+		outcome.ProviderReportedCost = stated.cost
 	}
 	outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: 1})
 	if ambiguity != nil {
-		return fail("ambiguous_json")
+		return outcome, "ambiguous_json"
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return fail("trailing_json")
+		return outcome, "trailing_json"
 	}
 	if call.Decisions == nil {
-		return fail("missing_questions")
+		return outcome, "missing_questions"
 	}
-	if response.Model != call.Route.UpstreamModelID {
-		return fail("model_identity")
+	if stated.model != call.Route.UpstreamModelID {
+		return outcome, "model_identity"
+	}
+	return outcome, ""
+}
+
+// normalizeDistribution checks that every entry is a probability and that
+// the mass is one within tolerance, then scales the distribution to unit mass
+// in place and returns the mass it had. reason is empty when it is usable.
+// Invalid probabilities are refused, never repaired.
+func normalizeDistribution(distribution []float64, tolerance float64) (mass float64, reason string) {
+	for _, p := range distribution {
+		if math.IsNaN(p) || math.IsInf(p, 0) || p < 0 || p > 1 {
+			return 0, "probability_value"
+		}
+		mass += p
+	}
+	if mass <= 0 || math.Abs(mass-1) > tolerance {
+		return 0, "probability_sum"
+	}
+	for i := range distribution {
+		distribution[i] /= mass
+	}
+	return mass, ""
+}
+
+// levelMean is a score distribution's expected zero-based level index.
+func levelMean(distribution []float64) float64 {
+	mean := 0.0
+	for i, p := range distribution {
+		mean += float64(i) * p
+	}
+	return mean
+}
+
+// readSystemOne reads Jev's `/systemone` answer into contract order.
+func readSystemOne(body io.Reader, call *provider.Call) (provider.Outcome, []contract.DecisionAnswer, error) {
+	var response systemOneResponse
+	outcome, reason := decodeDecisionResponse(body, call, systemOneResponseShape, &response, func() decisionResponseFacts {
+		return decisionResponseFacts{model: response.Model, input: response.Usage.InputTokens, output: response.Usage.OutputTokens, cost: response.Usage.ReportedCost()}
+	})
+	fail := func(reason string) (provider.Outcome, []contract.DecisionAnswer, error) {
+		return outcome, nil, provider.InvalidDecisionResponse(reason)
+	}
+	if reason != "" {
+		return fail(reason)
 	}
 	if response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil || *response.Usage.InputTokens < 0 || *response.Usage.OutputTokens < 0 {
 		return fail("usage_units")
@@ -203,10 +290,10 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 	answers := make([]contract.DecisionAnswer, 0, len(response.Answers))
 	for _, question := range call.Decisions.Questions {
 		rawAnswer, ok := response.Answers[question.ID]
-		var wire systemOneAnswer
 		if !ok {
 			return fail("answer_identity")
 		}
+		var wire systemOneAnswer
 		if json.Unmarshal(rawAnswer, &wire) != nil {
 			return fail("answer_json")
 		}
@@ -240,39 +327,29 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 				answer.Distribution = append(answer.Distribution, *p)
 			}
 			// TypeSafe computes Score on normalized mass, even when its wire
-			// probabilities retain a small rounding residual. Validate the raw
-			// distribution before normalizing; never repair invalid probabilities.
-			mass := 0.0
-			for _, p := range answer.Distribution {
-				if math.IsNaN(p) || math.IsInf(p, 0) || p < 0 || p > 1 {
-					return fail("probability_value")
-				}
-				mass += p
-			}
-			// Jev prints a Score answer at two decimals (TypeSafe's published
-			// examples and every answer it has served Kaana): each printed
-			// probability, and the score, may be up to half a hundredth from the
-			// value TypeSafe computed. Only an answer printed wholly on that grid
-			// gets the tolerance that rounding implies; any other keeps the
-			// contract's 1e-6.
+			// probabilities retain a small rounding residual. Jev prints a
+			// Score answer at two decimals (TypeSafe's published examples and
+			// every answer it has served Kaana): each printed probability, and
+			// the score, may be up to half a hundredth from the value TypeSafe
+			// computed. Only an answer printed wholly on that grid gets the
+			// tolerance that rounding implies; any other keeps the contract's
+			// 1e-6.
 			grid := wire.Score != nil && onSystemOneGrid(*wire.Score)
 			for _, p := range answer.Distribution {
 				grid = grid && onSystemOneGrid(p)
 			}
-			massTolerance := 1e-6
+			tolerance := 1e-6
 			if grid {
-				massTolerance = float64(len(answer.Distribution))*systemOneHalfUnit + 1e-9
+				tolerance = float64(len(answer.Distribution))*systemOneHalfUnit + 1e-9
 			}
-			if mass <= 0 || math.Abs(mass-1) > massTolerance {
-				return fail("probability_sum")
-			}
-			for i := range answer.Distribution {
-				answer.Distribution[i] /= mass
+			mass, reason := normalizeDistribution(answer.Distribution, tolerance)
+			if reason != "" {
+				return fail(reason)
 			}
 			answer.Confidence = wire.Confidence
 			if !grid {
-				// Keep the actual provider score/reply. The unchanged contract below
-				// still rejects disagreement with the normalized weighted mean.
+				// Keep the actual provider score/reply; the contract still
+				// rejects disagreement with the normalized weighted mean.
 				answer.Mean = wire.Score
 				answer.Reply = &contract.DecisionReply{Score: wire.Score}
 				break
@@ -281,13 +358,9 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 			// precision both were printed in: half a unit for the score itself,
 			// plus what rounding each probability can have moved the mean,
 			// |level - mean| x half a unit, over the printed mass. The answer
-			// then carries that mean, as the OpenAI adapter does
-			// (decisions_openai.go), so the contract's 1e-6 holds on what is
-			// returned.
-			mean := 0.0
-			for i, p := range answer.Distribution {
-				mean += float64(i) * p
-			}
+			// then carries that mean, as the OpenAI adapter's does, so the
+			// contract's 1e-6 holds on what is returned.
+			mean := levelMean(answer.Distribution)
 			spread := 0.0
 			for i := range answer.Distribution {
 				spread += math.Abs(float64(i) - mean)
@@ -305,12 +378,7 @@ func (a *Adapter) readDecisions(body io.Reader, call *provider.Call) (provider.O
 		}
 		answers = append(answers, answer)
 	}
-	if err := contract.ValidateDecisionAnswers(*call.Decisions, answers); err != nil {
-		return fail(decisionAnswerFailureReason(err))
-	}
-	outcome.Decisions = answers
-	outcome.FinishReason = contract.FinishStop
-	return outcome, nil
+	return outcome, answers, nil
 }
 
 // systemOneHalfUnit is half of the hundredth Jev prints its answers in.
@@ -414,40 +482,4 @@ func foldJSONName(name string) string {
 		folded.WriteRune(r)
 	}
 	return folded.String()
-}
-
-// Only exact, static errors from our validator become diagnostics. Never echo
-// an upstream body, question identifier, answer, or arbitrary error string.
-// A future validator error stays rejected and gets the closed fallback.
-func decisionAnswerFailureReason(err error) string {
-	switch err.Error() {
-	case "contract: decision answer count differs":
-		return "answer_count"
-	case "contract: decision answer identity differs":
-		return "answer_identity"
-	case "contract: decisions require actual reply and confidence":
-		return "reply_confidence"
-	case "contract: invalid choice answer":
-		return "choice_value"
-	case "contract: invalid choice reply":
-		return "choice_reply"
-	case "contract: choice reply must select a maximum probability option":
-		return "choice_maximum"
-	case "contract: invalid score answer":
-		return "score_value"
-	case "contract: score reply must match mean":
-		return "score_reply"
-	case "contract: invalid noul answer":
-		return "noul_value"
-	case "contract: unknown decision answer kind":
-		return "answer_kind"
-	case "contract: invalid decision probability":
-		return "probability_value"
-	case "contract: decision probabilities do not sum to one":
-		return "probability_sum"
-	case "contract: decision score differs from distribution":
-		return "score_distribution"
-	default:
-		return "answer_contract"
-	}
 }

@@ -101,17 +101,15 @@ refused: an exact duplicate anywhere, and in a struct-decoded object (the
 response, `usage`, each answer) a member not spelled exactly or two members
 equal under Unicode simple folding. Map keys (question ids, choice labels) stay
 exact. TypeSafe computes a score on the normalized mass of probabilities that
-may carry a rounding residual; Kaana validates the raw mass within 1e-6,
-normalizes it and keeps TypeSafe's score, which must then match the mean within
-1e-6. Jev prints its answers at two decimals (TypeSafe's published examples and
-every production answer), so an answer whose score and probabilities are all on
-that grid is held to the precision it was printed in: the mass within half a
-hundredth per level, and the score within half a hundredth plus
-|level − mean| × half a hundredth per level, over the mass, of the normalized
-mean. That answer carries the mean, as the OpenAI adapter's does. Any answer
-off the grid keeps the 1e-6 rules. A failed public request is logged as
-`inference request failed` with its code, its upstream attempt count and, for a
-refused decisions answer, the finite `decisionResponseValidation` reason. OpenRouter's moderation refusal (403 naming reasons) is
+may carry a rounding residual, and prints its answers at two decimals
+(TypeSafe's published examples and every production answer). An answer whose
+score and probabilities are all on that grid is held to the precision it was
+printed in: the mass within half a hundredth per level, and the score within
+half a hundredth plus |level − mean| × half a hundredth per level, over the
+mass, of the normalized mean; the answer then carries that mean, as the OpenAI
+adapter's does. Any answer off the grid has its mass held within 1e-6,
+normalized, and keeps TypeSafe's score, which must match the mean within 1e-6.
+OpenRouter's moderation refusal (403 naming reasons) is
 `upstream_content_filtered`, unmeasured.
 
 ### OpenAI Decisions API (`openai-decisions`, `/decisions`)
@@ -157,6 +155,11 @@ profile. OpenAI documents no rate limits or idempotency for this API.
 
 ## Failures
 
+A failed public request is logged as `inference request failed` with its code
+and its upstream attempt count; an answer either adapter refused also carries
+the finite `decisionResponseValidation` reason
+(`provider.InvalidDecisionResponse`), never the provider's text.
+
 A refusal before any provider attempt is a public 4xx (invalid request,
 `request_too_large`, permission, model) or `no_route_available`, and nothing
 executed. Once an attempt reached an adapter the request may have been accepted
@@ -179,6 +182,17 @@ an unpinned request moves to the profile's next line exactly then. Requests
 have a 30-second upstream deadline as well as caller cancellation; a complete,
 validated answer read before a late deadline or cancellation lands still
 settles as completed.
+
+## The grant's input estimate
+
+Kaana asks Oxy for the grant with `facts.estimatedInputTokens` = a quarter of
+the request body's bytes. A provider bills its own prompt framing on top:
+TypeSafe's API examples bill 296 input tokens for a one-question request of
+about 150 bytes, and Mention's production requests (2026-10-18, four
+questions) bill the estimate plus 330–370 tokens, about 2.5 times it. The
+estimate is therefore not a bound on what Jev bills. Oxy grants decisions only
+to internal relationships, which hold nothing, so no hold is undersized today;
+a commercial decisions grant needs a sound input bound first.
 
 ## Conformance
 
