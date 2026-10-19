@@ -43,6 +43,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
 // Header names the public API speaks (`@kaana.ai/contracts` 4.1.0).
@@ -87,6 +88,9 @@ type Config struct {
 	// Audio publishes each speech model's voice limits (ADR 0002, decision 9);
 	// nil takes them from Catalogue.
 	Audio AudioCatalogue
+	// Costs are the rate cards; a card's requestInputTokens bounds the
+	// decisions input estimate. Nil declares none.
+	Costs *providercost.Cards
 	// Catalogue is the declared half of GET /v1/models (identity, licence,
 	// data policy, power class, prices); nil lists nothing.
 	Catalogue *PublicCatalogue
@@ -112,6 +116,7 @@ type Server struct {
 	audio      AudioCatalogue
 	realtime   http.Handler
 	catalogue  *PublicCatalogue
+	costs      *providercost.Cards
 	origins    map[string]struct{}
 	limiter    *limiter
 	logger     *slog.Logger
@@ -165,7 +170,7 @@ func New(config Config) (*Server, error) {
 	}
 	return &Server{
 		executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
-		inventory: config.Inventory, funding: config.Funding, audio: audio, realtime: config.Realtime, catalogue: catalogue,
+		inventory: config.Inventory, funding: config.Funding, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
 		origins: origins, limiter: newLimiter(rate, now), logger: logger, now: now,
 	}, nil
 }

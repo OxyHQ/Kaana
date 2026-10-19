@@ -200,52 +200,59 @@ func (d DecisionInput) measure(questions []DecisionQuestion) int {
 }
 
 func (d DecisionInput) Validate() error {
+	_, err := d.ValidatedBudget()
+	return err
+}
+
+// ValidatedBudget validates the input and returns its serialized budget.
+func (d DecisionInput) ValidatedBudget() (DecisionBudget, error) {
 	if len(d.Questions) < 1 || len(d.Questions) > 255 || utf16Length(d.State) > 65536 || (d.Effort != nil && !isMember(*d.Effort, decisionEffortValues)) {
-		return fmt.Errorf("contract: invalid decisions state, questions or effort")
+		return DecisionBudget{}, fmt.Errorf("contract: invalid decisions state, questions or effort")
 	}
 	if d.Instructions != nil && !decisionText(*d.Instructions) {
-		return fmt.Errorf("contract: invalid decisions instructions")
+		return DecisionBudget{}, fmt.Errorf("contract: invalid decisions instructions")
 	}
 	seen := map[string]bool{}
 	for _, q := range d.Questions {
 		if q.ID == "" || utf16Length(q.ID) > 128 || seen[q.ID] || !decisionText(q.Question) {
-			return fmt.Errorf("contract: invalid or repeated decision question")
+			return DecisionBudget{}, fmt.Errorf("contract: invalid or repeated decision question")
 		}
 		seen[q.ID] = true
 		if q.Criteria != nil && !decisionText(*q.Criteria) {
-			return fmt.Errorf("contract: invalid decision criteria")
+			return DecisionBudget{}, fmt.Errorf("contract: invalid decision criteria")
 		}
 		var labels []string
 		switch q.Kind {
 		case "choice":
 			if len(q.Options) < 2 || len(q.Options) > 255 || q.Levels != nil {
-				return fmt.Errorf("contract: invalid choice options")
+				return DecisionBudget{}, fmt.Errorf("contract: invalid choice options")
 			}
 			labels = q.Options
 		case "score":
 			if len(q.Levels) < 2 || len(q.Levels) > 10 || q.Options != nil {
-				return fmt.Errorf("contract: invalid score levels")
+				return DecisionBudget{}, fmt.Errorf("contract: invalid score levels")
 			}
 			labels = q.Levels
 		case "noul":
 			if q.Levels != nil || q.Options != nil {
-				return fmt.Errorf("contract: noul carries no labels")
+				return DecisionBudget{}, fmt.Errorf("contract: noul carries no labels")
 			}
 		default:
-			return fmt.Errorf("contract: unknown decision kind")
+			return DecisionBudget{}, fmt.Errorf("contract: unknown decision kind")
 		}
 		unique := map[string]bool{}
 		for _, label := range labels {
 			if !decisionText(label) || unique[label] {
-				return fmt.Errorf("contract: invalid or repeated decision label")
+				return DecisionBudget{}, fmt.Errorf("contract: invalid or repeated decision label")
 			}
 			unique[label] = true
 		}
 	}
-	if budget := d.Budget(); budget.Total > DecisionTotalBudget || budget.Context > DecisionContextBudget {
-		return fmt.Errorf("contract: decisions exceed the serialized %d-byte total or %d-byte per-question context budget", DecisionTotalBudget, DecisionContextBudget)
+	budget := d.Budget()
+	if budget.Total > DecisionTotalBudget || budget.Context > DecisionContextBudget {
+		return DecisionBudget{}, fmt.Errorf("contract: decisions exceed the serialized %d-byte total or %d-byte per-question context budget", DecisionTotalBudget, DecisionContextBudget)
 	}
-	return nil
+	return budget, nil
 }
 
 func decisionText(s string) bool { return len(s) > 0 && utf16Length(s) <= 65536 }

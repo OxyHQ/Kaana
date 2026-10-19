@@ -669,7 +669,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_public_v1","source":"operator","sourceVersion":"test","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
 		{"deploymentId":"dep_realtime","currency":"USD","rates":[{"unit":"output_tokens","amountPerUnit":24000000}]},
-		{"deploymentId":"dep_judge","currency":"USD","rates":[{"unit":"input_tokens","amountPerUnit":100000},{"unit":"output_tokens","amountPerUnit":0}]}]}`))
+		{"deploymentId":"dep_judge","currency":"USD","requestInputTokens":300,"rates":[{"unit":"input_tokens","amountPerUnit":100000},{"unit":"output_tokens","amountPerUnit":0}]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +716,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	api, err := publicapi.New(publicapi.Config{
 		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store,
-		Funding: publicapi.RegistryFunding{Registry: registry}, Audio: options.audio, Catalogue: options.catalogue,
+		Funding: publicapi.RegistryFunding{Registry: registry}, Audio: options.audio, Catalogue: options.catalogue, Costs: cards,
 		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger,
 	})
 	if err != nil {

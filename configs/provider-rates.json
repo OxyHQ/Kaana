@@ -4,14 +4,15 @@
     "One file is one immutable rate-card version, registered append-only in provider_rate_card_versions at startup. A changed price, or another deployment, is a NEW rateCardVersionId; reusing an id with different content stops the process.",
     "rc_xai_realtime_2026_10_16: xAI Voice Agent (grok-voice-3.0) under Kaana's xai-realtime slug. It replaces rc_xai_realtime_2026_09_30, whose only deployment (grok-voice-think-fast-2.0) xAI stopped serving on 2026-10-14; the old version stays registered append-only. The deployment id is the publisher's first observation of the new line, on the day this card ships (dep_xai_realtime_grok_voice_3_0_observed_2026_10_16). xAI's list price, read 2026-10-16 at https://docs.x.ai/developers/models: audio $0.08 / minute ($4.80/hr); text input $0.004 per conversation.item.create \u2014 unchanged from 2.0. A push-to-talk session is billed for audio sent and received (audio_input_milliseconds, audio_output_milliseconds); a server_vad session for its duration (session_milliseconds), never both for one span. $0.08 / 60000 ms = 1333333.33 x 1e-12 USD per ms, truncated to 1333333 ($0.07999998/min). $0.004 = 4000000000 x 1e-12 USD per text item (requests).",
     "rc_voice_2026_10_16: the voice and transcription deployments Kaana serves. It carries rc_xai_realtime_2026_10_16's one deployment unchanged and adds file transcription, each rate the provider's documented list price converted to 1e-12 USD per audio millisecond and rounded down: dep_xai_grok_voice_transcribe_2_0_observed_2026_10_16 at $0.10 per hour (27777; https://docs.x.ai/developers/models, 'Speech to Text REST $0.10/hr'), dep_groq_whisper_large_v3_observed_2026_10_16 at $0.111 per hour (30833) and dep_groq_whisper_large_v3_turbo_observed_2026_10_16 at $0.04 per hour (11111; https://console.groq.com/docs/speech-to-text). Groq bills at least 10 seconds a request; the adapter reports that minimum as the request's audio_input_milliseconds, so the rate needs no floor of its own. The deployment ids are read back from the production inventory (snap_ea0d4ecf18806d21, issued 2026-10-16T03:49:49Z) after OxyHQ/Kaana#193 deployed.",
-    "rc_decisions_2026_10_18: carries rc_voice_2026_10_16's four deployments unchanged and adds TypeSafe's Jev on OpenRouter /systemone (docs/decisions.md), dep_openrouter_typesafe_jev_1_13_20260917_observed_2026_10_18, at OpenRouter's list price read back from the production inventory (snap_9afce8640d7613b0, issued 2026-10-18T20:44:32Z, after OxyHQ/Kaana#208 deployed): input $0.042 per 1M tokens = 42000 x 1e-12 USD per input token; output $0 (decisions bill input only). The executor sends this card as the request's OpenRouter max_price (DecisionPriceLimit); a decisions route with no card is refused."
+    "rc_decisions_2026_10_18: carries rc_voice_2026_10_16's four deployments unchanged and adds TypeSafe's Jev on OpenRouter /systemone (docs/decisions.md), dep_openrouter_typesafe_jev_1_13_20260917_observed_2026_10_18, at OpenRouter's list price read back from the production inventory (snap_9afce8640d7613b0, issued 2026-10-18T20:44:32Z, after OxyHQ/Kaana#208 deployed): input $0.042 per 1M tokens = 42000 x 1e-12 USD per input token; output $0 (decisions bill input only). The executor sends this card as the request's OpenRouter max_price (DecisionPriceLimit); a decisions route with no card is refused.",
+    "rc_decisions_2026_10_19: rc_decisions_2026_10_18 unchanged, with requestInputTokens 400 on the Jev deployment: the input tokens TypeSafe bills on every /systemone request beyond what Kaana sends (its own prompt framing). TypeSafe's API examples (https://docs.typesafe.ai/api) bill 296 input tokens for a one-question request of about 150 bytes; Mention's 43 production requests of 2026-10-18 (Oxy kaana_grants joined to inference_metered_usage, read-only) billed 330 to 370 tokens above a quarter of their request bytes. 400 bounds every observation. It only bounds the grant estimate (docs/decisions.md); the reported input_tokens settle as before."
   ],
   "schemaVersion": 1,
-  "rateCardVersionId": "rc_decisions_2026_10_18",
+  "rateCardVersionId": "rc_decisions_2026_10_19",
   "source": "provider_documentation",
   "sourceVersion": "docs.x.ai/developers/models@2026-10-16; console.groq.com/docs/speech-to-text@2026-10-16; openrouter.ai/api/v1/models (typesafe/jev-1.13)@2026-10-18",
-  "observedAt": "2026-10-18T00:00:00Z",
-  "effectiveAt": "2026-10-18T00:00:00Z",
+  "observedAt": "2026-10-19T00:00:00Z",
+  "effectiveAt": "2026-10-19T00:00:00Z",
   "rateCards": [
     {
       "deploymentId": "dep_groq_whisper_large_v3_observed_2026_10_16",
@@ -36,6 +37,7 @@
     {
       "deploymentId": "dep_openrouter_typesafe_jev_1_13_20260917_observed_2026_10_18",
       "currency": "USD",
+      "requestInputTokens": 400,
       "rates": [
         {
           "unit": "input_tokens",

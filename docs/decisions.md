@@ -185,14 +185,19 @@ settles as completed.
 
 ## The grant's input estimate
 
-Kaana asks Oxy for the grant with `facts.estimatedInputTokens` = a quarter of
-the request body's bytes. A provider bills its own prompt framing on top:
-TypeSafe's API examples bill 296 input tokens for a one-question request of
-about 150 bytes, and Mention's production requests (2026-10-18, four
-questions) bill the estimate plus 330–370 tokens, about 2.5 times it. The
-estimate is therefore not a bound on what Jev bills. Oxy grants decisions only
-to internal relationships, which hold nothing, so no hold is undersized today;
-a commercial decisions grant needs a sound input bound first.
+Oxy sizes a decisions grant from `facts.estimatedInputTokens`, so the estimate
+bounds what the provider bills: a quarter of the larger of the request body and
+its serialized budget (shared instructions repeated per question, as a provider
+is sent them), plus the most `requestInputTokens` any rate card of a
+deployment that may answer declares (the pinned revision's deployments, or
+every deployment when the grant chooses; [cost.md](cost.md)).
+
+Jev's card declares 400 (`rc_decisions_2026_10_19`). Jev bills its own prompt
+framing on top of what it is sent: TypeSafe's API examples bill 296 input tokens
+for a one-question request of about 150 bytes, and Mention's 43 production
+requests of 2026-10-18 billed 330–370 tokens above a quarter of their body
+bytes (about 2.5 times that estimate). 400 bounds every observation; a new
+observation above it is a new card.
 
 ## Conformance
 

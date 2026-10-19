@@ -60,6 +60,13 @@ output-token rate). A decisions route without one is refused, never priced at
 zero, and OpenRouter's `/systemone` is sent that ceiling as `max_price`
 ([decisions.md](decisions.md)).
 
+A card may also state `requestInputTokens`: the input tokens its provider bills
+on every request beyond what Kaana sends it (its own prompt framing), an upper
+bound from the card's evidence. It is not a price: the provider's reported
+`input_tokens` already include it and settle at the input rate. It only sizes
+the input estimate Kaana asks Oxy's grant for, so that estimate bounds what the
+provider bills ([decisions.md](decisions.md#the-grants-input-estimate)).
+
 When an upstream returns the exact amount it billed for the request, that fact
 outranks the rate-card calculation for the same attempt. It is parsed directly
 from the provider's decimal string into the fixed 1e-12 integer scale; it never

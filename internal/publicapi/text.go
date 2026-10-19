@@ -727,7 +727,8 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, invalid(requestID, "model", "a decisions model is revision-pinned"))
 		return
 	}
-	if err := input.Validate(); err != nil {
+	budget, err := input.ValidatedBudget()
+	if err != nil {
 		writeError(w, requestID, invalid(requestID, "questions", err.Error()))
 		return
 	}
@@ -739,7 +740,12 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 		pinned := contract.ModelTarget(*request.Model)
 		target = &pinned
 	}
-	estimate := (len(body) + 3) / 4
+	// The grant is sized from this estimate, so it bounds what the provider
+	// bills: a quarter of the larger of the body and its serialized budget
+	// (shared instructions repeated per question, as a provider is sent them),
+	// plus the framing the provider bills on every request, as declared by
+	// the rate card of any deployment that may answer.
+	estimate := (max(len(body), budget.Total)+3)/4 + int(s.costs.RequestInputTokens(s.mayAnswer(request.Model)))
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
 		operation: contract.GrantDecisions, target: target, body: body, endpoint: "/v1/decisions",
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate},
@@ -764,6 +770,19 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: contract.SchemaVersion, RequestID: requestID, Model: result.Decisions.Model,
 		Data: result.Decisions.Data, Usage: nonNilUnits(result.Decisions.Usage.Units), RoutingPolicy: admitted.grant.RoutingPolicy,
 	})
+}
+
+// mayAnswer admits the deployments that may answer a request for model: the
+// deployments of that revision, or every deployment when the grant chooses.
+func (s *Server) mayAnswer(model *contract.ModelReference) func(contract.DeploymentID) bool {
+	if model == nil {
+		return func(contract.DeploymentID) bool { return true }
+	}
+	current := s.inventory.Current()
+	return func(id contract.DeploymentID) bool {
+		route, err := current.Deployment(id)
+		return err == nil && route.ModelReference == *model
+	}
 }
 
 /* -------------------------------------------------------------------------- */
