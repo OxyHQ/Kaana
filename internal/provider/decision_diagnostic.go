@@ -1,26 +1,42 @@
 package provider
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/OxyHQ/Kaana/internal/contract"
+)
+
+const decisionResponsePrefix = "invalid decisions response: "
+
+// decisionResponseReasons are the finite reasons a decisions adapter refuses
+// a provider's answer with: its own checks and every contract.DecisionAnswerError.
+var decisionResponseReasons = map[string]bool{
+	"body_read": true, "response_json": true, "ambiguous_json": true, "trailing_json": true,
+	"missing_questions": true, "model_identity": true, "usage_units": true, "answer_count": true,
+	"provider_identity": true, "answer_identity": true, "answer_json": true, "answer_kind": true,
+	"choice_probability_count": true, "choice_probability_key": true, "score_probability_count": true,
+	"score_probability_key": true, "noul_fields": true, "reply_confidence": true, "choice_value": true,
+	"choice_reply": true, "choice_maximum": true, "score_value": true, "score_reply": true, "noul_value": true,
+	"probability_value": true, "probability_sum": true, "score_distribution": true, "answer_contract": true,
+}
+
+// InvalidDecisionResponse is a provider's decisions answer Kaana refused: a
+// provider_error of unknown category whose detail names one finite reason. A
+// reason outside the closed set becomes `answer_contract`.
+func InvalidDecisionResponse(reason string) ErrUpstream {
+	if !decisionResponseReasons[reason] {
+		reason = "answer_contract"
+	}
+	return ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: decisionResponsePrefix + reason}
+}
 
 // DecisionResponseDiagnostic projects only finite local validation reasons into
 // operator logs. A prefix match alone is insufficient: upstream-controlled
 // error text, suffixes and values must never become log attributes.
 func DecisionResponseDiagnostic(detail string) string {
-	const prefix = "invalid systemone response: "
-	if !strings.HasPrefix(detail, prefix) {
+	reason, ok := strings.CutPrefix(detail, decisionResponsePrefix)
+	if !ok || !decisionResponseReasons[reason] {
 		return ""
 	}
-	reason := strings.TrimPrefix(detail, prefix)
-	switch reason {
-	case "body_read", "response_json", "ambiguous_json", "trailing_json",
-		"missing_questions", "model_identity", "usage_units", "answer_count",
-		"provider_identity", "answer_identity", "answer_json", "answer_kind",
-		"choice_probability_count", "choice_probability_key", "score_probability_count",
-		"score_probability_key", "noul_fields", "reply_confidence", "choice_value",
-		"choice_reply", "choice_maximum", "score_value", "score_reply", "noul_value",
-		"probability_value", "probability_sum", "score_distribution", "answer_contract":
-		return reason
-	default:
-		return ""
-	}
+	return reason
 }

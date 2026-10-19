@@ -29,8 +29,8 @@ resolves the signed opaque `deploymentId` by the first rule that applies
    `provider_deployment_credential_bindings`. It is final: the deployment uses
    only that key, and a pin to a retired or disabled key, or one naming another
    provider, never falls back to the pool. Pins are optional; they exist for a
-   key that must serve one deployment alone (a contract, a test, a scoped
-   permit) and are removed with `kaana-credentials unpin-deployment`.
+   key that must serve one deployment alone (a contract, a test) and are
+   removed with `kaana-credentials unpin-deployment`.
 2. **The provider's pool.** Every enabled key of the provider, cheapest stated
    funding first — free, then credits (a promotional or trial grant before a
    prepaid balance), then paid, then unstated — and within one funding the

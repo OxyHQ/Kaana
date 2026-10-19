@@ -54,7 +54,7 @@ func TestDecisionsMentionShapeAndFiniteDiagnostics(t *testing.T) {
 			mutated := strings.Replace(good, tt.old, tt.replacement, 1)
 			got, err := a.readDecisions(strings.NewReader(mutated), call)
 			var failure provider.ErrUpstream
-			if !errors.As(err, &failure) || failure.Code != contract.CodeProviderError || failure.Category != contract.UpstreamUnknown || failure.Detail != "invalid systemone response: "+tt.reason {
+			if !errors.As(err, &failure) || failure.Code != contract.CodeProviderError || failure.Category != contract.UpstreamUnknown || failure.Detail != "invalid decisions response: "+tt.reason {
 				t.Fatalf("wrong finite diagnostic: %v", err)
 			}
 			if strings.Contains(err.Error(), "PRIVATE_") || len(got.Decisions) != 0 {
@@ -64,13 +64,6 @@ func TestDecisionsMentionShapeAndFiniteDiagnostics(t *testing.T) {
 				t.Fatalf("measured work lost: %+v", got)
 			}
 		})
-	}
-}
-
-func TestDecisionDiagnosticUnknownValidatorErrorIsClosed(t *testing.T) {
-	reason := decisionAnswerFailureReason(errors.New("PRIVATE_UNRECOGNIZED_ERROR_CANARY"))
-	if reason != "answer_contract" || provider.DecisionResponseDiagnostic("invalid systemone response: "+reason) != reason {
-		t.Fatal("unknown validator error did not use fixed fallback")
 	}
 }
 

@@ -1,10 +1,7 @@
 package openaicompat
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -78,26 +75,11 @@ func openAIDecisionQuestions(input *contract.DecisionInput, questions []contract
 
 func (a *Adapter) translateOpenAIDecisions(request *contract.Request, route provider.Route) (*provider.Call, error) {
 	input := request.Input.Decisions
-	encode := func(questions []contract.DecisionQuestion) ([]byte, error) {
+	encoded, err := encodeDecisionsBody(input.Questions, func(questions []contract.DecisionQuestion) ([]byte, error) {
 		return json.Marshal(openAIDecisionsRequest{Model: route.UpstreamModelID, Input: input.State, Questions: openAIDecisionQuestions(input, questions)})
-	}
-	encoded, err := encode(input.Questions)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("decisions: encode request: %w", err)
-	}
-	// The contract's budgets bound the body as sent, whole and per question.
-	tooLarge := provider.ErrUnsupported{Code: contract.CodeRequestTooLarge, Param: "input.decisions", Detail: "the serialized decisions body exceeds its input budget"}
-	if len(encoded) > contract.DecisionTotalBudget {
-		return nil, tooLarge
-	}
-	for i := range input.Questions {
-		single, err := encode(input.Questions[i : i+1])
-		if err != nil {
-			return nil, fmt.Errorf("decisions: encode request: %w", err)
-		}
-		if len(single) > contract.DecisionContextBudget {
-			return nil, tooLarge
-		}
+		return nil, err
 	}
 	return &provider.Call{RequestID: request.Attribution.RequestID, Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/decisions", Body: encoded, Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}, Decisions: input}, nil
 }
@@ -142,46 +124,18 @@ var openAIDecisionsResponseShape = &jsonShape{fields: map[string]*jsonShape{
 	}}},
 }}
 
-// readOpenAIDecisions reads one Decisions API answer under the same rules as
-// readDecisions: measured units survive an invalid answer once the body
-// decodes, a refusal is a content filter, and every answer is validated
-// against the request before it is returned.
-func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (provider.Outcome, error) {
-	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported}
-	fail := func(reason string) (provider.Outcome, error) {
-		return outcome, provider.ErrUpstream{Code: contract.CodeProviderError, Category: contract.UpstreamUnknown, Detail: "invalid decisions response: " + reason}
-	}
-	raw, readErr := io.ReadAll(io.LimitReader(body, (2<<20)+1))
-	if readErr != nil || len(raw) > 2<<20 {
-		return fail("body_read")
-	}
+// readOpenAIDecisions reads one Decisions API answer into contract order. A
+// refusal is the provider's content filter, with the work it measured.
+func readOpenAIDecisions(body io.Reader, call *provider.Call) (provider.Outcome, []contract.DecisionAnswer, error) {
 	var response openAIDecisionsResponse
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if err := decoder.Decode(&response); err != nil {
-		return fail("response_json")
+	outcome, reason := decodeDecisionResponse(body, call, openAIDecisionsResponseShape, &response, func() decisionResponseFacts {
+		return decisionResponseFacts{model: response.Model, input: response.Usage.InputTokens, output: response.Usage.OutputTokens}
+	})
+	fail := func(reason string) (provider.Outcome, []contract.DecisionAnswer, error) {
+		return outcome, nil, provider.InvalidDecisionResponse(reason)
 	}
-	ambiguity := unambiguousDecisionJSON(json.NewDecoder(bytes.NewReader(raw)), openAIDecisionsResponseShape)
-	if !errors.Is(ambiguity, errAmbiguousUsage) {
-		if response.Usage.InputTokens != nil && *response.Usage.InputTokens >= 0 {
-			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitInputTokens, Quantity: *response.Usage.InputTokens})
-		}
-		if response.Usage.OutputTokens != nil && *response.Usage.OutputTokens >= 0 {
-			outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitOutputTokens, Quantity: *response.Usage.OutputTokens})
-		}
-	}
-	outcome.Units = append(outcome.Units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: 1})
-	if ambiguity != nil {
-		return fail("ambiguous_json")
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return fail("trailing_json")
-	}
-	if call.Decisions == nil {
-		return fail("missing_questions")
-	}
-	if response.Model != call.Route.UpstreamModelID {
-		return fail("model_identity")
+	if reason != "" {
+		return fail(reason)
 	}
 	if response.Usage.InputTokens == nil || *response.Usage.InputTokens < 0 || (response.Usage.OutputTokens != nil && *response.Usage.OutputTokens < 0) {
 		return fail("usage_units")
@@ -199,9 +153,7 @@ func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (prov
 	}
 	for _, answer := range wire {
 		if answer.Type == "refusal" {
-			// The model declined to answer: the provider's content filter, with
-			// the work it measured.
-			return outcome, provider.ErrUpstream{Code: contract.CodeUpstreamContentFiltered, Category: contract.UpstreamContentFilter, Detail: "the decisions model refused a question"}
+			return outcome, nil, provider.ErrUpstream{Code: contract.CodeUpstreamContentFiltered, Category: contract.UpstreamContentFilter, Detail: "the decisions model refused a question"}
 		}
 	}
 	if len(wire) != len(call.Decisions.Questions) {
@@ -221,7 +173,7 @@ func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (prov
 		case "noul":
 			answer.Probability = got.Probability
 		case "choice":
-			distribution, reason := openAIDistribution(got.Probabilities, question.Options, func(p openAIDecisionProbability) (int, bool) {
+			distribution, reason := openAIDistribution(got.Probabilities, question.Options, "choice", func(p openAIDecisionProbability) (int, bool) {
 				var value string
 				if json.Unmarshal(p.Value, &value) != nil {
 					return 0, false
@@ -229,13 +181,13 @@ func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (prov
 				return indexOf(question.Options, value)
 			})
 			if reason != "" {
-				return fail("choice_" + reason)
+				return fail(reason)
 			}
 			answer.Reply = &contract.DecisionReply{Label: got.Choice}
 			answer.Confidence = got.Confidence
 			answer.Probabilities = distribution
 		case "score":
-			distribution, reason := openAIDistribution(got.Probabilities, question.Levels, func(p openAIDecisionProbability) (int, bool) {
+			distribution, reason := openAIDistribution(got.Probabilities, question.Levels, "score", func(p openAIDecisionProbability) (int, bool) {
 				var index int
 				hasIndex := len(p.Value) > 0 && json.Unmarshal(p.Value, &index) == nil
 				if p.Label == nil {
@@ -245,7 +197,7 @@ func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (prov
 				return position, known && (!hasIndex || index == position)
 			})
 			if reason != "" {
-				return fail("score_" + reason)
+				return fail(reason)
 			}
 			if got.Score == nil {
 				return fail("reply_confidence")
@@ -254,17 +206,13 @@ func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (prov
 			if err != nil {
 				return fail("score_value")
 			}
-			mean := 0.0
-			for i, p := range distribution {
-				mean += float64(i) * p
-			}
 			// OpenAI's score is the probability-weighted mean of the zero-based
 			// level indices, which it may print rounded. It must agree with the
 			// mean of the distribution to the precision it was printed in; the
-			// answer is then that mean, exactly as readDecisions answers the
-			// mean of Jev's normalized mass, so the contract's 1e-6 rules hold
-			// on what is returned. The distribution itself gets no tolerance
-			// beyond the contract's.
+			// answer is then that mean, as Jev's on-grid answers carry theirs, so
+			// the contract's 1e-6 rules hold on what is returned. The
+			// distribution itself gets no tolerance beyond the contract's.
+			mean := levelMean(distribution)
 			if math.Abs(score-mean) > printedHalfUnit(*got.Score)+1e-6 {
 				return fail("score_reply")
 			}
@@ -275,44 +223,30 @@ func (a *Adapter) readOpenAIDecisions(body io.Reader, call *provider.Call) (prov
 		}
 		answers = append(answers, answer)
 	}
-	if err := contract.ValidateDecisionAnswers(*call.Decisions, answers); err != nil {
-		return fail(decisionAnswerFailureReason(err))
-	}
-	outcome.Decisions = answers
-	outcome.FinishReason = contract.FinishStop
-	return outcome, nil
+	return outcome, answers, nil
 }
 
 // openAIDistribution puts a choice's or a score's probabilities into the
-// contract's order (`position` names each entry's place), checks every one is
-// a probability and that they sum to one within the contract's 1e-6, and
-// returns them normalized, as readDecisions does Jev's. reason is empty when
-// the distribution is usable.
-func openAIDistribution(entries []openAIDecisionProbability, labels []string, position func(openAIDecisionProbability) (int, bool)) (distribution []float64, reason string) {
+// contract's order (`position` names each entry's place) and normalizes them
+// within the contract's 1e-6 (normalizeDistribution). kind prefixes the
+// reasons that are about the entries themselves; reason is empty when the
+// distribution is usable.
+func openAIDistribution(entries []openAIDecisionProbability, labels []string, kind string, position func(openAIDecisionProbability) (int, bool)) (distribution []float64, reason string) {
 	if len(entries) != len(labels) {
-		return nil, "probability_count"
+		return nil, kind + "_probability_count"
 	}
 	distribution = make([]float64, len(labels))
 	seen := make([]bool, len(labels))
-	mass := 0.0
 	for _, entry := range entries {
 		index, ok := position(entry)
 		if !ok || index < 0 || index >= len(labels) || seen[index] || entry.Probability == nil {
-			return nil, "probability_key"
+			return nil, kind + "_probability_key"
 		}
 		seen[index] = true
-		p := *entry.Probability
-		if math.IsNaN(p) || math.IsInf(p, 0) || p < 0 || p > 1 {
-			return nil, "probability_value"
-		}
-		distribution[index] = p
-		mass += p
+		distribution[index] = *entry.Probability
 	}
-	if math.Abs(mass-1) > 1e-6 {
-		return nil, "probability_sum"
-	}
-	for i := range distribution {
-		distribution[i] /= mass
+	if _, reason := normalizeDistribution(distribution, 1e-6); reason != "" {
+		return nil, reason
 	}
 	return distribution, ""
 }

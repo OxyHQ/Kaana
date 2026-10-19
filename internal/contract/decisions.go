@@ -253,11 +253,19 @@ func decisionProbability(p float64) bool {
 	return !math.IsNaN(p) && !math.IsInf(p, 0) && p >= 0 && p <= 1
 }
 
+// DecisionAnswerError is an answer ValidateDecisionAnswers refuses, named by
+// one finite reason: the value is fixed here, never provider text, so an
+// operator log may carry it.
+type DecisionAnswerError string
+
+func (e DecisionAnswerError) Error() string { return "contract: invalid decision answer: " + string(e) }
+
 // ValidateDecisionAnswers binds every answer to the exact question and ordered
 // labels, without inventing confidence or replacing malformed probabilities.
+// Every refusal is a DecisionAnswerError.
 func ValidateDecisionAnswers(input DecisionInput, answers []DecisionAnswer) error {
 	if len(answers) != len(input.Questions) {
-		return fmt.Errorf("contract: decision answer count differs")
+		return DecisionAnswerError("answer_count")
 	}
 	questions := make(map[string]DecisionQuestion, len(input.Questions))
 	for _, q := range input.Questions {
@@ -266,20 +274,20 @@ func ValidateDecisionAnswers(input DecisionInput, answers []DecisionAnswer) erro
 	for _, a := range answers {
 		q, ok := questions[a.ID]
 		if !ok || a.Kind != q.Kind {
-			return fmt.Errorf("contract: decision answer identity differs")
+			return DecisionAnswerError("answer_identity")
 		}
 		delete(questions, a.ID)
 		if a.Kind != "noul" && (a.Confidence == nil || !decisionProbability(*a.Confidence) || a.Reply == nil) {
-			return fmt.Errorf("contract: decisions require actual reply and confidence")
+			return DecisionAnswerError("reply_confidence")
 		}
 		var values []float64
 		switch a.Kind {
 		case "choice":
 			if len(a.Probabilities) != len(q.Options) || a.Mean != nil || a.Probability != nil || a.Distribution != nil {
-				return fmt.Errorf("contract: invalid choice answer")
+				return DecisionAnswerError("choice_value")
 			}
 			if a.Reply.Label == nil || a.Reply.Score != nil {
-				return fmt.Errorf("contract: invalid choice reply")
+				return DecisionAnswerError("choice_reply")
 			}
 			selected := -1
 			highest := 0.0
@@ -290,38 +298,38 @@ func ValidateDecisionAnswers(input DecisionInput, answers []DecisionAnswer) erro
 				highest = max(highest, a.Probabilities[i])
 			}
 			if selected < 0 || a.Probabilities[selected]+1e-6 < highest {
-				return fmt.Errorf("contract: choice reply must select a maximum probability option")
+				return DecisionAnswerError("choice_maximum")
 			}
 			values = a.Probabilities
 		case "score":
 			if len(a.Distribution) != len(q.Levels) || a.Mean == nil || a.Probability != nil || a.Probabilities != nil {
-				return fmt.Errorf("contract: invalid score answer")
+				return DecisionAnswerError("score_value")
 			}
 			if a.Reply.Score == nil || a.Reply.Label != nil || math.IsNaN(*a.Reply.Score) || math.IsInf(*a.Reply.Score, 0) || *a.Reply.Score < 0 || *a.Reply.Score > 9 || math.Abs(*a.Reply.Score-*a.Mean) > 1e-6 {
-				return fmt.Errorf("contract: score reply must match mean")
+				return DecisionAnswerError("score_reply")
 			}
 			values = a.Distribution
 		case "noul":
 			if a.Reply != nil || a.Confidence != nil || a.Probability == nil || !decisionProbability(*a.Probability) || a.Mean != nil || a.Probabilities != nil || a.Distribution != nil {
-				return fmt.Errorf("contract: invalid noul answer")
+				return DecisionAnswerError("noul_value")
 			}
 			continue
 		default:
-			return fmt.Errorf("contract: unknown decision answer kind")
+			return DecisionAnswerError("answer_kind")
 		}
 		sum, mean := 0.0, 0.0
 		for i, p := range values {
 			if !decisionProbability(p) {
-				return fmt.Errorf("contract: invalid decision probability")
+				return DecisionAnswerError("probability_value")
 			}
 			sum += p
 			mean += float64(i) * p
 		}
 		if math.Abs(sum-1) > 1e-6 {
-			return fmt.Errorf("contract: decision probabilities do not sum to one")
+			return DecisionAnswerError("probability_sum")
 		}
 		if a.Kind == "score" && (math.IsNaN(*a.Mean) || math.IsInf(*a.Mean, 0) || *a.Mean < 0 || *a.Mean > 9 || math.Abs(*a.Mean-mean) > 1e-6) {
-			return fmt.Errorf("contract: decision score differs from distribution")
+			return DecisionAnswerError("score_distribution")
 		}
 	}
 	return nil

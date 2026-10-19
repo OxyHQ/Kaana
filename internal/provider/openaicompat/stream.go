@@ -39,11 +39,6 @@ const doneSentinel = "[DONE]"
 func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.Emitter, credentials *provider.KeyPool) (provider.Outcome, error) {
 	outcome := provider.Outcome{UsageSource: contract.UsageEstimated}
 	if call.Decisions != nil {
-		if call.Route.DecisionPriceLimit == nil {
-			// The executor sets a limit on every decisions route; a call
-			// without one reached here some other way and is not sent.
-			return outcome, errNoDecisionPrice
-		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, a.decisionDeadline())
 		defer cancel()
