@@ -183,17 +183,6 @@ have a 30-second upstream deadline as well as caller cancellation; a complete,
 validated answer read before a late deadline or cancellation lands still
 settles as completed.
 
-## The grant's input estimate
-
-Kaana asks Oxy for the grant with `facts.estimatedInputTokens` = a quarter of
-the request body's bytes. A provider bills its own prompt framing on top:
-TypeSafe's API examples bill 296 input tokens for a one-question request of
-about 150 bytes, and Mention's production requests (2026-10-18, four
-questions) bill the estimate plus 330–370 tokens, about 2.5 times it. The
-estimate is therefore not a bound on what Jev bills. Oxy grants decisions only
-to internal relationships, which hold nothing, so no hold is undersized today;
-a commercial decisions grant needs a sound input bound first.
-
 ## Conformance
 
 `conformance.RunDecisions` holds every decisions adapter to the same
