@@ -143,6 +143,13 @@ type Card struct {
 	DeploymentID contract.DeploymentID `json:"deploymentId"`
 	Currency     string                `json:"currency"`
 	Rates        []Rate                `json:"rates"`
+	// RequestInputTokens is how many input tokens the provider bills on every
+	// request beyond what Kaana sends it (its own prompt framing), an upper
+	// bound from the card's evidence. The provider's reported input_tokens
+	// already include it and settle at the input rate; it only bounds the
+	// input estimate Kaana asks Oxy's grant for (Cards.RequestInputTokens).
+	// Zero: the provider bills what it is sent.
+	RequestInputTokens int64 `json:"requestInputTokens,omitempty"`
 }
 
 type RateCardSource string
@@ -308,6 +315,8 @@ func Parse(raw []byte) (*Cards, error) {
 			return nil, fmt.Errorf("providercost: %s prices in %q, which is not a currency code", card.DeploymentID, card.Currency)
 		case len(card.Rates) == 0:
 			return nil, fmt.Errorf("providercost: %s declares no rates, which would price every request at zero", card.DeploymentID)
+		case card.RequestInputTokens < 0:
+			return nil, fmt.Errorf("providercost: %s declares negative request input tokens", card.DeploymentID)
 		}
 		if _, duplicate := cards.byDeployment[card.DeploymentID]; duplicate {
 			return nil, fmt.Errorf("providercost: two rate cards price %s", card.DeploymentID)
@@ -339,6 +348,22 @@ func Parse(raw []byte) (*Cards, error) {
 		RateCards: encoded,
 	}
 	return cards, nil
+}
+
+// RequestInputTokens is the most input any deployment its filter admits bills
+// on every request beyond what it is sent (Card.RequestInputTokens); zero when
+// none declares any. A nil table declares none.
+func (c *Cards) RequestInputTokens(admits func(contract.DeploymentID) bool) int64 {
+	if c == nil {
+		return 0
+	}
+	most := int64(0)
+	for id, card := range c.byDeployment {
+		if card.RequestInputTokens > most && admits(id) {
+			most = card.RequestInputTokens
+		}
+	}
+	return most
 }
 
 // Priced reports whether a deployment has a rate card.

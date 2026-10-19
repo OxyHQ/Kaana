@@ -16,6 +16,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/publicapi"
 	"github.com/OxyHQ/Kaana/internal/realtime"
 )
@@ -23,6 +24,7 @@ import (
 // publicAPIDependencies is what the public API is built from.
 type publicAPIDependencies struct {
 	catalogue *publicapi.PublicCatalogue
+	costs     *providercost.Cards
 	executor  *kaana.Executor
 	inventory *inventory.Store
 	registry  *provider.Registry
@@ -135,8 +137,8 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		return publicAPI{}, errors.New("the declared catalogue is required when KAANA_PUBLIC_API_ENABLED is true")
 	}
 	server, err := publicapi.New(publicapi.Config{
-		Catalogue: catalogue,
-		Executor:  deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
+		Catalogue: catalogue, Costs: deps.costs,
+		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
 		Funding: publicapi.RegistryFunding{Registry: deps.registry}, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})

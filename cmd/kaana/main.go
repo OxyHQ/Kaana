@@ -340,7 +340,7 @@ func run(logger *slog.Logger) error {
 	// KAANA_PUBLIC_API_ENABLED is true, so a merge is not an exposure: it
 	// needs Oxy's authorization and settlement API live first.
 	public, err := buildPublicAPI(publicAPIDependencies{
-		catalogue: declaredCatalogue, executor: executor, inventory: inventoryStore, registry: registry, sessions: sessions,
+		catalogue: declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, sessions: sessions,
 		store: credentialDatabase, keys: keys, controlToken: validationReporter.ControlToken, logger: logger,
 	})
 	if err != nil {
