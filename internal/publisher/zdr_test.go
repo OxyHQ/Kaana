@@ -275,3 +275,32 @@ func TestOpenRouterToolChoiceValuesAreWhatItsZeroRetentionEndpointsState(t *test
 }
 
 func modePointer(mode contract.ToolChoiceMode) *contract.ToolChoiceMode { return &mode }
+
+// A model whose upstreams are pinned (providerconfig.OpenRouterUpstreamOrder)
+// is served only by them, with no fallback, so it is servable only while one
+// of them is in the zero-retention list. The control is the same model with
+// a pinned upstream listed: it is published.
+func TestAPinnedOpenRouterModelNeedsAPinnedZeroRetentionUpstream(t *testing.T) {
+	const models = `{"data":[{"id":"qwen/qwen3-embedding-8b","canonical_slug":"qwen/qwen3-embedding-8b","name":"Qwen: Qwen3 Embedding 8B","supported_parameters":[]}]}`
+	for name, testCase := range map[string]struct {
+		zdr      string
+		servable bool
+	}{
+		"only an unpinned upstream": {zdr: `{"data":[
+ {"model_id":"qwen/qwen3-embedding-8b","provider_name":"SiliconFlow","tag":"siliconflow/fp8","supported_parameters":[]}]}`},
+		"a pinned upstream by its regional tag": {servable: true, zdr: `{"data":[
+ {"model_id":"qwen/qwen3-embedding-8b","provider_name":"SiliconFlow","tag":"siliconflow/fp8","supported_parameters":[]},
+ {"model_id":"qwen/qwen3-embedding-8b","provider_name":"DeepInfra","tag":"deepinfra/us","supported_parameters":[]}]}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := serveOpenRouter(t, models, testCase.zdr)
+			discovered, err := Discover(context.Background(), server.Client(), Provider{Slug: "openrouter", BaseURL: server.URL + "/v1", APIKey: "k"})
+			if err != nil || len(discovered) != 1 {
+				t.Fatalf("Discover: %v %+v", err, discovered)
+			}
+			if servable := discovered[0].Unservable == ""; servable != testCase.servable {
+				t.Errorf("servable = %v, want %v: %q", servable, testCase.servable, discovered[0].Unservable)
+			}
+		})
+	}
+}
