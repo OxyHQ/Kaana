@@ -1033,7 +1033,7 @@ transcriptions, decisions) that reached Oxy's authorization writes one
 | `evidenceWrites`, `evidenceWriteMs` | credential-attempt evidence written to PostgreSQL while the caller waited |
 | `retryWaitMs` | same-route retry backoff (`RetryPolicy`) |
 | `kaanaMs` | `totalMs` minus the grant, upstream, evidence and backoff: Kaana's own work |
-| `exchanges[]` | per exchange: `peer` (`oxy`/`provider`), `reused` (kept-alive connection), `dnsMs`, `connectMs`, `tlsMs`, `ttfbMs`, `headersMs`, `doneMs`, `status` |
+| `exchanges[]` | per exchange: `peer` (`oxy`/`provider`), `upstream` (the pinned upstream behind OpenRouter, for a hedged embedding), `reused` (kept-alive connection), `dnsMs`, `connectMs`, `tlsMs`, `ttfbMs`, `headersMs`, `doneMs`, `status` |
 
 A request refused before Oxy was asked writes no line. Settlement is written
 to the outbox after the response, never before it, and logs its own

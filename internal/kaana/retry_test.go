@@ -3,6 +3,7 @@ package kaana_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -622,5 +623,42 @@ func TestABackoffIsRecordedAsRetryWait(t *testing.T) {
 	}
 	if retried := waited(failsThenServes("stub", 1, rateLimited("stub", 0))); retried <= 0 {
 		t.Errorf("a retried request recorded no retry wait")
+	}
+}
+
+// A hedged exchange the adapter abandoned in flight may have been billed for
+// the same units as the one that served: it is its own unserved, cancelled
+// cost row, ahead of the served one, and the customer's report carries the
+// served units once. The control is the same answer with nothing abandoned.
+func TestAnAbandonedHedgeIsAnUnservedCostRow(t *testing.T) {
+	run := func(abandoned int) kaana.Result {
+		adapter := &scriptedAdapter{slug: "stub", stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+			if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+				return provider.Outcome{}, err
+			}
+			if err := out.Delta(0, contract.ChannelOutputText, "served"); err != nil {
+				return provider.Outcome{}, err
+			}
+			units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}, {Unit: contract.UnitOutputTokens, Quantity: 3}}
+			return provider.Outcome{Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop, AbandonedExchanges: abandoned}, nil
+		}}
+		_, result := harness{deployments: twoDeploymentsOfOneRevision, adapters: []provider.Adapter{adapter}}.run(t, authorizedRequest())
+		if result.Failure != nil || result.Report == nil {
+			t.Fatalf("result = %+v", result)
+		}
+		return result
+	}
+	control := run(0)
+	if len(control.UpstreamCost.Attempts) != 1 || !control.UpstreamCost.Attempts[0].Served {
+		t.Fatalf("control cost rows = %+v", control.UpstreamCost.Attempts)
+	}
+	hedged := run(1)
+	rows := hedged.UpstreamCost.Attempts
+	if len(rows) != 2 || rows[0].Served || rows[0].Telemetry.Outcome != providercost.AttemptCancelled || !rows[1].Served ||
+		rows[0].AttemptIndex != 0 || rows[1].AttemptIndex != 1 || len(rows[0].Units) != 2 {
+		t.Fatalf("hedged cost rows = %+v", rows)
+	}
+	if fmt.Sprint(hedged.Report.Units) != fmt.Sprint(control.Report.Units) {
+		t.Errorf("the customer's units changed with the hedge: %v vs %v", hedged.Report.Units, control.Report.Units)
 	}
 }

@@ -244,24 +244,37 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 			// OpenRouter's zero-retention list, which the publisher already
 			// requires of every OpenRouter deployment (internal/publisher/zdr.go).
 			embedding.Provider = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true}
-			// A pinned model is served only by its reviewed upstreams, in
-			// order: up to 16 s of a four-token embedding was OpenRouter's
-			// upstream time under its price-weighted balancing, and a stored vector
-			// must come from the same weights as the query compared with it.
-			if order := providerconfig.OpenRouterUpstreamOrder(route.UpstreamModelID); len(order) > 0 {
-				fallbacks := false
-				embedding.Provider.Only, embedding.Provider.Order, embedding.Provider.AllowFallbacks = order, order, &fallbacks
-			}
-		}
-		body, err := json.Marshal(embedding)
-		if err != nil {
-			return nil, fmt.Errorf("openaicompat: encoding embedding request: %w", err)
 		}
 		headers := make(http.Header, len(a.config.Headers))
 		for name, value := range a.config.Headers {
 			headers.Set(name, value)
 		}
-		return &provider.Call{Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/embeddings", Body: body, Header: headers}, nil
+		call := &provider.Call{Route: route, Method: http.MethodPost, URL: a.config.BaseURL + "/embeddings", Header: headers}
+		// A pinned model is served only by its reviewed upstreams: a stored
+		// vector must come from the same weights as the query compared with
+		// it. The first upstream gets the call; the rest are its hedge
+		// (embeddingHedgeAfter).
+		if order := providerconfig.OpenRouterUpstreamOrder(route.UpstreamModelID); a.config.Provider == "openrouter" && len(order) > 0 {
+			primary, err := pinnedEmbeddingBody(embedding, order[:1])
+			if err != nil {
+				return nil, err
+			}
+			call.Body, call.Upstream = primary, order[0]
+			if len(order) > 1 {
+				hedge, err := pinnedEmbeddingBody(embedding, order[1:])
+				if err != nil {
+					return nil, err
+				}
+				call.Hedge = &provider.Hedge{Body: hedge, Upstream: strings.Join(order[1:], ","), After: embeddingHedgeAfter(request.Input)}
+			}
+			return call, nil
+		}
+		body, err := json.Marshal(embedding)
+		if err != nil {
+			return nil, fmt.Errorf("openaicompat: encoding embedding request: %w", err)
+		}
+		call.Body = body
+		return call, nil
 	}
 	if request.Modality != contract.ModalityText {
 		return nil, provider.ErrUnsupported{

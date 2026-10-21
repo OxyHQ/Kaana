@@ -61,7 +61,8 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		ctx, watch = provider.WatchStream(ctx, a.config.StreamIdleTimeout)
 		defer watch.Stop()
 	}
-	response, key, err := provider.Walk(ctx, credentials, call, a)
+	sender := &hedgedSender{Adapter: a}
+	response, key, err := provider.Walk(ctx, credentials, call, sender)
 	outcome.KeyID, outcome.KeyClass = key.ID, key.Class
 	if err != nil {
 		return outcome, err
@@ -87,6 +88,7 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 	if !call.Stream && strings.HasSuffix(call.URL, "/embeddings") {
 		outcome, err = a.readEmbedding(response.Body, key)
 		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+		outcome.AbandonedExchanges = sender.abandonedExchanges()
 		return outcome, err
 	}
 
