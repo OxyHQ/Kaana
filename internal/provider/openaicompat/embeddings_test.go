@@ -130,7 +130,7 @@ func TestEmbeddingsOnTheUpstreamWire(t *testing.T) {
 				t.Fatalf("provider field present = %v on %s: %s", present, slug, policy)
 			}
 			if present {
-				assertExactOpenRouterProviderPolicy(t, policy)
+				assertPinnedOpenRouterProviderPolicy(t, policy, []string{"deepinfra", "nebius"})
 			}
 
 			if outcome.Embedding == nil || outcome.Embedding.Dimension != provider.EmbeddingDimension || len(outcome.Embedding.Data) != 1 || outcome.Embedding.Data[0].Embedding[0] != 0.5 {
@@ -204,4 +204,46 @@ func TestAnEmbeddingRequestToAModelOfAnotherFamilyIsRefused(t *testing.T) {
 	if _, err := adapter.Translate(embeddingEnvelope("embed me"), provider.Route{DeploymentID: "dep_embedding", Provider: "openrouter", ModelReference: "openai/text-embedding-3-small@2026-10-15", UpstreamModelID: "openai/text-embedding-3-small"}); err != nil {
 		t.Fatalf("an OpenAI embedding model was refused: %v", err)
 	}
+}
+
+// assertPinnedOpenRouterProviderPolicy is the fixed zero-retention policy plus
+// a pinned upstream order with no fallback, and nothing else.
+func assertPinnedOpenRouterProviderPolicy(t *testing.T, encoded json.RawMessage, order []string) {
+	t.Helper()
+	var policy struct {
+		ZDR               *bool    `json:"zdr"`
+		DataCollection    string   `json:"data_collection"`
+		RequireParameters *bool    `json:"require_parameters"`
+		Only              []string `json:"only"`
+		Order             []string `json:"order"`
+		AllowFallbacks    *bool    `json:"allow_fallbacks"`
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil || json.Unmarshal(encoded, &policy) != nil {
+		t.Fatalf("the OpenRouter provider policy is not an object: %s", encoded)
+	}
+	if len(fields) != 6 || policy.ZDR == nil || !*policy.ZDR || policy.DataCollection != "deny" ||
+		policy.RequireParameters == nil || !*policy.RequireParameters ||
+		fmt.Sprint(policy.Only) != fmt.Sprint(order) || fmt.Sprint(policy.Order) != fmt.Sprint(order) ||
+		policy.AllowFallbacks == nil || *policy.AllowFallbacks {
+		t.Fatalf("the pinned OpenRouter provider policy = %s, want zdr, deny, require_parameters, only=order=%v, no fallbacks", encoded, order)
+	}
+}
+
+// The control for the pin: an embedding model with no reviewed order keeps
+// exactly the fixed policy, so OpenRouter routes it as before.
+func TestAnUnpinnedOpenRouterEmbeddingKeepsTheFixedPolicy(t *testing.T) {
+	adapter := embeddingAdapter(t, "openrouter", "https://openrouter.ai/api/v1")
+	call, err := adapter.Translate(embeddingEnvelope("embed me"), provider.Route{
+		DeploymentID: "dep_embedding_unpinned", Provider: "openrouter",
+		ModelReference: "baai/bge-m3@2026-10-15", UpstreamModelID: "baai/bge-m3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(call.Body, &wire); err != nil {
+		t.Fatal(err)
+	}
+	assertExactOpenRouterProviderPolicy(t, wire["provider"])
 }

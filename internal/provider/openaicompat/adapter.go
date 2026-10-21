@@ -244,6 +244,14 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 			// OpenRouter's zero-retention list, which the publisher already
 			// requires of every OpenRouter deployment (internal/publisher/zdr.go).
 			embedding.Provider = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true}
+			// A pinned model is served only by its reviewed upstreams, in
+			// order: up to 16 s of a four-token embedding was OpenRouter's
+			// upstream time under its price-weighted balancing, and a stored vector
+			// must come from the same weights as the query compared with it.
+			if order := providerconfig.OpenRouterUpstreamOrder(route.UpstreamModelID); len(order) > 0 {
+				fallbacks := false
+				embedding.Provider.Only, embedding.Provider.Order, embedding.Provider.AllowFallbacks = order, order, &fallbacks
+			}
 		}
 		body, err := json.Marshal(embedding)
 		if err != nil {

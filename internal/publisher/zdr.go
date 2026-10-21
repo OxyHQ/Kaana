@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // Every OpenRouter request Kaana sends carries the fixed policy
@@ -63,6 +65,10 @@ type zeroRetentionModel struct {
 	// that list `tool_choice` take: their own `supports_tool_choice`
 	// statement, or every value for an endpoint that publishes none.
 	toolChoiceValues map[provider.RequestParameter]bool
+	// upstreams are the OpenRouter provider slugs serving the model's
+	// zero-retention endpoints: the part of each endpoint's `tag` before any
+	// `/` (`deepinfra/us` is `deepinfra`), the spelling `provider.order` takes.
+	upstreams map[string]bool
 }
 
 // supportsToolChoiceValues maps OpenRouter's per-endpoint
@@ -106,6 +112,7 @@ type zeroRetentionListResponse struct {
 
 type zeroRetentionEndpoint struct {
 	ModelID string `json:"model_id"`
+	Tag     string `json:"tag"`
 }
 
 // readZeroRetentionEndpoints fetches and indexes OpenRouter's zero-retention
@@ -161,8 +168,11 @@ func readZeroRetentionEndpoints(ctx context.Context, client *http.Client, target
 		}
 		model := models[id]
 		if model == nil {
-			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}}
+			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}, upstreams: map[string]bool{}}
 			models[id] = model
+		}
+		if upstream, _, _ := strings.Cut(strings.TrimSpace(entry.Tag), "/"); upstream != "" {
+			model.upstreams[upstream] = true
 		}
 		var fields map[string]json.RawMessage
 		_ = json.Unmarshal(raw, &fields)
@@ -191,6 +201,13 @@ func restrictToZeroRetention(models []DiscoveredModel, zeroRetention map[string]
 		reachable, ok := zeroRetention[model.UpstreamModelID]
 		if !ok {
 			model.Unservable = "OpenRouter lists no zero-data-retention endpoint for it, and every Kaana request to OpenRouter requires one"
+			continue
+		}
+		if order := providerconfig.OpenRouterUpstreamOrder(model.UpstreamModelID); len(order) > 0 &&
+			!slices.ContainsFunc(order, func(upstream string) bool { return reachable.upstreams[upstream] }) {
+			// Its requests name only these upstreams and allow no fallback, so
+			// with none of them zero-retention it can never be served.
+			model.Unservable = "none of its pinned OpenRouter upstreams (providerconfig.OpenRouterUpstreamOrder) has a zero-data-retention endpoint for it"
 			continue
 		}
 		observed := model.Observed

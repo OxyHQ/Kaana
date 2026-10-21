@@ -76,6 +76,16 @@ and that slug is bound back to the reserved origin; a custom compatibility slug
 cannot bypass the policy by borrowing the URL, and another provider cannot
 receive the field by borrowing the slug. Other OpenAI-compatible providers
 receive no `provider` field.
+
+An OpenRouter embedding model listed in
+`providerconfig.OpenRouterUpstreamOrder` also carries `only` and `order` (its
+reviewed zero-retention upstreams) and `allow_fallbacks: false`. These narrow
+the zero-retention set; they never widen it. `qwen/qwen3-embedding-8b` is pinned
+to DeepInfra, then Nebius. Kaana's timing line put nearly all of its latency
+in the OpenRouter exchange, which balanced across upstreams by price, and a stored vector must
+come from the same weights as the query compared with it, so SiliconFlow's fp8
+endpoint is excluded. The publisher withholds a pinned model when none of its
+pinned upstreams has a zero-retention endpoint (`internal/publisher/zdr.go`).
 `TestOneProtocolServesSeveralProviders` runs the full suite under seven more
 slugs to keep the shared protocol claim honest, while a real-wire fake pins the
 provider-specific request body.

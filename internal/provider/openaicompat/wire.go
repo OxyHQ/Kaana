@@ -51,6 +51,12 @@ type openRouterProviderPolicy struct {
 	ZDR               bool   `json:"zdr"`
 	DataCollection    string `json:"data_collection"`
 	RequireParameters bool   `json:"require_parameters"`
+	// Only, Order and AllowFallbacks pin the upstreams of a model listed in
+	// providerconfig.OpenRouterUpstreamOrder; absent, OpenRouter routes it.
+	// They narrow the zero-retention set, never widen it.
+	Only           []string `json:"only,omitempty"`
+	Order          []string `json:"order,omitempty"`
+	AllowFallbacks *bool    `json:"allow_fallbacks,omitempty"`
 }
 
 // openRouterReasoning is OpenRouter's unified reasoning control. Kaana sends
