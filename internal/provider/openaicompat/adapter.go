@@ -75,6 +75,9 @@ type Adapter struct {
 	config      Config
 	client      *http.Client
 	credentials *provider.KeyPool
+	// upstreams is what this process has measured of each pinned upstream
+	// behind an aggregator; it orders a hedge's exchanges.
+	upstreams upstreamLatency
 }
 
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
@@ -255,17 +258,17 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		// it. The first upstream gets the call; the rest are its hedge
 		// (embeddingHedgeAfter).
 		if order := providerconfig.OpenRouterUpstreamOrder(route.UpstreamModelID); a.config.Provider == "openrouter" && len(order) > 0 {
-			primary, err := pinnedEmbeddingBody(embedding, order[:1])
-			if err != nil {
-				return nil, err
-			}
-			call.Body, call.Upstream = primary, order[0]
-			if len(order) > 1 {
-				hedge, err := pinnedEmbeddingBody(embedding, order[1:])
+			bodies := make([]provider.PinnedBody, 0, len(order))
+			for _, upstream := range order {
+				body, err := pinnedEmbeddingBody(embedding, []string{upstream})
 				if err != nil {
 					return nil, err
 				}
-				call.Hedge = &provider.Hedge{Body: hedge, Upstream: strings.Join(order[1:], ","), After: embeddingHedgeAfter(request.Input)}
+				bodies = append(bodies, provider.PinnedBody{Upstream: upstream, Body: body})
+			}
+			call.Body, call.Upstream = bodies[0].Body, bodies[0].Upstream
+			if len(bodies) > 1 {
+				call.Hedge = &provider.Hedge{Bodies: bodies, After: embeddingHedgeAfter(request.Input), Exchanges: embeddingHedgeExchanges}
 			}
 			return call, nil
 		}

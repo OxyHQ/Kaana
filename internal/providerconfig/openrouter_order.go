@@ -5,9 +5,9 @@ import "slices"
 // openRouterUpstreamOrders pins, per OpenRouter upstream model id, the
 // zero-retention upstreams that may serve it, in order. A model listed here
 // is never load-balanced and never served by an upstream outside its list:
-// each call goes to the first upstream alone, and the rest are its hedge,
-// sent if the first is slow or fails transiently (openaicompat/hedge.go). A
-// model not listed keeps OpenRouter's own routing.
+// each exchange is pinned to one of them, and a call is raced across them,
+// the one measured fastest lately first and the reviewed order otherwise
+// (openaicompat/hedge.go). A model not listed keeps OpenRouter's own routing.
 //
 // # qwen/qwen3-embedding-8b
 //
@@ -16,10 +16,10 @@ import "slices"
 // evidence writes 2-10 ms, Kaana's own work 0-350 ms (the most for large
 // batches), and the upstream exchange the rest: up to 16 s to the first byte from OpenRouter, which load-balances
 // an unpinned request by price over the model's three zero-retention
-// endpoints (Nebius, DeepInfra, SiliconFlow). Pinning DeepInfra, then Nebius:
+// endpoints (Nebius, DeepInfra, SiliconFlow). Pinning DeepInfra and Nebius:
 //
-//   - tries DeepInfra's US endpoint first on every request, rather than
-//     whichever endpoint the balancer drew;
+//   - races the two named upstreams instead of waiting on whichever endpoint
+//     the balancer drew;
 //   - excludes SiliconFlow, which serves an fp8 quantization at four times
 //     the price. A stored embedding is compared with every later one, so
 //     vectors must come from the same weights; mixing quantizations makes a

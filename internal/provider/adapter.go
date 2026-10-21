@@ -142,22 +142,32 @@ type Call struct {
 	// (an OpenRouter provider slug from providerconfig), for the request's
 	// timing line. Empty when the aggregator routes the call itself.
 	Upstream string
-	// Hedge, when set, is the same call pinned to other upstreams, raced
-	// against Body when Body is slow or fails transiently (Hedge.After).
+	// Hedge, when set, races the same call across the upstreams it is pinned
+	// to (Hedge.After); Body and Upstream are then its first pinned body.
 	Hedge *Hedge
 }
 
-// Hedge is a second upstream body for one call: the same input, pinned to
-// different upstreams of the same deployment. It is sent when Body has not
-// answered within After, or at once when Body fails transiently first; the
-// first exchange to deliver a complete 2xx answer serves the call and the
-// other is cancelled.
+// Hedge races one call across the reviewed upstreams of one deployment, each
+// exchange pinned to a single upstream with the same input. An exchange is
+// launched at once, another every After while none has answered, and another
+// at once when one fails transiently, up to Exchanges in all; upstreams take
+// turns, the one answering fastest lately first. The first exchange to
+// deliver a complete 2xx answer serves the call and the rest are cancelled.
 // It never leaves the deployment or its credential, so it is neither a retry
 // nor a route switch.
 type Hedge struct {
-	Body     []byte
+	// Bodies is the call pinned to each upstream, in the reviewed order.
+	Bodies []PinnedBody
+	// After spaces the exchanges.
+	After time.Duration
+	// Exchanges caps how many are launched.
+	Exchanges int
+}
+
+// PinnedBody is a request body pinned to one upstream behind an aggregator.
+type PinnedBody struct {
 	Upstream string
-	After    time.Duration
+	Body     []byte
 }
 
 // Outcome is what an adapter measured, and it is returned even when Stream
