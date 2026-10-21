@@ -35,6 +35,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/requesttiming"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
@@ -697,6 +698,8 @@ func waitForRetry(ctx context.Context, wait time.Duration) bool {
 	}
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
+	waitStarted := time.Now()
+	defer func() { requesttiming.From(ctx).RetryWait(time.Since(waitStarted)) }()
 	select {
 	case <-ctx.Done():
 		return false

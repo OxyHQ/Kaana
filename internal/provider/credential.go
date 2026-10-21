@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/requesttiming"
 )
 
 // A provider credential is a POOL rather than a value, and this file is the
@@ -1269,7 +1270,10 @@ func recordCredentialAttempt(ctx context.Context, call *Call, key Key, index int
 	// drop the evidence of what it cost.
 	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), credentialAttemptRecordTimeout)
 	defer cancel()
-	if err := key.runtime.RecordCredentialAttempt(recordContext, attempt); err != nil {
+	writeStarted := time.Now()
+	err := key.runtime.RecordCredentialAttempt(recordContext, attempt)
+	requesttiming.From(ctx).EvidenceWrite(time.Since(writeStarted))
+	if err != nil {
 		slog.Default().LogAttrs(ctx, slog.LevelError, "credential attempt not recorded",
 			slog.String("requestId", string(attempt.RequestID)),
 			slog.String("deploymentId", string(attempt.DeploymentID)),

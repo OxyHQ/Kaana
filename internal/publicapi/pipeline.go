@@ -89,7 +89,11 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 			ReceivedAt: contract.NewTimestamp(receivedAt), Labels: ask.labels,
 		},
 	}
+	trace := traceFrom(ctx)
+	asked := time.Now()
+	trace.asked(requestID, ask, asked)
 	grant, failure := s.authorizer.Authorize(ctx, request)
+	trace.granted(time.Since(asked), grant, failure)
 	if failure != nil {
 		return nil, failure
 	}
@@ -135,7 +139,9 @@ func (a *admission) request(modality contract.Modality, format contract.APIForma
 // outcome. The executor leaves the provider cost to the settlement, which
 // writes both in one transaction.
 func (s *Server) execute(ctx context.Context, a *admission, request *contract.Request, sink kaana.Sink) kaana.Result {
+	executing := time.Now()
 	result := s.executor.Execute(kaana.DeferCostRecording(ctx), request, sink)
+	traceFrom(ctx).executed(time.Since(executing), result.Failure)
 	if result.Failure != nil {
 		s.logFailure(a, result)
 	}
@@ -145,7 +151,12 @@ func (s *Server) execute(ctx context.Context, a *admission, request *contract.Re
 	s.settling.Add(1)
 	go func() {
 		defer s.settling.Done()
-		s.settle(context.WithoutCancel(ctx), a, result)
+		// Timed on its own line: it is off the response path, so it is not
+		// part of the request's timing line, but a slow outbox still matters.
+		settling := time.Now()
+		err := s.settle(context.WithoutCancel(ctx), a, result)
+		s.logger.Info("public request settlement", "requestId", a.requestID, "grantId", a.grant.GrantID,
+			"written", err == nil, "settleMs", time.Since(settling).Milliseconds())
 	}()
 	return result
 }
@@ -184,12 +195,12 @@ func (s *Server) Drain(ctx context.Context) error {
 }
 
 // settle writes the settlement of an executed grant.
-func (s *Server) settle(ctx context.Context, a *admission, result kaana.Result) {
+func (s *Server) settle(ctx context.Context, a *admission, result kaana.Result) error {
 	report := result.Report
 	if report == nil {
 		report = a.unservedReport(result.Failure, s.now())
 	}
-	_ = s.settler.Settle(ctx, a.grant, *report, a.plan.stepOf(report.DeploymentID), result.UpstreamCost)
+	return s.settler.Settle(ctx, a.grant, *report, a.plan.stepOf(report.DeploymentID), result.UpstreamCost)
 }
 
 // unservedReport is the report of a granted request that produced no report

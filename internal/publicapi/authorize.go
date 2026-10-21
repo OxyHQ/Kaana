@@ -18,6 +18,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/requesttiming"
 )
 
 // Authorizer is Oxy's internal authorization API as Kaana uses it. Each call
@@ -96,6 +97,9 @@ func NewOxyAuthorizer(config OxyAuthorizerConfig) (*OxyAuthorizer, error) {
 	}
 	copied := *client
 	copied.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	// The grant is on every request's critical path; its round trip is
+	// measured into the request's timing line.
+	copied.Transport = requesttiming.Transport(copied.Transport, requesttiming.PeerOxy)
 	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
