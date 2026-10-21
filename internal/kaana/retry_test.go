@@ -14,6 +14,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
+	"github.com/OxyHQ/Kaana/internal/requesttiming"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
@@ -600,5 +601,26 @@ func TestAnAnswerWithNoOutputStillStartsOnce(t *testing.T) {
 	}
 	if !result.UpstreamCost.Attempts[0].Served {
 		t.Error("an empty answer that completed is not marked served")
+	}
+}
+
+// A backoff is time the caller waited on Kaana rather than on a provider, so
+// the request's timing line carries it. The control is the same request
+// served on its first attempt: it waited for nothing.
+func TestABackoffIsRecordedAsRetryWait(t *testing.T) {
+	waited := func(primary provider.Adapter) time.Duration {
+		recording := &requesttiming.Request{}
+		h := harness{deployments: twoDeploymentsOfOneRevision, adapters: []provider.Adapter{primary, succeedingAdapter("backup", 4)}}
+		result := h.build(t).Execute(requesttiming.With(context.Background(), recording), authorizedRequest(), func(contract.StreamEvent) error { return nil })
+		if result.Failure != nil {
+			t.Fatalf("failure = %+v", result.Failure)
+		}
+		return recording.Summary().RetryWait
+	}
+	if control := waited(succeedingAdapter("stub", 4)); control != 0 {
+		t.Fatalf("a first-attempt answer recorded %s of retry wait", control)
+	}
+	if retried := waited(failsThenServes("stub", 1, rateLimited("stub", 0))); retried <= 0 {
+		t.Errorf("a retried request recorded no retry wait")
 	}
 }

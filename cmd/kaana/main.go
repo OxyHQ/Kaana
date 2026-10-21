@@ -40,6 +40,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/publicapi"
 	"github.com/OxyHQ/Kaana/internal/realtime"
+	"github.com/OxyHQ/Kaana/internal/requesttiming"
 	"github.com/OxyHQ/Kaana/internal/rotation"
 	"github.com/OxyHQ/Kaana/internal/workloadidentity"
 )
@@ -218,7 +219,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	providerClient := &http.Client{Transport: provider.BoundResponseHeaders(providerBase, responseHeaderTimeout)}
+	// Each exchange of a public request is measured for its timing line
+	// (internal/requesttiming); one without a recording passes through.
+	providerClient := &http.Client{Transport: provider.BoundResponseHeaders(
+		requesttiming.Transport(providerBase, requesttiming.PeerProvider), responseHeaderTimeout)}
 	// The header deadline's twin for the body: how long a stream that has
 	// answered may go without one real frame. See provider.StreamWatch.
 	streamIdleTimeout, err = strictPositiveDurationFromEnv("KAANA_PROVIDER_STREAM_IDLE_TIMEOUT", provider.DefaultStreamIdleTimeout)

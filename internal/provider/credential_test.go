@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/requesttiming"
 )
 
 type credentialWalkSender struct {
@@ -377,7 +378,8 @@ func TestWalkPersistsEveryExactCredentialAttempt(t *testing.T) {
 	}
 	sender := &credentialWalkSender{rejected: map[string]bool{"invalid-key": true}}
 	call := &Call{RequestID: "req-runtime", Route: Route{Provider: "test-provider", DeploymentID: "dep-runtime"}}
-	response, _, err := Walk(context.Background(), pool, call, sender)
+	recording := &requesttiming.Request{}
+	response, _, err := Walk(requesttiming.With(context.Background(), recording), pool, call, sender)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,6 +387,11 @@ func TestWalkPersistsEveryExactCredentialAttempt(t *testing.T) {
 	if len(runtime.attempts) != 2 || runtime.attempts[0].KeyID != "invalid-key" || runtime.attempts[0].Outcome != "rejected" ||
 		runtime.attempts[1].KeyID != "working-key" || runtime.attempts[1].Outcome != "accepted" {
 		t.Fatalf("credential attempts = %+v", runtime.attempts)
+	}
+	// Each record is a write the caller waited for, so the request's timing
+	// line counts it.
+	if writes := recording.Summary().EvidenceWrites; writes != 2 {
+		t.Errorf("evidence writes timed = %d, want 2", writes)
 	}
 }
 

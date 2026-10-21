@@ -1016,6 +1016,41 @@ continues to serve the DNS workflow, its zone-scoped DNS Edit permission remains
 necessary too. The workflow names that one secret directly; it never enumerates
 the repository secret context.
 
+## Where a public request's time goes
+
+Every billable `/v1` request (responses, chat completions, embeddings, speech,
+transcriptions, decisions) that reached Oxy's authorization writes one
+`public request timing` line when its response is written
+(`internal/publicapi/timing.go`, `internal/requesttiming`):
+
+| Field | Meaning |
+|---|---|
+| `totalMs` | handler time, body read to last byte written |
+| `beforeGrantMs` | reading, parsing and checking the body before Oxy is asked |
+| `grantMs` | Oxy's authorization: service token, the HTTPS round trip, grant verification |
+| `executeMs` | the executor: every attempt, retry and failover |
+| `upstreamMs`, `upstreamExchanges` | summed provider exchanges, request handed to the transport to body closed |
+| `evidenceWrites`, `evidenceWriteMs` | credential-attempt evidence written to PostgreSQL while the caller waited |
+| `retryWaitMs` | same-route retry backoff (`RetryPolicy`) |
+| `kaanaMs` | `totalMs` minus the grant, upstream, evidence and backoff: Kaana's own work |
+| `exchanges[]` | per exchange: `peer` (`oxy`/`provider`), `reused` (kept-alive connection), `dnsMs`, `connectMs`, `tlsMs`, `ttfbMs`, `headersMs`, `doneMs`, `status` |
+
+A request refused before Oxy was asked writes no line. Settlement is written
+to the outbox after the response, never before it, and logs its own
+`public request settlement` line (`settleMs`, `written`).
+
+The line carries ids, an operation, an outcome code, durations, booleans and
+status codes only: no body, header, URL, credential, user id or upstream text
+(`rules.md`). To read it:
+
+```text
+fields @timestamp, requestId, totalMs, grantMs, upstreamMs, evidenceWriteMs, retryWaitMs, kaanaMs
+| filter msg = "public request timing" and operation = "embeddings"
+| sort @timestamp desc
+```
+
+(log group `/oxy/ecs`, stream prefix `kaana/`).
+
 ## Provider lifecycle
 
 Adding a provider:
