@@ -130,7 +130,7 @@ func TestEmbeddingsOnTheUpstreamWire(t *testing.T) {
 				t.Fatalf("provider field present = %v on %s: %s", present, slug, policy)
 			}
 			if present {
-				assertPinnedOpenRouterProviderPolicy(t, policy, []string{"deepinfra", "nebius"})
+				assertPinnedOpenRouterProviderPolicy(t, policy, []string{"deepinfra"})
 			}
 
 			if outcome.Embedding == nil || outcome.Embedding.Dimension != provider.EmbeddingDimension || len(outcome.Embedding.Data) != 1 || outcome.Embedding.Data[0].Embedding[0] != 0.5 {

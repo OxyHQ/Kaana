@@ -78,9 +78,19 @@ receive the field by borrowing the slug. Other OpenAI-compatible providers
 receive no `provider` field.
 
 An OpenRouter embedding model listed in
-`providerconfig.OpenRouterUpstreamOrder` also carries `only` and `order` (its
-reviewed zero-retention upstreams) and `allow_fallbacks: false`. These narrow
-the zero-retention set; they never widen it. `qwen/qwen3-embedding-8b` is pinned
+`providerconfig.OpenRouterUpstreamOrder` is sent to its first reviewed
+upstream alone (`only` and `order` naming it, `allow_fallbacks: false`) and
+hedged with the rest (`openaicompat/hedge.go`). The hedge is the same input
+pinned to the other upstreams. It is sent when the first has not answered
+within 600 ms plus 200 µs per estimated input token (capped at 20 s), or at
+once when the first fails transiently (transport, 429, 5xx); a refusal of the
+request or credential is not hedged. The first complete 2xx answer serves the call and the
+other exchange is cancelled. Each cancelled exchange becomes its own
+unserved, `cancelled` cost row, so the operator record keeps what the
+upstream may have billed while the customer pays only for the served one.
+Each exchange carries its pinned upstream into the timing line
+(`exchanges[].upstream`). The pin narrows the zero-retention set; it never
+widens it. `qwen/qwen3-embedding-8b` is pinned
 to DeepInfra, then Nebius. Kaana's timing line put nearly all of its latency
 in the OpenRouter exchange, which balanced across upstreams by price, and a stored vector must
 come from the same weights as the query compared with it, so SiliconFlow's fp8

@@ -37,6 +37,9 @@ const maxExchanges = 8
 // the transport.
 type Exchange struct {
 	Peer Peer
+	// Upstream is the one upstream an aggregator exchange was pinned to
+	// (WithUpstream), from reviewed configuration; empty otherwise.
+	Upstream string
 	// Reused reports that the exchange ran on a kept-alive connection, so it
 	// paid no DNS, TCP or TLS cost.
 	Reused bool
@@ -63,6 +66,15 @@ type Request struct {
 }
 
 type contextKey struct{}
+
+type upstreamKey struct{}
+
+// WithUpstream labels the exchanges made under ctx with the upstream they are
+// pinned to. The label must come from reviewed configuration, never from a
+// caller or a response, so a log line cannot carry anything else.
+func WithUpstream(ctx context.Context, upstream string) context.Context {
+	return context.WithValue(ctx, upstreamKey{}, upstream)
+}
 
 // With returns ctx carrying r.
 func With(ctx context.Context, r *Request) context.Context {
@@ -164,7 +176,7 @@ func (s Summary) Attrs() []slog.Attr {
 	exchanges := make([]exchangeLine, 0, len(s.Exchanges))
 	for _, exchange := range s.Exchanges {
 		exchanges = append(exchanges, exchangeLine{
-			Peer: exchange.Peer, Reused: exchange.Reused,
+			Peer: exchange.Peer, Upstream: exchange.Upstream, Reused: exchange.Reused,
 			DNSMs: exchange.DNS.Milliseconds(), ConnectMs: exchange.Connect.Milliseconds(), TLSMs: exchange.TLS.Milliseconds(),
 			TTFBMs: exchange.FirstByte.Milliseconds(), HeadersMs: exchange.Headers.Milliseconds(), DoneMs: exchange.Done.Milliseconds(),
 			Status: exchange.Status,
@@ -175,15 +187,16 @@ func (s Summary) Attrs() []slog.Attr {
 
 // exchangeLine is one exchange as a log line renders it.
 type exchangeLine struct {
-	Peer      Peer  `json:"peer"`
-	Reused    bool  `json:"reused"`
-	DNSMs     int64 `json:"dnsMs"`
-	ConnectMs int64 `json:"connectMs"`
-	TLSMs     int64 `json:"tlsMs"`
-	TTFBMs    int64 `json:"ttfbMs"`
-	HeadersMs int64 `json:"headersMs"`
-	DoneMs    int64 `json:"doneMs"`
-	Status    int   `json:"status"`
+	Peer      Peer   `json:"peer"`
+	Upstream  string `json:"upstream,omitempty"`
+	Reused    bool   `json:"reused"`
+	DNSMs     int64  `json:"dnsMs"`
+	ConnectMs int64  `json:"connectMs"`
+	TLSMs     int64  `json:"tlsMs"`
+	TTFBMs    int64  `json:"ttfbMs"`
+	HeadersMs int64  `json:"headersMs"`
+	DoneMs    int64  `json:"doneMs"`
+	Status    int    `json:"status"`
 }
 
 // Transport measures every exchange whose request context carries a
@@ -206,7 +219,8 @@ func (t *transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if recording == nil {
 		return t.base.RoundTrip(request)
 	}
-	measure := &measurement{recording: recording, exchange: Exchange{Peer: t.peer}, started: time.Now()}
+	upstream, _ := request.Context().Value(upstreamKey{}).(string)
+	measure := &measurement{recording: recording, exchange: Exchange{Peer: t.peer, Upstream: upstream}, started: time.Now()}
 	request = request.WithContext(httptrace.WithClientTrace(request.Context(), measure.trace()))
 	response, err := t.base.RoundTrip(request)
 	measure.mu.Lock()

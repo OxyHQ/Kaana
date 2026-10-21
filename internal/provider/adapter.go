@@ -138,6 +138,26 @@ type Call struct {
 	// AudioMediaType is the media type of the audio this call asks the upstream
 	// to produce, for a response that does not name it. It is never sent.
 	AudioMediaType string
+	// Upstream names the one upstream Body is pinned to behind an aggregator
+	// (an OpenRouter provider slug from providerconfig), for the request's
+	// timing line. Empty when the aggregator routes the call itself.
+	Upstream string
+	// Hedge, when set, is the same call pinned to other upstreams, raced
+	// against Body when Body is slow or fails transiently (Hedge.After).
+	Hedge *Hedge
+}
+
+// Hedge is a second upstream body for one call: the same input, pinned to
+// different upstreams of the same deployment. It is sent when Body has not
+// answered within After, or at once when Body fails transiently first; the
+// first exchange to deliver a complete 2xx answer serves the call and the
+// other is cancelled.
+// It never leaves the deployment or its credential, so it is neither a retry
+// nor a route switch.
+type Hedge struct {
+	Body     []byte
+	Upstream string
+	After    time.Duration
 }
 
 // Outcome is what an adapter measured, and it is returned even when Stream
@@ -178,6 +198,12 @@ type Outcome struct {
 	// ProviderReportedCost is an exact upstream billing fact, when the provider
 	// returns one. The owned type keeps all monetary arithmetic in providercost.
 	ProviderReportedCost *providercost.Money
+	// AbandonedExchanges counts the hedged exchanges of this attempt that
+	// Kaana cancelled in flight because another one answered (Call.Hedge).
+	// Each carried the same input as the one that served, so the upstream
+	// may have billed each for the same units; the executor records each as
+	// its own unserved cost row. The customer is charged for none of them.
+	AbandonedExchanges int
 }
 
 // EmbeddingDimension is the one output dimension Kaana requests from every

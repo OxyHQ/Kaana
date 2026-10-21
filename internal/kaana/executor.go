@@ -439,6 +439,22 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		telemetry := attemptTelemetry(ctx, requestID, route.Provider, streamErr, attemptStartedAt, attemptClock, emit.attemptOutputAt)
 		reportCustomerLimitOutcome(customerPermit, streamErr)
 		e.reportCustomerCredentialValidation(route, streamErr)
+		// A hedged exchange cancelled in flight carried the same input as the
+		// one that answered, so the upstream may have billed it for the same
+		// units: each is its own unserved cost row, before the attempt's own
+		// row so settlement still finds the served attempt last. The customer
+		// is charged for none of them.
+		for range outcome.AbandonedExchanges {
+			if len(outcome.Units) == 0 {
+				break
+			}
+			usage = append(usage, providercost.AttemptUsage{
+				Telemetry:    providercost.AttemptTelemetry{StartedAt: attemptStartedAt, Latency: telemetry.Latency, Outcome: providercost.AttemptCancelled},
+				AttemptIndex: len(usage), DeploymentID: route.DeploymentID, Provider: route.Provider,
+				ModelReference: route.ModelReference, OccurredAt: e.now(), KeyID: outcome.KeyID, KeyClass: string(outcome.KeyClass),
+				ProviderBilledCustomer: providerBilledCustomer, Units: append([]contract.UsageQuantity(nil), outcome.Units...),
+			})
+		}
 		usage = append(usage, providercost.AttemptUsage{
 			Telemetry:              telemetry,
 			AttemptIndex:           len(usage),

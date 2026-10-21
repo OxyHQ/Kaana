@@ -3,10 +3,11 @@ package providerconfig
 import "slices"
 
 // openRouterUpstreamOrders pins, per OpenRouter upstream model id, the
-// zero-retention upstreams that may serve it, in the order OpenRouter tries
-// them. A model listed here is never load-balanced and never falls back to an
-// upstream outside its list; a model not listed keeps OpenRouter's own
-// routing.
+// zero-retention upstreams that may serve it, in order. A model listed here
+// is never load-balanced and never served by an upstream outside its list:
+// each call goes to the first upstream alone, and the rest are its hedge,
+// sent if the first is slow or fails transiently (openaicompat/hedge.go). A
+// model not listed keeps OpenRouter's own routing.
 //
 // # qwen/qwen3-embedding-8b
 //
