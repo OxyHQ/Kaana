@@ -54,7 +54,7 @@ describe('@kaana.ai/sdk/testing', () => {
     const { kaana, server } = createFakeKaana();
     const models = await kaana.models.list();
     // The client states the set it parses, which Kaana renders the catalogue in.
-    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('7.0.0');
+    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('8.0.0');
     expect(models.map((model) => model.modelId)).toEqual(
       voiceCatalogue.map((model) => model.modelId),
     );
