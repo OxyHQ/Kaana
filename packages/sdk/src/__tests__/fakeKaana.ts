@@ -154,6 +154,7 @@ export const sessionConfig = {
 };
 
 export class FakeKaana {
+  constructor(private readonly credential = CREDENTIAL) {}
   readonly requests: Recorded[] = [];
   readonly handlers = new Map<string, Handler>();
   readonly sessions = new Map<string, RealtimeFakeSession>();
@@ -228,7 +229,7 @@ export class FakeKaana {
     }
     this.requests.push(recorded);
 
-    if (request.headers.get('Authorization') !== `Bearer ${CREDENTIAL}`) {
+    if (request.headers.get('Authorization') !== `Bearer ${this.credential}`) {
       return errorResponse('authentication_failed');
     }
     const routeKey = `${request.method} ${path}`;
@@ -377,7 +378,7 @@ export class FakeKaana {
 
     if (!data.opened) {
       data.opened = true;
-      if (data.credential !== CREDENTIAL) {
+      if (data.credential !== this.credential) {
         refuse('authentication_failed');
         return;
       }

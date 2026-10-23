@@ -48,6 +48,7 @@ import { chatStream } from './chat.js';
 import { clientRefusal, KaanaProtocolError } from './errors.js';
 import {
   type KaanaOptions,
+  type KaanaTransportOptions,
   type RealtimeConnectOptions,
   type RequestOptions,
   type SafeParse,
@@ -133,7 +134,7 @@ export class Kaana {
     ): Promise<RealtimeSession>;
   };
 
-  constructor(options: KaanaOptions) {
+  constructor(options: KaanaOptions | KaanaTransportOptions) {
     const transport = new Transport(options);
     this.#transport = transport;
     const get = async <T>(
