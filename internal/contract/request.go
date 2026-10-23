@@ -471,6 +471,9 @@ func (r *Request) Validate() error {
 	if r.Attribution.RequestID == "" {
 		return fmt.Errorf("contract: attribution.requestId is required")
 	}
+	if err := validateAuthority(r.Attribution.Principal.Authority, r.Attribution.Principal.InferenceScopes); err != nil {
+		return err
+	}
 	if r.Attribution.Principal.Billing.AccountID == "" {
 		return fmt.Errorf("contract: attribution.principal.billing.accountId is required")
 	}

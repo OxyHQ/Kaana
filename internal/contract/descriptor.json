@@ -389,36 +389,79 @@
     "authenticatedPrincipalSchema": {
       "module": "internal/attribution",
       "versioned": false,
-      "kind": "object",
-      "strict": false,
-      "fields": [
+      "kind": "discriminatedUnion",
+      "discriminator": "authority",
+      "variants": [
         {
-          "name": "applicationId",
-          "kind": "ref",
-          "ref": "oxyApplicationIdSchema"
+          "kind": "object",
+          "strict": true,
+          "fields": [
+            {
+              "name": "applicationId",
+              "kind": "ref",
+              "ref": "oxyApplicationIdSchema"
+            },
+            {
+              "name": "authority",
+              "kind": "literal",
+              "value": "first_party"
+            },
+            {
+              "name": "billing",
+              "kind": "ref",
+              "ref": "billingPrincipalSchema"
+            },
+            {
+              "name": "credentialId",
+              "kind": "ref",
+              "ref": "oxyCredentialIdSchema"
+            },
+            {
+              "name": "environment",
+              "kind": "ref",
+              "ref": "inferenceEnvironmentSchema"
+            }
+          ]
         },
         {
-          "name": "billing",
-          "kind": "ref",
-          "ref": "billingPrincipalSchema"
-        },
-        {
-          "name": "credentialId",
-          "kind": "ref",
-          "ref": "oxyCredentialIdSchema"
-        },
-        {
-          "name": "environment",
-          "kind": "ref",
-          "ref": "inferenceEnvironmentSchema"
-        },
-        {
-          "name": "inferenceScopes",
-          "kind": "array",
-          "items": {
-            "kind": "ref",
-            "ref": "inferenceScopeSchema"
-          }
+          "kind": "object",
+          "strict": true,
+          "fields": [
+            {
+              "name": "applicationId",
+              "kind": "ref",
+              "ref": "oxyApplicationIdSchema"
+            },
+            {
+              "name": "authority",
+              "kind": "literal",
+              "value": "external",
+              "optional": true
+            },
+            {
+              "name": "billing",
+              "kind": "ref",
+              "ref": "billingPrincipalSchema"
+            },
+            {
+              "name": "credentialId",
+              "kind": "ref",
+              "ref": "oxyCredentialIdSchema"
+            },
+            {
+              "name": "environment",
+              "kind": "ref",
+              "ref": "inferenceEnvironmentSchema"
+            },
+            {
+              "name": "inferenceScopes",
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "ref": "inferenceScopeSchema"
+              }
+            }
+          ]
         }
       ]
     },
@@ -3067,43 +3110,92 @@
     "grantPrincipalSchema": {
       "module": "internal/grant",
       "versioned": false,
-      "kind": "object",
-      "strict": true,
-      "fields": [
+      "kind": "discriminatedUnion",
+      "discriminator": "authority",
+      "variants": [
         {
-          "name": "applicationId",
-          "kind": "ref",
-          "ref": "oxyApplicationIdSchema"
+          "kind": "object",
+          "strict": true,
+          "fields": [
+            {
+              "name": "applicationId",
+              "kind": "ref",
+              "ref": "oxyApplicationIdSchema"
+            },
+            {
+              "name": "authority",
+              "kind": "literal",
+              "value": "first_party"
+            },
+            {
+              "name": "billingAccountId",
+              "kind": "ref",
+              "ref": "oxyAccountIdSchema"
+            },
+            {
+              "name": "credentialId",
+              "kind": "ref",
+              "ref": "oxyCredentialIdSchema"
+            },
+            {
+              "name": "environment",
+              "kind": "ref",
+              "ref": "inferenceEnvironmentSchema"
+            },
+            {
+              "name": "lane",
+              "kind": "ref",
+              "ref": "grantLaneSchema"
+            }
+          ]
         },
         {
-          "name": "billingAccountId",
-          "kind": "ref",
-          "ref": "oxyAccountIdSchema"
-        },
-        {
-          "name": "credentialId",
-          "kind": "ref",
-          "ref": "oxyCredentialIdSchema"
-        },
-        {
-          "name": "environment",
-          "kind": "ref",
-          "ref": "inferenceEnvironmentSchema"
-        },
-        {
-          "name": "lane",
-          "kind": "ref",
-          "ref": "grantLaneSchema"
-        },
-        {
-          "name": "scopes",
-          "kind": "array",
-          "items": {
-            "kind": "ref",
-            "ref": "inferenceScopeSchema"
-          }
+          "kind": "object",
+          "strict": true,
+          "fields": [
+            {
+              "name": "applicationId",
+              "kind": "ref",
+              "ref": "oxyApplicationIdSchema"
+            },
+            {
+              "name": "authority",
+              "kind": "literal",
+              "value": "external",
+              "optional": true
+            },
+            {
+              "name": "billingAccountId",
+              "kind": "ref",
+              "ref": "oxyAccountIdSchema"
+            },
+            {
+              "name": "credentialId",
+              "kind": "ref",
+              "ref": "oxyCredentialIdSchema"
+            },
+            {
+              "name": "environment",
+              "kind": "ref",
+              "ref": "inferenceEnvironmentSchema"
+            },
+            {
+              "name": "lane",
+              "kind": "ref",
+              "ref": "grantLaneSchema"
+            },
+            {
+              "name": "scopes",
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "ref": "inferenceScopeSchema"
+              }
+            }
+          ]
         }
-      ]
+      ],
+      "refined": true
     },
     "grantRequestFactsSchema": {
       "module": "internal/grant",

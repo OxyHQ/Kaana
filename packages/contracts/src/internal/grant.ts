@@ -236,16 +236,32 @@ export const grantLaneSchema = z.enum(['machine_credential', 'service_token', 'p
  * authenticated application, UNRESOLVED: the ledger resolves the billable
  * ancestor. The end user never pays.
  */
+const grantPrincipalIdentity = {
+  billingAccountId: oxyAccountIdSchema,
+  applicationId: oxyApplicationIdSchema,
+  credentialId: oxyCredentialIdSchema,
+  environment: inferenceEnvironmentSchema,
+  lane: grantLaneSchema,
+};
 export const grantPrincipalSchema = z
-  .object({
-    billingAccountId: oxyAccountIdSchema,
-    applicationId: oxyApplicationIdSchema,
-    credentialId: oxyCredentialIdSchema,
-    environment: inferenceEnvironmentSchema,
-    scopes: z.array(inferenceScopeSchema),
-    lane: grantLaneSchema,
-  })
-  .strict();
+  .discriminatedUnion('authority', [
+    z.object({ ...grantPrincipalIdentity, authority: z.literal('first_party') }).strict(),
+    z
+      .object({
+        ...grantPrincipalIdentity,
+        authority: z.literal('external').optional(),
+        scopes: z.array(inferenceScopeSchema),
+      })
+      .strict(),
+  ])
+  .superRefine((principal, ctx) => {
+    if (principal.authority === 'first_party' && principal.lane === 'machine_credential')
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lane'],
+        message: 'A customer API key never has first-party authority',
+      });
+  });
 
 /** A model line Oxy admits for a step, with the price it settles at. */
 export const admittedModelLineSchema = z
