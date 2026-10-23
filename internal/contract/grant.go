@@ -283,12 +283,47 @@ type ReceiptAuthorizationRequest struct {
 // the authenticated application, unresolved: Oxy's ledger resolves the
 // billable ancestor.
 type GrantPrincipal struct {
-	BillingAccountID AccountID     `json:"billingAccountId"`
-	ApplicationID    ApplicationID `json:"applicationId"`
-	CredentialID     CredentialID  `json:"credentialId"`
-	Environment      Environment   `json:"environment"`
-	Scopes           []Scope       `json:"scopes"`
-	Lane             GrantLane     `json:"lane"`
+	Authority        *ServiceAuthority `json:"authority,omitempty"`
+	BillingAccountID AccountID         `json:"billingAccountId"`
+	ApplicationID    ApplicationID     `json:"applicationId"`
+	CredentialID     CredentialID      `json:"credentialId"`
+	Environment      Environment       `json:"environment"`
+	Scopes           []Scope           `json:"scopes,omitempty"`
+	Lane             GrantLane         `json:"lane"`
+}
+
+func (p GrantPrincipal) MarshalJSON() ([]byte, error) {
+	if err := validateAuthority(p.Authority, p.Scopes); err != nil {
+		return nil, err
+	}
+	type wire GrantPrincipal
+	encoded := struct {
+		wire
+		Scopes *[]Scope `json:"scopes,omitempty"`
+	}{wire: wire(p)}
+	if !isFirstParty(p.Authority) {
+		scopes := p.Scopes
+		if scopes == nil {
+			scopes = []Scope{}
+		}
+		encoded.Scopes = &scopes
+	}
+	return json.Marshal(encoded)
+}
+
+func (p *GrantPrincipal) UnmarshalJSON(data []byte) error {
+	type wire GrantPrincipal
+	var decoded wire
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := validateAuthorityWire(data, decoded.Authority, "scopes"); err != nil {
+		return err
+	}
+	*p = GrantPrincipal(decoded)
+	return validateAuthority(p.Authority, p.Scopes)
 }
 
 // AdmittedModelLine is a model line Oxy admits for a step, with the price it
@@ -400,6 +435,12 @@ func DecodeGrant(body []byte) (*Grant, error) {
 // Validate applies every rule grantSchema states, so a grant Oxy's own parse
 // would refuse is refused here too.
 func (g *Grant) Validate() error {
+	if isFirstParty(g.Principal.Authority) && g.Principal.Lane == LaneMachineCredential {
+		return errors.New("contract: a customer API key never has first-party authority")
+	}
+	if err := validateAuthority(g.Principal.Authority, g.Principal.Scopes); err != nil {
+		return err
+	}
 	switch {
 	case g.SchemaVersion != GrantSchemaVersion:
 		return fmt.Errorf("contract: grant schemaVersion %d is not %d", g.SchemaVersion, GrantSchemaVersion)
@@ -528,6 +569,7 @@ func (g *Grant) Executable(now time.Time) bool {
 func (g *Grant) Attribution() Attribution {
 	return Attribution{
 		Principal: AuthenticatedPrincipal{
+			Authority:       g.Principal.Authority,
 			Billing:         BillingPrincipal{AccountID: g.Principal.BillingAccountID},
 			ApplicationID:   g.Principal.ApplicationID,
 			CredentialID:    g.Principal.CredentialID,

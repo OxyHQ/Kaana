@@ -12,7 +12,7 @@
     },
     "packages/contracts": {
       "name": "@kaana.ai/contracts",
-      "version": "7.0.0",
+      "version": "8.0.0",
       "dependencies": {
         "zod": ">=4.4.3 <4.5.0",
       },

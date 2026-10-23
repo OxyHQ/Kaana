@@ -545,6 +545,9 @@ func (r *RealtimeSessionRequest) Validate() error {
 // before anything has been granted or routed. The public server runs it on a
 // session.open before asking Oxy for a grant.
 func (r *RealtimeSessionRequest) ValidateSession() error {
+	if err := validateAuthority(r.Attribution.Principal.Authority, r.Attribution.Principal.InferenceScopes); err != nil {
+		return err
+	}
 	if r.SchemaVersion != 1 {
 		return fmt.Errorf("contract: realtime session schemaVersion must be 1")
 	}

@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '7.0.0';
+export const INFERENCE_CONTRACT_VERSION = '8.0.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as

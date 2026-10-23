@@ -96,7 +96,7 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 	if err := request.Validate(); err != nil {
 		return refuse(contract.NewError(requestID, contract.CodeInvalidRequest, err.Error()))
 	}
-	if !request.Attribution.HasScope(contract.ScopeInvoke) {
+	if !request.Attribution.Principal.IsFirstParty() && !request.Attribution.HasScope(contract.ScopeInvoke) {
 		return refuse(contract.NewError(requestID, contract.CodeInsufficientScope, "the session request does not carry inference:invoke"))
 	}
 	if request.Config.InputAudioTranscription != nil && !settledByGrant(ctx) {

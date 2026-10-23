@@ -1472,3 +1472,18 @@ func TestAReportTheContractWouldRejectIsNotReturnedAsIfItWereFine(t *testing.T) 
 		t.Fatalf("the unsettleable request reported %v", result.Failure)
 	}
 }
+
+func TestFirstPartyEnvelopeExecutesWithoutOAuthScopes(t *testing.T) {
+	request := baseRequest()
+	authority := contract.AuthorityFirstParty
+	request.Attribution.Principal.Authority = &authority
+	request.Attribution.Principal.InferenceScopes = nil
+	adapter := happyAdapter()
+	_, result := execute(t, adapter, request)
+	if result.Failure != nil {
+		t.Fatalf("own instruction refused: %v", result.Failure)
+	}
+	if adapter.attempts() != 1 {
+		t.Fatal("positive control did not invoke the provider")
+	}
+}

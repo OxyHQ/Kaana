@@ -1051,7 +1051,7 @@ func (e *Executor) resolve(request *contract.Request, at time.Time) ([]candidate
 	if err := request.Validate(); err != nil {
 		return nil, contract.NewError(requestID, contract.CodeInvalidRequest, err.Error())
 	}
-	if !request.Attribution.HasScope(contract.ScopeInvoke) {
+	if !request.Attribution.Principal.IsFirstParty() && !request.Attribution.HasScope(contract.ScopeInvoke) {
 		// Not a customer authorization decision — the edge already made that.
 		// An envelope arriving without the invoke scope is a malformed
 		// instruction from the edge, and serving it would mean Kaana deciding

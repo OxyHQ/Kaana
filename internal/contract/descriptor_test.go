@@ -1153,6 +1153,7 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 // through goEnums because they have no published name of their own, so they are
 // registered here and compared member for member exactly the same way.
 var inlineEnumBindings = []enumBinding{
+	bindEnum(serviceAuthorityValues),
 	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),
 	bindEnum(audioMediaTypeValues),
@@ -1206,6 +1207,7 @@ func flattenUnion(node descriptorNode) (map[string]descriptorNode, error) {
 	presence := make(map[string]int)
 	optionalSomewhere := make(map[string]bool)
 	discriminatorValues := make([]string, 0, len(node.Variants))
+	discriminatorOptional := false
 
 	for _, variant := range node.Variants {
 		if variant.Kind != "object" {
@@ -1213,6 +1215,7 @@ func flattenUnion(node descriptorNode) (map[string]descriptorNode, error) {
 		}
 		for _, field := range variant.Fields {
 			if field.Name == node.Discriminator {
+				discriminatorOptional = discriminatorOptional || field.Optional || field.HasDefault
 				var literal string
 				if err := json.Unmarshal(field.Value, &literal); err != nil {
 					return nil, fmt.Errorf("discriminator %q is not a string literal in every variant", node.Discriminator)
@@ -1237,9 +1240,10 @@ func flattenUnion(node descriptorNode) (map[string]descriptorNode, error) {
 		merged[name] = node
 	}
 	merged[node.Discriminator] = descriptorNode{
-		Name:   node.Discriminator,
-		Kind:   "enum",
-		Values: discriminatorValues,
+		Name:     node.Discriminator,
+		Kind:     "enum",
+		Values:   discriminatorValues,
+		Optional: discriminatorOptional,
 	}
 	return merged, nil
 }

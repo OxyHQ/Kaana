@@ -1,6 +1,10 @@
 package contract
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
 
 // BillingPrincipal is the financially responsible principal, and the only
 // identity a charge may be booked against.
@@ -18,31 +22,99 @@ type BillingPrincipal struct {
 // Kaana authorizes nothing about a customer against it. It has no account graph
 // to re-derive access from, and re-deriving would reintroduce exactly the
 // replication lag that makes revocation unsafe (ADR 0006).
-type AuthenticatedPrincipal struct {
-	Billing         BillingPrincipal `json:"billing"`
-	ApplicationID   ApplicationID    `json:"applicationId"`
-	CredentialID    CredentialID     `json:"credentialId"`
-	Environment     Environment      `json:"environment"`
-	InferenceScopes []Scope          `json:"inferenceScopes"`
+type ServiceAuthority string
+
+const (
+	AuthorityFirstParty ServiceAuthority = "first_party"
+	AuthorityExternal   ServiceAuthority = "external"
+)
+
+var serviceAuthorityValues = []ServiceAuthority{AuthorityFirstParty, AuthorityExternal}
+
+// nil means the legacy external contract, never internal authority.
+func isFirstParty(authority *ServiceAuthority) bool {
+	return authority != nil && *authority == AuthorityFirstParty
 }
 
-// MarshalJSON renders a principal holding no inference scopes as
-// `"inferenceScopes": []`, for the same reason UsageReport.MarshalJSON exists:
-// the contract's array has no null spelling, and Go's zero slice encodes as one.
-//
-// Kaana refuses an envelope without inference:invoke before it can produce a
-// report, so no live path emits an empty list today. It is fixed here anyway
-// because the field rides on the same report through the same encoder, and a
-// fix applied only to the sibling that happens to be reachable is how the same
-// failure lands again the next time an envelope's shape changes.
+func validateAuthority(authority *ServiceAuthority, scopes []Scope) error {
+	if authority != nil && !isMember(*authority, serviceAuthorityValues) {
+		return fmt.Errorf("contract: unknown service authority %q", *authority)
+	}
+	for _, scope := range scopes {
+		if !isMember(scope, scopeValues) {
+			return fmt.Errorf("contract: unknown external inference scope %q", scope)
+		}
+	}
+	if isFirstParty(authority) && scopes != nil {
+		return fmt.Errorf("contract: first-party instructions do not carry scopes")
+	}
+	return nil
+}
+
+type AuthenticatedPrincipal struct {
+	Authority       *ServiceAuthority `json:"authority,omitempty"`
+	Billing         BillingPrincipal  `json:"billing"`
+	ApplicationID   ApplicationID     `json:"applicationId"`
+	CredentialID    CredentialID      `json:"credentialId"`
+	Environment     Environment       `json:"environment"`
+	InferenceScopes []Scope           `json:"inferenceScopes,omitempty"`
+}
+
+// MarshalJSON preserves legacy external arrays and omits scopes for own workloads.
 func (p AuthenticatedPrincipal) MarshalJSON() ([]byte, error) {
+	if err := validateAuthority(p.Authority, p.InferenceScopes); err != nil {
+		return nil, err
+	}
 	type wire AuthenticatedPrincipal
-	encoded := wire(p)
-	if encoded.InferenceScopes == nil {
-		encoded.InferenceScopes = []Scope{}
+	encoded := struct {
+		wire
+		Scopes *[]Scope `json:"inferenceScopes,omitempty"`
+	}{wire: wire(p)}
+	if !p.IsFirstParty() {
+		scopes := p.InferenceScopes
+		if scopes == nil {
+			scopes = []Scope{}
+		}
+		encoded.Scopes = &scopes
 	}
 	return json.Marshal(encoded)
 }
+
+func (p *AuthenticatedPrincipal) UnmarshalJSON(data []byte) error {
+	type wire AuthenticatedPrincipal
+	var decoded wire
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := validateAuthorityWire(data, decoded.Authority, "inferenceScopes"); err != nil {
+		return err
+	}
+	*p = AuthenticatedPrincipal(decoded)
+	return validateAuthority(p.Authority, p.InferenceScopes)
+}
+
+func validateAuthorityWire(data []byte, authority *ServiceAuthority, scopeField string) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if value, present := fields["authority"]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return fmt.Errorf("contract: service authority cannot be null")
+	}
+	value, present := fields[scopeField]
+	if isFirstParty(authority) {
+		if present {
+			return fmt.Errorf("contract: first-party instructions cannot carry %s", scopeField)
+		}
+	} else if !present || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return fmt.Errorf("contract: external instructions require %s", scopeField)
+	}
+	return nil
+}
+
+func (p AuthenticatedPrincipal) IsFirstParty() bool { return isFirstParty(p.Authority) }
 
 // Attribution is the block carried by every request, event and usage report.
 //
@@ -56,12 +128,7 @@ type Attribution struct {
 	GenerationID *GenerationID          `json:"generationId,omitempty"`
 }
 
-// HasScope reports whether the authenticated principal carries a scope.
-//
-// Kaana uses this for one thing only — refusing an envelope that was never
-// authorized to invoke inference at all, which is a malformed instruction from
-// the edge rather than a customer authorization decision. Everything a customer
-// can be told "no" about is decided at the edge, before forwarding.
+// HasScope reads recorded EXTERNAL scopes. Internal authority is handled separately.
 func (a Attribution) HasScope(scope Scope) bool {
 	for _, granted := range a.Principal.InferenceScopes {
 		if granted == scope {

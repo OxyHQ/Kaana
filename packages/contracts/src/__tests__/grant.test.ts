@@ -267,3 +267,20 @@ describe('signing', () => {
     expect(settlementReadQuery('a b/c')).toBe('cursor=a%20b%2Fc');
   });
 });
+
+it('first-party grants carry no OAuth scopes and cannot describe customer API keys', () => {
+  const { scopes: _scopes, ...identity } = aliaProGrant.principal;
+  const own = { ...aliaProGrant, principal: { ...identity, authority: 'first_party' } };
+  expect(grantSchema.safeParse(own).success).toBe(true);
+  expect(
+    grantSchema.safeParse({ ...own, principal: { ...own.principal, scopes: [] } }).success,
+  ).toBe(false);
+  expect(
+    grantSchema.safeParse({ ...own, principal: { ...own.principal, lane: 'machine_credential' } })
+      .success,
+  ).toBe(false);
+  expect(
+    grantSchema.safeParse({ ...own, principal: { ...own.principal, authority: 'external' } })
+      .success,
+  ).toBe(false);
+});

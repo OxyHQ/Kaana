@@ -4,6 +4,14 @@
 authority; `internal/contract` restates it in Go and is answerable to it. The
 direction is **Zod → descriptor → Go** (ADR 0002, decision 10).
 
+## First-party authority (ADR 0004)
+
+An Oxy-owned service or product session uses `authority: 'first_party'` in the
+signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
+(grants). External callers retain their explicit lists. An absent discriminator
+means the historical external format. Reader-first rollout and the invariants
+are in [ADR 0004](adr/0004-first-party-service-authority.md).
+
 ## Contract set 4.4.0: deployment commercial facts and `sameModelFailover` (ADR 0002, amendment 2026-10-15)
 
 MINOR, `@kaana.ai/contracts` 4.4.0. Additive; everything 4.3.0 parses still parses.
