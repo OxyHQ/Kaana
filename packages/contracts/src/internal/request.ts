@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { inferenceApiFormatSchema, inferenceModalitySchema } from '../public/catalogue.js';
 import { decisionInputSchema } from '../public/decisions.js';
 import { idempotencyKeySchema, inferenceTimestampSchema } from '../public/identifiers.js';
@@ -66,11 +67,11 @@ export const clientRequestMetadataSchema = z
     /** The public dialect the customer called. The response is rendered in it. */
     apiFormat: inferenceApiFormatSchema,
     /** The public path, e.g. `/v1/responses`. */
-    endpoint: z.string().min(1).max(256),
+    endpoint: z.string().check(minUtf16Length(1)).check(maxUtf16Length(256)),
     /** The customer's own correlation id, when they sent one. */
-    clientRequestId: z.string().min(1).max(128).optional(),
+    clientRequestId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
     receivedAt: inferenceTimestampSchema,
-    labels: z.record(z.string(), z.string().max(256)).optional(),
+    labels: z.record(z.string(), z.string().check(maxUtf16Length(256))).optional(),
   })
   .strict();
 

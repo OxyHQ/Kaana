@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length } from '../stringBounds.js';
 import { type InferenceAudioMediaType, inferenceAudioMediaTypeSchema } from './streamEvents.js';
 
 /**
@@ -16,7 +17,7 @@ import { type InferenceAudioMediaType, inferenceAudioMediaTypeSchema } from './s
  */
 export const languageTagSchema = z
   .string()
-  .max(35)
+  .check(maxUtf16Length(35))
   .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/, 'must be a BCP 47 language tag');
 
 /** The formats a speech request names in `response_format`. */

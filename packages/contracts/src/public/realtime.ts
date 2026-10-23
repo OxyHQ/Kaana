@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { realtimeAudioFormatSchema, realtimeOutputModalitySchema } from './audioFormats.js';
 import {
   type ModelAudioCapabilities,
@@ -53,18 +54,24 @@ export const MAX_REALTIME_RESUME_WINDOW_MS = 60_000;
 export const MAX_REALTIME_ITEM_TEXT_CHARS = 1_048_576;
 
 /** A client-chosen command identity, unique within one session. */
-export const realtimeCommandIdSchema = z.string().min(1).max(128);
+export const realtimeCommandIdSchema = z
+  .string()
+  .check(minUtf16Length(1))
+  .check(maxUtf16Length(128));
 
 /** A conversation item's identity within one session. */
-export const realtimeItemIdSchema = z.string().min(1).max(128);
+export const realtimeItemIdSchema = z.string().check(minUtf16Length(1)).check(maxUtf16Length(128));
 
 /** A response's identity within one session. */
-export const realtimeResponseIdSchema = z.string().min(1).max(128);
+export const realtimeResponseIdSchema = z
+  .string()
+  .check(minUtf16Length(1))
+  .check(maxUtf16Length(128));
 
 const audioFrameSchema = z
   .string()
-  .min(4)
-  .max(MAX_REALTIME_AUDIO_FRAME_BASE64_LENGTH)
+  .check(minUtf16Length(4))
+  .check(maxUtf16Length(MAX_REALTIME_AUDIO_FRAME_BASE64_LENGTH))
   .regex(PADDED_BASE64_PATTERN);
 
 const sequenceSchema = z.number().int().nonnegative().safe();
@@ -130,9 +137,9 @@ export const realtimeInputTranscriptionSchema = z
      * the provider its spelling of that language, or none for the model to
      * detect; it is never refused.
      */
-    language: z.string().min(2).max(35).optional(),
+    language: z.string().check(minUtf16Length(2)).check(maxUtf16Length(35)).optional(),
     /** A hint — vocabulary or context — used where the model takes one. */
-    prompt: z.string().max(4_096).optional(),
+    prompt: z.string().check(maxUtf16Length(4_096)).optional(),
   })
   .strict();
 
@@ -140,7 +147,7 @@ export const realtimeInputTranscriptionSchema = z
 export const realtimeTranslationSchema = z
   .object({
     /** A BCP 47 tag. */
-    targetLanguage: z.string().min(2).max(35),
+    targetLanguage: z.string().check(minUtf16Length(2)).check(maxUtf16Length(35)),
   })
   .strict();
 
@@ -161,9 +168,9 @@ export const realtimeToolDefinitionSchema = toolDefinitionSchema.omit({ strict: 
  */
 export const realtimeSessionConfigSchema = z
   .object({
-    instructions: z.string().max(32_768).optional(),
+    instructions: z.string().check(maxUtf16Length(32_768)).optional(),
     outputModalities: z.array(realtimeOutputModalitySchema).min(1).max(2).optional(),
-    voice: z.string().min(1).max(64).optional(),
+    voice: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)).optional(),
     inputAudioFormat: realtimeAudioFormatSchema,
     outputAudioFormat: realtimeAudioFormatSchema.optional(),
     turnDetection: realtimeTurnDetectionSchema,
@@ -186,7 +193,7 @@ export const realtimeSessionConfigSchema = z
  */
 export const realtimeSessionConfigUpdateSchema = z
   .object({
-    instructions: z.string().max(32_768).optional(),
+    instructions: z.string().check(maxUtf16Length(32_768)).optional(),
     outputModalities: z.array(realtimeOutputModalitySchema).min(1).max(2).optional(),
     turnDetection: realtimeTurnDetectionSchema.optional(),
     inputAudioTranscription: realtimeInputTranscriptionSchema.optional(),
@@ -229,7 +236,10 @@ export const realtimeSessionLimitsSchema = z
  */
 export const realtimeContentPartSchema = z.discriminatedUnion('type', [
   z
-    .object({ type: z.literal('input_text'), text: z.string().max(MAX_REALTIME_ITEM_TEXT_CHARS) })
+    .object({
+      type: z.literal('input_text'),
+      text: z.string().check(maxUtf16Length(MAX_REALTIME_ITEM_TEXT_CHARS)),
+    })
     .strict(),
   z
     .object({
@@ -271,8 +281,8 @@ export const realtimeConversationItemSchema = z
       .object({
         type: z.literal('function_call'),
         itemId: realtimeItemIdSchema.optional(),
-        callId: z.string().min(1).max(128),
-        name: z.string().min(1).max(128),
+        callId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+        name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
         arguments: z.string(),
       })
       .strict(),
@@ -280,8 +290,8 @@ export const realtimeConversationItemSchema = z
       .object({
         type: z.literal('function_call_output'),
         itemId: realtimeItemIdSchema.optional(),
-        callId: z.string().min(1).max(128),
-        output: z.string().max(MAX_REALTIME_ITEM_TEXT_CHARS),
+        callId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+        output: z.string().check(maxUtf16Length(MAX_REALTIME_ITEM_TEXT_CHARS)),
       })
       .strict(),
   ])
@@ -311,7 +321,7 @@ export const realtimeConversationItemSchema = z
 /** Per-response overrides for `response.create`. Absent fields keep the session's. */
 export const realtimeResponseParametersSchema = z
   .object({
-    instructions: z.string().max(32_768).optional(),
+    instructions: z.string().check(maxUtf16Length(32_768)).optional(),
     outputModalities: z.array(realtimeOutputModalitySchema).min(1).max(2).optional(),
     maxOutputTokens: z.number().int().positive().safe().optional(),
     toolChoice: toolChoiceSchema.optional(),
@@ -576,8 +586,8 @@ export const realtimeToolCallEventSchema = z.object({
   type: z.literal('tool_call'),
   responseId: realtimeResponseIdSchema,
   itemId: realtimeItemIdSchema,
-  toolCallId: z.string().min(1).max(128),
-  name: z.string().min(1).max(128).optional(),
+  toolCallId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+  name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
   argumentsDelta: z.string().optional(),
   complete: z.boolean(),
 });
@@ -737,7 +747,7 @@ export const realtimeSessionOpenSchema = z
     config: realtimeSessionConfigSchema,
     limits: realtimeOpenLimitsSchema.optional(),
     /** The caller's own correlation id. */
-    clientSessionId: z.string().min(1).max(128).optional(),
+    clientSessionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
     labels: requestLabelsSchema.optional(),
   })
   .strict()

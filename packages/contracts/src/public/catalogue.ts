@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import {
   inferenceDateSchema,
   inferenceHttpsUrlSchema,
@@ -247,8 +248,8 @@ export const modelCapabilitiesSchema = z
 export const modelLicenseSchema = z
   .object({
     /** SPDX identifier where one exists, otherwise the publisher's own name. */
-    licenseId: z.string().min(1).max(128),
-    displayName: z.string().min(1).max(200),
+    licenseId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+    displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
     url: inferenceHttpsUrlSchema.optional(),
     commercialUseAllowed: z.boolean(),
     requiresAttribution: z.boolean(),
@@ -273,7 +274,7 @@ export const modelProvenanceSchema = z
     ]),
     /** The model this one was derived/fine-tuned from, where there is one. */
     baseModelId: modelIdSchema.optional(),
-    trainingOrganization: z.string().min(1).max(200).optional(),
+    trainingOrganization: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)).optional(),
   })
   .strict();
 
@@ -291,7 +292,9 @@ export const inferenceDataPolicySchema = z
     trainsOnCustomerData: z.boolean(),
     zeroDataRetentionAvailable: z.boolean(),
     /** Named subprocessors a payload may pass through, for compliance review. */
-    subprocessors: z.array(z.string().min(1).max(200)).default([]),
+    subprocessors: z
+      .array(z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)))
+      .default([]),
     policyUrl: inferenceHttpsUrlSchema.optional(),
   })
   .strict()
@@ -338,10 +341,10 @@ export const modelDeprecationSchema = z
 /** One published evaluation result for a revision. */
 export const modelEvaluationResultSchema = z
   .object({
-    suite: z.string().min(1).max(128),
-    metric: z.string().min(1).max(128),
+    suite: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+    metric: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     /** Kept as a string: an eval score is published text, not arithmetic. */
-    score: z.string().min(1).max(64),
+    score: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)),
     evaluatedAt: inferenceTimestampSchema.optional(),
     reportUrl: inferenceHttpsUrlSchema.optional(),
   })
@@ -355,7 +358,9 @@ export const modelSafetyMetadataSchema = z
   .object({
     safetyCardUrl: inferenceHttpsUrlSchema.optional(),
     contentFilteringDefault: z.enum(['none', 'provider_default', 'strict']),
-    knownLimitations: z.array(z.string().min(1).max(500)).default([]),
+    knownLimitations: z
+      .array(z.string().check(minUtf16Length(1)).check(maxUtf16Length(500)))
+      .default([]),
     /** Content-provenance marking the modality requires, where it requires one. */
     provenanceMarking: z.enum(['none', 'visible_watermark', 'invisible_watermark', 'c2pa']),
   })
@@ -365,7 +370,7 @@ export const modelSafetyMetadataSchema = z
 export const cataloguePublisherSummarySchema = z
   .object({
     slug: publisherSlugSchema,
-    displayName: z.string().min(1).max(200),
+    displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
     websiteUrl: inferenceHttpsUrlSchema.optional(),
   })
   .strict();
@@ -378,8 +383,8 @@ export const cataloguePublisherSummarySchema = z
 export const voiceSchema = z
   .object({
     /** What a speech request names in `voice`. */
-    id: z.string().min(1).max(64),
-    name: z.string().min(1).max(200),
+    id: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)),
+    name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
     /** The languages this voice speaks; each is one of the model's `languages`. */
     languages: z.array(languageTagSchema),
     gender: z.enum(['female', 'male', 'neutral']).optional(),
@@ -491,8 +496,8 @@ export const modelSchema = z.object({
   schemaVersion: z.literal(1),
   modelId: modelIdSchema,
   publisher: cataloguePublisherSummarySchema,
-  displayName: z.string().min(1).max(200),
-  description: z.string().max(4000).optional(),
+  displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
+  description: z.string().check(maxUtf16Length(4000)).optional(),
   currentRevision: modelRevisionLabelSchema,
   /** Revisions a customer may pin today, newest first. */
   availableRevisions: z.array(modelRevisionLabelSchema).min(1),

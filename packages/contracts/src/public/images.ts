@@ -8,19 +8,20 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { modelReferenceSchema } from './identifiers.js';
 
 export const imageGenerationsRequestSchema = z
   .object({
     model: modelReferenceSchema,
-    prompt: z.string().min(1).max(32_000),
+    prompt: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32_000)),
     /** OpenAI caps this at 10. Exact, declared, and the whole ceiling. */
     n: z.number().int().min(1).max(10).optional(),
-    size: z.string().min(1).max(32).optional(),
-    quality: z.string().min(1).max(32).optional(),
-    style: z.string().min(1).max(32).optional(),
+    size: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32)).optional(),
+    quality: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32)).optional(),
+    style: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32)).optional(),
     response_format: z.enum(['url', 'b64_json']).optional(),
-    user: z.string().min(1).max(64).optional(),
+    user: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)).optional(),
   })
   .strict();
 
@@ -33,8 +34,8 @@ export const imageGenerationsSchema = z
     created: z.number().int().nonnegative(),
     data: z.array(
       z.union([
-        z.object({ url: z.string().min(1) }).strict(),
-        z.object({ b64_json: z.string().min(1) }).strict(),
+        z.object({ url: z.string().check(minUtf16Length(1)) }).strict(),
+        z.object({ b64_json: z.string().check(minUtf16Length(1)) }).strict(),
       ]),
     ),
   })

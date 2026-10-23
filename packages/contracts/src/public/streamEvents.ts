@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import {
   generationIdSchema,
   inferenceTimestampSchema,
@@ -62,7 +63,11 @@ export const inferenceStreamAudioEventSchema = z.object({
   sequence: z.number().int().nonnegative().safe(),
   outputIndex: z.number().int().nonnegative().safe(),
   mediaType: inferenceAudioMediaTypeSchema,
-  data: z.string().min(4).max(65536).regex(PADDED_BASE64_PATTERN),
+  data: z
+    .string()
+    .check(minUtf16Length(4))
+    .check(maxUtf16Length(65536))
+    .regex(PADDED_BASE64_PATTERN),
 });
 
 /**
@@ -77,9 +82,9 @@ export const inferenceStreamToolCallEventSchema = z.object({
   type: z.literal('tool_call'),
   requestId: requestIdSchema,
   sequence: z.number().int().nonnegative().safe(),
-  toolCallId: z.string().min(1).max(128),
+  toolCallId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
   /** Present on the first event of a call. */
-  name: z.string().min(1).max(128).optional(),
+  name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
   argumentsDelta: z.string().optional(),
   complete: z.boolean(),
 });
@@ -117,7 +122,7 @@ export const inferenceStreamDoneEventSchema = z.object({
   sequence: z.number().int().nonnegative().safe(),
   generationId: generationIdSchema.optional(),
   finishReason: inferenceFinishReasonSchema,
-  receiptId: z.string().min(1).max(128).optional(),
+  receiptId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
   completedAt: inferenceTimestampSchema,
 });
 

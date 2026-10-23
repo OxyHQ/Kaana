@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 
 /** ISO 4217 alpha-3 currency code, e.g. `USD`. */
 export const currencyCodeSchema = z
@@ -234,7 +235,7 @@ export const unitPriceSchema = z
  */
 export const priceSnapshotSchema = z
   .object({
-    priceVersionId: z.string().min(1).max(128),
+    priceVersionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     currency: currencyCodeSchema,
     unitPrices: z.array(unitPriceSchema).min(1),
   })

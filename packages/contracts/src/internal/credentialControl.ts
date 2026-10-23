@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import {
   inferenceEnvironmentSchema,
   oxyApplicationIdSchema,
@@ -38,7 +39,7 @@ export const kaanaCredentialIdentitySchema = z
 
 const kaanaCredentialOperationActorSchema = z
   .string()
-  .min(1)
+  .check(minUtf16Length(1))
   .refine(
     (value) =>
       new TextEncoder().encode(value).byteLength <= 256 &&
@@ -88,8 +89,8 @@ function isVisibleASCIIProviderCredential(value: string): boolean {
 
 const kaanaCredentialSecretBase64Schema = z
   .string()
-  .min(1)
-  .max(8192)
+  .check(minUtf16Length(1))
+  .check(maxUtf16Length(8192))
   .regex(PADDED_BASE64_PATTERN)
   .refine(isVisibleASCIIProviderCredential, {
     message: 'a decoded provider credential is 1-4096 visible ASCII bytes',

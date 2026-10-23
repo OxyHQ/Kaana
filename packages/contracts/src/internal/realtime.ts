@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { realtimeSessionKindSchema, realtimeSessionTransportSchema } from '../public/catalogue.js';
 import {
   inferenceTimestampSchema,
@@ -57,10 +58,10 @@ const sequenceSchema = z.number().int().nonnegative().safe();
 export const realtimeClientMetadataSchema = z
   .object({
     /** The public path, e.g. `/v1/realtime`. */
-    endpoint: z.string().min(1).max(256),
-    clientSessionId: z.string().min(1).max(128).optional(),
+    endpoint: z.string().check(minUtf16Length(1)).check(maxUtf16Length(256)),
+    clientSessionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
     receivedAt: inferenceTimestampSchema,
-    labels: z.record(z.string(), z.string().max(256)).optional(),
+    labels: z.record(z.string(), z.string().check(maxUtf16Length(256))).optional(),
   })
   .strict();
 

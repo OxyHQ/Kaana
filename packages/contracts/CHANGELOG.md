@@ -1,5 +1,12 @@
 # Changelog
 
+## 8.0.1
+
+Require Zod 4.6.7 or newer in major 4 to include the oversized-array validation
+fix (GHSA-mrhx-c7xc-m3w5). String bounds retain the existing UTF-16 code-unit
+contract through explicit per-schema checks; the Go descriptor, wire shapes
+and public limits remain unchanged.
+
 ## 8.0.0
 
 Authenticated and grant principals are discriminated by authority. First-party

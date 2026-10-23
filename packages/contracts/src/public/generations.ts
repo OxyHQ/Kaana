@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import {
   delegatedUserIdSchema,
   generationIdSchema,
@@ -85,7 +86,7 @@ export const chargedGenerationRecordSchema = z
   .object({
     ...recordFields,
     kind: z.literal('charge'),
-    receiptId: z.string().min(1).max(128),
+    receiptId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     priceSnapshot: priceSnapshotSchema,
     billedAmount: exactDecimalSchema,
     currency: currencyCodeSchema,
@@ -112,7 +113,7 @@ export const meteredGenerationRecordSchema = z
   .object({
     ...recordFields,
     kind: z.literal('metered_usage'),
-    meteredUsageId: z.string().min(1).max(128),
+    meteredUsageId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     /** The request this one ran inside, for a child such as an Auto classification. */
     parentRequestId: requestIdSchema.optional(),
     tariff: z.discriminatedUnion('status', [
@@ -121,13 +122,13 @@ export const meteredGenerationRecordSchema = z
           status: z.literal('quoted'),
           amount: exactDecimalSchema,
           currency: currencyCodeSchema,
-          priceVersionId: z.string().min(1).max(128),
+          priceVersionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
         })
         .strict(),
       z
         .object({
           status: z.literal('unpriced'),
-          priceVersionId: z.string().min(1).max(128).nullable(),
+          priceVersionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).nullable(),
         })
         .strict(),
     ]),

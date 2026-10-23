@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { modelReferenceSchema } from './identifiers.js';
 
 /** The most inputs one request may embed. */
@@ -19,15 +20,18 @@ export const embeddingsRequestSchema = z
     /** A concrete model: an embedding space is a property of exact weights. */
     model: modelReferenceSchema,
     input: z.union([
-      z.string().min(1),
-      z.array(z.string().min(1)).min(1).max(MAX_EMBEDDING_INPUTS),
+      z.string().check(minUtf16Length(1)),
+      z
+        .array(z.string().check(minUtf16Length(1)))
+        .min(1)
+        .max(MAX_EMBEDDING_INPUTS),
     ]),
     /** Only `float`: base64 vectors are an encoding the contract does not carry. */
     encoding_format: z.literal('float').optional(),
     /** Requested output dimension, for models that can shorten their vectors. */
     dimensions: z.number().int().positive().max(1024).optional(),
     /** OpenAI's end-user attribution field: the delegated user id, attribution only. */
-    user: z.string().min(1).max(64).optional(),
+    user: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)).optional(),
   })
   .strict();
 

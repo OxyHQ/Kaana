@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 
 /**
  * The reference a request records: which policy, at which of the customer's own
@@ -16,7 +17,7 @@ import { z } from 'zod';
  */
 export const routingPolicyReferenceSchema = z
   .object({
-    routingPolicyId: z.string().min(1).max(128),
+    routingPolicyId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     policyVersion: z.number().int().positive().safe(),
   })
   .strict();

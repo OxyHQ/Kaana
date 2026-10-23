@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length } from '../stringBounds.js';
 import {
   type PublicError,
   type PublicErrorCode,
@@ -132,7 +133,7 @@ export const providerErrorPassthroughSchema = z
     /** The upstream HTTP status, when the upstream spoke HTTP. */
     status: z.number().int().min(100).max(599).optional(),
     /** The upstream's own error code, verbatim and uninterpreted. */
-    code: z.string().max(128).optional(),
+    code: z.string().check(maxUtf16Length(128)).optional(),
     /** The upstream's message, subject to the same credential refusal. */
     message: safeErrorTextSchema.optional(),
   })
@@ -156,7 +157,7 @@ export const inferenceErrorSchema = z
     /** How long to wait before retrying. Only meaningful when `retryable`. */
     retryAfterMs: z.number().int().nonnegative().safe().optional(),
     /** The request field at fault, for `invalid_request`. */
-    param: z.string().max(128).optional(),
+    param: z.string().check(maxUtf16Length(128)).optional(),
     /** Present only when an upstream provider was reached and failed. */
     upstreamCategory: upstreamErrorCategorySchema.optional(),
     providerError: providerErrorPassthroughSchema.optional(),

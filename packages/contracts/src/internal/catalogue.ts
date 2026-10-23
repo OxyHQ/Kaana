@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import {
   cataloguePublisherSummarySchema,
   inferenceDataPolicySchema,
@@ -68,10 +69,10 @@ export const commercialPermissionSchema = z.enum([
 export const modelPublisherSchema = z.object({
   /** See `version.ts`: served on its own by the catalogue, so it is versioned. */
   schemaVersion: z.literal(1),
-  publisherId: z.string().min(1).max(128),
+  publisherId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
   slug: publisherSlugSchema,
-  displayName: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
+  displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
+  description: z.string().check(maxUtf16Length(2000)).optional(),
   websiteUrl: inferenceHttpsUrlSchema.optional(),
 });
 
@@ -89,8 +90,8 @@ export const catalogueModelSchema = z
     modelId: modelIdSchema,
     publisher: publisherSlugSchema,
     slug: modelSlugSchema,
-    displayName: z.string().min(1).max(200),
-    description: z.string().max(4000).optional(),
+    displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
+    description: z.string().check(maxUtf16Length(4000)).optional(),
     capabilities: modelCapabilitiesSchema,
     license: modelLicenseSchema,
     provenance: modelProvenanceSchema,
@@ -137,7 +138,7 @@ export const modelRevisionSchema = z
   .object({
     /** See `version.ts`: served on its own by the catalogue, so it is versioned. */
     schemaVersion: z.literal(1),
-    revisionId: z.string().min(1).max(128),
+    revisionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     modelId: modelIdSchema,
     revision: modelRevisionLabelSchema,
     reference: modelReferenceSchema,
@@ -163,9 +164,9 @@ export const modelRevisionSchema = z
 export const inferenceProviderSchema = z.object({
   /** See `version.ts`: served on its own by the catalogue, so it is versioned. */
   schemaVersion: z.literal(1),
-  providerId: z.string().min(1).max(128),
+  providerId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
   slug: inferenceProviderSlugSchema,
-  displayName: z.string().min(1).max(200),
+  displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
   /**
    * `customer_byok` means the customer's own upstream account is billed
    * directly by the provider and Oxy charges only its platform fee.
@@ -206,7 +207,7 @@ export const modelDeploymentSchema = z
     /** Reserved capacity for one enterprise account rather than shared. */
     dedicatedCapacity: z.boolean(),
     /** The price version customers are charged under on this route. */
-    priceVersionId: z.string().min(1).max(128).optional(),
+    priceVersionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
   })
   .superRefine((deployment, ctx) => {
     if (!deployment.modelReference.includes('@')) {
@@ -321,8 +322,8 @@ export const routingProfileSchema = z.object({
   schemaVersion: z.literal(1),
   routingProfileId: routingProfileIdSchema,
   slug: routingProfileSlugSchema,
-  displayName: z.string().min(1).max(200),
-  description: z.string().max(2000).optional(),
+  displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
+  description: z.string().check(maxUtf16Length(2000)).optional(),
   /** What the profile optimises for when several candidates qualify. */
   optimiseFor: z.enum(['price', 'latency', 'throughput', 'quality', 'balanced']),
   candidates: z.array(routingProfileCandidateSchema).min(1),
@@ -354,7 +355,7 @@ export const routingProfileSchema = z.object({
 export const catalogueServingProviderSummarySchema = z
   .object({
     slug: inferenceProviderSlugSchema,
-    displayName: z.string().min(1).max(200),
+    displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
     regions: z.array(inferenceRegionSchema).default([]),
     dataPolicy: inferenceDataPolicySchema,
   })
@@ -372,8 +373,8 @@ export const modelCatalogueEntrySchema = z.object({
   schemaVersion: z.literal(3),
   modelId: modelIdSchema,
   publisher: cataloguePublisherSummarySchema,
-  displayName: z.string().min(1).max(200),
-  description: z.string().max(4000).optional(),
+  displayName: z.string().check(minUtf16Length(1)).check(maxUtf16Length(200)),
+  description: z.string().check(maxUtf16Length(4000)).optional(),
   currentRevision: modelRevisionLabelSchema,
   /** Revisions a customer may pin today, newest first. */
   availableRevisions: z.array(modelRevisionLabelSchema).min(1),

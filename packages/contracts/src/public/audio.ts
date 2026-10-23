@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import {
   type AudioInputMediaType,
   audioInputMediaTypeSchema,
@@ -56,8 +57,8 @@ export const speechRequestSchema = z
   .object({
     model: modelReferenceSchema,
     /** Bounded so one request cannot drive the hold arbitrarily high. */
-    input: z.string().min(1).max(MAX_SPEECH_INPUT_CHARACTERS),
-    voice: z.string().min(1).max(64),
+    input: z.string().check(minUtf16Length(1)).check(maxUtf16Length(MAX_SPEECH_INPUT_CHARACTERS)),
+    voice: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)),
     /** Absent means `mp3`. */
     response_format: speechFormatSchema.optional(),
     /** The contract's outer bound; each model publishes its own range. */
@@ -66,7 +67,7 @@ export const speechRequestSchema = z
     /** Only with `stream: true`. Absent means `audio`. */
     stream_format: speechStreamFormatSchema.optional(),
     /** OpenAI's end-user attribution field: the delegated user id, attribution only. */
-    user: z.string().min(1).max(64).optional(),
+    user: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)).optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
@@ -95,7 +96,11 @@ export const speechAudioDeltaEventSchema = z
   .object({
     type: z.literal('speech.audio.delta'),
     /** Standard padded base64 of at most 49 152 bytes of audio. */
-    audio: z.string().min(4).max(65_536).regex(PADDED_BASE64_PATTERN),
+    audio: z
+      .string()
+      .check(minUtf16Length(4))
+      .check(maxUtf16Length(65_536))
+      .regex(PADDED_BASE64_PATTERN),
   })
   .strict();
 
@@ -201,7 +206,7 @@ export const transcriptionRequestSchema = z
      * A hint — vocabulary or context that helps the model, never an
      * instruction — used where the model takes one.
      */
-    prompt: z.string().max(4096).optional(),
+    prompt: z.string().check(maxUtf16Length(4096)).optional(),
   })
   .strict();
 
@@ -234,8 +239,8 @@ export const transcriptionJsonRequestSchema = transcriptionRequestSchema
         mediaType: audioInputMediaTypeSchema,
         data: z
           .string()
-          .min(4)
-          .max(MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH)
+          .check(minUtf16Length(4))
+          .check(maxUtf16Length(MAX_TRANSCRIPTION_AUDIO_BASE64_LENGTH))
           .regex(PADDED_BASE64_PATTERN),
       })
       .strict(),

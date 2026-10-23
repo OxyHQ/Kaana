@@ -114,9 +114,18 @@ changes: the envelope admits `audio_speech` with `stream: true` (decision 8; an
 adapter still refuses what its provider cannot stream) and the economic
 treatment gains `platform_fee_only`.
 
-Zod is held below 4.5: from 4.5 Zod measures string bounds in code points,
-while the contract, Go and the frozen cross-language fixtures measure UTF-16
-code units (`zodSemantics.test.ts` fails if that changes).
+From contracts 8.0.1, Zod must be `>=4.6.7 <5.0.0`, including the oversized-array
+validation fix in GHSA-mrhx-c7xc-m3w5. Zod 4.5 changed string bounds to code points;
+the contract, Go and frozen cross-language fixtures still measure UTF-16 code
+units. String schemas therefore use explicit `minUtf16Length`, `maxUtf16Length`
+and `utf16Length` checks from `src/stringBounds.ts`, preserving the standard
+bound metadata consumed by both generators. These are local check instances;
+Zod itself and array validation remain unchanged. `zodSemantics.test.ts` covers
+astral characters, composition, JSON Schema bounds and early oversized-array
+rejection.
+The UTC timestamp check also retains the prior minute/second/fractional
+precision grammar explicitly; Zod's newer default requires seconds. Generated
+OpenAPI may use the equivalent JSON Schema type array for nullable strings.
 
 ## Funding tiers, contract set 3.8.0 (`@oxy.so/contracts` 4.12.0)
 

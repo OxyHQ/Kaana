@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { reasoningEffortSchema } from './catalogue.js';
 import { publicErrorCodeSchema } from './errors.js';
 import { inferenceContentPartSchema } from './messages.js';
@@ -22,17 +23,17 @@ import { modelTargetSchema } from './responses.js';
 
 /** `stop` in the OpenAI dialect: one sequence or a list of them. */
 const openAiStopSchema = z.union([
-  z.string().min(1).max(256),
-  z.array(z.string().min(1).max(256)).max(8),
+  z.string().check(minUtf16Length(1)).check(maxUtf16Length(256)),
+  z.array(z.string().check(minUtf16Length(1)).check(maxUtf16Length(256))).max(8),
 ]);
 
 const openAiToolCallSchema = z
   .object({
-    id: z.string().min(1).max(128),
+    id: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     type: z.literal('function'),
     function: z
       .object({
-        name: z.string().min(1).max(128),
+        name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
         arguments: z.string(),
       })
       .strict(),
@@ -51,8 +52,8 @@ export const chatCompletionMessageSchema = z
       .union([z.string(), z.array(inferenceContentPartSchema)])
       .nullable()
       .optional(),
-    name: z.string().max(128).optional(),
-    tool_call_id: z.string().min(1).max(128).optional(),
+    name: z.string().check(maxUtf16Length(128)).optional(),
+    tool_call_id: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
     tool_calls: z.array(openAiToolCallSchema).optional(),
   })
   .strict();
@@ -62,8 +63,8 @@ const openAiToolSchema = z
     type: z.literal('function'),
     function: z
       .object({
-        name: z.string().min(1).max(128),
-        description: z.string().max(2000).optional(),
+        name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+        description: z.string().check(maxUtf16Length(2000)).optional(),
         parameters: z.record(z.string(), z.unknown()),
         strict: z.boolean().optional(),
       })
@@ -76,7 +77,9 @@ const openAiToolChoiceSchema = z.union([
   z
     .object({
       type: z.literal('function'),
-      function: z.object({ name: z.string().min(1).max(128) }).strict(),
+      function: z
+        .object({ name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)) })
+        .strict(),
     })
     .strict(),
 ]);
@@ -88,7 +91,7 @@ const openAiToolChoiceSchema = z.union([
  */
 const openAiAudioOutputSchema = z
   .object({
-    voice: z.string().min(1).max(64),
+    voice: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)),
     format: z.enum(['wav', 'mp3', 'flac', 'opus', 'pcm16']),
   })
   .strict();
@@ -100,7 +103,7 @@ const openAiResponseFormatSchema = z.union([
       type: z.literal('json_schema'),
       json_schema: z
         .object({
-          name: z.string().min(1).max(128),
+          name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
           schema: z.record(z.string(), z.unknown()),
           strict: z.boolean().optional(),
         })
@@ -144,7 +147,7 @@ export const chatCompletionsRequestSchema = z
      * OpenAI's end-user attribution field: the DELEGATED user id, attribution
      * only. `X-Oxy-User-Id` wins when both are present.
      */
-    user: z.string().min(1).max(64).optional(),
+    user: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)).optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
@@ -225,12 +228,12 @@ export const chatCompletionUsageSchema = z
  */
 export const chatCompletionSchema = z
   .object({
-    id: z.string().min(1),
+    id: z.string().check(minUtf16Length(1)),
     object: z.literal('chat.completion'),
     /** Unix seconds, as OpenAI's own field is. */
     created: z.number().int().nonnegative(),
     /** The revision that served the request. */
-    model: z.string().min(1),
+    model: z.string().check(minUtf16Length(1)),
     choices: z.array(
       z
         .object({
@@ -243,7 +246,7 @@ export const chatCompletionSchema = z
               /** Spoken output. `expires_at` is `created`: Kaana retains no audio. */
               audio: z
                 .object({
-                  id: z.string().min(1),
+                  id: z.string().check(minUtf16Length(1)),
                   data: z.string(),
                   transcript: z.string(),
                   expires_at: z.number().int().nonnegative(),
@@ -257,7 +260,7 @@ export const chatCompletionSchema = z
            * OpenAI's vocabulary, which has neither `cancelled` nor `refusal`:
            * both are reported as `stop` here.
            */
-          finish_reason: z.string().min(1),
+          finish_reason: z.string().check(minUtf16Length(1)),
         })
         .strict(),
     ),
@@ -275,10 +278,10 @@ export const chatCompletionSchema = z
  */
 export const chatCompletionChunkSchema = z
   .object({
-    id: z.string().min(1),
+    id: z.string().check(minUtf16Length(1)),
     object: z.literal('chat.completion.chunk'),
     created: z.number().int().nonnegative(),
-    model: z.string().min(1),
+    model: z.string().check(minUtf16Length(1)),
     choices: z.array(
       z
         .object({
@@ -290,7 +293,7 @@ export const chatCompletionChunkSchema = z
               refusal: z.string().optional(),
               audio: z
                 .object({
-                  id: z.string().min(1),
+                  id: z.string().check(minUtf16Length(1)),
                   data: z.string().optional(),
                   transcript: z.string().optional(),
                   expires_at: z.number().int().nonnegative().optional(),
@@ -302,7 +305,7 @@ export const chatCompletionChunkSchema = z
                   z
                     .object({
                       index: z.number().int().nonnegative(),
-                      id: z.string().min(1).optional(),
+                      id: z.string().check(minUtf16Length(1)).optional(),
                       type: z.literal('function').optional(),
                       function: z
                         .object({ name: z.string().optional(), arguments: z.string().optional() })
@@ -313,7 +316,7 @@ export const chatCompletionChunkSchema = z
                 .optional(),
             })
             .strict(),
-          finish_reason: z.string().min(1).nullable(),
+          finish_reason: z.string().check(minUtf16Length(1)).nullable(),
         })
         .strict(),
     ),
@@ -330,8 +333,8 @@ export const chatCompletionErrorSchema = z
   .object({
     error: z
       .object({
-        message: z.string().min(1),
-        type: z.string().min(1),
+        message: z.string().check(minUtf16Length(1)),
+        type: z.string().check(minUtf16Length(1)),
         param: z.string().nullable(),
         code: publicErrorCodeSchema,
       })

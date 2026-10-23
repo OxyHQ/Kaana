@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { inferenceErrorSchema } from './errors.js';
 
 export const embeddingVectorSchema = z
@@ -28,8 +29,8 @@ export const embeddingUsageSchema = z
 export const embeddingSuccessSchema = z
   .object({
     schemaVersion: z.literal(1),
-    requestId: z.string().min(1).max(128),
-    model: z.string().min(1).max(255),
+    requestId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+    model: z.string().check(minUtf16Length(1)).check(maxUtf16Length(255)),
     dimension: z.number().int().positive().max(1024),
     data: z.array(embeddingVectorSchema).min(1).max(2048),
     usage: embeddingUsageSchema,
@@ -57,7 +58,7 @@ export const embeddingSuccessSchema = z
 export const embeddingFailureSchema = z
   .object({
     schemaVersion: z.literal(1),
-    requestId: z.string().min(1).max(128),
+    requestId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     error: inferenceErrorSchema,
   })
   .strict();

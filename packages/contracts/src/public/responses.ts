@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { powerLevelSchema } from './catalogue.js';
 import { generationIdSchema, modelReferenceSchema, requestIdSchema } from './identifiers.js';
 import {
@@ -32,7 +33,10 @@ import { inferenceFinishReasonSchema } from './streamEvents.js';
 export const modelTargetSchema = z.union([modelReferenceSchema, powerLevelSchema]);
 
 /** The message-or-text input `/v1/responses` accepts. */
-const responsesInputSchema = z.union([z.string().min(1), z.array(inferenceMessageSchema).min(1)]);
+const responsesInputSchema = z.union([
+  z.string().check(minUtf16Length(1)),
+  z.array(inferenceMessageSchema).min(1),
+]);
 
 /**
  * The request. `model` may be absent: the application's routing policy in Oxy
@@ -55,7 +59,10 @@ export const responsesRequestSchema = z
     frequencyPenalty: z.number().min(-2).max(2).optional(),
     presencePenalty: z.number().min(-2).max(2).optional(),
     seed: z.number().int().safe().optional(),
-    stopSequences: z.array(z.string().min(1).max(256)).max(8).optional(),
+    stopSequences: z
+      .array(z.string().check(minUtf16Length(1)).check(maxUtf16Length(256)))
+      .max(8)
+      .optional(),
     tools: z.array(toolDefinitionSchema).max(128).optional(),
     toolChoice: toolChoiceSchema.optional(),
     responseFormat: responseFormatSchema.optional(),
@@ -63,7 +70,7 @@ export const responsesRequestSchema = z
     reasoning: inferenceReasoningSchema.optional(),
     labels: requestLabelsSchema.optional(),
     /** The caller's own correlation id, echoed on the response. */
-    clientRequestId: z.string().min(1).max(128).optional(),
+    clientRequestId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
