@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { requestIdSchema } from './identifiers.js';
 
 /**
@@ -123,8 +124,8 @@ const CREDENTIAL_PATTERNS: readonly RegExp[] = [
  */
 export const safeErrorTextSchema = z
   .string()
-  .min(1)
-  .max(2000)
+  .check(minUtf16Length(1))
+  .check(maxUtf16Length(2000))
   .refine(
     (value) => !CREDENTIAL_PATTERNS.some((pattern) => pattern.test(value)),
     'error text must not contain credential-shaped material',
@@ -285,7 +286,7 @@ export const publicErrorSchema = z
     /** How long to wait before retrying. Only meaningful when `retryable`. */
     retryAfterMs: z.number().int().nonnegative().safe().optional(),
     /** The request field at fault, for `invalid_request`. */
-    param: z.string().max(128).optional(),
+    param: z.string().check(maxUtf16Length(128)).optional(),
     /** The kind of upstream failure, when an upstream was reached. Provider-neutral. */
     upstreamCategory: upstreamErrorCategorySchema.optional(),
   })

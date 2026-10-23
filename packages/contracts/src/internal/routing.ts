@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { inferenceRegionSchema, modelReferenceSchema } from '../public/identifiers.js';
 import { kaanaCredentialHandleSchema } from './credentialControl.js';
 import {
@@ -83,7 +84,7 @@ const authorizedRouteFields = {
       credentialHandle: kaanaCredentialHandleSchema,
       credentialRevision: z.number().int().positive().safe(),
       ownerAccountId: oxyAccountIdSchema,
-      connectionId: z.string().min(1).max(128),
+      connectionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
       environment: z.enum(['development', 'staging', 'production']),
     })
     .strict()

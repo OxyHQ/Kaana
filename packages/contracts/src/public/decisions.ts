@@ -5,15 +5,16 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { modelReferenceSchema, requestIdSchema } from './identifiers.js';
 import { usageQuantitySchema } from './money.js';
 import { routingPolicyReferenceSchema } from './policy.js';
 
 const probability = z.number().finite().min(0).max(1);
 
-const text = z.string().min(1).max(65536);
+const text = z.string().check(minUtf16Length(1)).check(maxUtf16Length(65536));
 
-const id = z.string().min(1).max(128);
+const id = z.string().check(minUtf16Length(1)).check(maxUtf16Length(128));
 
 const tolerance = 1e-6;
 
@@ -40,7 +41,7 @@ export const decisionQuestionSchema = z.discriminatedUnion('kind', [
 ]);
 
 const payloadFields = {
-  state: z.string().max(65536),
+  state: z.string().check(maxUtf16Length(65536)),
   instructions: text.optional(),
   questions: z.array(decisionQuestionSchema).min(1).max(255),
   effort: decisionEffortSchema.optional(),

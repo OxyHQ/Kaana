@@ -19,6 +19,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { powerLevelSchema, realtimeSessionKindSchema } from '../public/catalogue.js';
 import { generationRecordSchema } from '../public/generations.js';
 import {
@@ -145,7 +146,7 @@ export const grantRequestFactsSchema = z
   })
   .strict();
 
-const credentialSchema = z.string().min(1).max(8192);
+const credentialSchema = z.string().check(minUtf16Length(1)).check(maxUtf16Length(8192));
 
 /**
  * `POST /internal/kaana/v1/authorizations` for an inference request. Kaana
@@ -170,8 +171,8 @@ export const inferenceAuthorizationRequestSchema = z
     client: z
       .object({
         /** The public path, e.g. `/v1/responses`. */
-        endpoint: z.string().min(1).max(256),
-        clientRequestId: z.string().min(1).max(128).optional(),
+        endpoint: z.string().check(minUtf16Length(1)).check(maxUtf16Length(256)),
+        clientRequestId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
         receivedAt: inferenceTimestampSchema,
         labels: requestLabelsSchema.optional(),
       })
@@ -267,7 +268,7 @@ export const grantPrincipalSchema = z
 export const admittedModelLineSchema = z
   .object({
     modelLine: modelIdSchema,
-    priceVersionId: z.string().min(1).max(128),
+    priceVersionId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
   })
   .strict();
 
@@ -291,7 +292,9 @@ export const grantStepLimitsSchema = z
     deniedRegions: z.array(inferenceRegionSchema).default([]),
     requireZeroDataRetention: z.boolean(),
     prohibitTrainingOnCustomerData: z.boolean(),
-    allowedLicenseIds: z.array(z.string().min(1).max(128)).default([]),
+    allowedLicenseIds: z
+      .array(z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)))
+      .default([]),
     requireCommercialUseRights: z.boolean(),
     /**
      * Whether Kaana may fail over, inside this step, between providers (and
@@ -367,7 +370,7 @@ const customerProviderCredentialBinding =
 export const grantSchema = z
   .object({
     schemaVersion: z.literal(1),
-    grantId: z.string().min(1).max(128),
+    grantId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     requestId: requestIdSchema,
     operation: grantOperationSchema,
     issuedAt: inferenceTimestampSchema,
@@ -381,14 +384,14 @@ export const grantSchema = z
     economics: z
       .object({
         treatment: inferenceEconomicTreatmentSchema,
-        policyVersion: z.string().min(1).max(128),
-        relationshipId: z.string().min(1).max(128).optional(),
+        policyVersion: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+        relationshipId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
       })
       .strict(),
     /** The hold. Absent for `internal_metered`, which holds nothing. */
     reservation: z
       .object({
-        reservationId: z.string().min(1).max(128),
+        reservationId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
         /** The most the hold covers. Shown, never spent by Kaana. */
         ceiling: moneySchema,
         /** `promotional-only`: the hold draws on promotional credit alone. */
@@ -398,7 +401,7 @@ export const grantSchema = z
       .optional(),
     /** The capacity slot an internal relationship claimed (e.g. `alia-kaana`). */
     capacity: z
-      .object({ meteredUsageId: z.string().min(1).max(128) })
+      .object({ meteredUsageId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)) })
       .strict()
       .optional(),
     steps: z.array(grantStepSchema).min(1).max(8),

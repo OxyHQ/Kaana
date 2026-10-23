@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod';
+import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { inferenceTimestampSchema, requestIdSchema } from '../public/identifiers.js';
 import { normalizedUsageReportSchema } from './usage.js';
 
@@ -26,14 +27,14 @@ export const settlementSchema = z
   .object({
     schemaVersion: z.literal(1),
     /** The outbox row; stable across redeliveries. */
-    settlementId: z.string().min(1).max(128),
+    settlementId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     /** The idempotency key of the settlement: one grant settles once. */
-    grantId: z.string().min(1).max(128),
+    grantId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     requestId: requestIdSchema,
     /** The grant's hold, when it had one. */
-    reservationId: z.string().min(1).max(128).optional(),
+    reservationId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
     /** The grant's capacity slot, when it claimed one; settling releases it. */
-    meteredUsageId: z.string().min(1).max(128).optional(),
+    meteredUsageId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
     /** The step that served, by position in the grant. Absent when nothing was served. */
     servedStep: z.number().int().nonnegative().max(7).optional(),
     report: normalizedUsageReportSchema,
@@ -61,7 +62,7 @@ export const settlementSchema = z
 export const settlementAcknowledgementSchema = z
   .object({
     schemaVersion: z.literal(1),
-    settlementId: z.string().min(1).max(128),
+    settlementId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
     status: z.enum(['settled', 'duplicate']),
   })
   .strict();
@@ -91,7 +92,7 @@ export const settlementPageSchema = z
   .object({
     data: z.array(settlementSchema),
     /** Absent on the last page. */
-    nextCursor: z.string().min(1).max(512).optional(),
+    nextCursor: z.string().check(minUtf16Length(1)).check(maxUtf16Length(512)).optional(),
   })
   .strict();
 
