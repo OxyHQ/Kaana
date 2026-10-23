@@ -28,3 +28,6 @@ filled scope array substitutes for that separation.
 Deploy the compatible Kaana reader before Oxy emits the new first-party shape.
 The contract descriptor and Go/Zod roundtrip fixtures cover both forms; canaries
 must include ordinary generation, realtime, settlement and external refusal.
+
+The SDK and outbound Go producer have distinct rollout stages; track them in
+[the first-party transport record](../first-party-transport.md).

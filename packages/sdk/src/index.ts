@@ -28,6 +28,8 @@ export type {
   KaanaCredential,
   KaanaFetch,
   KaanaOptions,
+  KaanaAuthenticatedTransport,
+  KaanaTransportOptions,
   RealtimeConnectOptions,
   RequestOptions,
 } from './http.js';

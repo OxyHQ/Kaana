@@ -116,17 +116,16 @@ export async function connectRealtime(
   if (typeof WebSocketImpl !== 'function') {
     throw new TypeError('Kaana: no WebSocket is available; pass options.WebSocket');
   }
-  const credential = await transport.credential();
+  const attributed = transport.attribution(options.onBehalfOfUserId);
+  const url = `${transport.baseURL.replace(/^http/, 'ws')}/realtime?${new URLSearchParams({ model })}`;
+  const credential = await transport.credential(url, options.signal);
+  // Kaana binds resume to this credential digest; retain it for the session's lifetime.
   const protocols = [
     KAANA_REALTIME_SUBPROTOCOL,
     `${KAANA_REALTIME_BEARER_PROTOCOL_PREFIX}${encodeBase64Url(utf8(credential))}`,
   ];
-  if (options.onBehalfOfUserId !== undefined) {
-    protocols.push(
-      `${KAANA_REALTIME_USER_PROTOCOL_PREFIX}${encodeBase64Url(utf8(options.onBehalfOfUserId))}`,
-    );
-  }
-  const url = `${transport.baseURL.replace(/^http/, 'ws')}/realtime?${new URLSearchParams({ model })}`;
+  if (attributed !== undefined)
+    protocols.push(`${KAANA_REALTIME_USER_PROTOCOL_PREFIX}${encodeBase64Url(utf8(attributed))}`);
   const session = new Session(
     WebSocketImpl,
     url,
