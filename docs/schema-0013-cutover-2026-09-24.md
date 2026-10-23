@@ -321,6 +321,13 @@ aws ecs update-service --cluster oxy-cluster --service kaana-publisher --task-de
 aws ecs wait services-stable --cluster oxy-cluster --services kaana kaana-publisher
 ```
 
+Neither `oxy-kaana:43` nor `oxy-kaana-publisher:47` can be started any more.
+Their images (`sha256:7672df2b…` and `sha256:cd202c32…`) have been expired from
+`oxy/kaana` by the repository's keep-last-150 lifecycle rule (checked
+2026-10-23). Serving now runs revisions built from main (`oxy-kaana:148` on that
+date). To roll back, use the previous revision of each service built from main,
+and first confirm that its image digest still exists in ECR.
+
 Set the variable first, so a push to main cannot deploy again. Roll the
 publisher back together with serving. The old publisher republishes without
 `tts`, and it keeps every other first-seen date, because it reads them back
