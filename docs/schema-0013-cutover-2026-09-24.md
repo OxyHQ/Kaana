@@ -326,7 +326,7 @@ Their images (`sha256:7672df2b…` and `sha256:cd202c32…`) have been expired f
 `oxy/kaana` by the repository's keep-last-150 lifecycle rule (checked
 2026-10-23). Serving now runs revisions built from main (`oxy-kaana:148` on that
 date). To roll back, use the previous revision of each service built from main.
-The ECR pin reconciler keeps the image of every revision within 10 ACTIVE
+The ECR pin reconciler keeps the image of every revision within 10
 revisions of what each service runs (oxy-infra runbook 46), so pick
 `<previous>` from the live family, never from this record:
 
