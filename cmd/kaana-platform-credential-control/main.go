@@ -75,22 +75,15 @@ func run(logger *slog.Logger) error {
 	rawLongitude := os.Getenv("KAANA_INFRASTRUCTURE_LONGITUDE")
 	rawLatitude := os.Getenv("KAANA_INFRASTRUCTURE_LATITUDE")
 	if rawLongitude != "" || rawLatitude != "" {
-		// This process's Oxy identity, attested where ECS gave this task a role to
-		// attest to; see cmd/kaana. oxyvalidation refuses to start with neither
-		// this nor a key pair.
+		// Own callbacks require temporary role credentials and a live Oxy binding.
 		identityContext, cancelIdentity := context.WithTimeout(ctx, 15*time.Second)
 		defer cancelIdentity()
-		var attestedIdentity oxyvalidation.Minter
-		switch attestor, attestErr := workloadidentity.Open(identityContext, workloadidentity.Config{Logger: logger}); {
-		case attestErr == nil:
-			attestedIdentity = attestor
-		case !errors.Is(attestErr, workloadidentity.ErrNoWorkloadIdentity):
+		attestedIdentity, attestErr := workloadidentity.Open(identityContext, workloadidentity.Config{Logger: logger})
+		if attestErr != nil {
 			return attestErr
 		}
 		validationReporter, reporterErr := oxyvalidation.New(oxyvalidation.Config{
 			BaseURL:        envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
-			APIKey:         os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
-			APISecret:      os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
 			WorkloadMinter: attestedIdentity,
 			Environment:    contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
 			Logger:         logger,

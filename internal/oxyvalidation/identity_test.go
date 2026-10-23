@@ -2,7 +2,6 @@ package oxyvalidation
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -59,70 +58,15 @@ func (a *attestedIdentity) observed() (int, []string) {
 	return a.calls, append([]string(nil), a.origins...)
 }
 
-func TestNewDecidesTheThreeIdentityStates(t *testing.T) {
-	cases := map[string]struct {
-		apiKey    string
-		apiSecret string
-		attested  bool
-		wantError string
-	}{
-		"an attestable role and a key pair is the safe resting state": {
-			apiKey: "oxy_dk_kaana", apiSecret: "kaana-service-secret", attested: true,
-		},
-		"a key pair alone still works": {
-			apiKey: "oxy_dk_kaana", apiSecret: "kaana-service-secret",
-		},
-		"an attestable role alone needs no secret": {
-			attested: true,
-		},
-		"neither is the only state that is refused": {
-			wantError: "no Oxy identity",
-		},
-		"half a pair is a typo, not a state": {
-			apiKey:    "oxy_dk_kaana",
-			wantError: "needs both halves",
-		},
-		"half a pair is a typo even when this process can attest": {
-			apiSecret: "kaana-service-secret", attested: true,
-			wantError: "needs both halves",
-		},
-	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			config := Config{
-				BaseURL: "http://127.0.0.1:1", APIKey: testCase.apiKey, APISecret: testCase.apiSecret,
-				Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler),
-			}
-			if testCase.attested {
-				config.WorkloadMinter = &attestedIdentity{}
-			}
-			reporter, err := New(config)
-			if testCase.wantError == "" {
-				if err != nil {
-					t.Fatalf("New: %v", err)
-				}
-				closeContext, cancel := context.WithTimeout(context.Background(), time.Second)
-				defer cancel()
-				if err := reporter.Close(closeContext); err != nil {
-					t.Fatalf("Close: %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("New succeeded; want %q", testCase.wantError)
-			}
-			if !strings.Contains(err.Error(), testCase.wantError) {
-				t.Fatalf("error = %v, want it to mention %q", err, testCase.wantError)
-			}
-		})
+func TestNewRequiresWorkloadIdentity(t *testing.T) {
+	if _, err := New(Config{BaseURL: "https://api.oxy.so", Environment: contract.EnvironmentProduction}); err == nil {
+		t.Fatal("own reporter accepted absent workload identity")
 	}
 }
 
-// oxyForIdentity serves the token endpoints and one verdict path, recording
-// which identity each token came from.
+// oxyForIdentity detects any accidental use of the removed key endpoint.
 type oxyForIdentity struct {
-	server *httptest.Server
-
+	server        *httptest.Server
 	mu            sync.Mutex
 	pairMints     int
 	authorization []string
@@ -185,61 +129,26 @@ func drain(t *testing.T, reporter *Reporter) {
 	}
 }
 
-func TestReporterPrefersTheKeyPairAndCachesOneToken(t *testing.T) {
+func TestReporterUsesAndCachesWorkloadIdentity(t *testing.T) {
 	fake := newOxyForIdentity(t)
-	attested := &attestedIdentity{}
-	reporter, err := New(Config{
-		BaseURL: fake.server.URL, APIKey: "oxy_dk_kaana", APISecret: "kaana-service-secret",
-		WorkloadMinter: attested, Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler),
-	})
+	identity := &attestedIdentity{}
+	reporter, err := New(Config{BaseURL: fake.server.URL, WorkloadMinter: identity,
+		Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatal(err)
 	}
 	reporter.Submit(verdictFor(7))
 	reporter.Submit(verdictFor(8))
 	drain(t, reporter)
-
-	mints, _ := attested.observed()
+	mints, origins := identity.observed()
 	pairMints, authorization := fake.observed()
-	if pairMints != 1 {
-		t.Fatalf("key-pair mints = %d; a short-lived token is cached, not minted per verdict", pairMints)
-	}
-	if mints != 0 {
-		t.Fatalf("the workload identity was used %d times although the pair works: an attested token cannot report a verdict yet", mints)
+	if mints != 1 || pairMints != 0 || len(authorization) != 2 || len(origins) != 1 || origins[0] != fake.server.URL {
+		t.Fatalf("workload mints=%d key mints=%d requests=%v origins=%v", mints, pairMints, authorization, origins)
 	}
 	for _, header := range authorization {
-		if header != "Bearer key-pair-service-token" {
-			t.Fatalf("authorization = %q", header)
+		if header != "Bearer attested-service-token" {
+			t.Fatal("wrong callback identity")
 		}
-	}
-}
-
-func TestReporterFallsBackToTheAttestedIdentityWhenTheKeyPairFails(t *testing.T) {
-	fake := newOxyForIdentity(t)
-	fake.pairStatus = http.StatusUnauthorized
-	attested := &attestedIdentity{}
-	reporter, err := New(Config{
-		BaseURL: fake.server.URL, APIKey: "oxy_dk_kaana", APISecret: "kaana-service-secret",
-		WorkloadMinter: attested, Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler),
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	reporter.Submit(verdictFor(7))
-	drain(t, reporter)
-
-	mints, origins := attested.observed()
-	pairMints, authorization := fake.observed()
-	if pairMints != 1 || mints != 1 {
-		t.Fatalf("key-pair mints = %d, attestations = %d; want one of each", pairMints, mints)
-	}
-	if len(authorization) != 1 || authorization[0] != "Bearer attested-service-token" {
-		t.Fatalf("authorization = %v; the verdict must still be delivered", authorization)
-	}
-	// The origin is the reporter's own, validated one. An attestation sent
-	// anywhere else can be relayed into a Kaana token.
-	if len(origins) != 1 || origins[0] != fake.server.URL {
-		t.Fatalf("attested against %v, want %q", origins, fake.server.URL)
 	}
 }
 
@@ -312,7 +221,7 @@ func TestAttestedTokenIsNotServedPastItsLifetime(t *testing.T) {
 
 // The public API's grant and settlement calls need Oxy's control audience, and
 // Oxy refuses an oxy-api token there (401 kaana_workload_required). Each
-// audience is minted and cached on its own, by either identity.
+// audience is minted and cached on its own, for the same workload identity.
 func TestControlTokenIsMintedForTheKaanaControlAudience(t *testing.T) {
 	t.Run("from the attested workload", func(t *testing.T) {
 		identity := &attestedIdentity{}
@@ -342,31 +251,4 @@ func TestControlTokenIsMintedForTheKaanaControlAudience(t *testing.T) {
 		}
 	})
 
-	t.Run("from the key pair", func(t *testing.T) {
-		var audiences []string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Errorf("decode mint: %v", err)
-			}
-			audiences = append(audiences, body["audience"])
-			_, _ = io.WriteString(w, `{"data":{"token":"pair-token-for-`+body["audience"]+`","expiresIn":3600}}`)
-		}))
-		defer server.Close()
-		reporter, err := New(Config{
-			BaseURL: server.URL, APIKey: "oxy_dk_kaana", APISecret: "kaana-service-secret",
-			Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler),
-		})
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
-		defer func() { _ = reporter.Close(context.Background()) }()
-		control, err := reporter.ControlToken(context.Background())
-		if err != nil || control != "pair-token-for-oxy-api:kaana-control" {
-			t.Fatalf("ControlToken = %q, %v", control, err)
-		}
-		if strings.Join(audiences, ",") != "oxy-api:kaana-control" {
-			t.Fatalf("minted audiences = %v", audiences)
-		}
-	})
 }

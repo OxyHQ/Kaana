@@ -14,8 +14,8 @@
 //
 // Oxy replays the signature to STS, believes AWS's answer rather than this
 // caller's, reduces the per-task `assumed-role/<role>/<session>` ARN to the
-// role, looks the role up in its own binding table, and mints exactly the token
-// an api key and secret would have produced. So Kaana authenticates with a
+// role, checks its active application/environment binding, and mints a
+// protocol-2 first-party identity without OAuth scopes. So Kaana authenticates with a
 // credential AWS rotates for it, and there is no secret for anybody to create,
 // copy, paste into a parameter store or leak.
 //
@@ -27,16 +27,6 @@
 // signature or the token. It holds no cache: the one caller with a token to
 // cache owns the cache (internal/oxyvalidation), because two answers to "is
 // this token still good?" is one too many.
-//
-// # This is not yet the identity Kaana prefers
-//
-// A token minted here authenticates and carries the same scopes the key pair's
-// does, but Oxy's BYOK validation callback re-reads the caller through a
-// resolver that can only find an `application_credentials` row, and an attested
-// token's `credentialId` is not one. So `internal/oxyvalidation` still tries the
-// pair first and treats this as the fallback; its `mint` holds the measurement,
-// and `docs/operating.md` holds what has to change in Oxy first. Nothing here
-// depends on that ordering — this package answers "prove it", not "use it".
 //
 // # Why internal/awssig and not an SDK signer
 //
@@ -60,7 +50,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -97,27 +86,9 @@ const (
 	maxResponseBytes = 64 << 10
 )
 
-// ErrNoWorkloadIdentity is what Open reports when this process has no identity
-// to prove. It is a state, not a failure: a laptop and a CI runner are supposed
-// to reach it, and the caller answers it by presenting a key pair instead.
-var ErrNoWorkloadIdentity = errors.New("workload identity: this process has no attestable workload identity")
-
-// Attestable reports whether this process has an identity it can prove.
-//
-// ECS sets one of these two variables on every task and nothing else does, so
-// their presence is the honest test for "there is a task role here to attest
-// to". It deliberately does NOT ask whether the AWS SDK can find credentials:
-// on a developer's machine it can, and they would be a personal IAM user that
-// is bound to no Oxy application — an attestation Oxy refuses, presented
-// instead of the key pair that would have worked.
-func Attestable(lookup func(string) (string, bool)) bool {
-	for _, name := range []string{"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_CREDENTIALS_FULL_URI"} {
-		if value, present := lookup(name); present && strings.TrimSpace(value) != "" {
-			return true
-		}
-	}
-	return false
-}
+// ErrNoWorkloadIdentity means no temporary infrastructure identity can be proved.
+// Own services never substitute a customer API key for this identity.
+var ErrNoWorkloadIdentity = errors.New("workload identity: temporary AWS role credentials are required")
 
 // Config is what the attestation needs that it cannot decide for itself.
 type Config struct {
@@ -142,22 +113,23 @@ type Client struct {
 	now         func() time.Time
 }
 
-// Open builds the client from the ambient AWS configuration, or reports
-// ErrNoWorkloadIdentity when this process has nothing to attest.
-//
-// The attestability check is repeated here rather than left to the caller: a
-// caller that forgets it would otherwise get a client that fails on its first
-// mint, in production, with an error about a credentials endpoint that was never
-// going to be there.
+// Open uses the AWS provider chain, including ECS, assumed roles and SSO.
+// A local IAM user's long-lived keys are never an own workload identity.
 func Open(ctx context.Context, config Config) (*Client, error) {
-	if !Attestable(os.LookupEnv) {
+	if config.Credentials == nil {
+		awsConfig, err := awsconfig.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("workload identity: loading AWS configuration: %w", err)
+		}
+		config.Credentials = awsConfig.Credentials
+	}
+	credentials, err := config.Credentials.Retrieve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workload identity: resolving infrastructure credentials: %w", err)
+	}
+	if credentials.SessionToken == "" {
 		return nil, ErrNoWorkloadIdentity
 	}
-	awsConfig, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("workload identity: loading AWS configuration: %w", err)
-	}
-	config.Credentials = awsConfig.Credentials
 	return New(config)
 }
 
@@ -269,6 +241,9 @@ func (c *Client) attest(ctx context.Context, nonce string) (map[string]string, e
 	if err != nil {
 		return nil, fmt.Errorf("workload identity: resolving this task's AWS credentials: %w", err)
 	}
+	if credentials.SessionToken == "" {
+		return nil, ErrNoWorkloadIdentity
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+stsHost+"/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("workload identity: building the attestation: %w", err)
@@ -299,10 +274,11 @@ func (c *Client) attest(ctx context.Context, nonce string) (map[string]string, e
 // exchange presents the attestation and returns the token Oxy mints from it.
 func (c *Client) exchange(ctx context.Context, origin *url.URL, nonce string, headers map[string]string, audience contract.OxyAudience) (string, time.Duration, error) {
 	body, err := json.Marshal(attestationRequest{
-		Provider:    attestationProvider,
-		Nonce:       nonce,
-		Attestation: signedRequest{Headers: headers},
-		Audience:    audience,
+		ProtocolVersion: 2,
+		Provider:        attestationProvider,
+		Nonce:           nonce,
+		Attestation:     signedRequest{Headers: headers},
+		Audience:        audience,
 	})
 	if err != nil {
 		return "", 0, fmt.Errorf("workload identity: encoding the attestation: %w", err)
@@ -349,9 +325,10 @@ func (c *Client) exchange(ctx context.Context, origin *url.URL, nonce string, he
 
 // attestationRequest is Oxy's exact request shape for the exchange.
 type attestationRequest struct {
-	Provider    string        `json:"provider"`
-	Nonce       string        `json:"nonce"`
-	Attestation signedRequest `json:"attestation"`
+	ProtocolVersion int           `json:"protocolVersion"`
+	Provider        string        `json:"provider"`
+	Nonce           string        `json:"nonce"`
+	Attestation     signedRequest `json:"attestation"`
 	// Audience is always named, so no route depends on Oxy's default.
 	Audience contract.OxyAudience `json:"audience"`
 }

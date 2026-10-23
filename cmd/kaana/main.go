@@ -152,24 +152,15 @@ func run(logger *slog.Logger) error {
 			"keys", unenforcedBudgets,
 			"meaning", "these keys will keep serving past the amount declared for them; nothing here holds them to it")
 	}
-	// This process's Oxy identity, PROVED rather than presented wherever there is
-	// something to prove (Oxy ADR 0026). What is decided here is only whether ECS
-	// gave this task a role to attest to, which is a question about the
-	// environment; internal/oxyvalidation decides what to do with the identities
-	// this process holds, and refuses to start when it holds none.
+	// Own callbacks use the temporary role identity supplied by the AWS provider chain.
 	identityContext, cancelIdentity := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelIdentity()
-	var attestedIdentity oxyvalidation.Minter
-	switch attestor, attestErr := workloadidentity.Open(identityContext, workloadidentity.Config{Logger: logger}); {
-	case attestErr == nil:
-		attestedIdentity = attestor
-	case !errors.Is(attestErr, workloadidentity.ErrNoWorkloadIdentity):
+	attestedIdentity, attestErr := workloadidentity.Open(identityContext, workloadidentity.Config{Logger: logger})
+	if attestErr != nil {
 		return attestErr
 	}
 	validationReporter, err := oxyvalidation.New(oxyvalidation.Config{
 		BaseURL:        envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
-		APIKey:         os.Getenv("KAANA_OXY_SERVICE_API_KEY"),
-		APISecret:      os.Getenv("KAANA_OXY_SERVICE_API_SECRET"),
 		WorkloadMinter: attestedIdentity,
 		Environment:    contract.Environment(envOr("KAANA_OXY_SERVICE_ENVIRONMENT", string(contract.EnvironmentProduction))),
 		Logger:         logger,
