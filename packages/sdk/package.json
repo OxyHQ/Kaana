@@ -37,8 +37,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test src",
-    "prepublishOnly": "bun run typecheck && bun run test && bun run build"
+    "test": "bun test src"
   },
   "dependencies": {
     "@kaana.ai/contracts": "workspace:*"
