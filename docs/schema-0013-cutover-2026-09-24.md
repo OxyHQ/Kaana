@@ -316,8 +316,8 @@ them.
 
 ```bash
 gh variable set KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE -R OxyHQ/Kaana --body false
-aws ecs update-service --cluster oxy-cluster --service kaana --task-definition oxy-kaana:43
-aws ecs update-service --cluster oxy-cluster --service kaana-publisher --task-definition oxy-kaana-publisher:47
+aws ecs update-service --cluster oxy-cluster --service kaana --task-definition oxy-kaana:<previous>
+aws ecs update-service --cluster oxy-cluster --service kaana-publisher --task-definition oxy-kaana-publisher:<previous>
 aws ecs wait services-stable --cluster oxy-cluster --services kaana kaana-publisher
 ```
 
@@ -325,8 +325,16 @@ Neither `oxy-kaana:43` nor `oxy-kaana-publisher:47` can be started any more.
 Their images (`sha256:7672df2b…` and `sha256:cd202c32…`) have been expired from
 `oxy/kaana` by the repository's keep-last-150 lifecycle rule (checked
 2026-10-23). Serving now runs revisions built from main (`oxy-kaana:148` on that
-date). To roll back, use the previous revision of each service built from main,
-and first confirm that its image digest still exists in ECR.
+date). To roll back, use the previous revision of each service built from main.
+The ECR pin reconciler keeps the image of every revision within 10
+revisions of what each service runs (oxy-infra runbook 46), so pick
+`<previous>` from the live family, never from this record:
+
+```bash
+aws ecs list-task-definitions --family-prefix oxy-kaana --sort DESC --max-items 12
+aws ecs describe-task-definition --task-definition oxy-kaana:<previous> \
+  --query 'taskDefinition.containerDefinitions[].image'
+```
 
 Set the variable first, so a push to main cannot deploy again. Roll the
 publisher back together with serving. The old publisher republishes without
