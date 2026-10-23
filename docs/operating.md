@@ -556,8 +556,10 @@ record of the rows it created. The schema 0013 cutover applied and verified
 current reviewed assignment is
 `configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json`, the first
 snapshot with xAI speech, and it is the only manifest baked into the image. Its
-inventory provenance is an immutable S3 `VersionId`, ETag and locally computed
-SHA-256. The raw S3 inventory document is
+inventory provenance is an immutable S3 `VersionId` of the snapshot's reviewed
+archive (`inventory/reviewed/<snapshotId>.json`, never the live key — see
+[Pinning an inventory snapshot](#pinning-an-inventory-snapshot)), ETag and locally
+computed SHA-256. The raw S3 inventory document is
 IAM-controlled but is **not cryptographically signed**; do not describe it as
 signed. Before either batch apply or verify, the admin workflow downloads that
 exact immutable object and compares its content hash, snapshot ID, count, and
@@ -595,6 +597,55 @@ number of keys. Every inventory load logs the unresolvable ones at WARN as
 `served`, `deploymentIds`, `providers` and `snapshotId`; alert on it. Adding a
 second enabled key to a provider never makes a deployment unroutable: it joins
 the pool in funding order.
+
+### Pinning an inventory snapshot
+
+The publisher overwrites `inventory/current.json` every cycle, about 96 versions
+a day, and the bucket's lifecycle rule (oxy-infra `app-kaana.tf`) expires that
+key's noncurrent versions once they are 90 days noncurrent and 100 newer ones
+exist. A version of the live key is therefore never a pin. Before a manifest
+names a snapshot, copy the exact issue it reviewed to the snapshot's reviewed
+archive, server side, and pin the COPY:
+
+```bash
+B=oxy-kaana-inventory-usw2-237343248947
+aws s3api copy-object --bucket "$B" \
+  --key "inventory/reviewed/<snapshotId>.json" \
+  --copy-source "$B/inventory/current.json?versionId=<reviewed issue's VersionId>" \
+  --metadata-directive COPY
+```
+
+The manifest's `inventory.key` is that archive key, `s3VersionId` the copy's
+`VersionId`, and `archivedFrom` records the live issue it came from (key
+`inventory/current.json` and its `VersionId`). `etag` and `contentSha256` are
+unchanged by the copy. `readBindingManifest` refuses any other key and a
+missing `archivedFrom`, and the credential-admin role may read versions only
+under `inventory/reviewed/`.
+
+No lifecycle rule covers `inventory/reviewed/`, and the bucket policy denies
+`s3:DeleteObjectVersion` there to every principal, so an archived version
+outlives every re-issue of the live key. All three manifests were repointed on
+2026-10-23:
+
+| Snapshot | Archive `VersionId` | Copied from `inventory/current.json` |
+|---|---|---|
+| `snap_dfd6904a99d6313b` | `9vGSM6n01ExQCK_3pVzJn5NmJCMdjbc_` | `UewtBRK5jtTGj23NHUBrIt.RFdIrPq3S` |
+| `snap_ebf19b144959bbb8` | `v07aZaO74WguIwJ5P4._cvL85gD2tjCk` | `hZsP6lsuSFMehoKgem9HF6NHZr43_0bd` |
+| `snap_37548e4f1f8ec610` | `zOMgneyztasK69u1UXg_17w2Yjsy4fz0` | `bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ` |
+
+A snapshot cited as evidence elsewhere (a `configs/` comment, a release record)
+is archived the same way, so the citation stays resolvable after the live
+issue expires. The issue archived is the one the citation names by `issuedAt`,
+else the snapshot's first issue:
+
+| Snapshot | Cited by | Archive `VersionId` | Issue (`issuedAt`) |
+|---|---|---|---|
+| `snap_da7406fdfed50248` | OxyHQ/oxy `scripts/check-kaana-request-v2-rollout.mjs` | `savigsblfz05f2w5spJCRi7CmW2yaatn` | 2026-09-08T13:12:30.701Z |
+| `snap_8801d0c4e843149f` | OxyHQ/oxy initial catalogue and its bootstrap | `M9J9Za6r6gNtE05q.BI7RayWe8UxcXGc` | 2026-09-30T20:12:15.229Z |
+| `snap_2408959e2be05c73` | `configs/deployment-commercial.json` | `1dCwD0ot62dcjCidLFAjzdIcr9dzJ163` | 2026-10-15T19:49:56.252Z |
+| `snap_7d431443cd7e0b53` | `configs/deployment-commercial.json` | `l4q1d45VFRjW1xZqesmXsUegfgFVAWf5` | 2026-10-16T00:45:36.977Z |
+| `snap_ea0d4ecf18806d21` | `configs/deployment-commercial.json`, `configs/provider-rates.json` | `61vOGYwYc0Oerq4aSLE6yZr0rSf0iusG` | 2026-10-16T03:49:49.318Z |
+| `snap_9afce8640d7613b0` | `configs/provider-rates.json` | `dEezL3UPZ0Gtq.fRym3xr7F4NcuFTiEP` | 2026-10-18T20:44:32.148Z |
 
 ### Moving a pinned provider onto its pool
 

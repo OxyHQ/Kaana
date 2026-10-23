@@ -26,6 +26,13 @@ type bindingManifest struct {
 		ETag            string `json:"etag"`
 		ContentSHA256   string `json:"contentSha256"`
 		DeploymentCount int    `json:"deploymentCount"`
+		// ArchivedFrom is the issue of the live key the reviewed copy was made
+		// from. It is provenance only: nothing reads that version, which the
+		// bucket's lifecycle rule expires (docs/operating.md#pinning-an-inventory-snapshot).
+		ArchivedFrom struct {
+			Key         string `json:"key"`
+			S3VersionID string `json:"s3VersionId"`
+		} `json:"archivedFrom"`
 	} `json:"inventory"`
 	CredentialReadback struct {
 		TaskARN                    string         `json:"taskArn"`
@@ -49,6 +56,19 @@ type bindingManifestAssignment struct {
 	KeyID        string                `json:"keyId"`
 }
 
+// liveInventoryKey is the object the publisher overwrites every cycle. Its
+// noncurrent versions expire under the bucket's lifecycle rule, so a manifest
+// can never pin one of them.
+const liveInventoryKey = "inventory/current.json"
+
+// reviewedInventoryKey is where a reviewed snapshot is archived before a
+// manifest pins it. No lifecycle rule covers this prefix and the bucket policy
+// refuses deleting a version under it, so the pinned version outlives every
+// re-issue of the live key.
+func reviewedInventoryKey(snapshotID string) string {
+	return "inventory/reviewed/" + snapshotID + ".json"
+}
+
 func readBindingManifest(path string) (bindingManifest, error) {
 	var manifest bindingManifest
 	if path == "" {
@@ -68,6 +88,12 @@ func readBindingManifest(path string) (bindingManifest, error) {
 	}
 	if manifest.SchemaVersion != 1 || manifest.Authority != "reviewed-exact-kaana-deployment-credential-assignment" || manifest.Inventory.Bucket == "" || manifest.Inventory.Key == "" || manifest.Inventory.SnapshotID == "" || manifest.Inventory.S3VersionID == "" || len(manifest.Inventory.ContentSHA256) != 64 || manifest.Inventory.DeploymentCount != len(manifest.Assignments) || len(manifest.Assignments) == 0 {
 		return manifest, errors.New("binding manifest identity or count is invalid")
+	}
+	if manifest.Inventory.Key != reviewedInventoryKey(manifest.Inventory.SnapshotID) {
+		return manifest, fmt.Errorf("binding manifest pins %q: a manifest pins only the reviewed archive %q, because versions of %s expire", manifest.Inventory.Key, reviewedInventoryKey(manifest.Inventory.SnapshotID), liveInventoryKey)
+	}
+	if manifest.Inventory.ArchivedFrom.Key != liveInventoryKey || manifest.Inventory.ArchivedFrom.S3VersionID == "" || manifest.Inventory.ArchivedFrom.S3VersionID == manifest.Inventory.S3VersionID {
+		return manifest, errors.New("binding manifest does not record the live inventory issue its reviewed archive was copied from")
 	}
 	deployments := make(map[contract.DeploymentID]struct{}, len(manifest.Assignments))
 	operations := make(map[string]struct{}, len(manifest.Assignments))
