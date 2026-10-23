@@ -121,6 +121,57 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # The credential-admin operations run the image `.image` in
+      # .github/credential-admin-operations.json names, a reviewed digest pinned
+      # in this repository rather than in a Terraform task definition, so
+      # oxy-infra's pin gate never sees it. oxy/kaana keeps its last 150 pushes,
+      # and on 2026-10-23 the pinned 846bea80… (42dde878) had been expired that
+      # way: every pinned-image operation, `list-deployment-bindings` included,
+      # failed at "the reviewed image digest is not present in Kaana ECR".
+      #
+      # Tagging the digest, and every child of its index, `pinned-<hex>` puts it
+      # under the lifecycle's priority-1 rule, which no count rule can expire
+      # (oxy-infra runbook 46). A config change is a path of this workflow, so
+      # the merge that moves the pin protects it; every later main push repeats
+      # it, idempotently. A pin that is already gone fails here, loudly.
+      - name: Protect the pinned credential-admin image from ECR expiry
+        run: |
+          set -euo pipefail
+          image=$(jq -r '.image' .github/credential-admin-operations.json)
+          digest="${image##*@}"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || [ "${image%@*}" != "$ECR_REGISTRY/oxy/$APP" ]; then
+            echo "::error::credential-admin-operations.json does not pin an exact oxy/$APP digest"
+            exit 1
+          fi
+          # protect DIGEST: tag one manifest and print its children's digests.
+          # Diagnostics go to stderr so a failure is never swallowed with them.
+          protect() {
+            local manifest media out
+            manifest=$(aws ecr batch-get-image --repository-name "oxy/$APP" \
+              --image-ids "imageDigest=$1" --query 'images[0]' --output json)
+            if [ "$manifest" = 'null' ]; then
+              echo "::error::the pinned credential-admin image oxy/$APP@$1 is no longer in ECR; pin a current main image" >&2
+              return 1
+            fi
+            media=$(jq -r '.imageManifestMediaType' <<<"$manifest")
+            if out=$(aws ecr put-image --repository-name "oxy/$APP" \
+              --image-manifest "$(jq -r '.imageManifest' <<<"$manifest")" \
+              --image-manifest-media-type "$media" \
+              --image-digest "$1" --image-tag "pinned-${1#sha256:}" 2>&1 >/dev/null); then
+              echo "tagged  oxy/$APP@$1" >&2
+            elif grep -q 'ImageAlreadyExistsException\|TagAlreadyExists' <<<"$out"; then
+              echo "already oxy/$APP@$1" >&2
+            else
+              echo "$out" >&2
+              return 1
+            fi
+            jq -r '.imageManifest | fromjson | .manifests[]?.digest' <<<"$manifest"
+          }
+          children=$(protect "$digest")
+          for child in $children; do
+            protect "$child" >/dev/null
+          done
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Build and push (linux/arm64)

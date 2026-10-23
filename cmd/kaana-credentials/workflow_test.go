@@ -174,8 +174,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		AWSRegion:     "us-west-2",
 		AccountID:     "237343248947",
 		Cluster:       "oxy-cluster",
-		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:846bea802c2c3db6660fe12efc10d0a00986fde219a69bd5fd03801649d91631",
-		SourceCommit:  "42dde87834c2a6e066f5ebf9034244aac7e3f8f6",
+		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:fb2824bbb62a6e5e743fe0a9ed08b9a9738214253d00c3d1fb491a9cc9616824",
+		SourceCommit:  "d1e44c7a5b1983dd4a93217f79b99aecfe5bc1a9",
 		SubnetIDs:     []string{"subnet-08f5cc132b3cab15c", "subnet-0bfb367f29d1fd375"},
 		TaskProfiles: map[string]credentialTaskProfile{
 			"admin": {
@@ -310,5 +310,41 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		if !strings.Contains(workflow, bindingBoundary) {
 			t.Errorf("credential workflow lost dynamic binding boundary %q", bindingBoundary)
 		}
+	}
+}
+
+// The pinned credential-admin image lives outside every Terraform task
+// definition, so only this repository's deploy can keep ECR's count rule from
+// expiring it (2026-10-23: the 42dde878 pin was expired and every pinned
+// operation failed). The deploy must tag the configured digest and its children
+// `pinned-<hex>`, the prefix oxy-infra's priority-1 lifecycle rule protects,
+// before it pushes the image that could count it out, and on every config change.
+func TestDeployProtectsThePinnedCredentialAdminImage(t *testing.T) {
+	document, err := os.ReadFile("../../.github/workflows/deploy-aws.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(document)
+	step := strings.Index(workflow, "- name: Protect the pinned credential-admin image from ECR expiry")
+	build := strings.Index(workflow, "- name: Build and push (linux/arm64)")
+	if step < 0 || build < 0 || step > build {
+		t.Fatal("the deploy does not protect the pinned credential-admin image before it pushes")
+	}
+	body := workflow[step:build]
+	for _, required := range []string{
+		"jq -r '.image' .github/credential-admin-operations.json",
+		`--image-tag "pinned-${1#sha256:}"`,
+		"aws ecr batch-get-image",
+		"aws ecr put-image",
+		".manifests[]?.digest",
+		"ImageAlreadyExistsException",
+		"is no longer in ECR",
+	} {
+		if !strings.Contains(body, required) {
+			t.Errorf("pinned-image protection lacks %q", required)
+		}
+	}
+	if !strings.Contains(workflow, "      - '.github/credential-admin-operations.json'\n") {
+		t.Error("a credential-admin pin change does not trigger the deploy that protects it")
 	}
 }

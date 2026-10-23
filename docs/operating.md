@@ -360,6 +360,18 @@ a brief metadata lock on `provider_credentials`, but performs no table rewrite
 or historical-row scan; contention fails and rolls the migration transaction
 back instead of waiting behind production traffic.
 
+The image `.github/credential-admin-operations.json` pins runs every operation
+except `migrate`, `unpin-deployment` and the two production-binding operations,
+which run the triggering commit's own image. No Terraform task definition names
+that digest, so oxy-infra's pin gate never tags it, and `oxy/kaana` keeps only its
+last 150 pushes. `deploy-aws.yml` therefore tags the pinned digest and each child of
+its index `pinned-<hex>` on every main push, before it pushes anything that could
+count it out. That tag puts it under the lifecycle's priority-1 rule (oxy-infra
+runbook 46). A pin that is already gone fails the deploy. On 2026-10-23 the
+`42dde878` pin had been expired this way, so every pinned operation failed at
+"the reviewed image digest is not present in Kaana ECR". It was replaced by
+`d1e44c7a` (`sha256:fb2824bb…`).
+
 `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0011_COMPLETE` is a literal repository
 deployment gate. Leave it absent or not `true` while the release image is built
 and pinned by digest and source commit into
