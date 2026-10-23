@@ -17,7 +17,7 @@ is secret.
 | Admin pin | `a1523152d94b2d022a2e3b6acdbabb4cf393da7f` → index `sha256:6f62c8eed0bddb81648401a4e07e26f8d4027e988b6c132ea5743e87f215486c` (linux/arm64 + attestation) |
 | Bindings in the database | 340 rows from `snap_dfd6904a99d6313b`, applied and verified 2026-09-11 (admin tasks `04583a19…`, `d84b9de0…`) |
 | Live inventory | `snap_ebf19b144959bbb8`, 333 deployments, reissued every 15 minutes |
-| Reviewed manifest | `configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json`, S3 version `hZsP6lsuSFMehoKgem9HF6NHZr43_0bd` |
+| Reviewed manifest | `configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json`, S3 version `hZsP6lsuSFMehoKgem9HF6NHZr43_0bd` of `inventory/current.json` (archived 2026-10-23, byte-identical, as `inventory/reviewed/snap_ebf19b144959bbb8.json` version `v07aZaO74WguIwJ5P4._cvL85gD2tjCk`; [operating](operating.md#pinning-an-inventory-snapshot)) |
 | Cutover variable | `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is absent |
 
 Manifest summary. Every served deployment has one active key binding:
@@ -300,7 +300,7 @@ point, so step 6 was not run and no `bind-deployment` was issued.
 | 7. Enable, deploy | Variable set 15:05:40. `mode=deploy` run `36017611711`: `kaana` → `oxy-kaana:44`, `kaana-publisher` → `oxy-kaana-publisher:48`, both `sha256:add55174615a162d80f22d7ac354a4ca52df062b6145ca6fc111cb889c555d83`, `COMPLETED`. `kaana-credential-control` and `kaana-platform-credential-control` are not ACTIVE and were not rolled |
 | 8. Speech | The first publisher cycle issued `snap_37548e4f1f8ec610` at 15:10:14.881, 334 deployments, 8 xAI, `tts` as `dep_xai_tts_observed_2026_09_24` (`x-ai/text-to-speech@observed-2026-09-24`). Serving installed it at 15:10:35 with no unbound WARN; `tts` routes on xAI's only key |
 | 4. Post-deploy readback | Oxy run `36019806004` against `oxy-oxy-api:539` / `sha256:fc306d90…`: contract 3.0.0, `snap_37548e4f1f8ec610`, 334 descriptors including `dep_xai_tts_observed_2026_09_24`, zero provider requests, zero ledger writes |
-| 9. Successor manifest | `configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json` replaces this page's manifest. It pins S3 version `bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ` (the issue serving installed, sha256 `e73ea428…7c02`), keeps all 333 `snap_ebf19…` rows and the 8 retained rows verbatim, and adds `dep_xai_tts_observed_2026_09_24` on xAI key `1d72d527…` as `kdb_00000000000000000000000000000342` |
+| 9. Successor manifest | `configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json` replaces this page's manifest. It pinned S3 version `bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ` of `inventory/current.json` (the issue serving installed, sha256 `e73ea428…7c02`; since 2026-10-23 its byte-identical archive `inventory/reviewed/snap_37548e4f1f8ec610.json` version `zOMgneyztasK69u1UXg_17w2Yjsy4fz0`), keeps all 333 `snap_ebf19…` rows and the 8 retained rows verbatim, and adds `dep_xai_tts_observed_2026_09_24` on xAI key `1d72d527…` as `kdb_00000000000000000000000000000342` |
 
 Until that manifest is applied, `verify-production-deployment-bindings` from a
 build that bakes it fails with `binding readback has 341 rows, manifest requires

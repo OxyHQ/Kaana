@@ -3,13 +3,17 @@
   "authority": "reviewed-exact-kaana-deployment-credential-assignment",
   "inventory": {
     "bucket": "oxy-kaana-inventory-usw2-237343248947",
-    "key": "inventory/current.json",
+    "key": "inventory/reviewed/snap_ebf19b144959bbb8.json",
     "snapshotId": "snap_ebf19b144959bbb8",
     "issuedAt": "2026-09-24T13:30:46.958Z",
-    "s3VersionId": "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd",
+    "s3VersionId": "v07aZaO74WguIwJ5P4._cvL85gD2tjCk",
     "etag": "2ddd3be5302867f6abd8fc70886342a0",
     "contentSha256": "49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017",
-    "deploymentCount": 333
+    "deploymentCount": 333,
+    "archivedFrom": {
+      "key": "inventory/current.json",
+      "s3VersionId": "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd"
+    }
   },
   "credentialReadback": {
     "taskArn": "arn:aws:ecs:us-west-2:237343248947:task/oxy-cluster/e1f7091ecd3a44bd940b8dd069437a67",

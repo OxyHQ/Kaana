@@ -45,7 +45,7 @@ func TestReviewedProductionBindingManifestIsCompleteAndExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reviewed manifest: %v", err)
 	}
-	if manifest.Inventory.SnapshotID != "snap_dfd6904a99d6313b" || manifest.Inventory.ContentSHA256 != "18ef56a8240a4dd749759cd8783ba402464e7f0402412252acdae6cfa496df17" || len(manifest.Assignments) != 340 || len(manifest.RetainedBindings) != 0 {
+	if manifest.Inventory.SnapshotID != "snap_dfd6904a99d6313b" || manifest.Inventory.S3VersionID != "9vGSM6n01ExQCK_3pVzJn5NmJCMdjbc_" || manifest.Inventory.ArchivedFrom.S3VersionID != "UewtBRK5jtTGj23NHUBrIt.RFdIrPq3S" || manifest.Inventory.ContentSHA256 != "18ef56a8240a4dd749759cd8783ba402464e7f0402412252acdae6cfa496df17" || len(manifest.Assignments) != 340 || len(manifest.RetainedBindings) != 0 {
 		t.Fatalf("production provenance/count drifted: %+v", manifest.Inventory)
 	}
 	counts := requireReviewedKeys(t, manifest.Assignments)
@@ -110,7 +110,7 @@ func TestCutoverProductionBindingManifestExtendsTheFirstOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cutover manifest: %v", err)
 	}
-	if current.Inventory.SnapshotID != "snap_ebf19b144959bbb8" || current.Inventory.S3VersionID != "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd" || current.Inventory.ContentSHA256 != "49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017" || len(current.Assignments) != 333 || len(current.RetainedBindings) != 8 {
+	if current.Inventory.SnapshotID != "snap_ebf19b144959bbb8" || current.Inventory.S3VersionID != "v07aZaO74WguIwJ5P4._cvL85gD2tjCk" || current.Inventory.ArchivedFrom.S3VersionID != "hZsP6lsuSFMehoKgem9HF6NHZr43_0bd" || current.Inventory.ContentSHA256 != "49534e10561d66eb651afb39860762e7c25abbe6064232d11532eef61361d017" || len(current.Assignments) != 333 || len(current.RetainedBindings) != 8 {
 		t.Fatalf("production provenance/count drifted: %+v", current.Inventory)
 	}
 	counts := requireReviewedKeys(t, current.Assignments)
@@ -131,7 +131,7 @@ func TestCurrentProductionBindingManifestExtendsTheCutoverOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current manifest: %v", err)
 	}
-	if current.Inventory.SnapshotID != "snap_37548e4f1f8ec610" || current.Inventory.S3VersionID != "bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ" || current.Inventory.ContentSHA256 != "e73ea428e95d0957e4773d0e89629450848289688aa0e31ef3474ea06e667c02" || len(current.Assignments) != 334 || len(current.RetainedBindings) != 8 {
+	if current.Inventory.SnapshotID != "snap_37548e4f1f8ec610" || current.Inventory.S3VersionID != "zOMgneyztasK69u1UXg_17w2Yjsy4fz0" || current.Inventory.ArchivedFrom.S3VersionID != "bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ" || current.Inventory.ContentSHA256 != "e73ea428e95d0957e4773d0e89629450848289688aa0e31ef3474ea06e667c02" || len(current.Assignments) != 334 || len(current.RetainedBindings) != 8 {
 		t.Fatalf("production provenance/count drifted: %+v", current.Inventory)
 	}
 	counts := requireReviewedKeys(t, current.Assignments)
@@ -141,6 +141,63 @@ func TestCurrentProductionBindingManifestExtendsTheCutoverOne(t *testing.T) {
 	fresh := requireSuccessorManifest(t, cutoverProductionManifest, currentProductionManifest)
 	if len(fresh) != 1 || fresh[0].DeploymentID != "dep_xai_tts_observed_2026_09_24" || fresh[0].OperationID != "kdb_00000000000000000000000000000342" {
 		t.Fatalf("unexpected new assignments: %+v", fresh)
+	}
+}
+
+// mutatedManifest writes the current production manifest with its inventory
+// block changed by edit, and returns the path.
+func mutatedManifest(t *testing.T, edit func(inventory map[string]any)) string {
+	t.Helper()
+	document, err := os.ReadFile(currentProductionManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(document, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var inventory map[string]any
+	if err := json.Unmarshal(raw["inventory"], &inventory); err != nil {
+		t.Fatal(err)
+	}
+	edit(inventory)
+	raw["inventory"], _ = json.Marshal(inventory)
+	mutated, _ := json.Marshal(raw)
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// The live key is overwritten every publisher cycle and its noncurrent
+// versions expire, so a pin on it would stop resolving. A manifest pins only
+// the reviewed archive of its own snapshot, and records the live issue it was
+// copied from.
+func TestBindingManifestPinsOnlyTheReviewedArchiveOfItsSnapshot(t *testing.T) {
+	if _, err := readBindingManifest(mutatedManifest(t, func(map[string]any) {})); err != nil {
+		t.Fatalf("positive control: the unmodified manifest must parse: %v", err)
+	}
+	for name, edit := range map[string]func(map[string]any){
+		"the live key": func(inventory map[string]any) {
+			inventory["key"] = "inventory/current.json"
+		},
+		"another snapshot's archive": func(inventory map[string]any) {
+			inventory["key"] = "inventory/reviewed/snap_ebf19b144959bbb8.json"
+		},
+		"no archive provenance": func(inventory map[string]any) {
+			delete(inventory, "archivedFrom")
+		},
+		"provenance outside the live key": func(inventory map[string]any) {
+			inventory["archivedFrom"] = map[string]any{"key": "inventory/reviewed/snap_37548e4f1f8ec610.json", "s3VersionId": "bB84mMzvBNUKtjKdmurcgBn5vIUCBNPJ"}
+		},
+		"provenance naming the pinned version": func(inventory map[string]any) {
+			inventory["archivedFrom"] = map[string]any{"key": "inventory/current.json", "s3VersionId": inventory["s3VersionId"]}
+		},
+	} {
+		if _, err := readBindingManifest(mutatedManifest(t, edit)); err == nil {
+			t.Errorf("a manifest pinning %s was accepted", name)
+		}
 	}
 }
 
