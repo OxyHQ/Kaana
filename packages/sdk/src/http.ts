@@ -52,6 +52,19 @@ export interface KaanaOptions {
   maxRetries?: number;
 }
 
+/** Shared workload transport; its owner controls identity and renewal. */
+export interface KaanaAuthenticatedTransport {
+  fetch: KaanaFetch;
+  getAccessToken(target: string | URL, options?: { signal?: AbortSignal }): Promise<string>;
+}
+export interface KaanaTransportOptions extends Omit<KaanaOptions, 'credential' | 'fetch'> {
+  transport: KaanaAuthenticatedTransport;
+  credential?: never;
+  fetch?: never;
+  /** Fixed inference attribution; never authority to read private account data. */
+  accountId?: string;
+}
+
 export interface RequestOptions {
   signal?: AbortSignal;
   /** `Idempotency-Key`; reused unchanged by every retry. */
@@ -114,23 +127,43 @@ export class Transport {
   readonly baseURL: string;
   readonly WebSocket: typeof globalThis.WebSocket | undefined;
   readonly timeoutMs: number;
-  readonly #credential: KaanaCredential;
+  readonly #credential: KaanaCredential | undefined;
+  readonly #authenticated: KaanaAuthenticatedTransport | undefined;
+  readonly #accountId: string | undefined;
   readonly #fetch: KaanaFetch;
   readonly #maxRetries: number;
 
-  constructor(options: KaanaOptions) {
-    if (options === undefined || options === null || options.credential === undefined) {
+  constructor(options: KaanaOptions | KaanaTransportOptions) {
+    if (options === undefined || options === null)
       throw new TypeError('Kaana: options.credential is required');
+    const authenticated = 'transport' in options;
+    if (authenticated) {
+      if (
+        options.credential !== undefined ||
+        options.fetch !== undefined ||
+        typeof options.transport?.fetch !== 'function' ||
+        typeof options.transport?.getAccessToken !== 'function'
+      ) {
+        throw new TypeError(
+          'Kaana: authenticated transport cannot be combined with a credential or fetch override',
+        );
+      }
+      this.#authenticated = options.transport;
+      this.#accountId = options.accountId;
+    } else {
+      if (options.credential === undefined)
+        throw new TypeError('Kaana: options.credential is required');
+      if (typeof options.credential !== 'string' && typeof options.credential !== 'function') {
+        throw new TypeError('Kaana: options.credential is a string or a function returning one');
+      }
+      this.#credential = options.credential;
     }
-    if (typeof options.credential !== 'string' && typeof options.credential !== 'function') {
-      throw new TypeError('Kaana: options.credential is a string or a function returning one');
-    }
-    this.#credential = options.credential;
     this.baseURL = normalizeBaseURL(options.baseURL ?? KAANA_API_BASE_URL);
-    const fetchImpl: KaanaFetch | undefined = options.fetch ?? globalThis.fetch;
-    if (typeof fetchImpl !== 'function') {
+    const fetchImpl: KaanaFetch | undefined = authenticated
+      ? options.transport.fetch
+      : (options.fetch ?? globalThis.fetch);
+    if (typeof fetchImpl !== 'function')
       throw new TypeError('Kaana: no fetch is available; pass options.fetch');
-    }
     this.#fetch = (input, init) => fetchImpl(input, init);
     this.WebSocket = options.WebSocket ?? globalThis.WebSocket;
     this.timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS, 'timeoutMs');
@@ -142,7 +175,11 @@ export class Transport {
   }
 
   /** The credential, read now. Never stored. */
-  async credential(): Promise<string> {
+  async credential(target?: string, signal?: AbortSignal): Promise<string> {
+    if (this.#authenticated) {
+      if (!target) throw new TypeError('Kaana: the credential destination is required');
+      return this.#authenticated.getAccessToken(target, { signal });
+    }
     const value =
       typeof this.#credential === 'function' ? await this.#credential() : this.#credential;
     if (typeof value !== 'string' || value.length === 0) {
@@ -158,6 +195,13 @@ export class Transport {
     return value;
   }
 
+  attribution(requested?: string): string | undefined {
+    if (!this.#authenticated) return requested;
+    if (requested !== undefined && requested !== this.#accountId)
+      throw new TypeError('Kaana: requester attribution differs from this client');
+    return this.#accountId;
+  }
+
   url(path: string, query?: Record<string, string>): string {
     const search = query === undefined ? '' : `?${new URLSearchParams(query).toString()}`;
     return `${this.baseURL}${path}${search}`;
@@ -169,9 +213,9 @@ export class Transport {
     const timeoutMs = positiveInteger(options.timeoutMs, this.timeoutMs, 'timeoutMs');
     for (let attempt = 0; ; attempt += 1) {
       if (options.signal?.aborted) throw cancelledByCaller(null);
-      const credential = await this.credential();
+      const attributed = this.attribution(options.onBehalfOfUserId);
       const headers: Record<string, string> = {
-        Authorization: `Bearer ${credential}`,
+        ...(this.#authenticated ? {} : { Authorization: `Bearer ${await this.credential()}` }),
         Accept: init.accept,
         // The set this SDK parses: Kaana renders what it sends in that shape.
         [KAANA_CONTRACT_VERSION_HEADER]: INFERENCE_CONTRACT_VERSION,
@@ -180,15 +224,14 @@ export class Transport {
       if (options.idempotencyKey !== undefined) {
         headers[KAANA_IDEMPOTENCY_KEY_HEADER] = options.idempotencyKey;
       }
-      if (options.onBehalfOfUserId !== undefined) {
-        headers[KAANA_ON_BEHALF_OF_HEADER] = options.onBehalfOfUserId;
-      }
+      if (attributed !== undefined) headers[KAANA_ON_BEHALF_OF_HEADER] = attributed;
 
       const control = attemptControl(options.signal, timeoutMs);
       let response: Response;
       try {
         response = await this.#fetch(this.url(init.path, init.query), {
           method: init.method,
+          ...(this.#authenticated ? { redirect: 'error' as const } : {}),
           headers,
           ...(init.body === undefined ? {} : { body: init.body }),
           signal: control.signal,

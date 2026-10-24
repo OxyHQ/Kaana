@@ -23,7 +23,6 @@ the function already caches and renews.
 import { Kaana } from '@kaana.ai/sdk';
 
 new Kaana({ credential: process.env.KAANA_API_KEY! });                 // oxy_sk_ from Console
-new Kaana({ credential: () => oxyServer.serviceToken({ audience: 'kaana.ai' }) }); // an Oxy service
 new Kaana({ credential: async () => (await oxy.getAccessToken())! });  // an Oxy app session
 ```
 
@@ -36,6 +35,39 @@ one, e.g. `ws` in older Node), `timeoutMs` (default 120 000) and `maxRetries`
 Every method takes `RequestOptions`: `signal`, `idempotencyKey`
 (`Idempotency-Key`, reused by every retry), `onBehalfOfUserId`
 (`X-Oxy-User-Id`, honoured only with a service token) and `timeoutMs`.
+
+## Oxy-owned services
+
+Use the existing workload-backed `OxyServer` with the server entry:
+
+```ts
+import { kaanaForOxyService } from '@kaana.ai/sdk/server';
+
+const kaana = kaanaForOxyService(oxyServer, {
+  attribution: { accountId: originalAccountId }, // optional, fixed for this client
+});
+await kaana.responses.create({ model: 'auto', input: 'Hola' });
+// The same client also provides realtime.connect(...).
+kaana.dispose(); // releases this transport, not the shared OxyServer
+```
+
+This factory requires the Oxy core 7 transport. Oxy owns workload attestation,
+protocol 2, token renewal, cancellation and origin validation; the app supplies
+no API key, scope list or token callback. Kaana still owns inference retries,
+SSE, idempotency and the realtime session lifecycle. A resumed socket reuses the
+original credential and protocols because the server binds resume to that
+credential; only a new session obtains a current token.
+
+`attribution` is immutable inference attribution, not permission to read an
+account's private data or to charge that account. Oxy's signed admission keeps
+the payer and application identity. An explicit requester proof can be supplied
+instead where the caller already has one; the two options are exclusive.
+Per-call `onBehalfOfUserId` must match the fixed account. Production uses only
+`https://kaana.ai/v1`; loopback remains available for development.
+
+External credentials continue using `new Kaana({ credential })`. This SDK
+addition does not change the Go service's outbound Oxy producer protocol; see
+[the rollout record](../../docs/first-party-transport.md).
 
 ## Methods
 
