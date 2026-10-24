@@ -16,24 +16,13 @@ import (
 )
 
 func TestReporterMintsKaanaServiceTokenAndPostsExactGeneration(t *testing.T) {
+	identity := &attestedIdentity{token: "kaana-service-token"}
 	var (
 		mu            sync.Mutex
-		mintCalls     int
 		validationRaw string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/auth/service-token":
-			mintCalls++
-			var body map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Errorf("decode mint: %v", err)
-			}
-			if body["apiKey"] != "oxy_dk_kaana" || body["apiSecret"] != "kaana-service-secret" {
-				t.Errorf("mint body = %#v", body)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"data":{"token":"kaana-service-token","expiresIn":3600,"appName":"Kaana"}}`)
 		case "/inference/provider-connections/conn_customer_01/validation":
 			if r.Header.Get("Authorization") != "Bearer kaana-service-token" {
 				t.Errorf("authorization = %q", r.Header.Get("Authorization"))
@@ -51,7 +40,7 @@ func TestReporterMintsKaanaServiceTokenAndPostsExactGeneration(t *testing.T) {
 	defer server.Close()
 
 	reporter, err := New(Config{
-		BaseURL: server.URL, APIKey: "oxy_dk_kaana", APISecret: "kaana-service-secret", Environment: contract.EnvironmentDevelopment,
+		BaseURL: server.URL, WorkloadMinter: identity, Environment: contract.EnvironmentDevelopment,
 		Logger: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
@@ -71,8 +60,8 @@ func TestReporterMintsKaanaServiceTokenAndPostsExactGeneration(t *testing.T) {
 	mu.Lock()
 	got := validationRaw
 	mu.Unlock()
-	if mintCalls != 1 {
-		t.Fatalf("mint calls = %d", mintCalls)
+	if calls, _ := identity.observed(); calls != 1 {
+		t.Fatalf("workload mints = %d", calls)
 	}
 	if got != `{"credentialHandle":"kcred_abcdefghijklmnopqrstuvwxyz","credentialRevision":7,"state":"invalid","failureCode":"unauthorized"}` {
 		t.Fatalf("validation body = %s", got)
@@ -83,15 +72,13 @@ func TestReporterMintsKaanaServiceTokenAndPostsExactGeneration(t *testing.T) {
 }
 
 func TestReporterRefreshesOnceAfterUnauthorizedValidation(t *testing.T) {
+	identity := &attestedIdentity{token: "kaana-service-token"}
 	var mu sync.Mutex
-	mints, validations := 0, 0
+	validations := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.URL.Path {
-		case "/auth/service-token":
-			mints++
-			_, _ = io.WriteString(w, `{"data":{"token":"token-`+string(rune('0'+mints))+`","expiresIn":3600}}`)
 		case "/inference/provider-connections/conn_retry/validation":
 			validations++
 			if validations == 1 {
@@ -104,7 +91,7 @@ func TestReporterRefreshesOnceAfterUnauthorizedValidation(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	reporter, err := New(Config{BaseURL: server.URL, APIKey: "key", APISecret: "secret", Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler)})
+	reporter, err := New(Config{BaseURL: server.URL, WorkloadMinter: identity, Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -116,20 +103,20 @@ func TestReporterRefreshesOnceAfterUnauthorizedValidation(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	mints, _ := identity.observed()
 	if mints != 2 || validations != 2 {
 		t.Fatalf("mints/validations = %d/%d", mints, validations)
 	}
 }
 
 func TestReporterPostsFullBootstrapBindingAndDoesNotDedupeANewOperation(t *testing.T) {
+	identity := &attestedIdentity{token: "kaana-service-token"}
 	var (
 		mu     sync.Mutex
 		bodies []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/auth/service-token":
-			_, _ = io.WriteString(w, `{"data":{"token":"token","expiresIn":3600}}`)
 		case "/inference/provider-connections/conn_exact/validation-bootstrap/outcome":
 			body, _ := io.ReadAll(r.Body)
 			mu.Lock()
@@ -142,7 +129,7 @@ func TestReporterPostsFullBootstrapBindingAndDoesNotDedupeANewOperation(t *testi
 	}))
 	defer server.Close()
 	reporter, err := New(Config{
-		BaseURL: server.URL, APIKey: "key", APISecret: "secret",
+		BaseURL: server.URL, WorkloadMinter: identity,
 		Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
@@ -197,24 +184,25 @@ func reportedFailure(outcome contract.KaanaCredentialValidationOutcome) string {
 }
 
 func TestReporterPinsDeployedSecretsToCanonicalOxyOriginAndRejectsInvalidVerdicts(t *testing.T) {
-	if _, err := New(Config{BaseURL: "http://api.oxy.so", APIKey: "key", APISecret: "secret", Environment: contract.EnvironmentProduction}); err == nil {
+	identity := &attestedIdentity{token: "kaana-service-token"}
+	if _, err := New(Config{BaseURL: "http://api.oxy.so", WorkloadMinter: identity, Environment: contract.EnvironmentProduction}); err == nil {
 		t.Fatal("non-loopback HTTP base URL was accepted")
 	}
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	if _, err := New(Config{BaseURL: server.URL, APIKey: "key", APISecret: "secret", Environment: contract.EnvironmentProduction}); err == nil {
+	if _, err := New(Config{BaseURL: server.URL, WorkloadMinter: identity, Environment: contract.EnvironmentProduction}); err == nil {
 		t.Fatal("production accepted a loopback destination for its service secret")
 	}
 	for _, destination := range []string{
 		"https://attacker.example", "https://api.oxy.so/redirect", "https://api.oxy.so?next=attacker",
 		"https://user@api.oxy.so", " https://api.oxy.so",
 	} {
-		if _, err := New(Config{BaseURL: destination, APIKey: "key", APISecret: "secret", Environment: contract.EnvironmentProduction}); err == nil {
+		if _, err := New(Config{BaseURL: destination, WorkloadMinter: identity, Environment: contract.EnvironmentProduction}); err == nil {
 			t.Errorf("production accepted non-canonical destination %q", destination)
 		}
 	}
-	canonical, err := New(Config{BaseURL: canonicalOxyAPIOrigin, APIKey: "key", APISecret: "secret", Environment: contract.EnvironmentProduction, Logger: slog.New(slog.DiscardHandler)})
+	canonical, err := New(Config{BaseURL: canonicalOxyAPIOrigin, WorkloadMinter: identity, Environment: contract.EnvironmentProduction, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatalf("canonical production origin was refused: %v", err)
 	}
@@ -223,7 +211,7 @@ func TestReporterPinsDeployedSecretsToCanonicalOxyOriginAndRejectsInvalidVerdict
 	if err := canonical.Close(closeContext); err != nil {
 		t.Fatalf("closing unused canonical reporter: %v", err)
 	}
-	reporter, err := New(Config{BaseURL: server.URL, APIKey: "key", APISecret: "secret", Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler)})
+	reporter, err := New(Config{BaseURL: server.URL, WorkloadMinter: identity, Environment: contract.EnvironmentDevelopment, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

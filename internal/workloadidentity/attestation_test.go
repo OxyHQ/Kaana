@@ -135,6 +135,9 @@ func (o *oxy) handle(w http.ResponseWriter, r *http.Request) {
 
 // verify mirrors Oxy's refusals, in Oxy's order, and returns its reason string.
 func (o *oxy) verify(presented attestationRequest) string {
+	if presented.ProtocolVersion != 2 {
+		return "protocol 2 required"
+	}
 	if presented.Provider != attestationProvider {
 		return "unsupported_provider"
 	}
@@ -286,8 +289,8 @@ func TestAttestationCarriesExactlyTheSignedHeaders(t *testing.T) {
 		t.Fatalf("decoding the presented body: %v", err)
 	}
 	keys := sortedKeys(presented)
-	if strings.Join(keys, ",") != "attestation,audience,nonce,provider" {
-		t.Fatalf("exchange body keys = %v; Oxy accepts exactly provider, nonce, attestation and audience", keys)
+	if strings.Join(keys, ",") != "attestation,audience,nonce,protocolVersion,provider" {
+		t.Fatalf("exchange body keys = %v; Oxy accepts protocolVersion, provider, nonce, attestation and audience without scopes", keys)
 	}
 
 	var envelope attestationRequest
@@ -318,24 +321,17 @@ func TestAttestationCarriesExactlyTheSignedHeaders(t *testing.T) {
 	}
 }
 
-// A task with no session token — which is not how ECS hands out credentials, but
-// is how a long-lived key looks — must not sign a security token it does not have.
-func TestAttestationOmitsTheSecurityTokenWhenThereIsNone(t *testing.T) {
+// Long-lived IAM keys must never become first-party service credentials.
+func TestAttestationRefusesLongLivedKeysBeforeSendingProof(t *testing.T) {
 	fake := newOxy(t)
-	fake.credentials = awssig.Credentials{AccessKeyID: testAccessKeyID, SecretAccessKey: testSecretAccessKey}
 	client := newTestClient(t, aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
 		return aws.Credentials{AccessKeyID: testAccessKeyID, SecretAccessKey: testSecretAccessKey}, nil
 	}))
-
-	if _, _, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience); err != nil {
-		t.Fatalf("Mint: %v", err)
+	if _, _, err := client.Mint(context.Background(), fake.origin(t), contract.OxyAPIAudience); !errors.Is(err, ErrNoWorkloadIdentity) {
+		t.Fatalf("Mint error = %v, want temporary identity refusal", err)
 	}
-	var envelope attestationRequest
-	if err := json.Unmarshal([]byte(fake.rawExchange), &envelope); err != nil {
-		t.Fatalf("decoding the attestation: %v", err)
-	}
-	if _, present := envelope.Attestation.Headers["x-amz-security-token"]; present {
-		t.Fatal("an attestation signed without a session token must not carry one")
+	if fake.exchanges != 0 {
+		t.Fatal("long-lived credential proof was sent")
 	}
 }
 
@@ -523,56 +519,30 @@ func TestMintCarriesTheCallersDeadline(t *testing.T) {
 	}
 }
 
-func TestAttestableReportsOnlyAnECSTaskRole(t *testing.T) {
-	cases := map[string]struct {
-		environment map[string]string
-		want        bool
-	}{
-		"an ECS task": {
-			environment: map[string]string{"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": "/v2/credentials/9c1f"},
-			want:        true,
-		},
-		"an ECS task on the full endpoint": {
-			environment: map[string]string{"AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://169.254.170.2/v2/credentials/9c1f"},
-			want:        true,
-		},
-		"a laptop with a personal IAM user": {
-			environment: map[string]string{"AWS_ACCESS_KEY_ID": "AKIA", "AWS_SECRET_ACCESS_KEY": "secret", "AWS_PROFILE": "oxy"},
-			want:        false,
-		},
-		"a CI runner": {
-			environment: map[string]string{},
-			want:        false,
-		},
-		"an empty variable is not an identity": {
-			environment: map[string]string{"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": "  "},
-			want:        false,
-		},
-	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			lookup := func(key string) (string, bool) {
-				value, present := testCase.environment[key]
-				return value, present
-			}
-			if got := Attestable(lookup); got != testCase.want {
-				t.Fatalf("Attestable = %v, want %v", got, testCase.want)
-			}
-		})
-	}
-}
-
 func TestNewRefusesWithoutACredentialSource(t *testing.T) {
 	if _, err := New(Config{}); err == nil {
 		t.Fatal("a client with nothing to sign with was built")
 	}
 }
 
-func TestOpenReportsNoWorkloadIdentityOffECS(t *testing.T) {
+func TestOpenUsesTemporaryProviderWithoutECSVariables(t *testing.T) {
 	t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
 	t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
-	if _, err := Open(context.Background(), Config{}); !errors.Is(err, ErrNoWorkloadIdentity) {
-		t.Fatalf("Open error = %v, want ErrNoWorkloadIdentity", err)
+	for _, temporary := range []bool{true, false} {
+		provider := aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			c := aws.Credentials{AccessKeyID: testAccessKeyID, SecretAccessKey: testSecretAccessKey}
+			if temporary {
+				c.SessionToken = testSessionToken
+			}
+			return c, nil
+		})
+		_, err := Open(context.Background(), Config{Credentials: provider})
+		if temporary && err != nil {
+			t.Fatalf("temporary role rejected: %v", err)
+		}
+		if !temporary && !errors.Is(err, ErrNoWorkloadIdentity) {
+			t.Fatalf("long-lived key accepted: %v", err)
+		}
 	}
 }
 
