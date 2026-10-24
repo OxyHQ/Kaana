@@ -47,7 +47,7 @@
     "@kaana.ai/contracts": "workspace:*"
   },
   "devDependencies": {
-    "@oxy.so/core": "6.15.1",
+    "@oxy.so/core": "7.0.0",
     "kaana-contracts-4.4.0": "npm:@kaana.ai/contracts@4.4.0",
     "kaana-contracts-4.4.1": "npm:@kaana.ai/contracts@4.4.1",
     "kaana-contracts-5.0.0": "npm:@kaana.ai/contracts@5.0.0",
