@@ -126,21 +126,20 @@ go build ./...
 go test ./...
 ```
 
-Running it needs seven core settings and refuses to start without them. There
-is no unauthenticated mode, not even locally: a bypass that exists is a bypass
-that ships. The last two are one credential in two halves; a deployment
-whose ECS task role is attested can present that instead, with the caveats in
-`docs/operating.md`, "Oxy identity".
+Startup validates the configuration below. Own Oxy calls require temporary AWS
+workload identity with a registered live binding, in deployed and local
+processes. Use the AWS provider chain described in
+[Oxy identity](docs/operating.md#oxy-identity-temporary-infrastructure-workload);
+there is no service-key pair or unauthenticated fallback.
 
-| Variable | Meaning |
+| Setting | Meaning |
 |---|---|
 | `KAANA_INVENTORY_PATH` | the deployment inventory snapshot — see `configs/inventory.example.json` |
 | `KAANA_EDGE_PUBLIC_KEYS` | `kid:base64,…` Ed25519 **public** keys the Oxy edge signs with; not secret |
 | `KAANA_PROVIDERS` | the provider slugs this process serves, e.g. `cerebras,groq,xai,openrouter` |
 | `DATABASE_URL` | TLS PostgreSQL connection for Kaana's credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | ARN of the symmetric KMS key that encrypts provider credentials; not secret |
-| `KAANA_OXY_SERVICE_API_KEY` | public id of Kaana's dedicated Oxy service credential; not a provider key. An attested ECS task role can stand in for the pair — `docs/operating.md` |
-| `KAANA_OXY_SERVICE_API_SECRET` | secret half of that narrowly scoped Oxy service credential; not a provider key |
+| Temporary AWS workload identity | registered ECS/assumed role or local SSO role credentials with a session token; Oxy verifies the live workload binding. No Oxy service API-key fallback — [Oxy identity](docs/operating.md#oxy-identity-temporary-infrastructure-workload) |
 
 Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 

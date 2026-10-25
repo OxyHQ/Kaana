@@ -12,7 +12,7 @@ there is no provider-key fallback outside its database.
 | `KAANA_PROVIDERS` | yes | provider slugs served by this process |
 | `DATABASE_URL` | yes | TLS PostgreSQL URL for Kaana's credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | symmetric KMS key ARN; not secret |
-| `KAANA_OXY_SERVICE_ENVIRONMENT` | no | environment of that Oxy service credential, default `production`; verdicts for another environment are refused locally |
+| `KAANA_OXY_SERVICE_ENVIRONMENT` | no | environment of the registered Oxy workload binding, default `production`; verdicts for another environment are refused locally |
 | `KAANA_OXY_API_BASE_URL` | no | Oxy API origin, default and exact deployed value `https://api.oxy.so`; only `development` may use an explicit loopback origin |
 | `KAANA_OXY_VALIDATION_QUEUE_SIZE` | no | bounded off-request callback queue, default `256` |
 | `KAANA_OXY_VALIDATION_TIMEOUT` | no | timeout per token/verdict HTTP operation, default `5s` |
