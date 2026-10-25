@@ -174,8 +174,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		AWSRegion:     "us-west-2",
 		AccountID:     "237343248947",
 		Cluster:       "oxy-cluster",
-		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:fb2824bbb62a6e5e743fe0a9ed08b9a9738214253d00c3d1fb491a9cc9616824",
-		SourceCommit:  "d1e44c7a5b1983dd4a93217f79b99aecfe5bc1a9",
+		Image:         "237343248947.dkr.ecr.us-west-2.amazonaws.com/oxy/kaana@sha256:882eb76a904e60da364b352f3a0b6c98ce87dc50566d127e53587d50101dc2ec",
+		SourceCommit:  "de3db4741ff648d9de8d28d124634a9b7553652e",
 		SubnetIDs:     []string{"subnet-08f5cc132b3cab15c", "subnet-0bfb367f29d1fd375"},
 		TaskProfiles: map[string]credentialTaskProfile{
 			"admin": {
