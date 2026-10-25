@@ -37,3 +37,26 @@ Oxy foundation main `4d8cc12a` is deployed; the coordinator verified protocol-2
 scope-free mint, canonical receiver, wrong-audience rejection and the bounded
 legacy transition on 2026-10-24. This satisfies the Go producer prerequisite,
 not the producer deployment itself.
+
+## Administrative launcher pin, 2026-10-25
+
+The coordinator verified source `de3db4741ff648d9de8d28d124634a9b7553652e`
+against ECR and all three running API/publisher containers:
+`sha256:882eb76a904e60da364b352f3a0b6c98ce87dc50566d127e53587d50101dc2ec`.
+The actual ECS services are `kaana` (two tasks, revision 150) and
+`kaana-publisher` (one task, revision 151); their task families retain the
+`oxy-kaana` prefixes. Both services were stable and API targets healthy.
+
+The reviewed administrative launcher now pins this same image/source pair,
+so a later pinned one-shot cannot restart the historical protocol-1 producer.
+The operation-specific selection rules are unchanged: reviewed migration,
+unpin and production-binding operations still select their triggering main
+commit's image. Command allowlists, separate admin/migrator roles, migration
+checks and deploy ordering remain intact. This source change runs no operation,
+creates no service and does not claim a new credential-control deployment.
+Existing schema and rollback requirements in `docs/operating.md` still apply.
+
+Validation: the real workflow fragment tests preserve exact image selection and
+migration commands; the launcher configuration changes only image/source fields.
+Merge/deploy of this launcher update and the fleet-wide audit of scheduled and
+one-shot definitions remain prerequisites to retiring the finite Oxy bridge.
