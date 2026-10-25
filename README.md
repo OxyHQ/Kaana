@@ -139,8 +139,7 @@ whose ECS task role is attested can present that instead, with the caveats in
 | `KAANA_PROVIDERS` | the provider slugs this process serves, e.g. `cerebras,groq,xai,openrouter` |
 | `DATABASE_URL` | TLS PostgreSQL connection for Kaana's credential database |
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | ARN of the symmetric KMS key that encrypts provider credentials; not secret |
-| `KAANA_OXY_SERVICE_API_KEY` | public id of Kaana's dedicated Oxy service credential; not a provider key. An attested ECS task role can stand in for the pair — `docs/operating.md` |
-| `KAANA_OXY_SERVICE_API_SECRET` | secret half of that narrowly scoped Oxy service credential; not a provider key |
+| Temporary AWS workload identity | registered ECS/assumed role or local SSO role credentials with a session token; Oxy verifies the live workload binding. No Oxy service API-key fallback — `docs/operating.md#oxy-identity-temporary-infrastructure-workload` |
 
 Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
 
