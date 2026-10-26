@@ -101,10 +101,11 @@ func stoppedTimer() *time.Timer {
 func (s *session) run(ctx context.Context, first *websocket.Conn) {
 	defer func() {
 		s.cancel()
-		s.manager.remove(s)
+		s.manager.remove(ctx, s)
 		close(s.done)
 		s.manager.running.Done()
 	}()
+	go s.manager.renewOwner(ctx, s)
 	s.idle, s.expiry, s.resumeTimer = stoppedTimer(), stoppedTimer(), stoppedTimer()
 	s.connect(ctx, first)
 

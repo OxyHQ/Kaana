@@ -289,7 +289,11 @@ func run(logger *slog.Logger) error {
 
 	// Realtime sessions are held in this task's memory and authenticated by
 	// the same inference signature, over each connection's first frame.
-	sessions, err := realtime.NewManager(realtime.Config{Opener: executor, Verifier: verifier, Logger: logger})
+	peers, err := realtimePeers(context.Background(), credentialDatabase)
+	if err != nil {
+		return err
+	}
+	sessions, err := realtime.NewManager(realtime.Config{Opener: executor, Verifier: verifier, Logger: logger, Peers: peers})
 	if err != nil {
 		return err
 	}
@@ -346,7 +350,10 @@ func run(logger *slog.Logger) error {
 	if address == "" {
 		address = ":8080"
 	}
-	handler := public.route(server.Handler())
+	peerMux := http.NewServeMux()
+	peerMux.Handle("GET "+realtime.PeerPath, sessions.PeerHandler())
+	peerMux.Handle("/", public.route(server.Handler()))
+	var handler http.Handler = peerMux
 	if activity != nil {
 		handler = activity.Middleware(handler)
 	}

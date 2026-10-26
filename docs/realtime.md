@@ -59,8 +59,9 @@ This is fixed: the Oxy edge is built against it. It is reproduced exactly.
 >    that never opened on any route closes with `session.closed{reason:no_route_available}`
 >    with empty units, and its usage report has outcome `failed` and no units.
 > 7. Resume: sessions are held in the memory of the Kaana task that opened them. A
->    `session.resume` on a connection that reaches a task that does not hold the session (or
->    after `resumeWindowMs`, or with an `afterSequence` no longer buffered) is answered with
+>    In a configured ECS deployment, another task relays `session.resume` once to that
+>    owner through the private, generation-verified path below. An unavailable owner,
+>    a resume after `resumeWindowMs`, or an `afterSequence` no longer buffered is answered with
 >    `error{fatal:true, error.code:"invalid_request"}` and close 1008; the original session
 >    then closes itself with `resume_expired` when its window elapses and delivers its report
 >    only to a connection that is attached at that time (otherwise the edge recovers by
@@ -803,9 +804,11 @@ pins the set and proves each row publishable there and nowhere else.
   every attempt says its cost is unknown.
   OpenAI Realtime never reports `session_milliseconds`, so its card needs no
   rate for it (Oxy's price version still prices it, at zero).
-- Sessions live in the memory of the task that opened them. A resume that the
-  load balancer sends to another task is refused, by design (wire rule 7); the
-  edge then recovers the report by `requestId` once the original task settles.
+- Sessions live in the memory of the task that opened them. Configured tasks
+  relay a wrong-task resume once to its live owner; no state or admission moves.
+  An unavailable owner is still refused (wire rule 7); the edge recovers the
+  report by `requestId` once the original task settles. See
+  [cookie-free peer resume](#cookie-free-peer-resume).
 - The dedicated load balancer's idle timeout must exceed the 20 s ping
   interval (the ALB default of 60 s does). The Cloudflare request ceiling
   (`operating.md`) applies only to `/internal/v1/inference`.
@@ -921,6 +924,77 @@ pins the set and proves each row publishable there and nowhere else.
     attributed line, with its own catalogue line, rate card and commercial
     entry; and a "not served" answer is logged as a warning naming the model
     and xAI's answer (`DiscoveredModel.NotServed`).
+
+## Cookie-free peer resume
+
+[ADR 0005](adr/0005-cookie-free-realtime-resume.md) replaces load-balancer
+stickiness with a private one-hop relay. This is placement, not another
+identity or grant. Public and signed internal session commands remain unchanged.
+
+Migration `0023` adds `realtime_session_owners`: request ID, lane, private task
+IPv4, random process generation and a 45-second lease. The runtime role may
+execute four bounded functions, with no direct table access. A session claims
+its location before opening the provider or sending `session.created`, renews
+it every 15 seconds, and removes it on completion. Failed renewal stops the
+session; CAS prevents an old process from renewing or deleting a replacement.
+The lease does not extend the session's resume window, duration or authority.
+Expired crashed-owner rows are removed in bounded batches on subsequent claims.
+
+`KAANA_REALTIME_PEER_VPC_CIDR` is the exact VPC CIDR discovered from all live
+service subnets by the deployment workflow. The task obtains its own address
+from its ECS container metadata (`kaana`, `awsvpc`, one private IPv4). Managed
+startup refuses missing or inconsistent placement. Local development without
+ECS metadata keeps the existing single-process mode. No public URL, customer
+header or arbitrary endpoint can supply peer placement; metadata and private
+connections bypass environment HTTP proxies.
+
+The private `GET /internal/peer/realtime-resume` accepts direct VPC connections
+addressed to this task's IP on port 8080. It rejects `Forwarded`, every
+`X-Forwarded-*`, and `CF-Connecting-IP` header before upgrade, keeping ALB
+requests out. The owner sends only its opaque process generation; the caller
+compares it with the lease before forwarding the original credential or signed
+resume frame. The owner rechecks its live directory entry and original auth.
+The endpoint only resumes a local session: it cannot admit, open, or forward.
+Public resume retains the original credential digest; internal resume retains
+signature verification. The public gate only extracts the presented digest on
+resume; the owning session compares it with the digest admitted at creation.
+The generation check relies on the server-owned directory and private network;
+it is a stale-address guard, not a new cryptographic peer identity protocol. Public origin policy still runs at the public entry.
+
+The relay bounds handshake, frame size and each write, pings the public
+connection, and closes both sockets on cancellation or local shutdown. Draining
+an intermediate task leaves the owner's session resumable within its original
+window. Commands, audio, credentials and transcripts never enter the directory
+or logs. Provider execution, replay numbering, deduplication and exactly-once
+settlement stay on the owner.
+
+### Rollout and rollback
+
+Source preparation is not evidence that production cookies are disabled.
+Deploy the narrow infrastructure change first: serving-task self ingress and
+egress on TCP 8080, the VPC environment value, and deployment-role read access
+to `DescribeSubnets`/`DescribeVpcs`. Keep existing public access and target-group
+cookie settings during this compatibility stage.
+
+The normal AWS workflow applies additive migration `0023` using the migrator
+role before moving any service. It changes no existing schema or settlement
+records; the previous image ignores the new table and remains rollback-compatible.
+Verify the new serving digest on every task, public and internal wrong-task
+resume, one provider admission/settlement, wrong credentials, and owner loss.
+Before removing stickiness, prove either that the maximum pre-change session
+lifetime (one hour), plus resume/lease grace, has elapsed since old-session
+admission stopped, or that every old serving task is STOPPED and no old owner
+remains alive in the verified fleet/directory. A stopped task cannot retain its
+in-memory provider connection; no extra one-hour wait is required after that
+proof. Verify every remaining owner runs the exact new image. Alia has its own
+voice-session drain; its receipt does not replace Kaana's evidence.
+
+Remove target-group cookie settings only in the separately reviewed infra
+change after those gates. After that change, rolling back to an image without
+peer resume requires restoring routing compatibility before accepting new
+sessions; otherwise wrong-task reconnects will refuse. Preserve receipts and
+use the existing session refusal/report recovery if an owner is lost; do not
+replay admission or fabricate an empty settlement.
 
 ## Rules a reviewer applies
 

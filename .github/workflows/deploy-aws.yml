@@ -22,8 +22,9 @@ name: Deploy to AWS
 # Terraform owns what a revision CONTAINS — the roles, the log configuration,
 # the environment, the `secrets` block, the volume the configuration snapshot is
 # mounted from. CI owns which revision RUNS. This job therefore derives its
-# revision from the family's current one and replaces exactly one field, the
-# image, so a Terraform change to the shape is picked up by the next deploy and
+# revision from the family's current one and replaces the image (plus the
+# reviewed discovery IDs and serving peer CIDR derived below), so a Terraform
+# change to the shape is picked up by the next deploy and
 # a deploy never overwrites the shape. The service's `ignore_changes =
 # [task_definition]` in oxy-infra is the other half of that bargain.
 
@@ -47,6 +48,7 @@ on:
       - 'configs/deployment-commercial.json'
       - '.github/credential-admin-operations.json'
       - '.github/workflows/deploy-aws.yml'
+      - '.github/scripts/realtime-peer-vpc.py'
   workflow_dispatch:
     inputs:
       mode:
@@ -319,6 +321,11 @@ jobs:
               return 0
             fi
 
+            PEER_CIDR=""
+            if [ "$service" = "$APP" ]; then
+              PEER_CIDR=$(python3 .github/scripts/realtime-peer-vpc.py --cluster "$CLUSTER" --service "$service")
+            fi
+
             BASE=$(aws ecs describe-task-definition --task-definition "$family" --query 'taskDefinition')
 
             # Assert the container this job is about to rewrite is actually
@@ -339,7 +346,9 @@ jobs:
             # the one deliberate exception during this cutover: its eight exact
             # discovery credential IDs are replaced from the same reviewed
             # manifest that owns their stable identities. Serving gets no such
-            # mutation. The dropped keys are the ones describe-task-definition
+            # mutation. Serving reasserts its peer CIDR from every live service
+            # subnet and its exact VPC, without changing any other process.
+            # The dropped keys are the ones describe-task-definition
             # adds and register-task-definition refuses.
             if [ "$service" = "$PUBLISHER_SERVICE" ]; then
               printf '%s' "$BASE" | jq \
@@ -375,10 +384,16 @@ jobs:
                   )
               ' > "/tmp/task-definition-$service.json"
             else
-              printf '%s' "$BASE" | jq --arg c "$container" --arg img "$IMAGE" '
+              printf '%s' "$BASE" | jq --arg c "$container" --arg img "$IMAGE" --arg peer "$PEER_CIDR" '
                 del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
                     .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
-                | .containerDefinitions |= map(if .name == $c then .image = $img else . end)
+                | .containerDefinitions |= map(if .name == $c then
+                    .image = $img
+                    | if $peer != "" then
+                        .environment = (((.environment // []) | map(select(.name != "KAANA_REALTIME_PEER_VPC_CIDR")))
+                          + [{name:"KAANA_REALTIME_PEER_VPC_CIDR",value:$peer}])
+                      else . end
+                  else . end)
               ' > "/tmp/task-definition-$service.json"
             fi
 

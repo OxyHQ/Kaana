@@ -54,6 +54,9 @@ type PublicGate interface {
 
 // PublicHandler serves the public realtime endpoint through gate.
 func (m *Manager) PublicHandler(gate PublicGate) http.Handler {
+	m.mu.Lock()
+	m.publicGate = gate
+	m.mu.Unlock()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
 		draining := m.draining
@@ -97,10 +100,22 @@ func (m *Manager) PublicHandler(gate PublicGate) http.Handler {
 		s.public = true
 		s.credential = admission.Credential
 		s.settlePublic = admission.Settle
+		if !m.claimOwner(r.Context(), s) {
+			stop()
+			if admission.Settle != nil {
+				admission.Settle(context.WithoutCancel(r.Context()), kaana.SessionSettlement{}, nil)
+			}
+			m.refusePublic(r.Context(), ws, contract.NewPublicError(request.Attribution.RequestID, "service_unavailable", contract.PublicMessage("service_unavailable")), nil)
+			return
+		}
 		m.mu.Lock()
 		if _, live := m.sessions[request.Attribution.RequestID]; live || m.draining {
 			m.mu.Unlock()
 			stop()
+			m.releaseOwner(r.Context(), s)
+			if admission.Settle != nil {
+				admission.Settle(context.WithoutCancel(r.Context()), kaana.SessionSettlement{}, nil)
+			}
 			m.refusePublic(r.Context(), ws, contract.NewPublicError(request.Attribution.RequestID, "service_unavailable", contract.PublicMessage("service_unavailable")), nil)
 			return
 		}
@@ -116,6 +131,13 @@ func (m *Manager) PublicHandler(gate PublicGate) http.Handler {
 // is internal or belongs to another credential is refused the same way, so a
 // resume cannot probe which sessions exist.
 func (m *Manager) publicResume(r *http.Request, ws *websocket.Conn, frame []byte, gate PublicGate) {
+	if _, presented := gate.Credential(r); presented && m.forwardResume(r, ws, frame, "public") {
+		return
+	}
+	m.publicResumeLocal(r, ws, frame, gate)
+}
+
+func (m *Manager) publicResumeLocal(r *http.Request, ws *websocket.Conn, frame []byte, gate PublicGate) {
 	var probe struct {
 		RequestID contract.RequestID `json:"requestId"`
 	}

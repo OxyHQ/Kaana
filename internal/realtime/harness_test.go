@@ -108,6 +108,9 @@ type harness struct {
 }
 
 type options struct {
+	peers   *realtime.PeerConfig
+	gate    realtime.PublicGate
+	private ed25519.PrivateKey
 	// xai serves the deployments from xAI's Voice Agent adapter instead of
 	// OpenAI's, on its own fake.
 	xai          bool
@@ -132,6 +135,10 @@ func newHarness(t *testing.T, opts options) *harness {
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if opts.private != nil {
+		private = opts.private
+		public = private.Public().(ed25519.PublicKey)
 	}
 	const keyID = "edge-test"
 	verifier, err := edgeauth.NewVerifier(map[string]ed25519.PublicKey{keyID: public}, 0)
@@ -195,12 +202,16 @@ func newHarness(t *testing.T, opts options) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := realtime.NewManager(realtime.Config{Opener: executor, Verifier: verifier, Logger: logger, ResumeWindow: opts.resumeWindow, ReplayEvents: opts.replayEvents, PingInterval: opts.pingInterval})
+	manager, err := realtime.NewManager(realtime.Config{Peers: opts.peers, Opener: executor, Verifier: verifier, Logger: logger, ResumeWindow: opts.resumeWindow, ReplayEvents: opts.replayEvents, PingInterval: opts.pingInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /internal/v1/realtime", manager)
+	mux.Handle("GET "+realtime.PeerPath, manager.PeerHandler())
+	if opts.gate != nil {
+		mux.Handle("GET /v1/realtime", manager.PublicHandler(opts.gate))
+	}
 	server := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
