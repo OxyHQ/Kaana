@@ -73,6 +73,8 @@ type Opener interface {
 
 // Config wires a Manager.
 type Config struct {
+	// Peers locates existing sessions without load-balancer cookies. Nil keeps local-only resume.
+	Peers    *PeerConfig
 	Opener   Opener
 	Verifier *edgeauth.Verifier
 	Logger   *slog.Logger
@@ -93,9 +95,11 @@ type Config struct {
 }
 
 // Manager holds every session this task has open. Sessions live in its
-// memory: a resume that reaches another task does not find them (by design,
-// docs/realtime.md).
+// memory. An optional private peer relay reaches their owner without copying
+// state, reopening a provider session or admitting another grant.
 type Manager struct {
+	peers        *peerState
+	publicGate   PublicGate
 	opener       Opener
 	verifier     *edgeauth.Verifier
 	logger       *slog.Logger
@@ -124,7 +128,12 @@ func NewManager(config Config) (*Manager, error) {
 	case config.ResumeWindow < 0 || config.ResumeWindow > contract.MaxRealtimeResumeWindowMs*time.Millisecond:
 		return nil, fmt.Errorf("realtime: the resume window is at most %d ms", contract.MaxRealtimeResumeWindowMs)
 	}
+	peers, err := newPeers(config.Peers)
+	if err != nil {
+		return nil, err
+	}
 	manager := &Manager{
+		peers:  peers,
 		opener: config.Opener, verifier: config.Verifier, logger: config.Logger,
 		resumeWindow: config.ResumeWindow, replayEvents: config.ReplayEvents, replayBytes: config.ReplayBytes,
 		writeTimeout: config.WriteTimeout, pingInterval: config.PingInterval, now: config.Now,
@@ -201,6 +210,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if probe.Type == string(contract.RealtimeCommandSessionResumeType) {
+		if m.forwardResume(r, ws, frame, "internal") {
+			return
+		}
 		m.resume(r.Context(), ws, frame)
 		return
 	}
@@ -227,10 +239,16 @@ func (m *Manager) open(ctx context.Context, ws *websocket.Conn, frame []byte) {
 	requestID := request.Attribution.RequestID
 	sessionContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s := newSession(cancel, m, &request)
+	if !m.claimOwner(ctx, s) {
+		cancel()
+		_ = ws.Close(websocket.StatusPolicyViolation, "session ownership unavailable")
+		return
+	}
 	m.mu.Lock()
 	if _, live := m.sessions[requestID]; live || m.draining {
 		m.mu.Unlock()
 		cancel()
+		m.releaseOwner(ctx, s)
 		_ = ws.Close(websocket.StatusPolicyViolation, "the session is already open")
 		return
 	}
@@ -296,12 +314,13 @@ func (m *Manager) refuseResume(ctx context.Context, ws *websocket.Conn, command 
 	_ = ws.Close(websocket.StatusPolicyViolation, "")
 }
 
-func (m *Manager) remove(s *session) {
+func (m *Manager) remove(ctx context.Context, s *session) {
 	m.mu.Lock()
 	if m.sessions[s.requestID] == s {
 		delete(m.sessions, s.requestID)
 	}
 	m.mu.Unlock()
+	m.releaseOwner(ctx, s)
 }
 
 // Open reports how many sessions this task holds.

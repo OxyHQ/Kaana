@@ -2,9 +2,32 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
+
+func TestPeerDeploymentNetworkDiscovery(t *testing.T) {
+	command := exec.Command("python3", "../../.github/scripts/test_realtime_peer_vpc.py")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("private peer network discovery: %v\n%s", err, output)
+	}
+	workflow, err := os.ReadFile("../../.github/workflows/deploy-aws.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		`if [ "$service" = "$APP" ]; then`,
+		`PEER_CIDR=$(python3 .github/scripts/realtime-peer-vpc.py --cluster "$CLUSTER" --service "$service")`,
+		`--arg peer "$PEER_CIDR"`,
+		`map(select(.name != "KAANA_REALTIME_PEER_VPC_CIDR"))`,
+		`{name:"KAANA_REALTIME_PEER_VPC_CIDR",value:$peer}`,
+	} {
+		if !strings.Contains(string(workflow), required) {
+			t.Errorf("lost peer configuration boundary %s", required)
+		}
+	}
+}
 
 func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 	workflowBytes, err := os.ReadFile("../../.github/workflows/deploy-aws.yml")
