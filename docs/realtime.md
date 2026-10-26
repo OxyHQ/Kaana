@@ -981,9 +981,13 @@ role before moving any service. It changes no existing schema or settlement
 records; the previous image ignores the new table and remains rollback-compatible.
 Verify the new serving digest on every task, public and internal wrong-task
 resume, one provider admission/settlement, wrong credentials, and owner loss.
-Wait at least the maximum pre-change Kaana session lifetime (one hour) after
-the final old task stops before removing stickiness. Alia has its own shorter
-voice-session drain; its receipt does not replace Kaana's drain evidence.
+Before removing stickiness, prove either that the maximum pre-change session
+lifetime (one hour), plus resume/lease grace, has elapsed since old-session
+admission stopped, or that every old serving task is STOPPED and no old owner
+remains alive in the verified fleet/directory. A stopped task cannot retain its
+in-memory provider connection; no extra one-hour wait is required after that
+proof. Verify every remaining owner runs the exact new image. Alia has its own
+voice-session drain; its receipt does not replace Kaana's evidence.
 
 Remove target-group cookie settings only in the separately reviewed infra
 change after those gates. After that change, rolling back to an image without
