@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.1.0';
+export const INFERENCE_CONTRACT_VERSION = '8.2.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -189,6 +189,14 @@ export const INFERENCE_CONTRACT_VERSION = '8.1.0';
  * `transcript.interim` event it asks for, the provisional text of an input
  * item that the item's deltas and its `transcript.done` supersede. Any other
  * kind asking for interim text is refused. Nothing in 8.0.0 changes.
+ *
+ * Contract set 8.2.0 (Kaana ADR 0007) is additive: image input. The rules an
+ * image part answers to (`checkImageInput`, `INPUT_IMAGE_MEDIA_TYPES`,
+ * `MAX_INPUT_IMAGES`, `MAX_INPUT_IMAGE_BYTES`), the internal declared model's
+ * `imageInput` (the most input tokens one image costs on the line) and the
+ * grant fact `inputImages`. Every 8.1.0 message parses the same; a consumer on
+ * 8.1.0 or earlier refuses a declared catalogue or an authorization carrying
+ * what is new, so Oxy reads them before Kaana publishes them.
  */
 
 /** The public API's one origin and version. */

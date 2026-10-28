@@ -225,6 +225,7 @@ type GrantRequestFacts struct {
 	AudioInputMilliseconds *int                 `json:"audioInputMilliseconds,omitempty"`
 	EmbeddingInputs        *int                 `json:"embeddingInputs,omitempty"`
 	Images                 *int                 `json:"images,omitempty"`
+	InputImages            *int                 `json:"inputImages,omitempty"`
 	DeclaredTools          int                  `json:"declaredTools"`
 	Stream                 bool                 `json:"stream"`
 	RealtimeSessionKind    *RealtimeSessionKind `json:"realtimeSessionKind,omitempty"`
