@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.0
+
+Depend on contracts 8.2.0: the client states contract set 8.2.0, whose image
+rules (Kaana ADR 0007) Kaana applies to an `image` part: inline base64 only,
+PNG, JPEG, WebP or GIF, at most 3,750,000 bytes each and 20 a request. The
+request shapes are unchanged.
+
 ## 3.4.0
 
 Depend on contracts 8.1.0: a realtime session parses `transcript.interim`, the
