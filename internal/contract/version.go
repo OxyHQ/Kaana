@@ -46,7 +46,7 @@ package contract
 // and a deployment's scopedExecution.
 // Oxy reads it from the health handshake but compares no version against it.
 // 8.0.0 separates signed first-party authority from external scoped authority.
-const ContractVersion = "8.0.0"
+const ContractVersion = "8.1.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

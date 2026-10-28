@@ -226,6 +226,14 @@ func (t RealtimeTurnDetection) createsOrInterrupts() bool {
 type RealtimeInputTranscription struct {
 	Language *string `json:"language,omitempty"`
 	Prompt   *string `json:"prompt,omitempty"`
+	// InterimResults asks a transcription session for transcript.interim
+	// (contract set 8.1.0); any other kind asking for it is refused.
+	InterimResults *bool `json:"interimResults,omitempty"`
+}
+
+// WantsInterim reports whether the caller asked for interim text.
+func (t *RealtimeInputTranscription) WantsInterim() bool {
+	return t != nil && t.InterimResults != nil && *t.InterimResults
 }
 
 func (t RealtimeInputTranscription) validate() error {
@@ -579,6 +587,9 @@ func (r *RealtimeSessionRequest) ValidateSession() error {
 	}
 
 	config := r.Config
+	if r.Kind != RealtimeTranscription && config.InputAudioTranscription.WantsInterim() {
+		return fmt.Errorf("contract: only a transcription session sends interim text")
+	}
 	producesAudio := isMember(RealtimeOutputAudio, config.OutputModalities)
 	switch r.Kind {
 	case RealtimeConversation:

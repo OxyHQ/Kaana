@@ -239,6 +239,7 @@ const (
 	RealtimeEventOutputAudioDoneType     RealtimeEventType = "output_audio.done"
 	RealtimeEventTranscriptDeltaType     RealtimeEventType = "transcript.delta"
 	RealtimeEventTranscriptDoneType      RealtimeEventType = "transcript.done"
+	RealtimeEventTranscriptInterimType   RealtimeEventType = "transcript.interim"
 	RealtimeEventTextDeltaType           RealtimeEventType = "text.delta"
 	RealtimeEventToolCallType            RealtimeEventType = "tool_call"
 	RealtimeEventResponseDoneType        RealtimeEventType = "response.done"
@@ -264,6 +265,7 @@ var realtimeEventTypeValues = []RealtimeEventType{
 	RealtimeEventOutputAudioDoneType,
 	RealtimeEventTranscriptDeltaType,
 	RealtimeEventTranscriptDoneType,
+	RealtimeEventTranscriptInterimType,
 	RealtimeEventTextDeltaType,
 	RealtimeEventToolCallType,
 	RealtimeEventResponseDoneType,
@@ -585,6 +587,28 @@ func (*RealtimeTranscriptDoneEvent) EventType() RealtimeEventType {
 }
 func (e *RealtimeTranscriptDoneEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventTranscriptDoneType)
+}
+
+// RealtimeTranscriptInterimEvent is the provisional text of an input item not
+// yet final (contract set 8.1.0): it replaces the item's previous interim and
+// is never settled or part of the item's transcript.
+type RealtimeTranscriptInterimEvent struct {
+	SchemaVersion int                      `json:"schemaVersion"`
+	RequestID     RequestID                `json:"requestId"`
+	Sequence      int                      `json:"sequence"`
+	CommandID     *RealtimeCommandID       `json:"commandId,omitempty"`
+	Type          string                   `json:"type"`
+	Source        RealtimeTranscriptSource `json:"source"`
+	ItemID        RealtimeItemID           `json:"itemId"`
+	ContentIndex  int                      `json:"contentIndex"`
+	Text          string                   `json:"text"`
+}
+
+func (*RealtimeTranscriptInterimEvent) EventType() RealtimeEventType {
+	return RealtimeEventTranscriptInterimType
+}
+func (e *RealtimeTranscriptInterimEvent) Stamp(h RealtimeEventHeader) {
+	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventTranscriptInterimType)
 }
 
 type RealtimeTextDeltaEvent struct {

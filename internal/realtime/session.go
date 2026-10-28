@@ -428,7 +428,7 @@ func (s *session) upstream(ctx context.Context, result upstreamResult) {
 		}
 		s.outputBytes += decoded
 		s.markOutput()
-	case *contract.RealtimeTextDeltaEvent, *contract.RealtimeTranscriptDeltaEvent, *contract.RealtimeToolCallEvent:
+	case *contract.RealtimeTextDeltaEvent, *contract.RealtimeTranscriptDeltaEvent, *contract.RealtimeTranscriptInterimEvent, *contract.RealtimeToolCallEvent:
 		s.markOutput()
 	case *contract.RealtimeResponseDoneEvent:
 		e.DeploymentID = s.opening.Route.DeploymentID

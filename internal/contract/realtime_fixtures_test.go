@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +96,7 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 		&RealtimeOutputAudioDoneEvent{ResponseID: "resp_1", ItemID: "item_3", ContentIndex: 1},
 		&RealtimeTranscriptDeltaEvent{Source: RealtimeTranscriptOutput, ItemID: "item_3", ContentIndex: 1, ResponseID: pointerTo(RealtimeResponseID("resp_1")), Text: "h"},
 		&RealtimeTranscriptDoneEvent{Source: RealtimeTranscriptInput, ItemID: "item_5", Transcript: "hello there"},
+		&RealtimeTranscriptInterimEvent{Source: RealtimeTranscriptInput, ItemID: "item_6", Text: "hello th"},
 		&RealtimeTextDeltaEvent{ResponseID: "resp_1", ItemID: "item_3", Text: "hi"},
 		&RealtimeToolCallEvent{ResponseID: "resp_1", ItemID: "item_4", ToolCallID: "call_1", Name: pointerTo("lookup"), ArgumentsDelta: pointerTo(`{"q":`), Complete: false},
 		&RealtimeResponseDoneEvent{ResponseID: "resp_1", Status: RealtimeResponseCompleted, FinishReason: pointerTo(FinishStop),
@@ -162,6 +164,8 @@ func realtimeInvalidFixtures(t *testing.T) []fixture {
 	}}
 	transcriptionThatResponds := transcription
 	transcriptionThatResponds.Config.Voice = pointerTo("marin")
+	conversationAskingInterim := request
+	conversationAskingInterim.Config.InputAudioTranscription = &RealtimeInputTranscription{InterimResults: pointerTo(true)}
 
 	audioChat := sampleAudioChatRequest(t)
 	audioChat.AudioOutput = &AudioOutputParameters{Voice: "alloy", Format: "mp3"}
@@ -175,6 +179,7 @@ func realtimeInvalidFixtures(t *testing.T) []fixture {
 	return []fixture{
 		{Schema: "realtimeSessionRequestSchema", Case: "cross-model-session", Value: substituted},
 		{Schema: "realtimeSessionRequestSchema", Case: "transcription-with-a-voice", Value: transcriptionThatResponds},
+		{Schema: "realtimeSessionRequestSchema", Case: "conversation-asking-interim-text", Value: conversationAskingInterim},
 		{Schema: "inferenceRequestSchema", Case: "streamed-audio-output-not-pcm", Value: audioChat},
 		{Schema: "realtimeServerEventSchema", Case: "response-done-unit-twice", Value: &RealtimeResponseDoneEvent{
 			SchemaVersion: 1, RequestID: "req_01JQZABCDEF", Sequence: 1, Type: "response.done", ResponseID: "resp_1",
@@ -349,11 +354,31 @@ func sampleRealtimeSessions(t *testing.T) (RealtimeSessionRequest, RealtimeSessi
 			Type: TurnDetectionSemanticVAD, Eagerness: pointerTo(RealtimeVADEagerness("low")),
 			CreateResponse: pointerTo(false), InterruptResponse: pointerTo(false),
 		},
-		InputAudioTranscription: &RealtimeInputTranscription{},
+		InputAudioTranscription: &RealtimeInputTranscription{InterimResults: pointerTo(true)},
 	}
 	if err := transcription.Validate(); err != nil {
 		t.Fatalf("the transcription session fixture does not satisfy Kaana's own validation: %v", err)
 	}
 
 	return request, transcription
+}
+
+// TestOnlyATranscriptionSessionSendsInterimText holds contract set 8.1.0's
+// rule on Kaana's side: interim text is a transcription session's, and a
+// conversation asking for it is refused, while asking for none is not.
+func TestOnlyATranscriptionSessionSendsInterimText(t *testing.T) {
+	conversation, transcription := sampleRealtimeSessions(t)
+	if !transcription.Config.InputAudioTranscription.WantsInterim() {
+		t.Fatal("the transcription fixture no longer asks for interim text, so this test proves nothing")
+	}
+	asking := conversation
+	asking.Config.InputAudioTranscription = &RealtimeInputTranscription{InterimResults: pointerTo(true)}
+	if err := asking.Validate(); err == nil || !strings.Contains(err.Error(), "interim") {
+		t.Fatalf("a conversation asking for interim text was not refused for it: %v", err)
+	}
+	declining := conversation
+	declining.Config.InputAudioTranscription = &RealtimeInputTranscription{InterimResults: pointerTo(false)}
+	if err := declining.Validate(); err != nil {
+		t.Fatalf("a conversation declining interim text was refused: %v", err)
+	}
 }

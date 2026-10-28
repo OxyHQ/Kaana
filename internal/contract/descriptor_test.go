@@ -191,6 +191,7 @@ var goShapes = map[string]reflect.Type{
 	"realtimeToolCallEventSchema":            reflect.TypeOf(RealtimeToolCallEvent{}),
 	"realtimeTranscriptDeltaEventSchema":     reflect.TypeOf(RealtimeTranscriptDeltaEvent{}),
 	"realtimeTranscriptDoneEventSchema":      reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
+	"realtimeTranscriptInterimEventSchema":   reflect.TypeOf(RealtimeTranscriptInterimEvent{}),
 	"realtimeTranslationSchema":              reflect.TypeOf(RealtimeTranslationTarget{}),
 	"realtimeTurnDetectionSchema":            reflect.TypeOf(RealtimeTurnDetection{}),
 
@@ -367,6 +368,7 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 		"output_audio.done":           reflect.TypeOf(RealtimeOutputAudioDoneEvent{}),
 		"transcript.delta":            reflect.TypeOf(RealtimeTranscriptDeltaEvent{}),
 		"transcript.done":             reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
+		"transcript.interim":          reflect.TypeOf(RealtimeTranscriptInterimEvent{}),
 		"text.delta":                  reflect.TypeOf(RealtimeTextDeltaEvent{}),
 		"tool_call":                   reflect.TypeOf(RealtimeToolCallEvent{}),
 		"response.done":               reflect.TypeOf(RealtimePublicResponseDoneEvent{}),
@@ -419,6 +421,7 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 		"tool_call":                   reflect.TypeOf(RealtimeToolCallEvent{}),
 		"transcript.delta":            reflect.TypeOf(RealtimeTranscriptDeltaEvent{}),
 		"transcript.done":             reflect.TypeOf(RealtimeTranscriptDoneEvent{}),
+		"transcript.interim":          reflect.TypeOf(RealtimeTranscriptInterimEvent{}),
 	},
 	"inferenceStreamEventSchema": goStreamEventVariants,
 	"kaanaCredentialMutationSchema": {

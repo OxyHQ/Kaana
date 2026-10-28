@@ -43,6 +43,7 @@ import {
   realtimeToolCallEventSchema,
   realtimeTranscriptDeltaEventSchema,
   realtimeTranscriptDoneEventSchema,
+  realtimeTranscriptInterimEventSchema,
 } from '../public/realtime.js';
 import { inferenceAttributionSchema } from './attribution.js';
 import { inferenceErrorSchema } from './errors.js';
@@ -217,6 +218,7 @@ export const realtimeServerEventSchema = z
     realtimeOutputAudioDoneEventSchema,
     realtimeTranscriptDeltaEventSchema,
     realtimeTranscriptDoneEventSchema,
+    realtimeTranscriptInterimEventSchema,
     realtimeTextDeltaEventSchema,
     realtimeToolCallEventSchema,
     realtimeResponseDoneEventSchema,

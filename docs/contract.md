@@ -12,6 +12,24 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.1.0: interim text of a transcription session (ADR 0006)
+
+MINOR, `@kaana.ai/contracts` 8.1.0. Additive; everything 8.0.x parses still parses.
+
+- **`inputAudioTranscription.interimResults`** (optional boolean): a
+  `transcription` session asks for interim text. `realtimeConfigIssues`
+  refuses `true` on any other kind, at `config.inputAudioTranscription.interimResults`;
+  Go: `RealtimeInputTranscription.InterimResults`, refused by
+  `ValidateSession` the same way.
+- **`transcript.interim`** `{source: 'input_audio', itemId, contentIndex, text}`
+  joins both server-event unions: the provisional text of an item not yet
+  final. Each replaces the item's previous one; it is never settled, never part
+  of the transcript, and superseded by the item's next `transcript.delta` or its
+  one `transcript.done`. Go: `RealtimeTranscriptInterimEvent`.
+- The signed-envelope lane cannot open a transcription session at all (it
+  refuses input transcription, `kaana.EnvelopeInputTranscriptionRefused`), so
+  it never sees the new event.
+
 ## Contract set 4.4.0: deployment commercial facts and `sameModelFailover` (ADR 0002, amendment 2026-10-15)
 
 MINOR, `@kaana.ai/contracts` 4.4.0. Additive; everything 4.3.0 parses still parses.
