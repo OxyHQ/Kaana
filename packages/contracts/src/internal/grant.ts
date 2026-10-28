@@ -35,7 +35,7 @@ import {
   oxyCredentialIdSchema,
   requestIdSchema,
 } from '../public/identifiers.js';
-import { requestLabelsSchema } from '../public/messages.js';
+import { MAX_INPUT_IMAGES, requestLabelsSchema } from '../public/messages.js';
 import { moneySchema } from '../public/money.js';
 import { routingPolicyReferenceSchema } from '../public/policy.js';
 import { inferenceScopeSchema } from './attribution.js';
@@ -138,6 +138,13 @@ export const grantRequestFactsSchema = z
     /** Embeddings: how many inputs. Images: how many images. */
     embeddingInputs: z.number().int().positive().max(2048).optional(),
     images: z.number().int().positive().max(10).optional(),
+    /**
+     * Completions: how many image parts the input carries (contract set 8.2.0,
+     * Kaana ADR 0007), present exactly when it carries one. Their bytes are not
+     * in `estimatedInputTokens`: Oxy bounds each image by the line's declared
+     * `imageInput.maxInputTokensPerImage` and admits only lines that declare it.
+     */
+    inputImages: z.number().int().positive().max(MAX_INPUT_IMAGES).optional(),
     /** How many tools the request declares; their definitions stay in Kaana. */
     declaredTools: z.number().int().nonnegative().max(128),
     stream: z.boolean(),

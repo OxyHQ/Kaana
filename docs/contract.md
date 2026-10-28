@@ -12,6 +12,30 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.2.0: image input (ADR 0007)
+
+MINOR, `@kaana.ai/contracts` 8.2.0. Additive; everything 8.1.0 parses still
+parses, and a consumer on 8.1.0 or earlier refuses what is new, so Oxy adopts
+it first.
+
+- **`checkImageInput(messages)`** (public): a conversation's image count and
+  every issue against the image rules. Inline base64 only (a `url` source is
+  refused: nothing fetches an image URL or forwards one), one of
+  `INPUT_IMAGE_MEDIA_TYPES` (PNG, JPEG, WebP, GIF), at most
+  `MAX_INPUT_IMAGE_BYTES` (3,750,000) decoded bytes, on a `user` or `tool`
+  message, at most `MAX_INPUT_IMAGES` (20) a request. An issue names the
+  message, the part and the field, never the image. `base64DecodedLength`
+  counts without decoding.
+- **`declaredModelSchema.imageInput`** (`/internal`, `declaredImageInputSchema`):
+  `{ maxInputTokensPerImage }`, the most input tokens one admitted image costs
+  on the line at any `detail`, from the publisher's documented rule. Requires
+  `image` in `inputModalities`. Absent: no request carrying an image is
+  authorized on the line. Not served on `GET /v1/models`. Relayed as raw JSON
+  with the declared catalogue (`notApplicable` to the Go descriptor test).
+- **`grantRequestFactsSchema.inputImages`**: the count of image parts, 1 to 20,
+  present exactly when a completion carries one; image bytes are not in
+  `estimatedInputTokens`. Go: `GrantRequestFacts.InputImages`.
+
 ## Contract set 8.1.0: interim text of a transcription session (ADR 0006)
 
 MINOR, `@kaana.ai/contracts` 8.1.0. Additive; everything 8.0.x parses still parses.

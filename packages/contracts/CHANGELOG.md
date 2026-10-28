@@ -1,5 +1,24 @@
 # Changelog
 
+## 8.2.0
+
+Image input (Kaana ADR 0007). Additive.
+
+- `checkImageInput(messages)` returns a conversation's image count and every
+  issue against the image rules: inline base64 only (no image URL is fetched or
+  forwarded), `INPUT_IMAGE_MEDIA_TYPES` (PNG, JPEG, WebP, GIF), at most
+  `MAX_INPUT_IMAGE_BYTES` (3,750,000) decoded bytes each, on `user` or `tool`
+  messages, and at most `MAX_INPUT_IMAGES` (20) a request. An issue names where
+  and why, never the image. `base64DecodedLength` counts without decoding.
+- `/internal`: `declaredModelSchema.imageInput` (`declaredImageInputSchema`,
+  `{ maxInputTokensPerImage }`), the most input tokens one image costs on the
+  line; absent, no request carrying an image is authorized on it. The grant
+  fact `inputImages`, present exactly when a completion carries images.
+
+A consumer on 8.1.0 or earlier refuses a declared catalogue or an
+authorization carrying the new members: Oxy adopts 8.2.0 before Kaana declares
+`imageInput` or sends `inputImages`.
+
 ## 8.1.0
 
 Streaming transcription sessions (Kaana ADR 0006). A `transcription` session

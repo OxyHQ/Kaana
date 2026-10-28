@@ -411,6 +411,29 @@ export const modelCatalogueEntrySchema = z.object({
 });
 
 /**
+ * What a model line's image input costs at most, as the line's own documented
+ * rule states it (contract set 8.2.0, Kaana ADR 0007). Internal: Oxy reads it
+ * from the declared catalogue to bound the input of a request carrying images;
+ * `GET /v1/models` does not serve it.
+ *
+ * `maxInputTokensPerImage` is the most input tokens the line's provider bills
+ * for ONE image the contract admits (`checkImageInput`), at any `detail` the
+ * contract offers, from the publisher's documented resize and tokenization
+ * rule. Images are billed as input tokens at the line's `input_tokens` price;
+ * this figure only sizes a hold and qualifies a route, the settlement is the
+ * provider's own count.
+ *
+ * ABSENT means undeclared, even on a model whose `inputModalities` lists
+ * `image`: nobody has stated what one image costs on it, so no request carrying
+ * an image is authorized on it.
+ */
+export const declaredImageInputSchema = z
+  .object({
+    maxInputTokensPerImage: z.number().int().positive().safe(),
+  })
+  .strict();
+
+/**
  * One model as Kaana DECLARES it in `configs/public-catalogue.json` (Kaana ADR
  * 0002, amendment 2026-10-15): the public `modelSchema` without the three
  * fields Kaana fills from its inventory when it serves `GET /v1/models`
@@ -424,8 +447,20 @@ export const modelCatalogueEntrySchema = z.object({
  */
 export const declaredModelSchema = modelSchema
   .omit({ schemaVersion: true, currentRevision: true, availableRevisions: true })
-  .extend({ audience: z.enum(['public', 'platform_internal']) })
-  .strict();
+  .extend({
+    audience: z.enum(['public', 'platform_internal']),
+    imageInput: declaredImageInputSchema.optional(),
+  })
+  .strict()
+  .superRefine((model, ctx) => {
+    if (model.imageInput !== undefined && !model.capabilities.inputModalities.includes('image')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['imageInput'],
+        message: 'a model that bounds its image input takes image input',
+      });
+    }
+  });
 
 /**
  * The declared catalogue: identity, publisher, licence, provenance, data
@@ -443,6 +478,7 @@ export const declaredCatalogueSchema = z
   .strict();
 
 export type DeclaredModel = z.infer<typeof declaredModelSchema>;
+export type DeclaredImageInput = z.infer<typeof declaredImageInputSchema>;
 export type DeclaredCatalogue = z.infer<typeof declaredCatalogueSchema>;
 export type AvailabilityScope = z.infer<typeof availabilityScopeSchema>;
 export type CommercialPermission = z.infer<typeof commercialPermissionSchema>;
