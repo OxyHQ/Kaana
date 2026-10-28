@@ -221,6 +221,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"siliconflow":  "455b2535-a58a-41f9-8b70-51dbf1861333",
 			"xai":          "1d72d527-81ca-41e5-9644-2d81a4b126ec",
 			"xai-realtime": "05a6139b-5009-4d8f-b07c-4abccc79e349",
+			"xai-stt":      "eadb194f-def3-4b3b-8a56-2de50a6f5e05",
 		},
 	}
 	manifest.Operations = nil

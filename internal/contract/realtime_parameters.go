@@ -209,8 +209,15 @@ func (r RealtimeResponseParameters) Fields() RealtimeConfigFields {
 	return RealtimeConfigFields{ToolChoice: r.ToolChoice, MaxOutputTokens: r.MaxOutputTokens}
 }
 
+// NeverResponds is a transcriber's statement: no response can be asked for,
+// so it names no output modality set, no tool choice and no output cap.
+func (p RealtimeParameters) NeverResponds() bool {
+	return len(p.OutputModalities) == 0 && len(p.ToolChoice) == 0 && p.MaxOutputTokens == nil
+}
+
 // Validate refuses a statement Kaana could not translate onto: each value
-// once and in order, `auto` named, a range that is a range.
+// once and in order, `auto` named, a range that is a range. A statement that
+// never responds (a transcriber's) names neither modalities nor tool choices.
 func (p RealtimeParameters) Validate() error {
 	if len(p.TurnDetection) == 0 {
 		return fmt.Errorf("turnDetection names at least one detection")
@@ -233,6 +240,9 @@ func (p RealtimeParameters) Validate() error {
 				return fmt.Errorf("turnDetection[%d].meteredUnits names %q, which is not a unit", index, unit)
 			}
 		}
+	}
+	if p.NeverResponds() {
+		return nil
 	}
 	if len(p.OutputModalities) == 0 {
 		return fmt.Errorf("outputModalities names at least one set")

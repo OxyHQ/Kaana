@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -85,6 +86,9 @@ type Config struct {
 	// Funding ranks a route's cheapest admissible key; nil keeps the grant's
 	// order within each step.
 	Funding FundingRanker
+	// Kinds says which slugs this process serves as session adapters and
+	// which as request adapters; nil resolves every route of an admitted line.
+	Kinds RouteKinds
 	// Audio publishes each speech model's voice limits (ADR 0002, decision 9);
 	// nil takes them from Catalogue.
 	Audio AudioCatalogue
@@ -113,6 +117,7 @@ type Server struct {
 	settler    *Settler
 	inventory  *inventory.Store
 	funding    FundingRanker
+	kinds      RouteKinds
 	audio      AudioCatalogue
 	realtime   http.Handler
 	catalogue  *PublicCatalogue
@@ -170,7 +175,7 @@ func New(config Config) (*Server, error) {
 	}
 	return &Server{
 		executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
-		inventory: config.Inventory, funding: config.Funding, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
+		inventory: config.Inventory, funding: config.Funding, kinds: config.Kinds, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
 		origins: origins, limiter: newLimiter(rate, now), logger: logger, now: now,
 	}, nil
 }
@@ -316,6 +321,37 @@ func invalid(requestID contract.RequestID, param, message string) *contract.Publ
 // fundingRankUnknown ranks a route whose pool states no funding: after paid,
 // as ADR 0001 orders an unstated key.
 const fundingRankUnknown = 3
+
+// RouteKinds says what this process serves a slug with: the session kinds of
+// its realtime adapter, or a request adapter. known is false for a slug it
+// does not serve at all.
+type RouteKinds interface {
+	ServingKinds(slug contract.ProviderSlug) (sessions []contract.RealtimeSessionKind, requests bool, known bool)
+}
+
+// servesOperation keeps, of an admitted line's routes, the ones whose adapter
+// can perform the grant's operation. Oxy admits a LINE and allows the
+// providers that serve it, and one line can be served both as requests and as
+// a session (x-ai/grok-voice-transcribe-2.0: file transcription under `xai`,
+// streaming under `xai-stt`); a session must not be routed to the request
+// adapter, which refuses the whole open, nor a request to the session adapter.
+// A slug this process does not serve is left to the executor, which skips it
+// as before.
+func (s *Server) servesOperation(operation contract.GrantOperation, kind *contract.RealtimeSessionKind) func(provider.Route) bool {
+	if s.kinds == nil {
+		return nil
+	}
+	return func(route provider.Route) bool {
+		sessions, requests, known := s.kinds.ServingKinds(route.Provider)
+		if !known {
+			return true
+		}
+		if operation == contract.GrantRealtimeSession {
+			return len(sessions) > 0 && (kind == nil || slices.Contains(sessions, *kind))
+		}
+		return requests
+	}
+}
 
 // FundingRanker ranks a platform route by the cheapest funding tier of its
 // key pool within a ceiling: 0 free, 1 credit, 2 paid, 3 unstated. ok is

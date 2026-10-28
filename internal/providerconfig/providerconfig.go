@@ -35,6 +35,9 @@ const (
 	ProtocolOpenAIAudio       = "openai_audio"
 	ProtocolOpenAIRealtime    = "openai_realtime"
 	ProtocolXAIRealtime       = "xai_realtime"
+	// ProtocolXAISTT is xAI's streaming speech-to-text WebSocket, a
+	// transcription session (Kaana ADR 0006).
+	ProtocolXAISTT = "xai_stt"
 	// ProtocolElevenLabsSpeech is ElevenLabs' synchronous text-to-speech
 	// REST API (docs/elevenlabs.md).
 	ProtocolElevenLabsSpeech = "elevenlabs_speech"
@@ -47,11 +50,17 @@ const (
 	// `session.created` naming that exact model (docs/inventory.md, "xAI
 	// voice discovery").
 	DiscoveryXAIRealtimeSessions = "xai_models_and_realtime_sessions"
-	DiscoveryMistralModels       = "mistral_models"
-	DiscoverySiliconModels       = "siliconflow_models"
-	DiscoveryNebiusModels        = "nebius_models"
-	DiscoveryAlibabaModels       = "alibaba_models"
-	DiscoveryCohereModels        = "cohere_models"
+	// DiscoveryXAISpeechToText reads xAI's account model list and its
+	// authenticated voice catalogue, which proves the key reaches xAI's voice
+	// API, and then publishes `grok-voice-transcribe-2.0`, the one model xAI
+	// documents for its speech-to-text endpoints, for the streaming session
+	// (docs/realtime.md, "Operating `xai-stt`"). It opens no session.
+	DiscoveryXAISpeechToText = "xai_models_and_speech_to_text"
+	DiscoveryMistralModels   = "mistral_models"
+	DiscoverySiliconModels   = "siliconflow_models"
+	DiscoveryNebiusModels    = "nebius_models"
+	DiscoveryAlibabaModels   = "alibaba_models"
+	DiscoveryCohereModels    = "cohere_models"
 	// DiscoveryAnthropicModels reads Anthropic's authenticated Models API,
 	// `GET {base}/models` with `x-api-key` and `anthropic-version`, paged on
 	// `has_more`/`last_id` → `after_id`
@@ -83,6 +92,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-decisions": {Protocol: ProtocolOpenAICompatible, BaseURL: OpenAIDecisionsBaseURL, Discovery: DiscoveryOpenAIModels},
 	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryXAIRealtimeSessions},
+	"xai-stt":          {Protocol: ProtocolXAISTT, BaseURL: XAISTTBaseURL, Discovery: DiscoveryXAISpeechToText},
 	"anthropic":        {Protocol: ProtocolAnthropicMessages, BaseURL: AnthropicBaseURL, Discovery: DiscoveryAnthropicModels},
 	"openrouter":       {Protocol: ProtocolOpenAICompatible, BaseURL: "https://openrouter.ai/api/v1", Discovery: DiscoveryOpenAIModels},
 	"cheaperinference": {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.cheaperinference.com/v1", Discovery: DiscoveryOpenAIModels},
@@ -185,6 +195,18 @@ const (
 	XAIRealtimeSessionURL = "wss://api.x.ai/v1/realtime"
 )
 
+// XAISTTBaseURL is the only API root the `xai-stt` slug may name, and
+// XAISTTSessionURL the only WebSocket endpoint its adapter dials: xAI's
+// streaming speech-to-text
+// (https://docs.x.ai/developers/model-capabilities/audio/speech-to-text).
+// A third xAI slug for the reason `xai-realtime` is the second: the wire is
+// neither the OpenAI-compatible requests of `xai` nor the Voice Agent of
+// `xai-realtime`, and a slug resolves to exactly one adapter.
+const (
+	XAISTTBaseURL    = "https://api.x.ai/v1"
+	XAISTTSessionURL = "wss://api.x.ai/v1/stt"
+)
+
 // RealtimeSessionKinds is the realtime session kinds a slug's adapter opens
 // under a protocol: the session-family counterpart of ExecutableAPIFormats,
 // read by the adapter's own declaration (which the registry enforces) and by
@@ -202,6 +224,9 @@ func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.R
 		// xAI's Voice Agent API holds conversations only; it documents no
 		// transcription or translation session.
 		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+	case ProtocolXAISTT:
+		// xAI's streaming speech-to-text transcribes and never answers.
+		return []contract.RealtimeSessionKind{contract.RealtimeTranscription}
 	}
 	return nil
 }
@@ -311,6 +336,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 	if slug == "xai-realtime" {
 		if raw != XAIRealtimeBaseURL {
 			return fmt.Errorf("xai-realtime requires xAI's canonical HTTPS API base")
+		}
+		return nil
+	}
+	if slug == "xai-stt" {
+		if raw != XAISTTBaseURL {
+			return fmt.Errorf("xai-stt requires xAI's canonical HTTPS API base")
 		}
 		return nil
 	}

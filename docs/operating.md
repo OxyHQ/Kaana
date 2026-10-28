@@ -141,10 +141,12 @@ Decisions API, docs/decisions.md). Each takes its own credential rows and
 deployment bindings; `realtime.md`, "Operating it", covers the
 realtime slug's credential, discovery, health and load-balancer notes.
 
-xAI's origin is served the same way under two locked slugs: `xai` (Chat
-Completions and `/v1/tts`) and `xai-realtime` (the Voice Agent API's WebSocket
-sessions, `realtime.md`, "xAI Voice Agent"). A key row belongs to exactly one
-slug, so the xAI key is imported a second time under `xai-realtime`.
+xAI's origin is served the same way under three locked slugs: `xai` (Chat
+Completions, `/v1/tts` and file transcription), `xai-realtime` (the Voice Agent
+API's WebSocket sessions, `realtime.md`, "xAI Voice Agent") and `xai-stt`
+(streaming speech-to-text, transcription sessions, `realtime.md`, "Operating
+`xai-stt`", Kaana ADR 0006). A key row belongs to exactly one slug, so the xAI
+key is imported once more under each of `xai-realtime` and `xai-stt`.
 
 ElevenLabs is served under one locked slug, `elevenlabs`, with the native
 `elevenlabs_speech` protocol (text-to-speech only) and the

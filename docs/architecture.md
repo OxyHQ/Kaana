@@ -98,11 +98,11 @@ absent, and the code refuses rather than pretending.
   rerank are refused with `unsupported_modality` rather than mistranslated.
 - **Replay protection beyond the signature time window.** Kaana keeps no nonce
   cache; the edge owns request idempotency.
-- **Realtime transcription and translation sessions, input transcription in a
-  conversation, and customer (BYOK) credentials for a session.** Only
-  conversation sessions on platform keys are served; each of the rest is
-  refused by name (`realtime.md`, "Findings, refusals and what is not
-  verified").
+- **Realtime translation sessions and customer (BYOK) credentials for a
+  session.** Conversation sessions (with input transcription) and, under
+  `xai-stt`, transcription sessions (ADR 0006) are served on platform keys;
+  each of the rest is refused by name (`realtime.md`, "Findings, refusals and
+  what is not verified").
 
 
 ## Contract findings and remaining decisions
