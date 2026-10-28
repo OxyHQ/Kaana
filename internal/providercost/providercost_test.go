@@ -530,7 +530,7 @@ func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 		t.Fatalf("the production rate card is not loadable: %v", err)
 	}
 	observation, loaded := cards.Observation()
-	if !loaded || observation.VersionID != "rc_decisions_2026_10_19" || observation.Source != providercost.RateCardProviderDocumentation {
+	if !loaded || observation.VersionID != "rc_xai_stt_YYYY_MM_DD" || observation.Source != providercost.RateCardProviderDocumentation {
 		t.Fatalf("production observation = %+v", observation)
 	}
 	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
@@ -570,6 +570,20 @@ func TestTheProductionRateCardPricesTranscriptionAtItsListPrice(t *testing.T) {
 		if len(measured.UnpricedUnits) != 0 || measured.Cost.Currency != "USD" || measured.Cost.Amount != want {
 			t.Errorf("an hour on %s = %+v, want %d", deployment, measured, want)
 		}
+	}
+}
+
+// A transcription session on xai-stt is priced at xAI's streaming list price,
+// $0.20 an hour of session_milliseconds, truncated per millisecond.
+func TestTheProductionRateCardPricesStreamingTranscriptionAtItsListPrice(t *testing.T) {
+	cards, err := providercost.Load("../../configs/provider-rates.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const deployment = contract.DeploymentID("dep_xai_stt_grok_voice_transcribe_2_0_observed_YYYY_MM_DD")
+	measured := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 3_600_000}})
+	if len(measured.UnpricedUnits) != 0 || measured.Cost.Currency != "USD" || measured.Cost.Amount != 199_998_000_000 {
+		t.Errorf("an hour of session on %s = %+v, want USD 0.199998", deployment, measured)
 	}
 }
 
