@@ -133,6 +133,32 @@ func TestAToolResultBecomesAUserMessage(t *testing.T) {
 	}
 }
 
+// A screenshot a tool returned stays in its tool_result: this protocol carries
+// images there natively (Kaana ADR 0007).
+func TestAToolResultCarriesItsImage(t *testing.T) {
+	callID, mediaType, data := "toolu_fake", "image/jpeg", "aGVsbG8="
+	request := baseRequest("req_tool_image")
+	request.Input.Messages = []contract.Message{
+		{Role: contract.RoleUser, Content: []contract.ContentPart{textPart("what does the tab show")}},
+		{Role: contract.RoleAssistant, Content: []contract.ContentPart{}, ToolCalls: []contract.ToolCall{{ID: callID, Name: "screenshot", Arguments: `{}`}}},
+		{Role: contract.RoleTool, ToolCallID: &callID, Content: []contract.ContentPart{
+			textPart("the visible part of the tab"),
+			{Type: contract.ContentPartImage, Source: &contract.ContentSource{Kind: contract.ContentSourceInline, MediaType: &mediaType, Data: &data}},
+		}},
+	}
+
+	body, _ := translate(t, request)
+
+	encoded, err := json.Marshal(body.Messages[2].Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"content":[{"text":"the visible part of the tab","type":"text"},{"source":{"data":"aGVsbG8=","media_type":"image/jpeg","type":"base64"},"type":"image"}],"tool_use_id":"toolu_fake","type":"tool_result"}]`
+	if string(encoded) != want {
+		t.Errorf("the tool result is\n  %s\nwant\n  %s", encoded, want)
+	}
+}
+
 // TestToolCallArgumentsThatAreNotAnObjectAreRefusedWithTheFieldNamed covers the
 // one place a model's own output can fail this translation.
 //

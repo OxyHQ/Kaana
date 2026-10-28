@@ -166,7 +166,11 @@ func validFixtures(t *testing.T) []fixture {
 						{
 							Type:   ContentPartImage,
 							Detail: pointerTo(ImageDetailHigh),
-							Source: &ContentSource{Kind: ContentSourceURL, URL: pointerTo("https://example.test/a.png")},
+							Source: &ContentSource{
+								Kind:      ContentSourceInline,
+								MediaType: pointerTo("image/png"),
+								Data:      pointerTo("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="),
+							},
 						},
 						{
 							Type: ContentPartFile,

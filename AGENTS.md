@@ -88,7 +88,7 @@ Adapters — docs/adapters.md#rules-a-reviewer-applies
 
 Cross-cutting — docs/rules.md
 - No secret in repo, test, CI or env; none in a log, error or usage record.
-- No prompts, completions or user IPs persisted or logged.
+- No prompts (images included), completions or user IPs persisted or logged.
 - Every gate needs a positive control; mutation-test what is load-bearing.
 - No `TODO`/shims; Conventional Commits; wrap errors for `errors.Is`.
 
