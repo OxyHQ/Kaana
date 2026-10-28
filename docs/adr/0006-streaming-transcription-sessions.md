@@ -1,6 +1,6 @@
 # ADR 0006 — Streaming transcription sessions
 
-- Status: accepted (2026-10-28). Deployment remains gated by the rollout in §6, the canary included.
+- Status: accepted (2026-10-28). Deployment remains gated by the rollout in §6, the canary included. §1, §2 and §4 were amended before merge with what implementing it found (#237): no audio statement, routes kept by operation, `semantic_vad` emulated, a wall-clock meter.
 - Authority: the owner's decision of 2026-10-28: word-by-word dictation through xAI's streaming speech-to-text at $0.20 an hour.
 - Date: 2026-10-28
 - Consumers: Alia's dictation (Alia ADR 0024, proposed), and through it Astro's command bar and Chat composer.
@@ -59,7 +59,15 @@ voice read that already proves the key reaches xAI's voice API
 (`configs/model-attribution.json`, "XAI SPEECH-TO-TEXT"). It opens no discovery session. The
 line's realtime statement is `{transports: [websocket], sessionKinds: [transcription],
 inputAudioTranscription: false, audioFormats: {input: [pcm16_24khz, g711_ulaw, g711_alaw],
-output: []}}`. Its languages are `providerconfig.xAITranscription`'s table.
+output: []}}`. The session deployment states **no audio of its own**: the line's
+languages and upload types are its file transcription's, and a second audio statement
+would only narrow them (`inventory.aggregateAudio`).
+
+One line served both ways needs one more rule. Oxy admits a line and allows every
+provider that serves it, so `publicapi.resolveGrant` keeps, of the line's routes,
+only those whose adapter performs the grant's operation (`Registry.ServingKinds`).
+A session never reaches the request adapter, which would refuse the whole open, and a
+file transcription never reaches the session adapter.
 
 ### 2. Translation of the contract
 
@@ -68,7 +76,7 @@ output: []}}`. Its languages are `providerconfig.xAITranscription`'s table.
 | `session.open {kind: transcription}` | dial with `model`, `encoding`/`sample_rate` from `inputAudioFormat` (`pcm16_24khz` → `pcm`/24000, `g711_ulaw` → `mulaw`/8000, `g711_alaw` → `alaw`/8000), `language` (the provider's spelling via `LanguageFor`, none to detect), `interim_results` (below); `session.created` only after `transcript.created` |
 | `turnDetection: none` | `endpointing=5000`; utterances end on `input_audio.commit` |
 | `turnDetection: server_vad` (`createResponse` and `interruptResponse` false, as the contract requires) | `endpointing = silenceDurationMs` (Kaana's default 500 when unnamed), clamped to xAI's 0–5000 |
-| `turnDetection: semantic_vad` | refused at open (`Unservable`, `config.turnDetection`): xAI's `smart_turn` is a different control, and approximating it would be a guess |
+| `turnDetection: semantic_vad` | runs as `server_vad` with Kaana's default silence, as on every wire without semantic detection (ADR 0003); xAI's `smart_turn` is a different control and is not used |
 | `inputAudioTranscription.prompt` | not sent: xAI's stream takes no prompt (its `keyterm` is a term list, not context), the same rule as batch |
 | `input_audio.append` | the decoded bytes as one binary frame, never re-paced or re-chunked |
 | `input_audio.commit` | `{"type":"finalize"}`; `input_audio.committed` when the utterance's `speech_final` arrives |
@@ -103,23 +111,31 @@ refusing `interimResults` until Oxy's edge accepts the event in the same rollout
 ### 4. Metering and limits
 
 The session is metered `oxy_measured` through `provider.RealtimeMeter` as
-`audio_input_milliseconds`: the decoded audio Kaana forwarded, computed from the byte count at the
-open's fixed encoding. That figure is exact and bounded by the signed `maxInputAudioBytes`. xAI's
-`transcript.done.duration` is compared with it on every session. The larger of the two is
-settled, and a gap of more than 1 % is logged, without content, as a billing-basis finding.
-Because xAI does not document whether streaming bills audio or connection time, the canary (§6)
-reads xAI's own usage for the canary sessions before any consumer is granted the kind. If xAI
-bills connection time, the meter becomes `session_milliseconds`, which is the rule
-`xai-realtime`'s `server_vad` already follows. It never changes billing basis once open.
+**`session_milliseconds`**: the wall clock from `transcript.created` to the end of
+the connection, rounded up once. xAI does not document whether streaming bills audio
+or connection time, and the wall clock bounds either. The canary (§6) reads xAI's
+console for its sessions.
 
-The rate card prices `audio_input_milliseconds` at $0.20 an hour: 55 555 × 10⁻¹² USD per
-millisecond, rounded down. The card is keyed by the deployment id that the production inventory
-reads back after the publisher first observes the line, exactly as `rc_voice_2026_10_16` was.
-The line is unsold (no `configs/deployment-commercial.json` entry) until a reviewed commit adds it
-with that id.
+Wall clock rather than audio duration for a second reason, found while implementing.
+Oxy rates a grant at the line's one declared list price, and the line's file
+transcription is $0.10 an hour in `audio_input_milliseconds`. Streaming in
+`session_milliseconds` at $0.20 an hour lets one price version price each mode in
+its own unit: a file transcription never reports session time, and a session never
+reports audio input. That price version adds `session_milliseconds` at $0.20 an hour
+and `audio_output_milliseconds` at zero, because Oxy quotes a session minute over
+every duration unit.
 
-The signed limits apply unchanged (`maxDurationMs`, `idleTimeoutMs`, `maxInputAudioBytes`). A
-session settles exactly once.
+The rate card prices `session_milliseconds` at 55 555 × 10⁻¹² USD per millisecond
+($0.20 an hour, rounded down). It is keyed by the deployment id the production
+inventory reads back after the publisher first observes the line, exactly as
+`rc_voice_2026_10_16` was. The line is unsold (no `configs/deployment-commercial.json`
+entry) and its declared catalogue entry gains `capabilities.realtime` and the new
+price version only in that same reviewed commit.
+
+The signed limits apply unchanged (`maxDurationMs`, `idleTimeoutMs`,
+`maxInputAudioBytes`). A session settles exactly once. `session.close` ends a session
+at once, so a caller that wants its last utterance commits it and waits for its
+`transcript.done` first.
 
 ### 5. Routing, retries and failover
 
@@ -139,8 +155,10 @@ cookie-free owner relay (ADR 0005); a replay returns the buffered `transcript.*`
    `KAANA_DISCOVERY_PROVIDERS`. In that order: the process refuses to start on a slug with no
    enabled credential.
 4. Read back the deployment id from the production inventory. Then, in one reviewed commit, the
-   rate card and the commercial entry.
-5. A signed canary session: 60 s of speech, then the meter compared with xAI's console usage (§4).
+   rate card, the commercial entry, and the line's declared realtime capability and price
+   version (§4).
+5. A signed canary session: 60 s of speech, then the meter compared with xAI's console usage
+   (§4; the procedure is in `docs/realtime.md`, "Operating `xai-stt`").
    Health stays `degraded` until this has been validated.
 6. Oxy: `alia-kaana`'s `realtime.sessionKinds` gains `transcription` (Oxy PR, owner approval of
    the terms).
