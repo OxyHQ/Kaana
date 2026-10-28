@@ -1,6 +1,7 @@
 # ADR 0006 — Streaming transcription sessions
 
-- Status: proposed (2026-10-28). Nothing below is implemented; it needs the owner's acceptance first.
+- Status: accepted (2026-10-28). Deployment remains gated by the rollout in §6, the canary included.
+- Authority: the owner's decision of 2026-10-28: word-by-word dictation through xAI's streaming speech-to-text at $0.20 an hour.
 - Date: 2026-10-28
 - Consumers: Alia's dictation (Alia ADR 0024, proposed), and through it Astro's command bar and Chat composer.
 
