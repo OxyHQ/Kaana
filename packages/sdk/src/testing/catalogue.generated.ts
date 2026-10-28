@@ -1111,7 +1111,15 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "maxOutputTokens": 1,
       "apiFormats": [
         "audio_transcriptions"
-      ]
+      ],
+      "realtime": {
+        "transports": [
+          "websocket"
+        ],
+        "sessionKinds": [
+          "transcription"
+        ]
+      }
     },
     "currentRevision": "observed-2026-10-16",
     "dataPolicy": {
@@ -1125,7 +1133,7 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
     "deprecation": {
       "status": "active"
     },
-    "description": "Hosted speech-to-text served as file transcription (POST /v1/audio/transcriptions).",
+    "description": "Hosted speech-to-text served as file transcription (POST /v1/audio/transcriptions) and as streaming transcription sessions (GET /v1/realtime).",
     "displayName": "Grok Voice Transcribe 2.0",
     "evaluations": [],
     "license": {
@@ -1142,12 +1150,24 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "currency": "USD"
     },
     "pricing": {
-      "priceVersionId": "01a14207-e41f-78c6-a03f-d2842f30a3a8",
+      "priceVersionId": "01a1830e-1941-7729-a754-fae36edd6f3d",
       "currency": "USD",
       "unitPrices": [
         {
           "unit": "audio_input_milliseconds",
           "amount": "0.100000000000",
+          "per": 3600000,
+          "currency": "USD"
+        },
+        {
+          "unit": "audio_output_milliseconds",
+          "amount": "0.000000000000",
+          "per": 3600000,
+          "currency": "USD"
+        },
+        {
+          "unit": "session_milliseconds",
+          "amount": "0.200000000000",
           "per": 3600000,
           "currency": "USD"
         }
