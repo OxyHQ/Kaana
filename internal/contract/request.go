@@ -483,6 +483,11 @@ func (r *Request) Validate() error {
 	if err := r.Input.validate(); err != nil {
 		return err
 	}
+	if r.Input.Format == InputMessages {
+		if _, issues := CheckImageInput(r.Input.Messages); len(issues) > 0 {
+			return fmt.Errorf("contract: %s: %s", issues[0].Param("input.messages"), issues[0].Message)
+		}
+	}
 	if !isMember(r.Modality, modalityValues) {
 		return fmt.Errorf("contract: %q is not a modality", r.Modality)
 	}

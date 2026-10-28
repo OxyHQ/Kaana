@@ -645,6 +645,7 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 	assertStringList("USAGE_UNITS", stringsOf(usageUnitValues))
 	assertStringList("USAGE_SOURCES", stringsOf(usageSourceValues))
 	assertStringList("INFERENCE_SCOPES", stringsOf(scopeValues))
+	assertStringList("INPUT_IMAGE_MEDIA_TYPES", inputImageMediaTypes)
 
 	for constant, got := range map[string]int{
 		"MAX_REALTIME_AUDIO_FRAME_BASE64_LENGTH": MaxRealtimeAudioFrameBase64Length,
@@ -653,6 +654,8 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 		"MAX_REALTIME_RESUME_WINDOW_MS":          MaxRealtimeResumeWindowMs,
 		"MAX_REALTIME_ITEM_TEXT_CHARS":           MaxRealtimeItemTextChars,
 		"MAX_REALTIME_OPEN_FRAME_BYTES":          MaxRealtimeOpenFrameBytes,
+		"MAX_INPUT_IMAGES":                       MaxInputImages,
+		"MAX_INPUT_IMAGE_BYTES":                  MaxInputImageBytes,
 	} {
 		raw, present := file.Constants[constant]
 		if !present {

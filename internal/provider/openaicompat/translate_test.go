@@ -462,3 +462,68 @@ func TestFinishReasonsMapToTheContractsClosedSet(t *testing.T) {
 }
 
 func pointer[T any](value T) *T { return &value }
+
+// A tool that returned a screenshot: chat completions' tool role takes text
+// only, so each tool result keeps its text and its images ride in one user
+// message after the run of tool results (ADR 0007). The model reads the same
+// conversation; nothing is dropped and no tool message carries an image.
+func TestToolImagesFollowTheToolResultsAsAUserMessage(t *testing.T) {
+	jpeg, png, data := "image/jpeg", "image/png", "aGVsbG8="
+	image := func(mediaType *string) contract.ContentPart {
+		return contract.ContentPart{Type: contract.ContentPartImage, Source: &contract.ContentSource{Kind: contract.ContentSourceInline, MediaType: mediaType, Data: &data}}
+	}
+	body := translateToMap(t, requestWith([]contract.Message{
+		{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("look at both tabs")}},
+		{Role: contract.RoleAssistant, Content: []contract.ContentPart{}, ToolCalls: []contract.ToolCall{
+			{ID: "call_1", Name: "screenshot", Arguments: `{}`}, {ID: "call_2", Name: "screenshot", Arguments: `{"tabId":"2"}`},
+		}},
+		{Role: contract.RoleTool, ToolCallID: pointer("call_1"), Content: []contract.ContentPart{textPartOf("the first tab"), image(&jpeg)}},
+		{Role: contract.RoleTool, ToolCallID: pointer("call_2"), Content: []contract.ContentPart{image(&png)}},
+		{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("which is cheaper?")}},
+	}))
+
+	messages := body["messages"].([]any)
+	roles := make([]string, 0, len(messages))
+	for _, message := range messages {
+		roles = append(roles, message.(map[string]any)["role"].(string))
+	}
+	if strings.Join(roles, ",") != "user,assistant,tool,tool,user,user" {
+		t.Fatalf("roles = %v", roles)
+	}
+	if first := messages[2].(map[string]any); first["content"] != "the first tab" || first["tool_call_id"] != "call_1" {
+		t.Errorf("the first tool result = %v", first)
+	}
+	if second := messages[3].(map[string]any); second["content"] != toolImagesFollow || second["tool_call_id"] != "call_2" {
+		t.Errorf("an images-only tool result = %v", second)
+	}
+	images := messages[4].(map[string]any)["content"].([]any)
+	if len(images) != 2 {
+		t.Fatalf("the images message carries %d parts", len(images))
+	}
+	for index, want := range []string{"data:image/jpeg;base64,aGVsbG8=", "data:image/png;base64,aGVsbG8="} {
+		part := images[index].(map[string]any)
+		if part["type"] != "image_url" || part["image_url"].(map[string]any)["url"] != want {
+			t.Errorf("image %d = %v", index, part)
+		}
+	}
+	if messages[5].(map[string]any)["content"] != "which is cheaper?" {
+		t.Errorf("the next user turn = %v", messages[5])
+	}
+}
+
+// A conversation that ends on a tool's images still sends them.
+func TestToolImagesAtTheEndAreSent(t *testing.T) {
+	png, data := "image/png", "aGVsbG8="
+	body := translateToMap(t, requestWith([]contract.Message{
+		{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("look")}},
+		{Role: contract.RoleAssistant, Content: []contract.ContentPart{}, ToolCalls: []contract.ToolCall{{ID: "call_1", Name: "screenshot", Arguments: `{}`}}},
+		{Role: contract.RoleTool, ToolCallID: pointer("call_1"), Content: []contract.ContentPart{
+			{Type: contract.ContentPartImage, Source: &contract.ContentSource{Kind: contract.ContentSourceInline, MediaType: &png, Data: &data}},
+		}},
+	}))
+	messages := body["messages"].([]any)
+	last := messages[len(messages)-1].(map[string]any)
+	if len(messages) != 4 || last["role"] != "user" || len(last["content"].([]any)) != 1 {
+		t.Fatalf("messages = %v", messages)
+	}
+}
