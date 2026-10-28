@@ -346,7 +346,7 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			// is served only as `elevenlabs`.
 			return nil, fmt.Errorf("provider %q pairs protocol %s with discovery profile %q; only the elevenlabs slug speaks %s and reads ElevenLabs' model list", slug, protocol, known.Discovery, providerconfig.ProtocolElevenLabsSpeech)
 		}
-		if !anthropicMessages && !elevenLabsSpeech && protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime && protocol != providerconfig.ProtocolXAIRealtime {
+		if !anthropicMessages && !elevenLabsSpeech && protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime && protocol != providerconfig.ProtocolXAIRealtime && protocol != providerconfig.ProtocolXAISTT {
 			// Every other discovery profile registered here belongs to a
 			// provider served through the OpenAI-compatible adapter, or to
 			// OpenAI's own audio and realtime slugs and xAI's realtime slug,

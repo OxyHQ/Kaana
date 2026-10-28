@@ -18,8 +18,8 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 33 {
-		t.Fatalf("built-in providers = %d, want the 33 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 34 {
+		t.Fatalf("built-in providers = %d, want the 34 documented in README.md and docs/operating.md", got)
 	}
 	if endpoint := providerconfig.Known["elevenlabs"]; endpoint.Protocol != providerconfig.ProtocolElevenLabsSpeech || endpoint.Discovery != providerconfig.DiscoveryElevenLabsModels || endpoint.BaseURL != "https://api.elevenlabs.io/v1" {
 		t.Fatalf("ElevenLabs speech configuration = %+v", endpoint)
@@ -47,6 +47,23 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	}
 	if formats := providerconfig.ExecutableAPIFormats("xai-realtime", providerconfig.ProtocolXAIRealtime); len(formats) != 0 {
 		t.Fatalf("the xAI realtime protocol executes requests: %v", formats)
+	}
+	if endpoint := providerconfig.Known["xai-stt"]; endpoint.Protocol != providerconfig.ProtocolXAISTT || endpoint.Discovery != providerconfig.DiscoveryXAISpeechToText || endpoint.BaseURL != "https://api.x.ai/v1" ||
+		providerconfig.XAISTTSessionURL != "wss://api.x.ai/v1/stt" {
+		t.Fatalf("xAI speech-to-text configuration = %+v", endpoint)
+	}
+	if err := providerconfig.ValidateEndpointIdentity("xai-stt", "https://api.openai.com/v1"); err == nil {
+		t.Fatal("xai-stt accepted an address other than xAI's canonical API root")
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("xai-stt", providerconfig.ProtocolXAISTT); len(kinds) != 1 || kinds[0] != contract.RealtimeTranscription {
+		t.Fatalf("xAI speech-to-text session kinds = %v", kinds)
+	}
+	if formats := providerconfig.ExecutableAPIFormats("xai-stt", providerconfig.ProtocolXAISTT); len(formats) != 0 {
+		t.Fatalf("the xAI speech-to-text protocol executes requests: %v", formats)
+	}
+	statement, stated := providerconfig.RealtimeCapabilities("xai-stt", providerconfig.ProtocolXAISTT)
+	if !stated || statement.PublishesAudio() || statement.InputAudioTranscription || len(statement.OutputAudioFormats) != 0 {
+		t.Fatalf("xAI speech-to-text statement = %+v: it transcribes, never speaks, and leaves the line's audio to file transcription", statement)
 	}
 	if endpoint := providerconfig.Known["openai-audio"]; endpoint.Protocol != providerconfig.ProtocolOpenAIAudio || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" {
 		t.Fatalf("OpenAI audio configuration = %+v", endpoint)

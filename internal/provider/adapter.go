@@ -458,6 +458,24 @@ func (r *Registry) ResolveRealtimeExecution(deploymentID contract.DeploymentID, 
 	return session, pool, nil
 }
 
+// ServingKinds is how this registry serves a slug: the session kinds of its
+// realtime adapter, or a request adapter. known is false for a slug it does
+// not serve.
+func (r *Registry) ServingKinds(slug contract.ProviderSlug) (sessions []contract.RealtimeSessionKind, requests bool, known bool) {
+	if r == nil {
+		return nil, false, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if session, ok := r.sessions[slug]; ok {
+		return session.RealtimeSessionKinds(), false, true
+	}
+	if _, ok := r.adapters[slug]; ok {
+		return nil, true, true
+	}
+	return nil, false, false
+}
+
 // ResolveCredential answers the credential half of either resolution for any
 // served slug. The startup and reload binding gates ask it, so "unbound" there
 // and "refused" at execution cannot drift apart.

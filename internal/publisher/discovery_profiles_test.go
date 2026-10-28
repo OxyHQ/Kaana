@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/publisher"
 )
@@ -358,6 +359,57 @@ func TestCohereDiscoveryRequiresTheDocumentedCompatibilityRoot(t *testing.T) {
 			Slug: "cohere", BaseURL: base, APIKey: "test-key", Discovery: providerconfig.DiscoveryCohereModels,
 		}); err == nil {
 			t.Errorf("Discover accepted Cohere base %q", base)
+		}
+	}
+}
+
+// TestXAISpeechToTextDiscoveryPublishesTheTranscriberAsASession: the `xai-stt`
+// slug proves its key reaches xAI's voice API by the same voice catalogue,
+// publishes grok-voice-transcribe-2.0 with the transcription session's
+// statement and no audio of its own, never xAI's speech endpoint; and the
+// pairing of profile and slug is exact both ways.
+func TestXAISpeechToTextDiscoveryPublishesTheTranscriberAsASession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"grok-4.6"}]}`))
+		case "/v1/tts/voices":
+			_, _ = w.Write([]byte(`{"voices":[{"voice_id":"eve"},{"voice_id":"rex"}]}`))
+		default:
+			t.Error("unexpected discovery endpoint")
+		}
+	}))
+	defer server.Close()
+	target := publisher.Provider{Slug: "xai-stt", Protocol: providerconfig.ProtocolXAISTT, BaseURL: server.URL + "/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryXAISpeechToText}
+	models, err := publisher.Discover(context.Background(), server.Client(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var transcriber *publisher.DiscoveredModel
+	for index, model := range models {
+		if model.UpstreamModelID == "tts" {
+			t.Error("the speech-to-text slug published xAI's speech endpoint")
+		}
+		if model.UpstreamModelID == "grok-voice-transcribe-2.0" {
+			transcriber = &models[index]
+		}
+	}
+	if transcriber == nil || transcriber.Observed == nil || transcriber.Observed.Realtime == nil {
+		t.Fatalf("the transcriber was not published as a session: %+v", models)
+	}
+	if kinds := transcriber.Observed.Realtime.SessionKinds; !reflect.DeepEqual(kinds, []contract.RealtimeSessionKind{contract.RealtimeTranscription}) {
+		t.Errorf("session kinds = %v", kinds)
+	}
+	if transcriber.Observed.Audio != nil {
+		t.Errorf("the session stated audio of its own, which would narrow the line's uploads: %+v", transcriber.Observed.Audio)
+	}
+	for _, mismatched := range []publisher.Provider{
+		{Slug: "xai", BaseURL: server.URL + "/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryXAISpeechToText},
+		{Slug: "xai-stt", BaseURL: server.URL + "/v1", APIKey: "test-key", Discovery: providerconfig.DiscoveryXAIModels},
+	} {
+		if _, err := publisher.Discover(context.Background(), server.Client(), mismatched); err == nil {
+			t.Errorf("%s with %s was accepted", mismatched.Slug, mismatched.Discovery)
 		}
 	}
 }

@@ -427,7 +427,11 @@ func applyStatedRealtime(target Provider, models []DiscoveredModel) {
 		if model.Observed == nil {
 			model.Observed = &inventory.Observed{}
 		}
-		model.Observed.Realtime, model.Observed.Audio = realtimeObservation(statement)
+		realtime, audio := realtimeObservation(statement)
+		model.Observed.Realtime = realtime
+		if statement.PublishesAudio() {
+			model.Observed.Audio = audio
+		}
 	}
 }
 

@@ -72,7 +72,7 @@ type ModelFamily struct {
 //   - `openai-decisions`, whose only executable models are the Decisions
 //     API's (`gpt-6-luna`), and OpenRouter's `typesafe/` rows, TypeSafe's Jev,
 //     which answers only OpenRouter's `/systemone`: both decisions;
-//   - xAI's own slugs (`xai`, `xai-realtime`);
+//   - xAI's own slugs (`xai`, `xai-realtime`, `xai-stt`);
 //   - ElevenLabs (`elevenlabs`), whose published models are all speech;
 //   - Groq's Llama Prompt Guard ids (groqClassifierOnly) and its Whisper ids,
 //     which its documentation serves only on `/audio/transcriptions`
@@ -104,6 +104,13 @@ func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family M
 		}
 	case "xai", "xai-realtime":
 		return xAIFamily(upstreamModelID), true, true
+	case "xai-stt":
+		// The streaming speech-to-text endpoint serves its transcription
+		// model as a session and nothing else.
+		if strings.HasPrefix(strings.ToLower(upstreamModelID), "grok-voice-transcribe") {
+			return ModelFamily{Session: contract.RealtimeTranscription}, true, true
+		}
+		return ModelFamily{}, true, false
 	case "elevenlabs":
 		// The slug's discovery keeps only rows ElevenLabs marks
 		// `can_do_text_to_speech`, and its adapter executes nothing else, so

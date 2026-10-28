@@ -78,6 +78,9 @@ func RealtimeCapabilities(slug contract.ProviderSlug, protocol string) (statemen
 	if len(kinds) == 0 {
 		return RealtimeStatement{}, false
 	}
+	if protocol == ProtocolXAISTT {
+		return xAISTTStatement(kinds), true
+	}
 	statement = RealtimeStatement{
 		Transports:              []contract.RealtimeSessionTransport{contract.RealtimeWebSocket},
 		SessionKinds:            kinds,
@@ -171,6 +174,57 @@ func xAIRealtimeParameters() contract.RealtimeParameters {
 		ToolChoice:       []contract.RealtimeToolChoice{contract.RealtimeToolChoiceAuto},
 	}
 }
+
+// xAISTTStatement is xAI's streaming speech-to-text, reviewed 2026-10-28
+// against https://docs.x.ai/developers/model-capabilities/audio/speech-to-text:
+//
+//   - one WebSocket, `wss://api.x.ai/v1/stt`, configured by query parameters
+//     only; raw binary audio frames in `pcm` (8 000 to 48 000 Hz), `mulaw` or
+//     `alaw`, so every contract encoding is served (24 kHz PCM16, G.711 at
+//     8 kHz);
+//   - it transcribes and never answers: no output audio, no responses, no
+//     tools, no output token cap;
+//   - `endpointing` (0 to 5000 ms of silence) ends an utterance, which serves
+//     server_vad's `silenceDurationMs`, and `{"type":"finalize"}` ends one
+//     at once, which serves push-to-talk; no threshold or prefix padding, and
+//     `smart_turn` is not semantic_vad;
+//   - `language` takes the codes of the same table as `POST /v1/stt`
+//     (TranscriptionCapabilities), and is optional: the model detects the
+//     language; no prompt field (its `keyterm` is a term list).
+//
+// Billing: "Speech to Text $0.20 / hr (Streaming)" (https://docs.x.ai/developers/models)
+// without saying whether audio or connection time is counted, so a session is
+// metered by its wall clock, `session_milliseconds`, which bounds either
+// (Kaana ADR 0006 §4).
+//
+// It states no voices and no audio of its own: the languages it transcribes
+// are the line's file transcription's statement, which the catalogue already
+// publishes, and a second audio statement would only narrow the line's upload
+// types (inventory.aggregateAudio).
+func xAISTTStatement(kinds []contract.RealtimeSessionKind) RealtimeStatement {
+	sessionClock := []contract.UsageUnit{contract.UnitSessionMilliseconds}
+	return RealtimeStatement{
+		Transports:         []contract.RealtimeSessionTransport{contract.RealtimeWebSocket},
+		SessionKinds:       kinds,
+		InputAudioFormats:  append([]contract.RealtimeAudioFormat(nil), realtimeFormats...),
+		OutputAudioFormats: []contract.RealtimeAudioFormat{},
+		Languages:          append([]string{}, xAITranscription.Languages...),
+		DetectsLanguage:    true,
+		Parameters: contract.RealtimeParameters{
+			TurnDetection: []contract.RealtimeTurnDetectionParameters{
+				{Type: contract.TurnDetectionNone, MeteredUnits: sessionClock},
+				{Type: contract.TurnDetectionServerVAD, MeteredUnits: slices.Clone(sessionClock)},
+			},
+			OutputModalities: [][]contract.RealtimeOutputModality{},
+			ToolChoice:       []contract.RealtimeToolChoice{},
+		},
+	}
+}
+
+// PublishesAudio is whether the statement's voices and languages are the
+// model's audio observation. A statement without voices is a transcriber's,
+// whose languages are the line's file transcription's to state.
+func (s RealtimeStatement) PublishesAudio() bool { return len(s.Voices) > 0 }
 
 func cloneVoices(voices []RealtimeVoice) []RealtimeVoice {
 	return append([]RealtimeVoice(nil), voices...)
