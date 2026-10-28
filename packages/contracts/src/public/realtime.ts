@@ -140,6 +140,12 @@ export const realtimeInputTranscriptionSchema = z
     language: z.string().check(minUtf16Length(2)).check(maxUtf16Length(35)).optional(),
     /** A hint — vocabulary or context — used where the model takes one. */
     prompt: z.string().check(maxUtf16Length(4_096)).optional(),
+    /**
+     * Send `transcript.interim`: the model's provisional text of the current
+     * item, about every half second, before any of it is final (contract set
+     * 8.1.0, Kaana ADR 0006). Only a `transcription` session sends it.
+     */
+    interimResults: z.boolean().optional(),
   })
   .strict();
 
@@ -570,6 +576,22 @@ export const realtimeTranscriptDoneEventSchema = z.object({
   transcript: z.string(),
 });
 
+/**
+ * The provisional text of an input item not yet final (contract set 8.1.0,
+ * Kaana ADR 0006): sent only to a `transcription` session that asked for
+ * `interimResults`. Each one REPLACES the item's previous interim text; it is
+ * display state, never settled and never part of the item's transcript, and
+ * the item's next `transcript.delta` or its `transcript.done` supersedes it.
+ */
+export const realtimeTranscriptInterimEventSchema = z.object({
+  ...eventBase,
+  type: z.literal('transcript.interim'),
+  source: z.literal('input_audio'),
+  itemId: realtimeItemIdSchema,
+  contentIndex: z.number().int().nonnegative().safe(),
+  text: z.string(),
+});
+
 /** Written output of a response (`outputModalities` including `text`). */
 export const realtimeTextDeltaEventSchema = z.object({
   ...eventBase,
@@ -684,6 +706,12 @@ export function realtimeConfigIssues(
       break;
   }
 
+  if (kind !== 'transcription' && config.inputAudioTranscription?.interimResults === true) {
+    found(
+      ['inputAudioTranscription', 'interimResults'],
+      'only a transcription session sends interim text',
+    );
+  }
   if (config.toolChoice !== undefined && !hasTools) {
     found(['toolChoice'], 'a tool choice requires at least one tool definition');
   }
@@ -923,6 +951,7 @@ export const realtimePublicServerEventSchema = z
     realtimeOutputAudioDoneEventSchema,
     realtimeTranscriptDeltaEventSchema,
     realtimeTranscriptDoneEventSchema,
+    realtimeTranscriptInterimEventSchema,
     realtimeTextDeltaEventSchema,
     realtimeToolCallEventSchema,
     realtimePublicResponseDoneEventSchema,

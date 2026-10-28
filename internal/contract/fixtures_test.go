@@ -68,11 +68,11 @@ func TestWriteWireFixtures(t *testing.T) {
 	// fixtures and 3 grant-exchange controls, and 16 public-surface fixtures
 	// and 2 public-surface controls. Contract set 4.4.0 adds 2 deployment
 	// commercial fixtures and 2 controls.
-	if len(valid) != 112 {
-		t.Fatalf("expected 112 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 113 {
+		t.Fatalf("expected 113 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 42 {
-		t.Fatalf("expected 42 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 43 {
+		t.Fatalf("expected 43 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)

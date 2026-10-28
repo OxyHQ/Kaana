@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.4.0
+
+Depend on contracts 8.1.0: a realtime session parses `transcript.interim`, the
+provisional text a `transcription` session sends when opened with
+`inputAudioTranscription.interimResults: true` (Kaana ADR 0006), and
+`realtime.connect` refuses that flag on any other kind before dialling. The
+testing fake emits it like any other event. Nothing else changes.
+
 ## 3.3.0
 
 Add `kaanaForOxyService` for own HTTP and realtime callers. The supplied shared

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.0.0",
+    "version": "8.1.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -4470,6 +4470,9 @@
           "prompt": {
             "type": "string",
             "maxLength": 4096
+          },
+          "interimResults": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -5019,6 +5022,9 @@
           },
           {
             "$ref": "#/components/schemas/RealtimeTranscriptDoneEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RealtimeTranscriptInterimEvent"
           },
           {
             "$ref": "#/components/schemas/RealtimeTextDeltaEvent"
@@ -5943,6 +5949,55 @@
           "itemId",
           "contentIndex",
           "transcript"
+        ]
+      },
+      "RealtimeTranscriptInterimEvent": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/RequestId"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "commandId": {
+            "$ref": "#/components/schemas/RealtimeCommandId"
+          },
+          "type": {
+            "type": "string",
+            "const": "transcript.interim"
+          },
+          "source": {
+            "type": "string",
+            "const": "input_audio"
+          },
+          "itemId": {
+            "$ref": "#/components/schemas/RealtimeItemId"
+          },
+          "contentIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "sequence",
+          "type",
+          "source",
+          "itemId",
+          "contentIndex",
+          "text"
         ]
       },
       "RealtimeTranscriptSource": {
