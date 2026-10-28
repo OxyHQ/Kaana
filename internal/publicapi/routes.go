@@ -52,7 +52,7 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // Kaana never adds a model line Oxy did not admit and never widens a limit.
 // What it cannot verify from its inventory (zero data retention, training,
 // licences) is the policy Oxy applied when it computed admittedModelLines.
-func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, serves func(provider.Route) bool, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
 	for stepIndex, step := range grant.Steps {
@@ -80,7 +80,7 @@ func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding 
 				continue
 			}
 			for position, route := range set.Candidates() {
-				if !admitsRoute(step.Limits, route) {
+				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) {
 					continue
 				}
 				if _, taken := resolved.steps[route.DeploymentID]; taken {

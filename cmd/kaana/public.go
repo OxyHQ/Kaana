@@ -139,7 +139,7 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 	server, err := publicapi.New(publicapi.Config{
 		Catalogue: catalogue, Costs: deps.costs,
 		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
-		Funding: publicapi.RegistryFunding{Registry: deps.registry}, AllowedOrigins: origins,
+		Funding: publicapi.RegistryFunding{Registry: deps.registry}, Kinds: deps.registry, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})
 	if err != nil {

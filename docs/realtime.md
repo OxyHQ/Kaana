@@ -870,9 +870,81 @@ pins the set and proves each row publishable there and nowhere else.
   `interruptResponse: true`; its threshold is mapped onto xAI's range. Health
   stays `degraded` until a signed canary session has been validated.
 
+### Operating `xai-stt`
+
+xAI's streaming speech-to-text (Kaana ADR 0006) is a `transcription` session
+under its own slug, `xai-stt`, served by `internal/provider/xaistt` with the
+real-wire fake `xaistttest`. The model is `grok-voice-transcribe-2.0`, the
+line `xai` serves as file transcription; `publicapi.resolveGrant` keeps, of a
+line's routes, only those whose adapter performs the grant's operation
+(`Registry.ServingKinds`), so a session never reaches the request adapter and
+a file transcription never reaches the session adapter.
+
+| Contract | xAI (`wss://api.x.ai/v1/stt`) |
+|---|---|
+| open | query parameters: `model`, `encoding`/`sample_rate` (`pcm16_24khz` → `pcm`/24000, `g711_ulaw` → `mulaw`/8000, `g711_alaw` → `alaw`/8000), `endpointing`, `vad_threshold`, `interim_results`, `language`; open once `transcript.created` arrives |
+| `turnDetection: none` | `endpointing=5000`; the caller commits |
+| `server_vad` | `endpointing = silenceDurationMs` (default 500), clamped to 0–5000; `threshold` → `vad_threshold`; `prefixPaddingMs` changes nothing a transcriber sends |
+| `semantic_vad` | runs as `server_vad` with Kaana's default silence, as on every wire without semantic detection (ADR 0003) |
+| `inputAudioTranscription.language` | xAI's spelling from the file transcription's language table, or none to detect; `prompt` is not sent (xAI takes none) |
+| `input_audio.append` | the decoded audio as one binary frame |
+| `input_audio.commit` | `{"type":"finalize"}` |
+| any other command | refused, non-fatal (`type`); nothing is written |
+| `transcript.partial is_final:false` | `transcript.interim` with the item's whole provisional text, only when `interimResults` was asked for |
+| `is_final:true, speech_final:false` | `transcript.delta` with what the locked text adds |
+| `speech_final:true` | the last delta (when the final extends the locked text), `input_audio.committed`, and the item's one `transcript.done` with xAI's final text |
+| `error` | fatal, `provider_error`, message redacted; xAI documents no error type |
+
+Item ids are Kaana's, `item_<n>` per utterance. `session.close` ends the
+session at once, so a caller that wants the last utterance commits it and
+waits for its `transcript.done` first.
+
+**Metering.** `session_milliseconds`, `oxy_measured`: the wall clock from
+`transcript.created` to the end of the connection, rounded up once. xAI prices
+streaming at $0.20 an hour without saying whether audio or connection time is
+counted; the wall clock bounds either. The line's file transcription settles
+in `audio_input_milliseconds`, so the one declared price of the line prices
+each mode in its own unit.
+
+**Serving it**, in order:
+
+1. Import the key from stdin under the slug, with the reviewed key id
+   `.github/credential-admin-operations.json` names for discovery
+   (`eadb194f-def3-4b3b-8a56-2de50a6f5e05`): `kaana-platform-credential-import --operation-id
+   kpc_<32 hex> --provider xai-stt --key-id eadb194f-def3-4b3b-8a56-2de50a6f5e05 --class paid
+   --position 1 --actor operator:<id> --signing-key-id <id> --signing-key-file
+   <file> --endpoint https://<internal-host>/internal/v1/platform-provider-credentials/mutations
+   < xai-key.txt` ("Container and deployment" in operating.md). It may be the
+   `xai-realtime` secret (same team and credit) or, preferably, a second key on
+   the same team.
+2. oxy-infra's switch adds `xai-stt` to the serving task's `KAANA_PROVIDERS`
+   (with `KAANA_PROVIDER_XAI_STT_PROTOCOL=xai_stt`) and to the publisher's
+   `KAANA_DISCOVERY_PROVIDERS`; the deploy workflow already writes
+   `KAANA_PROVIDER_XAI_STT_DISCOVERY_KEY_ID`. The process refuses to start on a
+   slug with no enabled credential, so step 1 comes first.
+3. Read back the deployment id the publisher mints
+   (`dep_xai_stt_grok_voice_transcribe_2_0_observed_<date>`), then, in one
+   reviewed commit: a rate card pricing `session_milliseconds` at 55555
+   (10⁻¹² USD per millisecond, $0.20 an hour rounded down), the
+   `configs/deployment-commercial.json` entry, and the line's declared
+   `capabilities.realtime` (`websocket`, `transcription`) with a new price
+   version adding `session_milliseconds` at $0.20 an hour and
+   `audio_output_milliseconds` at zero (Oxy quotes a session minute over every
+   duration unit).
+4. A signed canary session (below). Health stays `degraded` until then.
+
+**Canary.** Open `GET /v1/realtime?model=x-ai/grok-voice-transcribe-2.0` with
+`kind: transcription`, `inputAudioFormat: pcm16_24khz`, `server_vad`,
+`interimResults: true`; stream 60 s of recorded speech in real time; commit,
+wait for `transcript.done`, close. Check: `transcript.interim` and
+`transcript.delta` arrived, the final text matches the recording, the report
+is `session_milliseconds` ≈ 60–65 s, and xAI's console shows the session's
+charge within the wall-clock figure.
+
 ## Findings, refusals and what is not verified
 
-1. **Transcription and translation sessions are refused** for `openai-realtime`
+1. **Transcription sessions are served by `xai-stt` (ADR 0006); translation
+   sessions, and transcription sessions on OpenAI, are refused** for `openai-realtime`
    (`unsupported_modality`, `kind`). OpenAI's translation is a separate endpoint
    (`/v1/realtime/translations`) and event protocol with no items, no
    responses and no usage event (billed per minute of audio); the contract's
@@ -924,6 +996,14 @@ pins the set and proves each row publishable there and nowhere else.
     attributed line, with its own catalogue line, rate card and commercial
     entry; and a "not served" answer is logged as a warning naming the model
     and xAI's answer (`DiscoveredModel.NotServed`).
+
+11. **UNVERIFIED for `xai-stt`:** whether xAI bills streaming by audio or by
+    connection time (the meter's wall clock bounds both; the canary reads xAI's
+    console), its idle timeout, its close codes, its in-band rate or quota
+    signals (`error` carries only a message, so it is never classified as a
+    credential or quota verdict), the shape of `words`, and whether
+    `speech_final` text always extends the locked chunks (when it does not,
+    `transcript.done` carries xAI's final text and no delta reconciles it).
 
 ## Cookie-free peer resume
 

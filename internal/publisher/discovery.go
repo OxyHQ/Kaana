@@ -178,10 +178,13 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 	// lists no speech-to-text model anywhere and documents exactly one,
 	// `grok-voice-transcribe-2.0` (the endpoint's default `model`), on the same
 	// voice API the voice catalogue answers for. A key that cannot read that
-	// catalogue publishes neither.
-	if target.Discovery == providerconfig.DiscoveryXAIModels {
-		if target.Slug != "xai" {
-			return nil, fmt.Errorf("publisher: xAI speech discovery requires the xai provider")
+	// catalogue publishes neither. The `xai-stt` slug's discovery is the same
+	// read for the streaming speech-to-text session, which serves the same
+	// model, and publishes it alone.
+	if target.Discovery == providerconfig.DiscoveryXAIModels || target.Discovery == providerconfig.DiscoveryXAISpeechToText {
+		if (target.Discovery == providerconfig.DiscoveryXAIModels) != (target.Slug == "xai") ||
+			(target.Discovery == providerconfig.DiscoveryXAISpeechToText) != (target.Slug == "xai-stt") {
+			return nil, fmt.Errorf("publisher: xAI speech discovery requires the xai provider, and speech-to-text streaming discovery the xai-stt provider")
 		}
 		var voices struct {
 			Voices []struct {
@@ -196,7 +199,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 		for _, voice := range voices.Voices {
 			available[voice.ID] = true
 		}
-		if available["eve"] && available["rex"] {
+		if target.Discovery == providerconfig.DiscoveryXAIModels && available["eve"] && available["rex"] {
 			if _, duplicate := seen["tts"]; duplicate {
 				return nil, fmt.Errorf("publisher: xai returned a model that collides with its speech endpoint")
 			}
@@ -666,7 +669,7 @@ type alibabaModelListResponse struct {
 func discoveryEndpoint(target Provider, page int) (string, error) {
 	base := strings.TrimSuffix(target.BaseURL, "/")
 	switch target.Discovery {
-	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryXAIRealtimeSessions, providerconfig.DiscoveryMistralModels:
+	case "", providerconfig.DiscoveryOpenAIModels, providerconfig.DiscoveryXAIModels, providerconfig.DiscoveryXAIRealtimeSessions, providerconfig.DiscoveryXAISpeechToText, providerconfig.DiscoveryMistralModels:
 		if target.Slug == "openrouter" {
 			// The upstream default is text-only. Include decisions and
 			// embeddings in the same authenticated list (both are documented

@@ -448,6 +448,12 @@ a caller choosing by language never sends them one.
 
 Primary wire specification: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
 
+The same model is served as a streaming **transcription session** under the
+`xai-stt` slug by its own `provider.RealtimeAdapter`
+(`internal/provider/xaistt`, Kaana ADR 0006): `wss://api.x.ai/v1/stt`, raw
+audio frames in, interim and final transcripts out, metered by its wall clock
+(`realtime.md`, "Operating `xai-stt`").
+
 
 ### Decisions
 
