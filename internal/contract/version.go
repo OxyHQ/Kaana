@@ -45,8 +45,10 @@ package contract
 // the canonical input hash, the scoped and Private Auto envelopes v3 and v4,
 // and a deployment's scopedExecution.
 // Oxy reads it from the health handshake but compares no version against it.
-// 8.0.0 separates signed first-party authority from external scoped authority.
-const ContractVersion = "8.0.0"
+// 8.0.0 separates signed first-party authority from external scoped authority;
+// 8.1.0 adds image input (Kaana ADR 0006): the image rules, the declared
+// model's `imageInput` and the grant fact `inputImages`.
+const ContractVersion = "8.1.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

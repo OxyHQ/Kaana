@@ -90,6 +90,130 @@ export const inferenceContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('refusal'), text: z.string() }).strict(),
 ]);
 
+/* -------------------------------------------------------------------------- */
+/*  Image input (contract set 8.1.0, Kaana ADR 0006)                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The image formats a request may carry. Every provider that serves image input
+ * on a Kaana route reads these four: Anthropic (`image/jpeg`, `image/png`,
+ * `image/gif`, `image/webp`) and OpenAI (PNG, JPEG, WEBP, non-animated GIF).
+ */
+export const INPUT_IMAGE_MEDIA_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+] as const;
+
+/**
+ * The most image parts one request may carry, across every message. Above 20
+ * images Anthropic applies a stricter per-image dimension limit to EVERY image
+ * of the request, so 20 is the most a request can carry and keep one rule per
+ * image on every route.
+ */
+export const MAX_INPUT_IMAGES = 20;
+
+/**
+ * The most decoded bytes one image may carry: 3,750,000, whose base64 is
+ * 5,000,000 characters, the smallest per-image limit a provider serving these
+ * routes documents (Anthropic on Amazon Bedrock: 5 MB base64-encoded).
+ */
+export const MAX_INPUT_IMAGE_BYTES = 3_750_000;
+
+/** Why one image part cannot be carried, before anything is held. Never the image itself. */
+export interface ImageInputIssue {
+  /** The message, as its index in the request's message list. */
+  readonly messageIndex: number;
+  /** The part, as its index in that message's content; absent for the request-wide count. */
+  readonly partIndex?: number;
+  /** The field at fault, relative to the part. */
+  readonly field: 'role' | 'source' | 'source.mediaType' | 'source.data' | 'count';
+  readonly message: string;
+}
+
+/**
+ * Check the image parts of a conversation against the contract's image rules
+ * (Kaana ADR 0006). Kaana refuses a request with `invalid_request` and the first
+ * issue BEFORE it asks Oxy for a grant; Oxy applies the same rules on its own
+ * edge; a client may run it first.
+ *
+ *  - an image is `inline`: no component fetches an image URL, and a `url`
+ *    source is never forwarded to a provider to fetch either;
+ *  - its media type is one of {@link INPUT_IMAGE_MEDIA_TYPES};
+ *  - its data is canonical base64 of at most {@link MAX_INPUT_IMAGE_BYTES} bytes;
+ *  - it rides on a `user` or `tool` message;
+ *  - the request carries at most {@link MAX_INPUT_IMAGES} of them.
+ *
+ * Returns the number of image parts and every issue, in message order. An issue
+ * names where and why, never the bytes: an image is payload and is never echoed
+ * into an error, a log line or a record.
+ */
+export function checkImageInput(messages: readonly InferenceMessage[]): {
+  readonly images: number;
+  readonly issues: ImageInputIssue[];
+} {
+  const issues: ImageInputIssue[] = [];
+  let images = 0;
+  for (const [messageIndex, message] of messages.entries()) {
+    for (const [partIndex, part] of message.content.entries()) {
+      if (part.type !== 'image') continue;
+      images += 1;
+      const at = { messageIndex, partIndex } as const;
+      if (message.role !== 'user' && message.role !== 'tool') {
+        issues.push({ ...at, field: 'role', message: 'an image rides on a user or tool message' });
+      }
+      const source = part.source;
+      if (source.kind !== 'inline') {
+        issues.push({
+          ...at,
+          field: 'source',
+          message: 'an image is sent inline as base64; no image URL is fetched',
+        });
+        continue;
+      }
+      if (!(INPUT_IMAGE_MEDIA_TYPES as readonly string[]).includes(source.mediaType)) {
+        issues.push({
+          ...at,
+          field: 'source.mediaType',
+          message: `an image is one of ${INPUT_IMAGE_MEDIA_TYPES.join(', ')}`,
+        });
+      }
+      const bytes = base64DecodedLength(source.data);
+      if (bytes === undefined) {
+        issues.push({ ...at, field: 'source.data', message: 'image data is canonical base64' });
+      } else if (bytes > MAX_INPUT_IMAGE_BYTES) {
+        issues.push({
+          ...at,
+          field: 'source.data',
+          message: `an image is at most ${MAX_INPUT_IMAGE_BYTES} bytes`,
+        });
+      }
+    }
+  }
+  if (images > MAX_INPUT_IMAGES) {
+    issues.push({
+      messageIndex: messages.length - 1,
+      field: 'count',
+      message: `a request carries at most ${MAX_INPUT_IMAGES} images`,
+    });
+  }
+  return { images, issues };
+}
+
+const BASE64_BODY = /^[A-Za-z0-9+/]*$/;
+
+/**
+ * The decoded length of canonical base64 (RFC 4648 section 4, padded, no line
+ * breaks), or `undefined` when the text is not that. Counted, never decoded.
+ */
+export function base64DecodedLength(data: string): number | undefined {
+  if (data.length === 0 || data.length % 4 !== 0) return undefined;
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  if (!BASE64_BODY.test(data.slice(0, data.length - padding))) return undefined;
+  return (data.length / 4) * 3 - padding;
+}
+
 /**
  * A tool call an assistant made, in the normalized form.
  *
