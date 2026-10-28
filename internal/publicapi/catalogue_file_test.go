@@ -67,6 +67,13 @@ func TestTheDeclaredCatalogueFileParsesAndCarriesListPrices(t *testing.T) {
 		"x-ai/grok-voice-3.0":                      "session_milliseconds",
 		"x-ai/grok-voice-transcribe-2.0":           "audio_input_milliseconds",
 	}
+	streaming := false
+	for _, priceUnit := range priced["x-ai/grok-voice-transcribe-2.0"] {
+		streaming = streaming || priceUnit == "session_milliseconds"
+	}
+	if !streaming {
+		t.Errorf("x-ai/grok-voice-transcribe-2.0 does not price its transcription sessions; has %v", priced["x-ai/grok-voice-transcribe-2.0"])
+	}
 	for model, unit := range want {
 		found := false
 		for _, priceUnit := range priced[model] {
