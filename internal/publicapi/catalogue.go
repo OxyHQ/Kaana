@@ -124,13 +124,20 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 			}
 			delete(fields, "audience")
 		}
+		imageInput, present := fields["imageInput"]
+		if present {
+			if err := validateImageInput(imageInput, fields["capabilities"]); err != nil {
+				return nil, fmt.Errorf("publicapi: public catalogue models[%d].imageInput: %w", index, err)
+			}
+			delete(fields, "imageInput")
+		}
 		if raw, present := fields["powerClass"]; present {
 			if err := json.Unmarshal(raw, &model.powerClass); err != nil || !slices.Contains(powerClasses, model.powerClass) {
 				return nil, fmt.Errorf("publicapi: public catalogue models[%d].powerClass is not a power class", index)
 			}
 		}
 		catalogue.models[line] = model
-		declared = append(declared, declaredEntry{line: line, audience: model.audience, fields: fields})
+		declared = append(declared, declaredEntry{line: line, audience: model.audience, imageInput: imageInput, fields: fields})
 	}
 	document := make([]map[string]json.RawMessage, 0, len(declared))
 	for _, entry := range declared {
@@ -143,6 +150,9 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 			return nil, fmt.Errorf("publicapi: public catalogue %s: %w", entry.line, err)
 		}
 		whole["audience"] = audience
+		if entry.imageInput != nil {
+			whole["imageInput"] = entry.imageInput
+		}
 		document = append(document, whole)
 	}
 	encoded, err := json.Marshal(struct {
@@ -159,7 +169,31 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 type declaredEntry struct {
 	line     contract.ModelID
 	audience contract.CatalogueAudience
-	fields   map[string]json.RawMessage
+	// imageInput is internal (contract set 8.1.0): carried to Oxy on the
+	// declared document, never rendered on GET /v1/models.
+	imageInput json.RawMessage
+	fields     map[string]json.RawMessage
+}
+
+// validateImageInput holds declaredImageInputSchema: exactly a positive
+// integer maxInputTokensPerImage, on a model whose inputModalities lists
+// image (ADR 0006).
+func validateImageInput(raw, capabilities json.RawMessage) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var bound struct {
+		MaxInputTokensPerImage *int64 `json:"maxInputTokensPerImage"`
+	}
+	if err := decoder.Decode(&bound); err != nil || bound.MaxInputTokensPerImage == nil || *bound.MaxInputTokensPerImage < 1 {
+		return errors.New("is exactly a positive integer maxInputTokensPerImage")
+	}
+	var modalities struct {
+		InputModalities []string `json:"inputModalities"`
+	}
+	if err := json.Unmarshal(capabilities, &modalities); err != nil || !slices.Contains(modalities.InputModalities, "image") {
+		return errors.New("bounds image input on a model that takes none")
+	}
+	return nil
 }
 
 // Document is the whole declared catalogue, prices included, as the signed

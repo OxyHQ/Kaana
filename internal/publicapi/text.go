@@ -97,7 +97,9 @@ func (c *collected) message() contract.Message {
 }
 
 // estimatedTokens is a content-free size for Oxy's hold: four characters a
-// token, plus a small constant per message, never the text itself.
+// token, plus a small constant per message, never the text itself. An image
+// is not in it: Oxy bounds each by its line's declared imageInput, from the
+// count in inputImages (ADR 0006).
 func estimatedTokens(messages []contract.Message) int {
 	total := 0
 	for _, message := range messages {
@@ -106,7 +108,7 @@ func estimatedTokens(messages []contract.Message) int {
 			if part.Text != nil {
 				total += utf16Length(*part.Text)/4 + 1
 			}
-			if part.Source != nil && part.Source.Data != nil {
+			if part.Type != contract.ContentPartImage && part.Source != nil && part.Source.Data != nil {
 				total += len(*part.Source.Data) / 4 / 4
 			}
 		}
@@ -115,6 +117,21 @@ func estimatedTokens(messages []contract.Message) int {
 		}
 	}
 	return total
+}
+
+// imageInput applies the contract's image rules (ADR 0006) before anything is
+// held, and returns the count Oxy bounds the images by: nil when there is
+// none, so a text request's facts are unchanged. The refusal names the part,
+// never the image.
+func imageInput(requestID contract.RequestID, messages []contract.Message, prefix string) (*int, *contract.PublicError) {
+	images, issues := contract.CheckImageInput(messages)
+	if len(issues) > 0 {
+		return nil, invalid(requestID, issues[0].Param(prefix), issues[0].Message)
+	}
+	if images == 0 {
+		return nil, nil
+	}
+	return &images, nil
 }
 
 // streamSink translates the executor's events onto a public SSE stream. The
@@ -233,13 +250,18 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, failure)
 		return
 	}
+	images, failure := imageInput(requestID, request.Input.messages, "input")
+	if failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
 	stream := request.Stream != nil && *request.Stream
 	estimate := estimatedTokens(request.Input.messages)
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
 		operation: contract.GrantResponses, target: request.Model.grantTarget(), body: body, endpoint: "/v1/responses",
 		labels: request.Labels, clientRequestID: request.ClientRequestID,
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: request.MaxOutputTokens,
-			DeclaredTools: len(request.Tools), Stream: stream},
+			InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
 	})
 	if failure != nil {
 		writeError(w, requestID, failure)
@@ -349,6 +371,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		refuse(failure)
 		return
 	}
+	images, failure := imageInput(requestID, messages, "messages")
+	if failure != nil {
+		refuse(failure)
+		return
+	}
 	stream := request.Stream != nil && *request.Stream
 	maxTokens := request.MaxTokens
 	if request.MaxCompletionTokens != nil {
@@ -357,7 +384,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	estimate := estimatedTokens(messages)
 	ask := authorization{
 		operation: contract.GrantChatCompletions, target: request.Model.grantTarget(), body: body, endpoint: "/v1/chat/completions",
-		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: maxTokens, DeclaredTools: len(request.Tools), Stream: stream},
+		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: maxTokens, InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
 	}
 	if request.User != nil {
 		user := contract.UserID(*request.User)

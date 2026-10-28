@@ -294,13 +294,9 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		}
 	}
 
-	messages := make([]chatMessage, 0, len(request.Input.Messages))
-	for index, message := range request.Input.Messages {
-		translated, err := translateMessage(message)
-		if err != nil {
-			return nil, annotate(err, fmt.Sprintf("input.messages[%d]", index))
-		}
-		messages = append(messages, translated)
+	messages, err := translateConversation(request.Input.Messages)
+	if err != nil {
+		return nil, err
 	}
 
 	body := chatRequest{
@@ -597,6 +593,71 @@ func (a *Adapter) Send(ctx context.Context, call *provider.Call, key provider.Ke
 /* -------------------------------------------------------------------------- */
 /*  Message translation                                                       */
 /* -------------------------------------------------------------------------- */
+
+// toolImagesFollow is what a tool result that was only images says on chat
+// completions, where the images travel in the user message after it.
+const toolImagesFollow = "The result is the image in the next message."
+
+// translateConversation translates every message in order. Chat completions'
+// tool role takes text only, so the images a tool returned (a screenshot) are
+// sent in a user message right after the run of tool results they belong to:
+// each tool result keeps its text (or says its image follows), and the model
+// reads the same conversation (Kaana ADR 0006).
+func translateConversation(conversation []contract.Message) ([]chatMessage, error) {
+	messages := make([]chatMessage, 0, len(conversation))
+	var toolImages []any
+	flush := func() {
+		if len(toolImages) > 0 {
+			messages = append(messages, chatMessage{Role: string(contract.RoleUser), Content: toolImages})
+			toolImages = nil
+		}
+	}
+	for index, message := range conversation {
+		if message.Role != contract.RoleTool {
+			flush()
+		}
+		if message.Role == contract.RoleTool {
+			var images []contract.ContentPart
+			message, images = withoutImages(message)
+			for partIndex, part := range images {
+				converted, err := translateContentPart(part)
+				if err != nil {
+					return nil, annotate(err, fmt.Sprintf("input.messages[%d].content[%d]", index, partIndex))
+				}
+				toolImages = append(toolImages, converted)
+			}
+		}
+		translated, err := translateMessage(message)
+		if err != nil {
+			return nil, annotate(err, fmt.Sprintf("input.messages[%d]", index))
+		}
+		messages = append(messages, translated)
+	}
+	flush()
+	return messages, nil
+}
+
+// withoutImages splits a tool message into what its role carries and its
+// images, in order. A result that was only images says that its image follows.
+func withoutImages(message contract.Message) (contract.Message, []contract.ContentPart) {
+	var kept, images []contract.ContentPart
+	for _, part := range message.Content {
+		if part.Type == contract.ContentPartImage {
+			images = append(images, part)
+		} else {
+			kept = append(kept, part)
+		}
+	}
+	if len(images) == 0 {
+		return message, nil
+	}
+	if len(kept) == 0 {
+		text := toolImagesFollow
+		kept = []contract.ContentPart{{Type: contract.ContentPartText, Text: &text}}
+	}
+	message.Content = kept
+	return message, images
+}
 
 func translateMessage(message contract.Message) (chatMessage, error) {
 	translated := chatMessage{

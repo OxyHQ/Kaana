@@ -19,7 +19,9 @@ at the end of its topic document under "Rules a reviewer applies";
   diagnostic entirely. The conformance suite covers this with a control proving
   the upstream really echoed one (`adapters.md`, "Rules a reviewer applies").
 - **Prompts and completions are not persisted and never enter a log line.** Log
-  ids, a route, an outcome and a duration.
+  ids, a route, an outcome and a duration. An image is prompt: its bytes reach
+  no log, error, usage record or telemetry event, and a refusal names the part,
+  never the image (ADR 0006). Kaana fetches no image URL and forwards none.
 - **Never persist a user IP** — raw, hashed or geo-derived. The contract's
   `client` metadata block is `.strict()` for exactly this reason; do not widen it.
 

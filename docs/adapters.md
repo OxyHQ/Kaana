@@ -267,6 +267,19 @@ are required for that boundary to remain protocol-independent:
   credential*. `provider.RedactSecret` removes the adapter's own key by exact
   match first. Item 18.
 
+### Image input (ADR 0006)
+
+An image reaches an adapter only inline: `contract.CheckImageInput` refuses a
+URL, a format other than PNG/JPEG/WebP/GIF, more than 3,750,000 bytes, an image
+on a `system`/`developer`/`assistant` message and more than 20 a request, in
+`Request.Validate` (both lanes) and in the public handlers before the grant.
+`anthropic` sends it as a base64 `image` block, inside the `tool_result` when a
+tool returned it. `openaicompat` sends it as an `image_url` data URI; chat
+completions' tool role takes text only, so the images of a run of tool results
+travel in one `user` message right after that run, and a result that was only
+images says so in its text. Usage is the provider's input-token count, image
+tokens included. No adapter logs or echoes an image.
+
 ### Realtime sessions are not `provider.Adapter`
 
 A realtime session is a conversation, not a request: commands in and events
