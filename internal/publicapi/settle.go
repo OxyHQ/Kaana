@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	mathrand "math/rand/v2"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,10 +35,9 @@ type SettlementStore interface {
 // SettlerConfig wires the settlement side.
 type SettlerConfig struct {
 	Store SettlementStore
-	// URL is POST …/internal/kaana/v1/settlements.
-	URL string
-	// Token authenticates Kaana to Oxy as a workload.
-	Token TokenSource
+	// Oxy is where settlements are delivered (POST
+	// /internal/kaana/v1/settlements) and the token Kaana delivers them with.
+	Oxy OxyControl
 	// Signer signs each delivery with Kaana's own settlement key.
 	Signer *edgeauth.Signer
 	Client *http.Client
@@ -54,7 +52,7 @@ type SettlerConfig struct {
 type Settler struct {
 	store    SettlementStore
 	url      string
-	token    TokenSource
+	oxy      OxyControl
 	signer   *edgeauth.Signer
 	client   *http.Client
 	logger   *slog.Logger
@@ -77,26 +75,16 @@ const (
 	maxAcknowledgementSize = 64 << 10
 )
 
-// NewSettler builds the settler. The settlement URL must be https, except a
-// loopback origin for local development.
+// NewSettler builds the settler.
 func NewSettler(config SettlerConfig) (*Settler, error) {
-	parsed, err := url.Parse(config.URL)
 	switch {
 	case config.Store == nil:
 		return nil, errors.New("publicapi: no settlement outbox")
-	case err != nil || !secureOrLoopback(parsed):
-		return nil, fmt.Errorf("publicapi: the Oxy settlement URL %q is not an https URL", config.URL)
-	case config.Token == nil:
-		return nil, errors.New("publicapi: no Oxy service token source")
+	case config.Oxy == nil:
+		return nil, errors.New("publicapi: no Oxy control access")
 	case config.Signer == nil:
 		return nil, errors.New("publicapi: no settlement signing key")
 	}
-	client := config.Client
-	if client == nil {
-		client = &http.Client{}
-	}
-	copied := *client
-	copied.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -110,7 +98,8 @@ func NewSettler(config SettlerConfig) (*Settler, error) {
 		interval = 5 * time.Second
 	}
 	return &Settler{
-		store: config.Store, url: parsed.String(), token: config.Token, signer: config.Signer, client: &copied,
+		store: config.Store, url: config.Oxy.ControlURL(contract.OxyKaanaSettlementsEndpoint), oxy: config.Oxy,
+		signer: config.Signer, client: controlClient(config.Client),
 		logger: logger, now: now, interval: interval, nudge: make(chan struct{}, 1),
 		stop: make(chan struct{}), stopped: make(chan struct{}),
 	}, nil
@@ -267,7 +256,7 @@ func (s *Settler) deliver(ctx context.Context, row credentialstore.ClaimedSettle
 func (s *Settler) post(ctx context.Context, row credentialstore.ClaimedSettlement) (string, string) {
 	ctx, cancel := context.WithTimeout(ctx, settlementPostTimeout)
 	defer cancel()
-	token, err := s.token(ctx)
+	token, err := s.oxy.ControlToken(ctx)
 	if err != nil {
 		return "", "kaana_identity_unavailable"
 	}

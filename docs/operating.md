@@ -14,6 +14,7 @@ there is no provider-key fallback outside its database.
 | `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | yes | symmetric KMS key ARN; not secret |
 | `KAANA_OXY_SERVICE_ENVIRONMENT` | no | environment of the registered Oxy workload binding, default `production`; verdicts for another environment are refused locally |
 | `KAANA_OXY_API_BASE_URL` | no | Oxy API origin, default and exact deployed value `https://api.oxy.so`; only `development` may use an explicit loopback origin |
+| `KAANA_OXY_AUTHORIZATION_URL`, `KAANA_OXY_SETTLEMENT_URL` | retired | not read: the public API's grant and settlement routes are `/internal/kaana/v1/authorizations` and `/settlements` on `KAANA_OXY_API_BASE_URL`, the origin the control token is minted by, so the token cannot be configured to go elsewhere. A task that still sets one boots only when it equals that derived route; remove both from `app-kaana.tf` |
 | `KAANA_OXY_VALIDATION_QUEUE_SIZE` | no | bounded off-request callback queue, default `256` |
 | `KAANA_OXY_VALIDATION_TIMEOUT` | no | timeout per token/verdict HTTP operation, default `5s` |
 | `KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT` | no | deadline for the isolated one-token upstream bootstrap probe, default `20s`, maximum `45s` so it cannot outlive its PostgreSQL lease |
