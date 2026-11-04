@@ -57,9 +57,9 @@ tolerated**: the contract states that adding an optional field is additive, so a
 strict decoder would turn every additive Oxy change into an outage here.
 
 **Edge authentication is Ed25519 over the exact body** — Kaana holds only public
-keys, so it cannot construct an envelope it would itself accept. This is a
-decision Oxy has not made; the reasoning, and why it is not an HMAC, is in
-`internal/edgeauth`. It is deliberately one small file to replace.
+keys, so it cannot construct an envelope it would itself accept. Oxy adopted
+the scheme as its ADR 0015 (accepted 2026-08-17); the reasoning, and why it is
+not an HMAC, is in `internal/edgeauth`.
 
 
 ## Explicitly out of scope

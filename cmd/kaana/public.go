@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/inventory"
@@ -31,11 +32,12 @@ type publicAPIDependencies struct {
 	sessions  *realtime.Manager
 	store     *credentialstore.Postgres
 	keys      map[string]ed25519.PublicKey
-	// controlToken is Kaana's token for Oxy's /internal/kaana/v1/* (audience
-	// oxy-api:kaana-control). An oxy-api token is refused there with 401.
-	controlToken publicapi.TokenSource
-	logger       *slog.Logger
-	getenv       func(string) string
+	// oxy is Kaana's access to Oxy's /internal/kaana/v1/*: the token for it
+	// (audience oxy-api:kaana-control; an oxy-api token is refused there with
+	// 401) and each route on the Oxy origin KAANA_OXY_API_BASE_URL names.
+	oxy    publicapi.OxyControl
+	logger *slog.Logger
+	getenv func(string) string
 }
 
 // publicAPI is the public surface, when it is enabled.
@@ -81,14 +83,6 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		}
 		return value, nil
 	}
-	authorizationURL, err := required("KAANA_OXY_AUTHORIZATION_URL")
-	if err != nil {
-		return publicAPI{}, err
-	}
-	settlementURL, err := required("KAANA_OXY_SETTLEMENT_URL")
-	if err != nil {
-		return publicAPI{}, err
-	}
 	signingKey, err := required("KAANA_SETTLEMENT_SIGNING_KEY")
 	if err != nil {
 		return publicAPI{}, err
@@ -106,16 +100,19 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		return publicAPI{}, err
 	}
 	authorizer, err := publicapi.NewOxyAuthorizer(publicapi.OxyAuthorizerConfig{
-		URL: authorizationURL, Token: deps.controlToken, Grants: grants, Logger: deps.logger,
+		Oxy: deps.oxy, Grants: grants, Logger: deps.logger,
 		Timeout: durationFromEnv("KAANA_OXY_AUTHORIZATION_TIMEOUT", 10*time.Second),
 	})
 	if err != nil {
 		return publicAPI{}, err
 	}
 	settler, err := publicapi.NewSettler(publicapi.SettlerConfig{
-		Store: deps.store, URL: settlementURL, Token: deps.controlToken, Signer: signer, Logger: deps.logger,
+		Store: deps.store, Oxy: deps.oxy, Signer: signer, Logger: deps.logger,
 	})
 	if err != nil {
+		return publicAPI{}, err
+	}
+	if err := requireDerivedControlURLs(getenv, deps.oxy); err != nil {
 		return publicAPI{}, err
 	}
 	var origins []string
@@ -147,12 +144,41 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 	}
 	server.UseRealtime(deps.sessions.PublicHandler(server.RealtimeGate()))
 	deps.logger.Info("the public API is enabled",
-		"authorizationUrl", authorizationURL, "settlementUrl", settlementURL,
+		"authorizationUrl", deps.oxy.ControlURL(contract.OxyKaanaAuthorizationsEndpoint),
+		"settlementUrl", deps.oxy.ControlURL(contract.OxyKaanaSettlementsEndpoint),
 		"settlementKeyId", signer.KeyID(), "corsOrigins", origins)
 	return publicAPI{
 		server: server, settler: settler,
 		reconciliation: publicapi.ReconciliationHandler{Store: deps.store, Verifier: reads, Logger: deps.logger},
 	}, nil
+}
+
+// retiredControlURLs are the variables that once named Oxy's control routes
+// on their own. Each route is now its fixed path on KAANA_OXY_API_BASE_URL's
+// validated origin, the one the control token is minted by, so neither is
+// read. A deployment that still sets one is held to the derived value: a
+// mismatch fails the boot rather than letting an operator believe the token
+// goes where the variable says.
+var retiredControlURLs = []struct {
+	name     string
+	endpoint contract.OxyKaanaControlEndpoint
+}{
+	{"KAANA_OXY_AUTHORIZATION_URL", contract.OxyKaanaAuthorizationsEndpoint},
+	{"KAANA_OXY_SETTLEMENT_URL", contract.OxyKaanaSettlementsEndpoint},
+}
+
+func requireDerivedControlURLs(getenv func(string) string, oxy publicapi.OxyControl) error {
+	for _, retired := range retiredControlURLs {
+		value := strings.TrimSpace(getenv(retired.name))
+		if value == "" {
+			continue
+		}
+		if derived := oxy.ControlURL(retired.endpoint); value != derived {
+			return fmt.Errorf("%s is %q, but the route is %q: it is derived from KAANA_OXY_API_BASE_URL; remove %s",
+				retired.name, value, derived, retired.name)
+		}
+	}
+	return nil
 }
 
 func orDefault(value, fallback string) string {

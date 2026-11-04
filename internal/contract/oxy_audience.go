@@ -15,3 +15,19 @@ const (
 	// there with 401 kaana_workload_required.
 	OxyKaanaControlAudience OxyAudience = "oxy-api:kaana-control"
 )
+
+// OxyKaanaControlEndpoint is one route of the API OxyKaanaControlAudience
+// names, as a path on Oxy's API origin. It is a path and never a URL: the
+// origin is decided in one place (internal/oxyvalidation, from
+// KAANA_OXY_API_BASE_URL), so the token for this audience cannot be pointed at
+// any host but the one it was minted by.
+type OxyKaanaControlEndpoint string
+
+const (
+	// OxyKaanaAuthorizationsEndpoint is where every https://kaana.ai/v1 request
+	// asks Oxy for its grant.
+	OxyKaanaAuthorizationsEndpoint OxyKaanaControlEndpoint = "/internal/kaana/v1/authorizations"
+	// OxyKaanaSettlementsEndpoint is where Kaana delivers each grant's
+	// settlement.
+	OxyKaanaSettlementsEndpoint OxyKaanaControlEndpoint = "/internal/kaana/v1/settlements"
+)

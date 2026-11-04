@@ -341,7 +341,7 @@ func run(logger *slog.Logger) error {
 	// needs Oxy's authorization and settlement API live first.
 	public, err := buildPublicAPI(publicAPIDependencies{
 		catalogue: declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, sessions: sessions,
-		store: credentialDatabase, keys: keys, controlToken: validationReporter.ControlToken, logger: logger,
+		store: credentialDatabase, keys: keys, oxy: validationReporter, logger: logger,
 	})
 	if err != nil {
 		return err

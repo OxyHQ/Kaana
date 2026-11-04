@@ -6,11 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,16 +32,11 @@ type Authorizer interface {
 	Receipt(ctx context.Context, request contract.ReceiptAuthorizationRequest) (json.RawMessage, *contract.PublicError)
 }
 
-// TokenSource is Kaana's own Oxy service token (Oxy ADR 0026): how Kaana
-// authenticates to Oxy, never the caller's credential.
-type TokenSource func(context.Context) (string, error)
-
 // OxyAuthorizerConfig wires the HTTP authorizer.
 type OxyAuthorizerConfig struct {
-	// URL is POST …/internal/kaana/v1/authorizations.
-	URL string
-	// Token authenticates Kaana as a workload.
-	Token TokenSource
+	// Oxy is where the authorization is asked (POST
+	// /internal/kaana/v1/authorizations) and the token Kaana asks with.
+	Oxy OxyControl
 	// Grants verifies the grant's Ed25519 signature (KAANA_EDGE_PUBLIC_KEYS).
 	Grants *edgeauth.Verifier
 	Client *http.Client
@@ -57,7 +50,7 @@ type OxyAuthorizerConfig struct {
 // OxyAuthorizer calls Oxy's authorization API over HTTPS.
 type OxyAuthorizer struct {
 	url     string
-	token   TokenSource
+	oxy     OxyControl
 	grants  *edgeauth.Verifier
 	client  *http.Client
 	timeout time.Duration
@@ -79,27 +72,18 @@ const maxAuthorizationResponseBytes = 1 << 20
 // catalogueCacheTTL is the most a catalogue answer is reused (ADR 0002).
 const catalogueCacheTTL = 60 * time.Second
 
-// NewOxyAuthorizer builds the authorizer. The URL must be https, except a
-// loopback origin for local development.
+// NewOxyAuthorizer builds the authorizer.
 func NewOxyAuthorizer(config OxyAuthorizerConfig) (*OxyAuthorizer, error) {
-	parsed, err := url.Parse(config.URL)
 	switch {
-	case err != nil || !secureOrLoopback(parsed):
-		return nil, fmt.Errorf("publicapi: the Oxy authorization URL %q is not an https URL", config.URL)
-	case config.Token == nil:
-		return nil, errors.New("publicapi: no Oxy service token source")
+	case config.Oxy == nil:
+		return nil, errors.New("publicapi: no Oxy control access")
 	case config.Grants == nil:
 		return nil, errors.New("publicapi: no grant signature verifier")
 	}
-	client := config.Client
-	if client == nil {
-		client = &http.Client{}
-	}
-	copied := *client
-	copied.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client := controlClient(config.Client)
 	// The grant is on every request's critical path; its round trip is
 	// measured into the request's timing line.
-	copied.Transport = requesttiming.Transport(copied.Transport, requesttiming.PeerOxy)
+	client.Transport = requesttiming.Transport(client.Transport, requesttiming.PeerOxy)
 	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -113,22 +97,9 @@ func NewOxyAuthorizer(config OxyAuthorizerConfig) (*OxyAuthorizer, error) {
 		now = time.Now
 	}
 	return &OxyAuthorizer{
-		url: parsed.String(), token: config.Token, grants: config.Grants, client: &copied,
+		url: config.Oxy.ControlURL(contract.OxyKaanaAuthorizationsEndpoint), oxy: config.Oxy, grants: config.Grants, client: client,
 		timeout: timeout, logger: logger, now: now, catalogue: make(map[[32]byte]cachedCatalogue),
 	}, nil
-}
-
-// secureOrLoopback admits an https URL, or http only to a loopback host for
-// local development: Kaana's service token never crosses plain HTTP.
-func secureOrLoopback(parsed *url.URL) bool {
-	if parsed.Host == "" {
-		return false
-	}
-	return parsed.Scheme == "https" || (parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname()))
-}
-
-func isLoopbackHost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // Authorize implements Authorizer.
@@ -233,7 +204,7 @@ func (a *OxyAuthorizer) post(ctx context.Context, requestID contract.RequestID, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
-	token, err := a.token(ctx)
+	token, err := a.oxy.ControlToken(ctx)
 	if err != nil {
 		a.logger.Error("Kaana could not mint its Oxy service token for an authorization", "requestId", requestID, "errorType", "oxy_identity")
 		return nil, nil, unavailable()

@@ -18,8 +18,10 @@
 // the mint. So Kaana holds only PUBLIC keys and cannot construct an envelope it
 // would itself accept.
 //
-// This is Kaana's proposal for a decision Oxy has not made. It is stated here,
-// in one file, so it is cheap to replace if Oxy decides otherwise.
+// Kaana proposed this scheme before Oxy had decided how the hop is
+// authenticated; Oxy has since adopted it as its own ADR 0015 (accepted
+// 2026-08-17), and its edge signs exactly this input. A change here is a change
+// to that ADR, made on both sides.
 //
 // # The scheme
 //

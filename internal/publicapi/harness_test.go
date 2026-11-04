@@ -259,6 +259,17 @@ func newFakeOxy(t *testing.T, settlementKey ed25519.PublicKey) *fakeOxy {
 
 func (o *fakeOxy) publicKey() ed25519.PublicKey { return o.key.Public().(ed25519.PublicKey) }
 
+// oxyControl is Kaana's control access to a fake Oxy: the synthetic token, and
+// each route on the fake's origin, as oxyvalidation.Reporter derives them on
+// the real one.
+type oxyControl struct{ origin string }
+
+func (oxyControl) ControlToken(context.Context) (string, error) { return kaanaToken, nil }
+
+func (c oxyControl) ControlURL(endpoint contract.OxyKaanaControlEndpoint) string {
+	return c.origin + string(endpoint)
+}
+
 func refuse(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -691,11 +702,9 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := func(context.Context) (string, error) { return kaanaToken, nil }
+	control := oxyControl{origin: oxy.server.URL}
 	var authorizer publicapi.Authorizer
-	authorizer, err = publicapi.NewOxyAuthorizer(publicapi.OxyAuthorizerConfig{
-		URL: oxy.server.URL + "/internal/kaana/v1/authorizations", Token: token, Grants: grants, Logger: logger,
-	})
+	authorizer, err = publicapi.NewOxyAuthorizer(publicapi.OxyAuthorizerConfig{Oxy: control, Grants: grants, Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +717,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		settlementStore = options.store
 	}
 	settler, err := publicapi.NewSettler(publicapi.SettlerConfig{
-		Store: settlementStore, URL: oxy.server.URL + "/internal/kaana/v1/settlements", Token: token, Signer: signer, Logger: logger,
+		Store: settlementStore, Oxy: control, Signer: signer, Logger: logger,
 		Interval: time.Hour,
 	})
 	if err != nil {

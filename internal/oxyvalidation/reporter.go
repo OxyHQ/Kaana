@@ -316,6 +316,14 @@ func (r *Reporter) ControlToken(ctx context.Context) (string, error) {
 	return r.serviceToken(ctx, contract.OxyKaanaControlAudience, false)
 }
 
+// ControlURL is the URL of one of Oxy's /internal/kaana/v1/* routes: the
+// endpoint's fixed path on the origin New validated, the same one
+// ControlToken's token is minted by. There is no other way to name where the
+// control token goes, so it cannot be configured to travel to another host.
+func (r *Reporter) ControlURL(endpoint contract.OxyKaanaControlEndpoint) string {
+	return r.endpoint(string(endpoint))
+}
+
 // serviceToken returns the cached token for an audience, or mints one.
 //
 // One cache for both identities, and it is here rather than in either minter: a

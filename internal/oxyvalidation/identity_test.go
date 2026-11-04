@@ -252,3 +252,90 @@ func TestControlTokenIsMintedForTheKaanaControlAudience(t *testing.T) {
 	})
 
 }
+
+// The control token's destination is derived, never configured: each control
+// route is its fixed path on the origin New validated, the one the token is
+// minted by. A base URL that would put it anywhere else never builds a reporter
+// (TestOnlyTheCanonicalOxyOriginBuildsAReporter), so there is no URL for it to
+// reach.
+func TestControlURLIsTheFixedRouteOnTheValidatedOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		baseURL        string
+		environment    contract.Environment
+		authorizations string
+		settlements    string
+	}{
+		{"production", "https://api.oxy.so", contract.EnvironmentProduction,
+			"https://api.oxy.so/internal/kaana/v1/authorizations", "https://api.oxy.so/internal/kaana/v1/settlements"},
+		{"development on loopback", "http://127.0.0.1:4100", contract.EnvironmentDevelopment,
+			"http://127.0.0.1:4100/internal/kaana/v1/authorizations", "http://127.0.0.1:4100/internal/kaana/v1/settlements"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reporter, err := New(Config{
+				BaseURL: tc.baseURL, WorkloadMinter: &attestedIdentity{}, Environment: tc.environment,
+				Logger: slog.New(slog.DiscardHandler),
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			defer func() { _ = reporter.Close(context.Background()) }()
+			if got := reporter.ControlURL(contract.OxyKaanaAuthorizationsEndpoint); got != tc.authorizations {
+				t.Errorf("authorizations = %q, want %q", got, tc.authorizations)
+			}
+			if got := reporter.ControlURL(contract.OxyKaanaSettlementsEndpoint); got != tc.settlements {
+				t.Errorf("settlements = %q, want %q", got, tc.settlements)
+			}
+		})
+	}
+}
+
+// Every Oxy credential Kaana holds — the BYOK callback's token and the control
+// token the public API sends with each grant and settlement — goes only to the
+// origin this accepts. Production and staging accept exactly
+// https://api.oxy.so; development, an explicit loopback origin and nothing else.
+func TestOnlyTheCanonicalOxyOriginBuildsAReporter(t *testing.T) {
+	for _, tc := range []struct {
+		baseURL     string
+		environment contract.Environment
+		accepted    bool
+	}{
+		{"https://api.oxy.so", contract.EnvironmentProduction, true},
+		{"https://api.oxy.so", contract.EnvironmentStaging, true},
+		{"https://api.oxy.so", contract.EnvironmentDevelopment, true},
+		{"http://localhost:4100", contract.EnvironmentDevelopment, true},
+		{"https://127.0.0.1:4100", contract.EnvironmentDevelopment, true},
+		{"http://[::1]:4100", contract.EnvironmentDevelopment, true},
+
+		{"", contract.EnvironmentProduction, false},
+		{"http://api.oxy.so", contract.EnvironmentProduction, false},
+		{"https://api.oxy.so:8443", contract.EnvironmentProduction, false},
+		{"https://api.oxy.so/", contract.EnvironmentProduction, false},
+		{"https://api.oxy.so/internal/kaana/v1/authorizations", contract.EnvironmentProduction, false},
+		{"https://api.oxy.so?next=https://attacker.example", contract.EnvironmentProduction, false},
+		{"https://api.oxy.so#fragment", contract.EnvironmentProduction, false},
+		{"https://kaana@api.oxy.so", contract.EnvironmentProduction, false},
+		{"https://api.oxy.so.attacker.example", contract.EnvironmentProduction, false},
+		{"https://attacker.example", contract.EnvironmentProduction, false},
+		{"https://attacker.example", contract.EnvironmentStaging, false},
+		{"http://127.0.0.1:4100", contract.EnvironmentProduction, false},
+		{" https://api.oxy.so", contract.EnvironmentProduction, false},
+		{"https://attacker.example", contract.EnvironmentDevelopment, false},
+		{"http://10.0.0.5:4100", contract.EnvironmentDevelopment, false},
+		{"ftp://127.0.0.1", contract.EnvironmentDevelopment, false},
+		{"http://user@127.0.0.1:4100", contract.EnvironmentDevelopment, false},
+	} {
+		t.Run(string(tc.environment)+" "+tc.baseURL, func(t *testing.T) {
+			reporter, err := New(Config{
+				BaseURL: tc.baseURL, WorkloadMinter: &attestedIdentity{}, Environment: tc.environment,
+				Logger: slog.New(slog.DiscardHandler),
+			})
+			if reporter != nil {
+				defer func() { _ = reporter.Close(context.Background()) }()
+			}
+			if accepted := err == nil; accepted != tc.accepted {
+				t.Fatalf("accepted = %v (%v), want %v", accepted, err, tc.accepted)
+			}
+		})
+	}
+}
