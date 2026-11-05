@@ -7,7 +7,8 @@
     "NOT SEEDED, no `commercial` (no evidence): the deployments Kaana serves that Oxy's table never held, notably OpenAI transcription (openai-audio: gpt-4o-transcribe and gpt-4o-mini-transcribe). The OpenAI Services Agreement cited in configs/public-catalogue.json assigns output to the customer (commercial use of outputs) but is not a review of the right to serve them, and their deployment ids are minted by the publisher with an observation date that cannot be known here. They stay unsold until a reviewed commit lists the exact deployment id with its evidence.",
     "EMBEDDINGS (added 2026-10-15): dep_openrouter_qwen_qwen3_embedding_8b_observed_2026_10_15, read back from the production inventory (s3://oxy-kaana-inventory-usw2-237343248947/inventory/current.json, snapshot snap_2408959e2be05c73, issued 2026-10-15T19:49:56Z) after OxyHQ/Kaana#186 deployed. Sold on the same basis as every seeded row, platform_internal / standard_application_use: served to Oxy's own products only (Clarity's search embeddings). OpenRouter's list price for it is $0.01 per 1M input tokens (configs/public-catalogue.json, qwen/qwen3-embedding-8b).",
     "TRANSCRIPTION (added 2026-10-16): dep_xai_grok_voice_transcribe_2_0_observed_2026_10_16, read back from the production inventory (s3://oxy-kaana-inventory-usw2-237343248947/inventory/current.json, snapshot snap_7d431443cd7e0b53, issued 2026-10-16T00:45:37Z) after OxyHQ/Kaana#190 deployed. xAI speech-to-text under the same xAI Enterprise Terms as dep_xai_tts and the voice agent, sold on the same basis, platform_internal / standard_application_use: Alia's dictation. Without this entry the deployment was served but unsold, so Oxy granted no transcription at all.",
-    "GROQ WHISPER (added 2026-10-16): dep_groq_whisper_large_v3_observed_2026_10_16 and dep_groq_whisper_large_v3_turbo_observed_2026_10_16, read back from the production inventory (snap_ea0d4ecf18806d21, issued 2026-10-16T03:49:49Z) after OxyHQ/Kaana#193 deployed. OpenAI's open-weight Whisper (MIT) served by Groq under the same Groq account and terms as the Groq chat deployments seeded above, sold on the same basis, platform_internal / standard_application_use: Alia's dictation, a second transcription provider beside xAI."
+    "GROQ WHISPER (added 2026-10-16): dep_groq_whisper_large_v3_observed_2026_10_16 and dep_groq_whisper_large_v3_turbo_observed_2026_10_16, read back from the production inventory (snap_ea0d4ecf18806d21, issued 2026-10-16T03:49:49Z) after OxyHQ/Kaana#193 deployed. OpenAI's open-weight Whisper (MIT) served by Groq under the same Groq account and terms as the Groq chat deployments seeded above, sold on the same basis, platform_internal / standard_application_use: Alia's dictation, a second transcription provider beside xAI.",
+    "STREAMING TRANSCRIPTION (Kaana ADR 0006): dep_xai_stt_grok_voice_transcribe_2_0_observed_YYYY_MM_DD, read back from the production inventory after OxyHQ/Kaana#237 deployed and oxy-infra's kaana_xai_stt_enabled switch was applied. The same xAI model as dep_xai_grok_voice_transcribe_2_0_observed_2026_10_16, served as a realtime transcription session under the same xAI Enterprise Terms, sold on the same basis, platform_internal / standard_application_use: Alia's word-by-word dictation (Alia ADR 0024). Without this entry the deployment is served but unsold, so Oxy grants no transcription session."
   ],
   "schemaVersion": 1,
   "deployments": [
@@ -1882,6 +1883,13 @@
     },
     {
       "deploymentId": "dep_xai_realtime_grok_voice_3_0_observed_2026_10_16",
+      "commercial": {
+        "availabilityScope": "platform_internal",
+        "commercialPermission": "standard_application_use"
+      }
+    },
+    {
+      "deploymentId": "dep_xai_stt_grok_voice_transcribe_2_0_observed_YYYY_MM_DD",
       "commercial": {
         "availabilityScope": "platform_internal",
         "commercialPermission": "standard_application_use"
