@@ -24,7 +24,7 @@
         "@kaana.ai/contracts": "workspace:*",
       },
       "devDependencies": {
-        "@oxy.so/core": "7.23.1",
+        "@oxy.so/core": "7.30.0",
         "kaana-contracts-4.4.0": "npm:@kaana.ai/contracts@4.4.0",
         "kaana-contracts-4.4.1": "npm:@kaana.ai/contracts@4.4.1",
         "kaana-contracts-5.0.0": "npm:@kaana.ai/contracts@5.0.0",
@@ -131,11 +131,11 @@
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
-    "@oxy.so/contracts": ["@oxy.so/contracts@6.9.0", "", { "dependencies": { "zod": "^4.6.7" } }, "sha512-X7Iu0E/Y5LH8TEMq197er5J9CE0tkXSTBi09gxAD7AssdjDoof1+NJOYQMjadcdDHsx9lXxQGhVq8u6t+LZfbw=="],
+    "@oxy.so/contracts": ["@oxy.so/contracts@6.12.0", "", { "dependencies": { "zod": "^4.6.7" } }, "sha512-fxFx3BD3QV38fWPNxR2kdBDEwB27daP1SD88yQ/Kaqs44GOGEEw9yb3MDCjk8lkSC7fSG1V/d8K9IAxYrGunUQ=="],
 
-    "@oxy.so/core": ["@oxy.so/core@7.23.1", "", { "dependencies": { "@noble/ciphers": "^2.4.0", "@noble/hashes": "^2.4.0", "@oxy.so/contracts": "^6.9.0", "@oxy.so/protocol": "^1.6.1", "@oxy.so/telemetry": "^2.1.0", "@scure/bip39": "^2.4.0", "buffer": "^6.0.3", "express-rate-limit": "^8.6.0", "helmet": "^8.3.0", "invariant": "^2.2.4", "jwt-decode": "^4.0.0", "socket.io-client": "^4.8.4", "tldts": "^7.4.19", "zod": "^4.6.7" }, "peerDependencies": { "@aws-sdk/credential-provider-ini": ">=3.973.16 <4", "@aws-sdk/credential-provider-node": ">=3.972.83 <4", "@react-native-async-storage/async-storage": "<4.0.0", "expo-crypto": "<59.0.0", "expo-secure-store": "<59.0.0", "express": "^4.0.0 || ^5.0.0" }, "optionalPeers": ["@aws-sdk/credential-provider-ini", "@aws-sdk/credential-provider-node", "@react-native-async-storage/async-storage", "expo-crypto", "expo-secure-store", "express"] }, "sha512-yFjWlFHsAP6vAg5m5saQ4lKbquZPy8si0tqFBDCo6/aWAOrZIuGMzG6UJg37kikPeyV7M+lXhyogqS9qY/rt2Q=="],
+    "@oxy.so/core": ["@oxy.so/core@7.30.0", "", { "dependencies": { "@noble/ciphers": "^2.4.0", "@noble/hashes": "^2.4.0", "@oxy.so/contracts": "^6.12.0", "@oxy.so/protocol": "^1.9.0", "@oxy.so/telemetry": "^2.1.0", "@scure/bip39": "^2.4.0", "buffer": "^6.0.3", "express-rate-limit": "^8.6.0", "helmet": "^8.3.0", "invariant": "^2.2.4", "jwt-decode": "^4.0.0", "socket.io-client": "^4.8.4", "tldts": "^7.4.19", "zod": "^4.6.7" }, "peerDependencies": { "@aws-sdk/credential-provider-ini": ">=3.973.16 <4", "@aws-sdk/credential-provider-node": ">=3.972.83 <4", "@react-native-async-storage/async-storage": "<4.0.0", "expo-crypto": "<59.0.0", "expo-secure-store": "<59.0.0", "express": "^4.0.0 || ^5.0.0" }, "optionalPeers": ["@aws-sdk/credential-provider-ini", "@aws-sdk/credential-provider-node", "@react-native-async-storage/async-storage", "expo-crypto", "expo-secure-store", "express"] }, "sha512-CGiecLekKu2SJSqlcrTRbwxlc7l/cVJmD+Pu6VzWwCdWtnrw/Ktlc3fkb4/6TTEl5faJ47uDa1G7t+sm1Tf/Pg=="],
 
-    "@oxy.so/protocol": ["@oxy.so/protocol@1.6.1", "", { "dependencies": { "@noble/curves": "^2.4.0", "@oxy.so/contracts": "^6.5.0" }, "peerDependencies": { "@react-native-async-storage/async-storage": "<4.0.0", "expo-crypto": "<59.0.0", "expo-modules-core": "<59.0.0", "expo-secure-store": "<59.0.0", "express": "^4.18.0 || ^5.0.0" }, "optionalPeers": ["@react-native-async-storage/async-storage", "expo-crypto", "expo-secure-store", "express"] }, "sha512-1pnVLoBcAg+zKzhzxwEWqDKnTyjZ4EnNfscJgZrWg2aXYB6yuGfccUE713oQEoKExsc4tRwtgHLpz5VMBCIbkA=="],
+    "@oxy.so/protocol": ["@oxy.so/protocol@1.9.0", "", { "dependencies": { "@noble/curves": "^2.4.0", "@oxy.so/contracts": "^6.12.0" }, "peerDependencies": { "@react-native-async-storage/async-storage": "<4.0.0", "expo-crypto": "<59.0.0", "expo-modules-core": "<59.0.0", "expo-secure-store": "<59.0.0", "express": "^4.18.0 || ^5.0.0" }, "optionalPeers": ["@react-native-async-storage/async-storage", "expo-crypto", "expo-secure-store", "express"] }, "sha512-kogJUdm1dEBthzyl8Pu2D+zGa77H4ISDrCCdn1UeO5IAjO8mWf19y6+1V78FVokVN+znCQw8L5pyEuHJsnWrIQ=="],
 
     "@oxy.so/telemetry": ["@oxy.so/telemetry@2.1.0", "", {}, "sha512-YxI/7XQLFf+WglPzUndec4LItM9cSJNsA67UZRLPj4w4mw38+bYNhV9hw/aOqXx4MXCD4Yk8CJ9mwcW72uAnwA=="],
 
