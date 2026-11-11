@@ -203,6 +203,7 @@ configs/model-attribution.json  who RELEASED each model — the publisher's only
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | the boundary with Oxy, the Oxy-facing surface, and what is deliberately out of scope |
 | [`docs/identity-and-routing.md`](docs/identity-and-routing.md) | the Kaana/Alia boundary, canonical domain, exact deployment selection and product request paths |
+| [`docs/inference-rules.md`](docs/inference-rules.md) | the inference rules every Oxy repository follows: who may call a provider, power levels, route priority, key custody |
 | [`docs/routing.md`](docs/routing.md) | cancellation, same-model failover, circuit breakers and health scoring |
 | [`docs/key-pools.md`](docs/key-pools.md) | several providers and a pool of keys for each; what a failure says about a KEY |
 | [`docs/customer-provider-credentials.md`](docs/customer-provider-credentials.md) | customer BYOK custody, exact handles, task split and rollout contract |
