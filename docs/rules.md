@@ -3,7 +3,7 @@
 The rules that have no single subsystem: what may never be persisted or
 emitted, and what a test has to prove before it counts. Every other rule lives
 at the end of its topic document under "Rules a reviewer applies";
-`../AGENTS.md` is the one-line index to all of them.
+`../AGENTS.md` maps each topic to its document.
 
 ## Secrets and customer data
 
@@ -44,11 +44,14 @@ at the end of its topic document under "Rules a reviewer applies";
 
 ## Working here
 
-- Run the commands CI runs (the block in `../AGENTS.md`), not near-equivalents.
+- Run the commands CI runs (`make check`, see `../AGENTS.md`), not near-equivalents.
 - No `TODO`, `FIXME`, `HACK`, no back-compat shims, no deprecated aliases.
   Breaking changes are clean cuts.
 - Conventional Commits.
 - Errors are wrapped and matched with `errors.Is`/`errors.As`; the executor's
   control flow depends on it.
+- Biome (root `biome.json`) covers only `packages/**` and `tools/**` (ADR 0002); never
+  widen it: `configs/**`, `.github/*.json`, the descriptor and
+  `packages/contracts/openapi.json` are byte-exact inputs or outputs, regenerated, never hand-edited.
 - Say what is *not* implemented rather than stubbing it. The README's
   out-of-scope list is part of the deliverable.
