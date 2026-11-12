@@ -1,6 +1,6 @@
 # ADR 0008 — Provider selection: what Kaana adopts from OpenRouter, and what it refuses
 
-- Status: accepted for decisions 1-5 (Kaana-only, no contract change); decision 6
+- Status: accepted for decisions 1-5 (Kaana-only, no contract change; 1 is implemented, 3 and 4 follow); decision 6
   is proposed and needs Oxy's half before any contract change.
 - Date: 2026-11-12
 - Source: OpenRouter's provider-selection, traffic-routing, model-fallbacks and
@@ -26,14 +26,18 @@ are not gaps.
 ## Decision
 
 1. **Selection is capability-aware.** The grant lane drops a deployment whose
-   observed `acceptedParameters`, `contextTokens` or `maxOutputTokens` cannot
-   take the request, instead of attempting it and ending the request with a
-   terminal `invalid_request` while another admitted route could serve it.
-   Unknown (`nil`) statements refuse nothing, as today.
-2. **A limit Oxy granted is a limit Kaana applies.** `maxPricePerRequest` bounds
-   selection in the grant lane. Like OpenRouter's `max_price`, it blocks rather
-   than degrades: no admitted route within it is `no_admitted_route`, not a more
-   expensive route.
+   published `acceptedParameters` refuse a control the request carries, instead
+   of attempting it and ending the request with a terminal `invalid_request`
+   while another admitted route could serve it. A deployment with no such
+   statement (`nil`) is kept, as today. If no admitted deployment accepts the
+   control, resolution falls back to the old behaviour so the attempt refuses
+   with the exact parameter named, never a bare "no route". Context and output
+   windows are not used: a route does not carry them, and adding them would
+   widen `provider.Route`.
+2. **`maxPricePerRequest` stays Oxy's.** OpenRouter's `max_price` blocks on
+   price, but Kaana never prices (`docs/cost.md`): Oxy applies the ceiling when
+   it computes `admittedModelLines` and sizes the hold, and Kaana relays it.
+   Enforcing it here would need a price Kaana is forbidden to hold.
 3. **Measured performance breaks ties, never excludes.** Within one funding tier
    and one model line, the grant lane orders by recent per-deployment time to
    first output over a rolling window, then inventory position. This is what
