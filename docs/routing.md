@@ -260,8 +260,10 @@ tokens per second.
   schema, never judges a call the stream cut short (the caller's `max_tokens` is
   not the deployment's fault), and keeps a verdict, not the arguments.
 
-It changes no routing. It is the measurement an ordering decision would read,
-and the order is still the one Oxy signs.
+It is a reporting surface and changes no routing. The one latency reading the
+grant lane orders by is `rotation.Registry.FirstOutput` (ADR 0008, decision 3),
+which this record does not feed and does not read; the signed `authorizedRoutes`
+lane is never reordered.
 
 ## Rules a reviewer applies
 
@@ -315,3 +317,7 @@ and the order is still the one Oxy signs.
 - **`deploymentstats` records only what the breaker would blame.** Feed it through
   `recordDeploymentStats` and nothing else, so the two never disagree about whose
   fault an attempt was, and never add a field that carries request content.
+- **No ordering reads `deploymentstats`.** A route's position comes from
+  `resolveGrant` and `rotation.Registry.FirstOutput`; making the record an input
+  would be a second latency source for the same decision, and a routing change
+  that needs its own ADR 0008 amendment.
