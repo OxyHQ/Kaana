@@ -20,6 +20,11 @@ var retiredPriceVersions = []string{
 	"01a0d808-57e6-7ec7-b269-eee66ed823e5", // anthropic/claude-opus-4.1
 	"01a0d808-5864-799e-8876-c5cdad30719f", // anthropic/claude-sonnet-4
 	"01a0d808-5878-7002-aad4-ac5b6b87f7e7", // anthropic/claude-sonnet-4.5
+	// Retired 2026-11-12 when the cache-read price of these three was corrected
+	// from the full input price to Anthropic's documented 0.1x.
+	"01a1ce39-1a62-79cf-865a-394fe0346631", // anthropic/claude-opus-4.1
+	"01a1ce39-1a62-739c-8b45-b4bedf5a6404", // anthropic/claude-sonnet-4
+	"01a1ce39-1a62-7b7a-90ee-a8407a2c05a4", // anthropic/claude-sonnet-4.5
 }
 
 type cataloguePrice struct {

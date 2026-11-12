@@ -203,6 +203,13 @@ at 1.25x the line's own input price, from Anthropic's published pricing page
 (https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-12). A
 price change is a new `priceVersionId` ([operating.md](operating.md#the-declared-catalogue)).
 
+The cache-read price (`cached_input_tokens`) is likewise the one Anthropic publishes
+per model, read 2026-11-12 from the same page ("Cache hits and refreshes"): 0.1x
+the input price for most models, 0.025x for Fable 5.1/5.2 and 0.05x for Opus 5.5 and
+Sonnet 5.5. Opus 4.1, Sonnet 4 and Sonnet 4.5 had been declared at their full input
+price (10x too high) and were corrected under new price versions; a grant admitted
+at the retired version settles at the unit prices Oxy copied onto it.
+
 The provider-cost side is separate and unchanged in shape: a rate card in
 `configs/provider-rates.json` prices a unit only if it lists it, and a measured
 unit it does not list is named in `unpricedUnits`, never costed at zero.
