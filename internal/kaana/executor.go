@@ -31,6 +31,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/customerlimit"
+	"github.com/OxyHQ/Kaana/internal/deploymentstats"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -46,6 +47,7 @@ type Executor struct {
 	inventory           *inventory.Store
 	registry            *provider.Registry
 	rotation            *rotation.Registry
+	stats               *deploymentstats.Registry
 	costs               *providercost.Cards
 	costRecorder        *providercost.Recorder
 	customerCredentials CustomerCredentialResolver
@@ -74,6 +76,9 @@ type Config struct {
 	// executor with no breakers would retry a failing provider into the ground,
 	// which is the failure mode failover introduces if nothing bounds it.
 	Rotation *rotation.Registry
+	// Stats records what each deployment recently did (deploymentstats). Optional:
+	// absent means nothing is recorded and every method is a no-op.
+	Stats *deploymentstats.Registry
 	// Costs prices upstream attempts. Optional — absent means cost is not
 	// measured, and every measurement says so rather than reporting zero.
 	Costs *providercost.Cards
@@ -128,6 +133,7 @@ func NewExecutor(config Config) (*Executor, error) {
 		inventory:           config.Inventory,
 		registry:            config.Providers,
 		rotation:            config.Rotation,
+		stats:               config.Stats,
 		costs:               config.Costs,
 		costRecorder:        config.CostRecorder,
 		customerCredentials: config.CustomerCredentials,
@@ -476,6 +482,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			funding:   attemptFunding(platformCredentials, route, outcome.KeyID),
 		}
 
+		e.recordDeploymentStats(route.DeploymentID, telemetry, outcome.Units, streamErr, last.cancelled)
 		switch {
 		case streamErr == nil:
 			permit.Succeeded()
@@ -722,6 +729,41 @@ func waitForRetry(ctx context.Context, wait time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// recordDeploymentStats gives the deployment's recent-behaviour record the
+// verdict on one attempt. A cancellation, a customer's own credential failing
+// and a failure every deployment would share say nothing about this deployment,
+// so they are not counted; only an attempt the deployment could have answered
+// differently is.
+func (e *Executor) recordDeploymentStats(
+	id contract.DeploymentID,
+	telemetry providercost.AttemptTelemetry,
+	units []contract.UsageQuantity,
+	streamErr error,
+	cancelled bool,
+) {
+	if cancelled || (streamErr != nil && !provider.DeploymentAttributable(streamErr)) {
+		return
+	}
+	attempt := deploymentstats.Attempt{
+		Outcome:           deploymentstats.Succeeded,
+		TimeToFirstOutput: telemetry.TimeToFirstOutput,
+		Latency:           telemetry.Latency,
+	}
+	for _, unit := range units {
+		if unit.Unit == contract.UnitOutputTokens {
+			attempt.OutputTokens += int(unit.Quantity)
+		}
+	}
+	switch {
+	case streamErr == nil:
+	case telemetry.FailureCode == contract.CodeRateLimited:
+		attempt.Outcome = deploymentstats.Throttled
+	default:
+		attempt.Outcome = deploymentstats.Failed
+	}
+	e.stats.Record(id, attempt)
 }
 
 // attemptTelemetry measures one attempt for the operator record. Durations

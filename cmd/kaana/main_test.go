@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/deploymentstats"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/deepgram"
@@ -624,7 +625,7 @@ func TestTheReloadPathActuallyWarns(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				reloadSnapshots(ctx, store, rotation.NewRegistry(rotation.Policy{}, nil), testCase.adapters, logger, time.Millisecond)
+				reloadSnapshots(ctx, store, rotation.NewRegistry(rotation.Policy{}, nil), deploymentstats.NewRegistry(nil), testCase.adapters, logger, time.Millisecond)
 			}()
 
 			// Wait for the condition rather than for a duration: a fixed sleep
@@ -832,7 +833,7 @@ func TestTheReloadPathInstallsASnapshotWithANewDeployment(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				reloadSnapshots(ctx, store, rotation.NewRegistry(rotation.Policy{}, nil), registry, logger, time.Millisecond)
+				reloadSnapshots(ctx, store, rotation.NewRegistry(rotation.Policy{}, nil), deploymentstats.NewRegistry(nil), registry, logger, time.Millisecond)
 			}()
 			settled := func() bool {
 				if testCase.installed {

@@ -45,6 +45,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/credentialvalidation"
+	"github.com/OxyHQ/Kaana/internal/deploymentstats"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
@@ -90,6 +91,7 @@ type Server struct {
 	registry            *provider.Registry
 	inventory           *inventory.Store
 	rotation            *rotation.Registry
+	stats               *deploymentstats.Registry
 	declaredCatalogue   json.RawMessage
 	commercial          *commercial.Table
 	realtime            http.Handler
@@ -131,6 +133,9 @@ type Config struct {
 	Registry            *provider.Registry
 	Inventory           *inventory.Store
 	Rotation            *rotation.Registry
+	// Stats is the recent-behaviour record the health route reports beside the
+	// breaker state. Optional: absent omits the field.
+	Stats *deploymentstats.Registry
 	// DeclaredCatalogue is the whole of configs/public-catalogue.json
 	// (publicapi.PublicCatalogue.Document), carried on GET /internal/v1/models
 	// so Oxy rates grants from Kaana's list prices. Empty carries an empty
@@ -189,6 +194,7 @@ func New(config Config) (*Server, error) {
 		registry:            config.Registry,
 		inventory:           config.Inventory,
 		rotation:            config.Rotation,
+		stats:               config.Stats,
 		declaredCatalogue:   declaredOrEmpty(config.DeclaredCatalogue),
 		commercial:          config.Commercial,
 		realtime:            config.Realtime,
@@ -448,6 +454,11 @@ func (s *Server) logResult(requestID contract.RequestID, result kaana.Result, el
 type deploymentHealth struct {
 	rotation.Health
 	Provider contract.ProviderSlug `json:"provider"`
+	// Recent is what the deployment did over the last five minutes, thirty
+	// minutes and day: attempt counts, uptime, time to first output and
+	// throughput. Counts and durations only. Absent when the process records
+	// none.
+	Recent []deploymentstats.Window `json:"recent,omitempty"`
 }
 
 type healthResponse struct {
@@ -487,11 +498,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	for _, endpoint := range endpoints {
 		ids = append(ids, endpoint.DeploymentID)
 	}
+	recent := s.stats.Project(ids)
 	for index, health := range s.rotation.Project(ids) {
-		response.Deployments = append(response.Deployments, deploymentHealth{
-			Health:   health,
-			Provider: endpoints[index].Provider,
-		})
+		entry := deploymentHealth{Health: health, Provider: endpoints[index].Provider}
+		if index < len(recent) {
+			entry.Recent = recent[index].Windows
+		}
+		response.Deployments = append(response.Deployments, entry)
 	}
 	writeJSON(w, http.StatusOK, response)
 }
