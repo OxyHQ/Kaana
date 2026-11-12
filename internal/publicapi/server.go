@@ -49,9 +49,12 @@ import (
 
 // Header names the public API speaks (`@kaana.ai/contracts` 4.1.0).
 const (
-	HeaderRequestID            = "Kaana-Request-Id"
-	HeaderContractVersion      = "Kaana-Contract-Version"
-	HeaderModel                = "Kaana-Model"
+	HeaderRequestID       = "Kaana-Request-Id"
+	HeaderContractVersion = "Kaana-Contract-Version"
+	HeaderModel           = "Kaana-Model"
+	// HeaderIgnoredParameters names request parameters Kaana accepted and did not
+	// honour, so a caller is never left to infer it.
+	HeaderIgnoredParameters    = "Kaana-Ignored-Parameters"
 	HeaderUsage                = "Kaana-Usage"
 	HeaderRoutingPolicyID      = "Kaana-Routing-Policy-Id"
 	HeaderRoutingPolicyVersion = "Kaana-Routing-Policy-Version"
@@ -235,7 +238,7 @@ var (
 	corsAllowedHeaders = strings.Join([]string{"Authorization", HeaderAPIKey, "Anthropic-Version", "Content-Type", HeaderContractVersion, HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
 	corsExposedHeaders = strings.Join([]string{
 		HeaderRequestID, HeaderContractVersion, HeaderModel, HeaderUsage,
-		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After", HeaderDeprecation, HeaderSunset, "Link", HeaderServerTiming,
+		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After", HeaderDeprecation, HeaderSunset, "Link", HeaderServerTiming, HeaderIgnoredParameters,
 	}, ", ")
 )
 

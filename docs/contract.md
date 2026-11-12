@@ -101,7 +101,7 @@ the endpoint is served as the `responses` operation, so the signed grant and
 envelope are unchanged. All four are `notApplicable` to the Go descriptor test
 (Go decodes the request by hand and the wire-fixture gate parses every body it
 writes with these schemas). What is supported and what is refused, and why
-`cache_control` is refused, is in [anthropic-messages.md](anthropic-messages.md).
+`cache_control` is accepted and ignored, is in [anthropic-messages.md](anthropic-messages.md).
 
 ## Contract set 8.2.0: image input (ADR 0007)
 

@@ -288,30 +288,36 @@ func TestMessagesErrorsKeepTheirStatusAndTakeAnthropicsTypes(t *testing.T) {
 	}
 }
 
-// cache_control is refused wherever the dialect puts it, naming the path; a key
-// of that name inside a tool's own schema is data, not a marker (the control).
-func TestMessagesRefuseCacheControlByName(t *testing.T) {
-	marker := map[string]any{"type": "ephemeral"}
-	for name, tc := range map[string]struct {
-		body  map[string]any
-		param string
-	}{
-		"a text block": {messagesBody(map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
-			map[string]any{"type": "text", "text": "x", "cache_control": marker}}}}}), "messages[0].content[0].cache_control"},
-		"a tool result block": {messagesBody(map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
-			map[string]any{"type": "tool_result", "tool_use_id": "a", "content": []any{map[string]any{"type": "text", "text": "x", "cache_control": marker}}}}}}}), "messages[0].content[0].content[0].cache_control"},
-		"system":      {messagesBody(map[string]any{"system": []any{map[string]any{"type": "text", "text": "x", "cache_control": marker}}}), "system[0].cache_control"},
-		"a tool":      {messagesBody(map[string]any{"tools": []any{map[string]any{"name": "a", "input_schema": map[string]any{}, "cache_control": marker}}}), "tools[0].cache_control"},
-		"the request": {messagesBody(map[string]any{"cache_control": marker}), "cache_control"},
+// cache_control is accepted wherever the dialect puts it and ignored: the
+// request is served, the answer says it was ignored, and nothing reaches the
+// provider. Claude Code puts one on every request. A key of that name inside a
+// tool's own schema is data, not a marker, and must survive untouched (the
+// control), as must a request with no marker at all (no header).
+func TestMessagesAcceptAndIgnoreCacheControl(t *testing.T) {
+	marker := map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global"}
+	for name, body := range map[string]map[string]any{
+		"a text block": messagesBody(map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "text", "text": "x", "cache_control": marker}}}}}),
+		"a tool result block": messagesBody(map[string]any{"messages": []any{
+			map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "a", "name": "lookup", "input": map[string]any{}, "cache_control": marker}}},
+			map[string]any{"role": "user", "content": []any{
+				map[string]any{"type": "tool_result", "tool_use_id": "a", "content": []any{map[string]any{"type": "text", "text": "x", "cache_control": marker}}}}}},
+			"tools": []any{lookupTool}}),
+		"system":      messagesBody(map[string]any{"system": []any{map[string]any{"type": "text", "text": "x", "cache_control": marker}}}),
+		"a tool":      messagesBody(map[string]any{"tools": []any{map[string]any{"name": "a", "input_schema": map[string]any{}, "cache_control": marker}}}),
+		"the request": messagesBody(map[string]any{"cache_control": marker}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t, harnessOptions{})
-			failure := anthropicRefusal(t, h.post("/v1/messages", validKey, tc.body), http.StatusBadRequest, "invalid_request_error")
-			if !strings.HasPrefix(failure.Error.Message, tc.param+": ") || !strings.Contains(failure.Error.Message, "cache") {
-				t.Errorf("message = %q, want it to name %s", failure.Error.Message, tc.param)
+			response := h.post("/v1/messages", validKey, body)
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("%d %s", response.StatusCode, response.Body)
 			}
-			if len(h.oxy.authorizationBodies()) != 0 || h.adapter.called() != 0 {
-				t.Error("a refused request was authorized or executed")
+			if got := response.Header.Get(publicapi.HeaderIgnoredParameters); got != "cache_control" {
+				t.Errorf("%s = %q, want cache_control", publicapi.HeaderIgnoredParameters, got)
+			}
+			if strings.Contains(h.oxy.authorizationBodies()[0], "ephemeral") {
+				t.Error("the marker reached Oxy")
 			}
 		})
 	}
@@ -319,9 +325,91 @@ func TestMessagesRefuseCacheControlByName(t *testing.T) {
 	h := newHarness(t, harnessOptions{})
 	control := messagesBody(map[string]any{"tools": []any{map[string]any{"name": "a", "input_schema": map[string]any{
 		"type": "object", "properties": map[string]any{"cache_control": map[string]any{"type": "string"}}}}}})
-	if response := h.post("/v1/messages", validKey, control); response.StatusCode != http.StatusOK {
-		t.Errorf("a schema property named cache_control was refused: %d %s", response.StatusCode, response.Body)
+	response := h.post("/v1/messages", validKey, control)
+	if response.StatusCode != http.StatusOK || response.Header.Get(publicapi.HeaderIgnoredParameters) != "" {
+		t.Fatalf("a schema property named cache_control: %d, %s = %q", response.StatusCode, publicapi.HeaderIgnoredParameters, response.Header.Get(publicapi.HeaderIgnoredParameters))
 	}
+	tools := h.adapter.lastCall().Tools
+	if len(tools) != 1 || !strings.Contains(string(mustJSON(t, tools[0].Parameters)), "cache_control") {
+		t.Errorf("the caller's own cache_control property was removed: %+v", tools)
+	}
+	plain := h.post("/v1/messages", validKey, messagesBody(nil))
+	if plain.StatusCode != http.StatusOK || plain.Header.Get(publicapi.HeaderIgnoredParameters) != "" {
+		t.Errorf("a request without a marker: %d, header %q", plain.StatusCode, plain.Header.Get(publicapi.HeaderIgnoredParameters))
+	}
+}
+
+// The request Claude Code actually sends: an adaptive thinking block with a
+// display hint, a context_management edit list and tools carrying defer_loading,
+// beside a normal effort and metadata. All three extras are accepted and
+// ignored, named in Kaana-Ignored-Parameters in a fixed order, and what the tool
+// means (name, schema) still reaches the provider. A member that is NOT on the
+// list is still refused, so the list is a decision and not a loosening.
+func TestMessagesAcceptWhatClaudeCodeSends(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	body := messagesBody(map[string]any{
+		"stream":             false,
+		"thinking":           map[string]any{"type": "adaptive", "display": "omitted"},
+		"context_management": map[string]any{"edits": []any{map[string]any{"type": "clear_tool_uses_20250919", "keep": "all"}}},
+		"output_config":      map[string]any{"effort": "high"},
+		"metadata":           map[string]any{"user_id": "u"},
+		"tools": []any{map[string]any{"name": "lookup", "description": "Look a thing up.", "defer_loading": true,
+			"input_schema": map[string]any{"type": "object", "properties": map[string]any{}}}},
+	})
+	response := h.post("/v1/messages", validKey, body)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", response.StatusCode, response.Body)
+	}
+	if got := response.Header.Get(publicapi.HeaderIgnoredParameters); got != "context_management, thinking.display, tools.defer_loading" {
+		t.Errorf("%s = %q", publicapi.HeaderIgnoredParameters, got)
+	}
+	call := h.adapter.lastCall()
+	if len(call.Tools) != 1 || call.Tools[0].Name != "lookup" || call.Reasoning == nil || call.Reasoning.Effort == nil || *call.Reasoning.Effort != contract.ReasoningEffortHigh {
+		t.Errorf("what the tool and the effort mean was lost: tools %+v, reasoning %+v", call.Tools, call.Reasoning)
+	}
+	for _, unknown := range []map[string]any{{"context_managements": map[string]any{}}, {"thinking": map[string]any{"type": "adaptive", "displays": "omitted"}}} {
+		failure := anthropicRefusal(t, h.post("/v1/messages", validKey, messagesBody(unknown)), http.StatusBadRequest, "invalid_request_error")
+		if failure.Error.Message == "" {
+			t.Errorf("%v was not refused", unknown)
+		}
+	}
+}
+
+// Claude Code sends a system-role message after the user's turn. It is carried as
+// a system message in the position it was sent, text only; a system message with
+// an image is refused naming the block.
+func TestMessagesCarryAMidConversationSystemMessage(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	body := messagesBody(map[string]any{"messages": []any{
+		map[string]any{"role": "user", "content": "Hola"},
+		map[string]any{"role": "system", "content": []any{map[string]any{"type": "text", "text": "Answer in French."}}},
+	}})
+	if response := h.post("/v1/messages", validKey, body); response.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", response.StatusCode, response.Body)
+	}
+	input := h.adapter.lastCall().Input.Messages
+	if len(input) != 2 || input[0].Role != contract.RoleUser || input[1].Role != contract.RoleSystem {
+		t.Fatalf("messages = %+v, want user then system", input)
+	}
+	image := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "AAAA"}}
+	bad := messagesBody(map[string]any{"messages": []any{map[string]any{"role": "system", "content": []any{image}}}})
+	failure := anthropicRefusal(t, h.post("/v1/messages", validKey, bad), http.StatusBadRequest, "invalid_request_error")
+	if !strings.HasPrefix(failure.Error.Message, "messages[0].content[0]: ") {
+		t.Errorf("message = %q", failure.Error.Message)
+	}
+	unknown := messagesBody(map[string]any{"messages": []any{map[string]any{"role": "tool", "content": "x"}}})
+	if failure := anthropicRefusal(t, h.post("/v1/messages", validKey, unknown), http.StatusBadRequest, "invalid_request_error"); !strings.HasPrefix(failure.Error.Message, "messages[0].role: ") {
+		t.Errorf("an unknown role: %q", failure.Error.Message)
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 // What the contract cannot carry is refused by name, and what maps cleanly is
@@ -333,7 +421,6 @@ func TestMessagesRefuseWhatTheContractCannotCarry(t *testing.T) {
 		param string
 	}{
 		"thinking enabled without a budget": {map[string]any{"thinking": map[string]any{"type": "enabled"}}, "thinking"},
-		"thinking with a display":           {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048, "display": "summarized"}}, "thinking"},
 		"a budget beside an effort": {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048},
 			"output_config": map[string]any{"effort": "low"}}, "thinking.budget_tokens"},
 		"a thinking block on a user message": {map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{

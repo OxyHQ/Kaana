@@ -116,7 +116,7 @@ func TestWritePublicWireFixtures(t *testing.T) {
 	leak("anthropicErrorSchema", "provider-leak", refusedMessage.Body, "providerError", map[string]any{"provider": "stub"})
 	delete(anthropic, "stream")
 	anthropic["cache_control"] = map[string]any{"type": "ephemeral"}
-	add("anthropicErrorSchema", "cache-control-refused", h.post("/v1/messages", validKey, anthropic).Body)
+	add("anthropicMessageSchema", "cache-control-ignored", h.post("/v1/messages", validKey, anthropic).Body)
 
 	// Speech frames, transcription, errors.
 	for index, frame := range readSSE(t, h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel", "stream": true, "stream_format": "sse"})) {
