@@ -12,6 +12,17 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.3.0: Anthropic Messages (`POST /v1/messages`)
+
+MINOR, `@kaana.ai/contracts` 8.3.0. Additive; everything 8.2.0 parses still
+parses. `anthropicMessagesRequestSchema`, `anthropicMessageSchema`,
+`anthropicStreamEventSchema` and `anthropicErrorSchema` are public shapes only:
+the endpoint is served as the `responses` operation, so the signed grant and
+envelope are unchanged. All four are `notApplicable` to the Go descriptor test
+(Go decodes the request by hand and the wire-fixture gate parses every body it
+writes with these schemas). What is supported and what is refused, and why
+`cache_control` is refused, is in [anthropic-messages.md](anthropic-messages.md).
+
 ## Contract set 8.2.0: image input (ADR 0007)
 
 MINOR, `@kaana.ai/contracts` 8.2.0. Additive; everything 8.1.0 parses still

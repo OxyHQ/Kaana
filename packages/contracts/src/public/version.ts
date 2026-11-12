@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.2.0';
+export const INFERENCE_CONTRACT_VERSION = '8.3.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -197,6 +197,12 @@ export const INFERENCE_CONTRACT_VERSION = '8.2.0';
  * grant fact `inputImages`. Every 8.1.0 message parses the same; a consumer on
  * 8.1.0 or earlier refuses a declared catalogue or an authorization carrying
  * what is new, so Oxy reads them before Kaana publishes them.
+ *
+ * Contract set 8.3.0 is additive: the Anthropic-Messages-compatible
+ * `POST /v1/messages` (`anthropicMessagesRequestSchema`,
+ * `anthropicMessageSchema`, `anthropicStreamEventSchema`,
+ * `anthropicErrorSchema`). Nothing in 8.2.0 changes, and the signed grant and
+ * envelope are untouched: the endpoint is served as the `responses` operation.
  */
 
 /** The public API's one origin and version. */

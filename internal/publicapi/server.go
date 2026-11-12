@@ -194,6 +194,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/power-levels", s.handlePowerLevels)
 	mux.HandleFunc("POST /v1/responses", s.timed(s.handleResponses))
 	mux.HandleFunc("POST /v1/chat/completions", s.timed(s.handleChatCompletions))
+	mux.HandleFunc("POST /v1/messages", s.timed(s.handleMessages))
 	mux.HandleFunc("POST /v1/embeddings", s.timed(s.handleEmbeddings))
 	mux.HandleFunc("POST /v1/audio/speech", s.timed(s.handleSpeech))
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.timed(s.handleTranscriptions))
@@ -230,7 +231,7 @@ func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 /* -------------------------------------------------------------------------- */
 
 var (
-	corsAllowedHeaders = strings.Join([]string{"Authorization", "Content-Type", HeaderContractVersion, HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
+	corsAllowedHeaders = strings.Join([]string{"Authorization", HeaderAPIKey, "Anthropic-Version", "Content-Type", HeaderContractVersion, HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
 	corsExposedHeaders = strings.Join([]string{
 		HeaderRequestID, HeaderContractVersion, HeaderModel, HeaderUsage,
 		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After", HeaderDeprecation, HeaderSunset, "Link", HeaderServerTiming,

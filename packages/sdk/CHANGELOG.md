@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.6.0
+
+Depend on contracts 8.3.0: the client states contract set 8.3.0, which adds the
+Anthropic-Messages-compatible `POST /v1/messages`. The SDK adds no method for
+it: that endpoint is for Anthropic's own SDK and Claude Code, pointed at
+`https://kaana.ai`. The request shapes the SDK sends are unchanged.
+
 ## 3.5.0
 
 Depend on contracts 8.2.0: the client states contract set 8.2.0, whose image

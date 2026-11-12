@@ -11,6 +11,7 @@
  * Oxy Console (`https://console.oxy.so`), never here.
  */
 
+export * from './public/anthropicMessages.js';
 export * from './public/audio.js';
 export * from './public/audioFormats.js';
 export * from './public/catalogue.js';

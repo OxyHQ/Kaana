@@ -324,7 +324,7 @@ export const toolDefinitionSchema = z
   .object({
     type: z.literal('function'),
     name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
-    description: z.string().check(maxUtf16Length(2000)).optional(),
+    description: z.string().check(maxUtf16Length(32768)).optional(),
     parameters: z.record(z.string(), z.unknown()),
     /** Ask the provider to enforce the schema, where it supports enforcement. */
     strict: z.boolean().optional(),
