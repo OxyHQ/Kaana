@@ -902,6 +902,15 @@ compare percentiles over many runs.
 KAANA_API_KEY=oxy_sk_... go run ./cmd/kaana-eval -runs 20 -max-tokens 128 openai/gpt-5.4-mini anthropic/claude-haiku-5.5
 ```
 
+`.github/workflows/kaana-eval.yml` runs it weekly and keeps the JSON lines as a
+run artifact, but **only after an operator opts in**: it is skipped unless the
+repository variable `KAANA_EVAL_ENABLED` is `true`, and it needs the secret
+`KAANA_EVAL_API_KEY` (a credential for a dedicated, budgeted account) and
+`KAANA_EVAL_MODELS`. Spend is bounded by models x `KAANA_EVAL_RUNS` (default 5,
+at most 50) x `KAANA_EVAL_MAX_TOKENS` (default 128, at most 1024). It feeds no
+telemetry and reorders nothing.
+
+
 ## The declared catalogue
 
 `configs/public-catalogue.json` is Kaana's catalogue and nobody else's (ADR 0002,
