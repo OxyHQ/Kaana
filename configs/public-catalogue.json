@@ -4161,12 +4161,14 @@
       "releasedAt": "2025-06-05T15:27:37.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5b4b-741e-90f0-59457a8faf63",
@@ -4254,12 +4256,14 @@
       "releasedAt": "2025-12-17T15:57:58.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5b5e-72ab-b1a2-08314bdc9464",
@@ -4347,12 +4351,14 @@
       "releasedAt": "2026-05-07T15:47:08.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5b71-7af7-b920-f99759f5ca7e",
@@ -4440,12 +4446,14 @@
       "releasedAt": "2026-02-19T14:00:27.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5b96-765f-b90c-8d8c32e3bbc8",
@@ -4534,12 +4542,14 @@
       "releasedAt": "2026-05-19T12:30:00.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5bbe-7653-9972-aa8b26801f4e",
@@ -4628,12 +4638,14 @@
       "releasedAt": "2026-07-21T15:12:06.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5bd1-7584-ad3b-795e82febc01",
@@ -4722,12 +4734,14 @@
       "releasedAt": "2026-07-21T15:12:13.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5be4-7416-95b9-789f0feaf6ba",
@@ -4816,12 +4830,14 @@
       "releasedAt": "2026-08-13T17:03:01.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0d808-5bfb-77c3-9d20-7ded31f3a5c9",
@@ -4910,12 +4926,14 @@
       "releasedAt": "2026-09-02T15:14:16.000Z",
       "regions": [],
       "dataPolicy": {
-        "retainsPayloads": false,
-        "retentionDays": 0,
+        "retainsPayloads": true,
+        "retentionDays": 90,
         "trainsOnCustomerData": false,
-        "zeroDataRetentionAvailable": true,
-        "subprocessors": [],
-        "policyUrl": "https://openrouter.ai/docs/guides/privacy/provider-logging"
+        "zeroDataRetentionAvailable": false,
+        "subprocessors": [
+          "Google"
+        ],
+        "policyUrl": "https://openrouter.ai/docs/guides/features/zdr"
       },
       "pricing": {
         "priceVersionId": "01a0f258-73e9-7b75-9ed6-05ceaa5ae23b",
