@@ -1,8 +1,8 @@
 # ADR 0008 — Provider selection: what Kaana adopts from OpenRouter, and what it refuses
 
 - Status: accepted. Decisions 1, 3, 4 and 6 are implemented; decision 5
-  (zero retention) is recorded as a dependency and still needs the operator's
-  call on Safety Retention.
+  (Safety Retention) is implemented for models that have a plain endpoint and
+  recorded as an operator dependency for those that do not.
 - Date: 2026-11-12
 - Source: OpenRouter's provider-selection, traffic-routing, model-fallbacks and
   zero-data-retention guides, read 2026-11-12.
@@ -56,12 +56,19 @@ are not gaps.
    only, bounded, while it is still in the grant's admitted set and in rotation.
    It never outranks the funding tier, the grant's line order or an explicit
    `provider.order`.
-5. **Zero retention means zero retention.** OpenRouter's `zdr: true` also admits
-   "Safety Retention" endpoints (retained only to detect abuse) unless the
-   account or guardrail is set to ZDR only. Kaana's claim of zero retention is
-   true only while that account setting holds, so the publisher's use of
-   `/endpoints/zdr` is recorded as depending on it
-   ([inventory](../inventory.md)), and the setting is part of the rollout check.
+5. **Safety Retention endpoints are avoided where something plain exists.**
+   OpenRouter's `zdr: true` also admits endpoints that keep prompts for abuse
+   detection (Google through Vertex, up to 90 days) unless the account is set to
+   ZDR only, and the zero-retention list marks them `safety_retention`. For a
+   model that also has a plain endpoint the publisher publishes the Safety
+   Retention upstreams as `observed.avoidUpstreams`, the request names them in
+   `provider.ignore`, and they stop describing what the route can reach (6 models
+   today). A model with only Safety Retention endpoints (12 Gemini models in the
+   inventory) is kept, not withdrawn: nothing plain exists to route to, and
+   withdrawing it would remove a customer-visible route. Its zero-retention
+   statement depends on the OpenRouter account being ZDR only, which is an
+   operator check ([inventory](../inventory.md)). Withdrawing those models is
+   left to the owner, who can make it by marking them unservable.
 6. **Caller preferences that only narrow are accepted** (contract 8.5.0). An
    optional `provider` object on chat completions and responses, in
    OpenRouter's names so a client written for OpenRouter works: `order`, `only`,

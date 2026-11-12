@@ -45,7 +45,7 @@ func (a *Adapter) translateSpoken(request *contract.Request, route provider.Rout
 	var policy any
 	if a.config.Provider == "openrouter" {
 		// The same non-negotiable controls a text request carries.
-		policy = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true}
+		policy = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true, Ignore: route.AvoidUpstreams}
 	}
 	call, err := spokenchat.Translate(request, route, a.config.BaseURL+"/chat/completions", a.spokenDialect(), policy)
 	if err != nil {

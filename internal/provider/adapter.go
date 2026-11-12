@@ -107,6 +107,10 @@ type Route struct {
 	// published at (inventory `observed`), sorted. Empty is UNKNOWN. A caller's
 	// `provider.quantizations` filters on it; nothing is ever sent from it.
 	Quantizations []string
+	// AvoidUpstreams are OpenRouter upstream slugs this route's request names in
+	// `provider.ignore`, because their only endpoints for the model keep prompts
+	// for abuse detection. Only the OpenRouter adapter reads it.
+	AvoidUpstreams []string
 	// CustomerProviderCredential is the exact non-secret binding Oxy signed for
 	// this route. Nil means the provider call uses Kaana's platform pool.
 	CustomerProviderCredential *contract.CustomerProviderCredential

@@ -247,7 +247,7 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 			// collection, so the request is served only from an endpoint in
 			// OpenRouter's zero-retention list, which the publisher already
 			// requires of every OpenRouter deployment (internal/publisher/zdr.go).
-			embedding.Provider = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true}
+			embedding.Provider = &openRouterProviderPolicy{ZDR: true, DataCollection: "deny", RequireParameters: true, Ignore: route.AvoidUpstreams}
 		}
 		headers := make(http.Header, len(a.config.Headers))
 		for name, value := range a.config.Headers {
@@ -320,6 +320,7 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 			ZDR:               true,
 			DataCollection:    "deny",
 			RequireParameters: true,
+			Ignore:            route.AvoidUpstreams,
 		}
 	}
 	if request.Stream {
