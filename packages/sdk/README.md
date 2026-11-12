@@ -111,6 +111,18 @@ The API is also compatible with the OpenAI SDK for chat completions:
 completions never carries reasoning; use `responses` (or `/v1/messages` with
 Anthropic's SDK) for it.
 
+### Repairing nearly valid JSON
+
+A model asked for `json_object` or `json_schema` sometimes answers with a code
+fence, prose around the value, a trailing comma or a missing closer. Pass
+`responseFormat: { type: 'json_object', repair: true }` (also on `json_schema`) to
+`responses.create` and Kaana repairs it deterministically when the model ended
+normally (`finishReason: 'stop'`), marking a changed answer with the response
+header `Kaana-Repaired: true`. It is off by default, refused with a streamed
+request, never applied to an answer cut by `maxOutputTokens`, and checks nothing
+against your `schema`: a repaired answer is valid JSON, not necessarily a valid
+instance. See `docs/json-repair.md` in the Kaana repository.
+
 ### Reasoning and tool turns
 
 A thinking model that calls a tool must be given its own reasoning back to

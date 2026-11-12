@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.8.0';
+export const INFERENCE_CONTRACT_VERSION = '8.9.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -225,6 +225,13 @@ export const INFERENCE_CONTRACT_VERSION = '8.8.0';
  * is emitted only to a request that carried `reasoning`. A consumer on 8.5.0 or
  * earlier (Oxy's legacy signed lane) refuses a message or request that carries
  * what is new, so Oxy reads it before a customer sends it.
+ *
+ * Contract set 8.9.0 is additive: the optional `repair` member of
+ * `POST /v1/responses`'s `responseFormat` (`responsesResponseFormatSchema`, Kaana
+ * ADR 0009 decision 5) and the response header `Kaana-Repaired`. It is a public
+ * request member only: the signed grant and envelope are unchanged, and a
+ * response carries no new body member, so every older reader parses what 8.9.0
+ * serves.
  */
 
 /** The public API's one origin and version. */
@@ -262,6 +269,13 @@ export const KAANA_USAGE_HEADER = 'Kaana-Usage';
  */
 export const KAANA_ROUTING_POLICY_ID_HEADER = 'Kaana-Routing-Policy-Id';
 export const KAANA_ROUTING_POLICY_VERSION_HEADER = 'Kaana-Routing-Policy-Version';
+
+/**
+ * The response header Kaana sets to `true` when it changed the model's JSON
+ * text because the request asked for `responseFormat.repair` (contract set
+ * 8.9.0). Absent otherwise.
+ */
+export const KAANA_REPAIRED_HEADER = 'Kaana-Repaired';
 
 /** The request header that names the end user a service token acts for. */
 export const KAANA_ON_BEHALF_OF_HEADER = 'X-Oxy-User-Id';

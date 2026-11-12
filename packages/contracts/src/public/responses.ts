@@ -16,7 +16,6 @@ import {
   inferenceMessageSchema,
   inferenceReasoningSchema,
   requestLabelsSchema,
-  responseFormatSchema,
   toolChoiceSchema,
   toolDefinitionSchema,
 } from './messages.js';
@@ -32,6 +31,35 @@ import { inferenceFinishReasonSchema } from './streamEvents.js';
  * the string alone).
  */
 export const modelTargetSchema = z.union([modelReferenceSchema, powerLevelSchema]);
+
+/**
+ * The response format of `POST /v1/responses`: the signed request's format
+ * (`responseFormatSchema`) and, on the two JSON formats, `repair` (contract set
+ * 8.9.0, Kaana ADR 0009 decision 5).
+ *
+ * `repair: true` asks Kaana to repair nearly valid JSON in the final text of a
+ * non-streaming answer that ended with `stop`: a surrounding code fence, prose
+ * around the value, trailing commas, closers a normal stop forgot. It never
+ * changes text that already parses, never repairs an answer cut by the token
+ * limit (`length`) or ended by a filter, a refusal or a tool call, and checks
+ * nothing against `schema` (Kaana carries no validator). A repaired answer is
+ * marked by the response header `Kaana-Repaired: true`, never by a body
+ * member. It is refused on `text` and with `stream: true`, and it is not part of
+ * the signed request: no provider and no Oxy sees it. Default off.
+ */
+export const responsesResponseFormatSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text') }).strict(),
+  z.object({ type: z.literal('json_object'), repair: z.boolean().optional() }).strict(),
+  z
+    .object({
+      type: z.literal('json_schema'),
+      name: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)),
+      schema: z.record(z.string(), z.unknown()),
+      strict: z.boolean(),
+      repair: z.boolean().optional(),
+    })
+    .strict(),
+]);
 
 /** The message-or-text input `/v1/responses` accepts. */
 const responsesInputSchema = z.union([
@@ -66,7 +94,7 @@ export const responsesRequestSchema = z
       .optional(),
     tools: z.array(toolDefinitionSchema).max(128).optional(),
     toolChoice: toolChoiceSchema.optional(),
-    responseFormat: responseFormatSchema.optional(),
+    responseFormat: responsesResponseFormatSchema.optional(),
     /** Refused when the resolved model does not advertise the effort. */
     reasoning: inferenceReasoningSchema.optional(),
     labels: requestLabelsSchema.optional(),
@@ -79,6 +107,18 @@ export const responsesRequestSchema = z
   })
   .strict()
   .superRefine((request, ctx) => {
+    if (
+      request.responseFormat !== undefined &&
+      'repair' in request.responseFormat &&
+      request.responseFormat.repair === true &&
+      request.stream === true
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['responseFormat', 'repair'],
+        message: 'repair works on a whole answer and cannot be used with stream: true',
+      });
+    }
     if (request.toolChoice !== undefined && (request.tools ?? []).length === 0) {
       ctx.addIssue({
         code: 'custom',
@@ -118,6 +158,7 @@ export const responseSchema = z
   })
   .strict();
 
+export type ResponsesResponseFormat = z.infer<typeof responsesResponseFormatSchema>;
 export type ModelTarget = z.infer<typeof modelTargetSchema>;
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
 export type Response = z.infer<typeof responseSchema>;

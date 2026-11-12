@@ -1,5 +1,20 @@
 # Changelog
 
+## 8.9.0
+
+Opt-in JSON repair (Kaana ADR 0009 decision 5). Additive: everything 8.8.0
+parses still parses.
+
+- `POST /v1/responses`' `responseFormat` (`responsesResponseFormatSchema`) gains
+  `repair?: boolean` on `json_object` and `json_schema`. `repair: true` asks
+  Kaana to repair nearly valid JSON (a code fence, prose around the value,
+  trailing commas, closers a normal stop forgot) in the final text of a
+  non-streaming answer that ended with `stop`. Default off; refused with
+  `stream: true`. It is a public request member only: the signed grant and
+  envelope (`responseFormatSchema`) are unchanged.
+- A repaired answer carries the response header `Kaana-Repaired: true`
+  (`KAANA_REPAIRED_HEADER`), never a body member, so no older reader is affected.
+
 ## 8.8.0
 
 An optional prompt-cache breakpoint, `cacheBreakpoint`, on a `text`, `image` or

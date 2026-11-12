@@ -522,6 +522,7 @@ var notApplicable = map[string]string{
 	"responseSchema":                 "public api (phase 3): POST /v1/responses response",
 	"responseStreamEventSchema":      "public api (phase 3): POST /v1/responses stream",
 	"responsesRequestSchema":         "public api (phase 3): POST /v1/responses request",
+	"responsesResponseFormatSchema":  "public api (phase 3): POST /v1/responses response format; the signed responseFormatSchema plus repair, which is Kaana-side only (publicapi.responsesResponseFormat)",
 	"voiceSchema":                    "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
 
 	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
@@ -533,7 +534,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 64
+const expectedNotApplicableCount = 65
 
 type enumBinding struct {
 	goType  reflect.Type
