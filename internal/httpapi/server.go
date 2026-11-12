@@ -1,8 +1,9 @@
-// Package httpapi is Kaana's Oxy-facing surface.
+// Package httpapi is the signed lane: Kaana's Oxy-facing surface.
 //
-// It has internal signed routes and no customer-facing one. Kaana is not on the
-// public internet's path to a customer: the Oxy edge authenticates, attributes,
-// authorizes and reserves, then forwards a signed envelope here.
+// It has internal signed routes and no customer-facing one; the customer-facing
+// API (`https://kaana.ai/v1`) is internal/publicapi. On this lane the Oxy edge
+// authenticates, attributes, authorizes and reserves, then forwards a signed
+// envelope here (docs/lanes.md).
 //
 //	POST /internal/v1/inference     signed envelope in, normalized event stream out
 //	GET  /internal/v1/realtime      WebSocket; signed first frame opens or resumes a session

@@ -21,6 +21,12 @@ there is no provider-key fallback outside its database.
 | `KAANA_PROVIDER_RATES_PATH` | no | upstream rate cards; absent means cost is not measured |
 | `KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` | no | how long an upstream may take to send response HEADERS, default `90s` |
 | `KAANA_PROVIDER_STREAM_IDLE_TIMEOUT` | no | how long a streamed response may go without one real frame once its headers are in, default `300s`; keep-alive comments do not count. A stall ends the attempt as a retryable `provider_timeout`. The body's total length is never bounded |
+| `KAANA_PUBLIC_API_ENABLED` | no | `true` serves `https://kaana.ai/v1` and `GET /internal/v1/settlements`; default `false`, so a merge is not an exposure. When true, `KAANA_SETTLEMENT_SIGNING_KEY` and the declared catalogue are required |
+| `KAANA_SETTLEMENT_SIGNING_KEY` | when the public API is on | `<key-id>:<base64 Ed25519 seed>`: the key Kaana signs its settlements with; Oxy looks the public half up by the key id. **A private key read from the environment**, the one such exception to "no secret in an env var": its custody has to be settled before it signs anything financial ([ADR 0010](adr/0010-kaana-sells-and-invoices.md)) |
+| `KAANA_OXY_AUTHORIZATION_TIMEOUT` | no | deadline for the grant request to Oxy, default `10s`; past it the request fails `service_unavailable`, there is no degraded mode |
+| `KAANA_CORS_ALLOWED_ORIGINS` | no | comma-separated browser origins allowed to call the public API; empty allows none |
+| `KAANA_PUBLIC_RATE_PER_SECOND` | no | per-credential token bucket on the public API, a positive number; burst is twice the rate; default 50 per second, burst 100. Per task, so two tasks double it |
+| `KAANA_REALTIME_PEER_VPC_CIDR` | in ECS | the VPC range a realtime peer's private address must fall in; placement comes only from ECS container metadata, never from the client ([realtime.md](realtime.md)) |
 | `KAANA_PUBLIC_CATALOGUE_PATH` | no | the declared catalogue (`configs/public-catalogue.json`). The image sets `/etc/kaana-catalogue/public-catalogue.json` and the task restates it; unset (a process outside the image) is an empty catalogue: `/v1/models` lists nothing and `declaredCatalogue` carries no model. See "The declared catalogue" |
 | `KAANA_INVENTORY_MAX_AGE` | no | staleness horizon, default `1h` |
 | `KAANA_INVENTORY_RELOAD_INTERVAL` | no | default `30s` |
@@ -1001,16 +1007,22 @@ sorted by `deploymentId`), cite the evidence in the commit, run `make check`.
 
 ## Container and deployment
 
-The image contains five static binaries:
+The image contains six static binaries:
 
-- `/usr/local/bin/kaana` serves inference;
+- `/usr/local/bin/kaana` serves inference, on both lanes ([lanes.md](lanes.md));
 - `/usr/local/bin/kaana-publisher` publishes inventory;
-- `/usr/local/bin/kaana-credentials` is for one-shot administration.
+- `/usr/local/bin/kaana-credentials` is for one-shot administration;
+- `/usr/local/bin/kaana-probe` polls `127.0.0.1:8080/livez`; it is the canary's
+  sidecar, because the image has no shell;
 - `/usr/local/bin/kaana-credential-control` accepts signed customer-BYOK
   create/rotate/revoke mutations under an encrypt-only task role.
 - `/usr/local/bin/kaana-platform-credential-control` accepts signed platform
   pool imports and rotations under a separate encrypt-only task role. Its
   public signing keys and signature domain are distinct from customer BYOK.
+
+`kaana-platform-credential-import` (an operator-host client) and `kaana-eval` (a
+latency benchmark through the public API, run by `kaana-eval.yml`) are built from
+the same repository but are not in the image.
 
 The platform control task is reachable only through verified HTTPS inside the
 VPC. The operator client sends the provider secret as strict base64 in the

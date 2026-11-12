@@ -83,13 +83,13 @@ for an exact upstream billing fact, `rate_card` for a calculated estimate, or
 `unknown`. The last state has no currency or amount and therefore cannot be
 summed as free traffic.
 
-Provider-owned pricing, balance and quota APIs are collected behind
-`internal/providertelemetry`. Their observations carry the opaque provider key
-id, source, exact/estimated/unknown certainty, source version and freshness
-window. An unavailable, stale or malformed provider response becomes an
-explicit unknown observation. The controlled projection contains no plaintext
-credential and is intended only for a separately authenticated operator path
-into Oxy; it is never attached to an inference response.
+Provider-owned pricing, balance and quota APIs are not polled (see "Explicitly out
+of scope" in [architecture.md](architecture.md)): what an operator reads is the
+per-attempt cost and telemetry below, through the signed provider-telemetry feeds.
+Every observation carries the opaque provider key id and never a plaintext
+credential, and none is attached to an inference response. (An earlier
+`internal/providertelemetry` collector for those APIs had no caller and was
+removed.)
 
 ## Per-attempt telemetry and rate-card history
 
