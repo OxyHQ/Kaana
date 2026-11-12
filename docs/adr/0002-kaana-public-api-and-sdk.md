@@ -1,5 +1,8 @@
 # ADR 0002 — Kaana sirve su API pública `https://kaana.ai/v1`, resuelve los niveles de potencia y publica su propio SDK; Oxy Console gestiona, Oxy autoriza, reserva y liquida
 
+> **Status note (2026-11-12).** This ADR is in Spanish and is the longest in the repository. It is accepted and most of it is implemented: Kaana serves `https://kaana.ai/v1`, resolves levels and keys (`internal/publicapi`), and publishes its own SDK. Its phase plan, its 2026-10-15 consumer snapshot and its list of superseded text are history. The current English statement of the lanes is [lanes.md](../lanes.md); decision 1 (no accounts of its own) and decision 3 (no customer amounts) are what [ADR 0010](0010-kaana-sells-and-invoices.md) proposes to change.
+
+
 - Status: accepted (el dueño lo aceptó el 2026-10-15; sus respuestas al
   primer borrador están incorporadas como decisiones)
 - Date: 2026-10-15

@@ -9,10 +9,10 @@ import (
 // usage shape Kaana produces.
 //
 // No money and no price appear on it. Kaana measures units and names the route
-// it used; the control plane decides what that costs. Keeping the two apart is
-// what allows a price to be corrected after the fact without re-running or
-// re-measuring anything, and it is the reason there is no Money type in this
-// package at all.
+// it used; the amount is derived from the units and an immutable price version.
+// Keeping the two apart is what allows a price to be corrected after the fact
+// without re-running or re-measuring anything. (contract.Money exists only to
+// relay a value such as a grant's ceiling; it never appears on a usage report.)
 type UsageReport struct {
 	SchemaVersion          int             `json:"schemaVersion"`
 	RequestID              RequestID       `json:"requestId"`

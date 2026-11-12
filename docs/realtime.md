@@ -4,8 +4,8 @@ A realtime session is the one inference family that is not a request: a signed
 session request opens a long-lived WebSocket conversation, the client keeps
 sending commands, and Kaana keeps sending events, for up to an hour. It is one
 request for attribution, metering and settlement, and it settles exactly once.
-Contract: `@oxy.so/contracts` 4.5.0 (inference set 3.3.0: 3.2.0's session
-family plus the `session_milliseconds` unit), `inference/realtime.ts`; input
+Contract: `@kaana.ai/contracts`, `src/{public,internal}/realtime.ts` (the session
+family arrived in inference set 3.2.0, `session_milliseconds` in 3.3.0); input
 transcription and the realtime catalogue fields are `@kaana.ai/contracts`
 4.1.0 ("Input transcription"); since contract set 6.0.0 one canonical API
 whose every value Kaana translates or emulates per provider (Kaana ADR 0003,
@@ -27,9 +27,9 @@ This is fixed: the Oxy edge is built against it. It is reproduced exactly.
 
 > **Kaana realtime session wire (edge <-> Kaana), binding for both sides**
 >
-> Contract: @oxy.so/contracts 4.4.0 (inference set 3.2.0), module `inference/realtime.ts`
+> Contract: `@kaana.ai/contracts`, module `src/internal/realtime.ts`
 > (realtimeSessionRequestSchema, realtimeClientCommandSchema, realtimeServerEventSchema).
-> Go types: Kaana `internal/contract/realtime.go`, `realtime_wire.go` (branch feat/90-contracts-4.4).
+> Go types: Kaana `internal/contract/realtime.go`, `realtime_wire.go`.
 >
 > 1. Endpoint: `GET /internal/v1/realtime` on the Kaana runtime (same origin as
 >    `POST /internal/v1/inference`), WebSocket upgrade (RFC 6455). No subprotocol.
@@ -671,7 +671,7 @@ for the customer. Neither exists today (no `openai-realtime` rate card is
 checked in; "Operating it").
 
 **The signed-envelope lane refuses it.** `/internal/v1/realtime` is consumed
-by the Oxy edge, which settles with `@oxy.so/contracts`: its closed unit set
+by the Oxy edge, which settles against a closed unit set that
 has no `input_transcription_milliseconds`, so a report carrying it would be
 one the edge cannot parse. `kaana.Executor.OpenSession` refuses
 `config.inputAudioTranscription` at open (`invalid_request`, before anything is

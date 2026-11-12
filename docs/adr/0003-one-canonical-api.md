@@ -1,5 +1,8 @@
 # ADR 0003 — Una API canónica: ninguna variante de proveedor llega al cliente
 
+> **Status note (2026-11-12).** This ADR is in Spanish. Its rule, one canonical API and no provider variant reaching the client, is current; see [lanes.md](../lanes.md) and [anthropic-messages.md](../anthropic-messages.md) for how the public surface is served.
+
+
 - Status: accepted (decisión del dueño, 2026-10-16)
 - Date: 2026-10-16
 - Decided by: el dueño de Oxy («Kaana es un proveedor de inferencia con su

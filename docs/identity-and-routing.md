@@ -28,10 +28,12 @@ inference execution from Alia while preserving Alia's agent runtime.
 |---|---|---|
 | **Kaana** | provider adapters, authenticated provider-key pools, model deployments, routing execution, streaming, cancellation, provider health and technical usage | conversations, memory, tools, approvals, agent identity or product behavior |
 | **Alia** | conversations, agents, memory, tools, approvals, orchestration and assistant behavior | provider keys, provider adapters, model-deployment health or generic inference routing |
-| **Oxy** | authentication, applications, scopes, Oxy login/API credentials, provider-connection metadata, authorization, catalogue policy, spend reservation, settlement and customer billing | upstream provider-secret custody, provider execution or agent behavior |
+| **Oxy** | authentication, applications, scopes, Oxy login/API credentials, provider-connection metadata, authorization, routing policy, spend reservation, settlement and customer billing (today; [ADR 0010](adr/0010-kaana-sells-and-invoices.md) proposes moving the selling and invoicing to Kaana) | upstream provider-secret custody, provider execution or agent behavior |
 
-Every model invocation is authorized at the Oxy edge. Kaana accepts only the
-signed Oxy envelope; it is never a public credential issuer or a shortcut around
+Every model invocation is authorized by Oxy. On the signed lane Kaana accepts only
+the signed Oxy envelope; on the public lane (`https://kaana.ai/v1`) it forwards
+the caller's credential to Oxy and runs only what Oxy's signed grant allows
+([lanes.md](lanes.md)). Kaana is never a credential issuer or a shortcut around
 Oxy authorization. Developer access is managed in **Oxy Console**, the single
 console for every Oxy API: an application and its API keys are registered there
 whether they call Kaana, Alia or Mention. Alia, in turn, is the assistant

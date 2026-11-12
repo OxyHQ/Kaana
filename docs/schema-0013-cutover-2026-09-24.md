@@ -1,5 +1,9 @@
 # Schema 0013 serving cutover, 2026-09-24
 
+> **Historical record.** This describes one rollout as it was on the date in its title. It is not a rule and is not kept current; the live source of truth is named below.
+>
+> Live source of truth: the migrations in `internal/credentialstore/migrations` and [key-pools.md](key-pools.md).
+
 This record covers the production cutover of the exact deployment-credential
 runtime (schema 0013) and the xAI speech deployment that depends on it. The
 general procedure is in [`operating.md`](operating.md#schema-0013-staged-rollout).

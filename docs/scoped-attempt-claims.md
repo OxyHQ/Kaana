@@ -1,5 +1,8 @@
 # Scoped operation attempt claims (retired)
 
+> **Retired.** Contract set 7.0.0 removed the scoped permits this storage served. Kept only to explain migration 0020 and its table.
+
+
 Migration 0020 added durable at-most-one claim storage
 (`scoped_provider_attempt_claims`) and an `attempt_claimed` / `local_admission`
 branch of the credential-attempt recorder, for the one-off scoped and Private

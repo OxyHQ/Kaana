@@ -24,14 +24,18 @@ OPENAPI      := $(PACKAGE_DIR)/openapi.json
 
 .DEFAULT_GOAL := check
 
-.PHONY: check ci fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate sdk-package lockfile dockerignore cloudflare tools help
+.PHONY: check ci docs fmt build vet lint test test-integration contract contract-lint contract-package contract-generate contract-types contract-validate sdk-package lockfile dockerignore cloudflare tools help
 
 ## check: every gate CI runs, in CI's order. The one command to run before a PR.
-check: lockfile dockerignore fmt build vet lint test contract sdk-package cloudflare
+check: lockfile dockerignore docs fmt build vet lint test contract sdk-package cloudflare
 	@echo "all gates passed"
 
 ## ci: alias for check, for anyone reaching for the conventional name.
 ci: check
+
+## docs: every documentation link resolves and every docs/*.md is indexed.
+docs:
+	node tools/check-docs.mjs
 
 ## fmt: gofmt over the tree.
 #

@@ -1,5 +1,9 @@
 # First-party transport rollout
 
+> **Historical record.** This describes one rollout as it was on the date in its title. It is not a rule and is not kept current; the live source of truth is named below.
+>
+> Whether the rollout it describes completed is not recorded here; check the deployed task and the SDK release notes before relying on it.
+
 Source implementation: 2026-10-23. Authority follows ADR 0004. This record does
 not claim that the new SDK or outbound producer is deployed.
 

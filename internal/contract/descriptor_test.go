@@ -484,8 +484,8 @@ var notApplicable = map[string]string{
 	"inferenceHttpsUrlSchema":               "catalogue: documentation links appear only on catalogue descriptors",
 	"sha256DigestSchema":                    "catalogue: artifact digests appear only on Oxy's revision descriptors",
 
-	// Money and the ledger are Oxy's. Kaana measures units and never prices
-	// them; there is deliberately no Money type in this package.
+	// Money and the ledger are Oxy's today (ADR 0010 proposes moving them to
+	// Kaana). Kaana measures units; a usage report carries no amount.
 	"unitPriceSchema":     "ledger: Oxy owns pricing",
 	"priceSnapshotSchema": "ledger: Oxy owns pricing",
 
@@ -497,39 +497,38 @@ var notApplicable = map[string]string{
 	"anthropicMessageSchema":         "public api: POST /v1/messages response",
 	"anthropicMessagesRequestSchema": "public api: POST /v1/messages request; its union-typed members are decoded by hand",
 	"anthropicStreamEventSchema":     "public api: POST /v1/messages stream frames",
-	"chargedGenerationRecordSchema":  "public api (phase 3): GET /v1/generations record",
+	"chargedGenerationRecordSchema":  "public api: GET /v1/generations record",
 	"promptCacheKeySchema":           "public api: the prompt_cache_key / promptCacheKey request field; internal/publicapi decodes it and keeps it in Kaana (ADR 0008)",
 	"providerPreferencesSchema":      "public api: the `provider` request preference; internal/publicapi decodes it and only narrows the grant's routes, so it never reaches the signed envelope (ADR 0008)",
 	"providerQuantizationSchema":     "public api: a quantization word inside the `provider` request preference (ADR 0008)",
-	"chatCompletionChunkSchema":      "public api (phase 3): POST /v1/chat/completions stream chunk",
-	"chatCompletionErrorSchema":      "public api (phase 3): POST /v1/chat/completions error body",
-	"chatCompletionMessageSchema":    "public api (phase 3): POST /v1/chat/completions message",
-	"chatCompletionSchema":           "public api (phase 3): POST /v1/chat/completions response",
-	"chatCompletionUsageSchema":      "public api (phase 3): POST /v1/chat/completions usage",
-	"chatCompletionsRequestSchema":   "public api (phase 3): POST /v1/chat/completions request",
-	"embeddingsRequestSchema":        "public api (phase 3): POST /v1/embeddings request",
-	"embeddingsResponseSchema":       "public api (phase 3): POST /v1/embeddings response",
-	"generationRecordSchema":         "public api (phase 3): GET /v1/generations record",
-	"imageGenerationsRequestSchema":  "public api (phase 3): POST /v1/images/generations request",
-	"imageGenerationsSchema":         "public api (phase 3): POST /v1/images/generations response",
-	"meteredGenerationRecordSchema":  "public api (phase 3): GET /v1/generations record",
-	"modelAudioCapabilitiesSchema":   "public api (phase 3): voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
-	"modelListSchema":                "public api (phase 3): GET /v1/models",
-	"modelSchema":                    "public api (phase 3): GET /v1/models entry",
-	"modelTargetSchema":              "public api (phase 3): a model reference or a power level",
-	"powerLevelEntrySchema":          "public api (phase 3): GET /v1/power-levels entry",
-	"powerLevelListSchema":           "public api (phase 3): GET /v1/power-levels",
-	"responseSchema":                 "public api (phase 3): POST /v1/responses response",
-	"responseStreamEventSchema":      "public api (phase 3): POST /v1/responses stream",
-	"responsesRequestSchema":         "public api (phase 3): POST /v1/responses request",
-	"responsesResponseFormatSchema":  "public api (phase 3): POST /v1/responses response format; the signed responseFormatSchema plus repair, which is Kaana-side only (publicapi.responsesResponseFormat)",
-	"voiceSchema":                    "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
+	"chatCompletionChunkSchema":      "public api: POST /v1/chat/completions stream chunk",
+	"chatCompletionErrorSchema":      "public api: POST /v1/chat/completions error body",
+	"chatCompletionMessageSchema":    "public api: POST /v1/chat/completions message",
+	"chatCompletionSchema":           "public api: POST /v1/chat/completions response",
+	"chatCompletionUsageSchema":      "public api: POST /v1/chat/completions usage",
+	"chatCompletionsRequestSchema":   "public api: POST /v1/chat/completions request",
+	"embeddingsRequestSchema":        "public api: POST /v1/embeddings request",
+	"embeddingsResponseSchema":       "public api: POST /v1/embeddings response",
+	"generationRecordSchema":         "public api: GET /v1/generations record",
+	"imageGenerationsRequestSchema":  "public api: POST /v1/images/generations request",
+	"imageGenerationsSchema":         "public api: POST /v1/images/generations response",
+	"meteredGenerationRecordSchema":  "public api: GET /v1/generations record",
+	"modelAudioCapabilitiesSchema":   "public api: voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
+	"modelListSchema":                "public api: GET /v1/models",
+	"modelSchema":                    "public api: GET /v1/models entry",
+	"modelTargetSchema":              "public api: a model reference or a power level",
+	"powerLevelEntrySchema":          "public api: GET /v1/power-levels entry",
+	"powerLevelListSchema":           "public api: GET /v1/power-levels",
+	"responseSchema":                 "public api: POST /v1/responses response",
+	"responseStreamEventSchema":      "public api: POST /v1/responses stream",
+	"responsesRequestSchema":         "public api: POST /v1/responses request",
+	"responsesResponseFormatSchema":  "public api: POST /v1/responses response format; the signed responseFormatSchema plus repair, which is Kaana-side only (publicapi.responsesResponseFormat)",
+	"voiceSchema":                    "public api: one voice; inventory.VoiceObservation for a realtime model today",
 
 	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
-	// authorizations and settlements endpoints in phase 2 and Kaana calls them
-	// from internal/publicapi in phase 3; the signed envelope above remains the
-	// only wire until then.
-	"receiptAccessSchema": "grant (phase 3): Oxy owns the generation record; Kaana relays the receipt.read record verbatim and never reads an amount from it",
+	// authorizations and settlements endpoints and Kaana calls them from
+	// internal/publicapi.
+	"receiptAccessSchema": "grant: Oxy owns the generation record; Kaana relays the receipt.read record verbatim and never reads an amount from it",
 }
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to

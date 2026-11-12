@@ -4,223 +4,149 @@
 
 # Kaana
 
-**Kaana is Oxy's inference data plane.** One API executes requests across many
-upstream providers and models — the same idea as OpenRouter, operated by Oxy for
-Oxy and external customers. Its one canonical data-plane origin is
+**Kaana is Oxy's inference platform.** One API executes requests across many
+upstream providers and models, the same idea as OpenRouter, operated by Oxy for
+Oxy's own products and for external customers. Its one canonical origin is
 [`https://kaana.ai`](https://kaana.ai).
 
-This boundary owns every former generic inference-service implementation and
-every provider alias that used to sit inside Alia. It does not rename Alia:
-Alia remains the agent runtime, while Kaana owns provider execution and secret
-custody.
+This repository is the Go data plane (`kaana`, its publisher and its operator
+tools) plus the TypeScript workspace that defines the wire contract and the SDK:
 
-Apps do not all call Kaana in the same way. A one-shot product feature such as
-translation or summarization goes through the Oxy inference edge to Kaana. A
-conversation that needs memory, tools, approvals or an agent goes to **Alia**;
-Alia performs that orchestration and invokes Kaana through the same Oxy edge.
-Kaana never becomes the agent runtime merely because an agent eventually uses
-a model.
+| Workspace | What it is |
+|---|---|
+| `cmd/`, `internal/` | the Go data plane, deployed to ECS |
+| `packages/contracts` | `@kaana.ai/contracts`, the Zod source of every request, response and signed shape |
+| `packages/sdk` | `@kaana.ai/sdk`, the TypeScript client |
+| `tools/contract` | generates `internal/contract/descriptor.json` and `packages/contracts/openapi.json` |
+| `configs/` | the declared catalogue, deployment commercial facts, rate cards, model attribution |
+
+Alia remains the agent runtime. Kaana executes model requests; conversations,
+tools, memory and approvals belong to Alia.
+
+## How a request reaches a provider
+
+Kaana has two ways in, sharing one executor, one inventory and one key store. The
+full split is in [docs/lanes.md](docs/lanes.md).
 
 ```text
-app one-shot AI -> Oxy inference edge -> Kaana -> upstream provider
-app agent/chat  -> Alia -> Oxy inference edge -> Kaana -> upstream provider
+customer / SDK / Claude Code -> https://kaana.ai/v1 -> Oxy grant -> Kaana routes, executes, settles
+Oxy edge / first-party service -> /internal/v1/inference (signed) -> Kaana executes the signed order
 ```
 
-**New to Oxy inference?** The concepts (exact model vs power level vs app
-default), who owns what, and how apps call inference are in the
-[Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md). This repository documents
-the data plane only.
+- On the **public lane** Kaana asks Oxy for a signed grant, resolves it into
+  ordered routes (key funding tier, the grant's line order, the caller's
+  `provider` preferences, cache affinity, recent latency), executes with failover,
+  and writes one settlement per grant.
+- On the **signed lane** Oxy signs an ordered list of exact `deploymentId`
+  values and Kaana attempts exactly that order.
+- On both, Kaana picks the **key**: a deployment runs on its provider's pool,
+  cheapest stated funding first, inside the ceiling the grant or envelope
+  carries ([docs/key-pools.md](docs/key-pools.md)). It retries the same route on
+  transient failures and fails over before the first output, never after.
+- A request that names an exact model revision is served on exactly that revision
+  or refused. It is **never quietly answered by a different model.**
 
-At Oxy a request names a **model**, a **power level** (routing profile slug) or
-nothing (the app's default). Oxy resolves that before signing, so the envelope
-Kaana receives carries a model or an exact opaque routing-profile ID, never a
-vendor or profile name. Oxy authorizes and orders the exact provider
-deployments; Kaana attempts only that signed order, translates each attempt for
-the selected provider API, streams the answer back, cancels it when the caller
-goes away, and reports what was consumed. During the coordinated contract
-rollout, envelope v1 is accepted only for direct model targets; its historical
-routing-profile slug is refused.
+New to Oxy inference? The concepts (exact model, power level, app default) and
+the product-side request paths are in the
+[Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md).
 
-Oxy authorizes one ordered list of exact Kaana `deploymentId` values; how it
-orders them (profile priority, BYOK preference, funding class, score, exact ID)
-is stated once, in [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification). Kaana verifies every signed identity
-against one inventory snapshot and executes the list exactly as received,
-retrying the same route on transient failures and failing over down the list
-before the first output (`docs/routing.md`). Inside each deployment Kaana
-chooses the key: its provider's pool, free → credits → paid
-(`docs/key-pools.md`, [ADR 0001](docs/adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
+## Who owns what
 
-Do not confuse the two opaque identity layers: `deploymentId` selects one exact
-authorized deployment, while `(provider, keyId)` selects one exact encrypted
-credential row. Neither is derived from a display name, insertion order,
-database order or the first enabled row.
-
-## Checked-in reference inventory
-
-`configs/inventory.json` is a measured reference snapshot, produced by reading
-each provider's own authenticated catalogue rather than copying a third-party
-catalogue. It is not a production-status page: the production publisher
-discovers and re-issues its own snapshot, and that live object is the authority
-for what Kaana serves now. `docs/inventory.md` explains the distinction.
-
-| | |
+| Kaana (this repository) | Oxy |
 |---|---|
-| Providers | Cerebras, Groq, xAI, OpenRouter |
-| Model deployments | 354 |
-| Distinct models | 336 |
-| Publishers represented | 53 |
-| Models served by more than one provider | 8, one of them by three |
+| request normalization and the provider adapters | accounts, organizations, projects, applications |
+| the public API, the grant resolution, routing execution, failover, streaming, cancellation | authentication of `oxy_sk_` keys and sessions, scopes, routing policy |
+| model deployments, provider health, circuit breakers, the inventory | the Console, where applications and keys are managed |
+| provider keys: KMS ciphertext custody, key pools, customer BYOK | provider-connection metadata and policy |
+| the declared catalogue and its list prices | the spend hold, rating, ledger, receipts, payments and invoices |
+| metering (exact units) and upstream provider cost | what a customer is charged |
 
-That last row is the point of the design. `openai/gpt-oss-120b` is one model
-with three places to get it, and a request that names it is served or refused —
-**never quietly answered by a different model.** See `docs/routing.md`.
+Two notes on the right-hand column:
 
-## The two halves, and why this repository is only one of them
-
-Kaana the product has accounts, plans, balances and a console. **None of that is
-in this repository, on purpose.** This is the *data plane*: it executes what has
-already been authorized and reports what it measured. Accounts, Oxy login/API
-credentials, provider-connection metadata, customer balances and the billing
-ledger live in Oxy, which is the single control plane ([ADR 0005][adr0005],
-[ADR 0006][adr0006]). The console is **Oxy Console**, the one place where every
-Oxy API — Kaana, Alia, Mention — is managed: a developer registers an
-application and issues its API keys there, for Kaana exactly as for the others.
-Kaana itself never issues a credential to anyone. Upstream provider keys are different: Kaana owns every one
-as KMS ciphertext in its PostgreSQL credential store, including customer BYOK,
-and never receives one through environment variables.
-
-Each platform `deploymentId` is bound in PostgreSQL to one exact opaque
-`(provider, keyId)` identity. Kaana fails closed when that binding is absent or
-mismatched; provider pools are custody and health containers, not an economic
-fallback behind an Oxy-ordered deployment.
-
-So the split is:
-
-| Kaana (this repo) | Oxy |
-|---|---|
-| request normalization, provider adapters | accounts, organizations, projects |
-| routing **execution**, failover, streaming, cancellation | authorization, scope checks, spend reservation |
-| model deployments, provider health, circuit breakers | plans, balances, the billing ledger, the console |
-| KMS-encrypted provider-secret custody | provider-connection metadata and policy |
-| technical metering and upstream provider cost | what a customer is charged |
-
-**Kaana measures units and never prices them.** There is no money type in
-`internal/contract`, and adding one is the moment a second ledger starts. If a
-change would put an Oxy-owned concept here, the change is wrong, not the
-boundary — `AGENTS.md` has the rules a reviewer applies, and
-`docs/architecture.md` the reasoning.
-
-Customer BYOK support in source is not a production enablement claim. Oxy source
-now binds only an exact `ready + active + valid` generation to a signed route
-and carries a separate platform-fee price version through settlement. BYOK must
-remain ungrantable until the exact fee amount/version is approved, published and
-associated, Oxy migration `0069` and matching Oxy/Kaana images are deployed, the
-IAM/SSM and live-request gates pass, and a dedicated authenticated bootstrap for
-new `pending_validation + unvalidated` generations exists. Normal inference is
-not that bootstrap.
+- It is how production works today. The owner has decided that **Kaana will sell
+  and invoice, with Oxy keeping identity**; the proposal, its phases and its open
+  questions are [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md). Nothing
+  moves until it is accepted and its first phase ships.
+- Upstream provider keys are never in environment variables, the repository or a
+  product database: they are KMS ciphertext in Kaana's PostgreSQL store, including
+  customer BYOK. Customer BYOK in source is not a production enablement claim; it
+  stays ungrantable until its fee schedule and gates exist
+  ([docs/customer-provider-credentials.md](docs/customer-provider-credentials.md)).
 
 ## Quick start
 
 ```bash
 go build ./...
-go test ./...
+make check          # every CI gate, in CI's order
+make help           # every target; make tools reports missing local tools
 ```
 
-Startup validates the configuration below. Own Oxy calls require temporary AWS
-workload identity with a registered live binding, in deployed and local
-processes. Use the AWS provider chain described in
-[Oxy identity](docs/operating.md#oxy-identity-temporary-infrastructure-workload);
-there is no service-key pair or unauthenticated fallback.
+`make check` is the definition of done. `make test-integration` also needs a local
+PostgreSQL in `KAANA_POSTGRES_TEST_URL`.
+
+## Configuration
+
+Every `KAANA_*` variable, what it is for and how a failure looks is in
+[docs/operating.md](docs/operating.md). The ones a process cannot start without:
 
 | Setting | Meaning |
 |---|---|
-| `KAANA_INVENTORY_PATH` | the deployment inventory snapshot — see `configs/inventory.example.json` |
-| `KAANA_EDGE_PUBLIC_KEYS` | `kid:base64,…` Ed25519 **public** keys the Oxy edge signs with; not secret |
-| `KAANA_PROVIDERS` | the provider slugs this process serves, e.g. `cerebras,groq,xai,openrouter` |
-| `DATABASE_URL` | TLS PostgreSQL connection for Kaana's credential database |
-| `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | ARN of the symmetric KMS key that encrypts provider credentials; not secret |
-| Temporary AWS workload identity | registered ECS/assumed role or local SSO role credentials with a session token; Oxy verifies the live workload binding. No Oxy service API-key fallback — [Oxy identity](docs/operating.md#oxy-identity-temporary-infrastructure-workload) |
+| `KAANA_INVENTORY_PATH` | the deployment inventory snapshot (mounted by the publisher's output, never baked into the image; see [docs/inventory.md](docs/inventory.md)) |
+| `KAANA_EDGE_PUBLIC_KEYS` | `kid:base64,...` Ed25519 **public** keys the Oxy edge signs with; not secret |
+| `KAANA_PROVIDERS` | the provider slugs this process serves |
+| `DATABASE_URL` | TLS PostgreSQL connection to Kaana's database |
+| `KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN` | the symmetric KMS key that encrypts provider credentials; not secret |
+| AWS workload identity | how Kaana authenticates to Oxy; there is no service-key fallback ([Oxy identity](docs/operating.md#oxy-identity-temporary-infrastructure-workload)) |
+| `KAANA_PUBLIC_API_ENABLED` | serves `https://kaana.ai/v1`; off, a merge is not an exposure |
 
-Then per provider, `<SLUG>` upper-cased with `.` and `-` folded to `_`:
-
-| Variable | Required | Meaning |
-|---|---|---|
-| `KAANA_PROVIDER_<SLUG>_PROTOCOL` | for an unknown slug | `openai_compatible` or `anthropic_messages` |
-| `KAANA_PROVIDER_<SLUG>_BASE_URL` | for an unknown or account-scoped slug | the provider's non-secret API root |
-| `KAANA_PROVIDER_<SLUG>_DISCOVERY_KEY_ID` | in the publisher for every discovery slug | exact non-secret PostgreSQL key id used for catalogue discovery; never a provider key |
-| `KAANA_PROVIDER_<SLUG>_KEY_RETIREMENT` | no | how long a spent or refused key stays out, default `15m` |
-| `KAANA_PROVIDER_<SLUG>_KEYS_ON_SEPARATE_ACCOUNTS` | no | `true` when the pool's keys are DIFFERENT accounts; only then does a throttle rotate |
-
-Twenty-five providers carry a built-in protocol and global API root: `openai`, `anthropic`,
-`openrouter`, `cerebras`, `groq`, `xai`, `mistral`, `deepseek`, `sambanova`,
-`siliconflow`, `ai21`, `google`, `together`, `cohere`, `fireworks`, `hyperbolic`,
-`digitalocean`, `nvidia`, `modelscope`, `zai`, `nebius`, `nscale`, `chutes` and
-`ovhcloud` and `cheaperinference`. `alibaba` and `cloudflare` also carry reviewed protocol and endpoint
-identity, but require `BASE_URL` because their official origins contain a
-workspace/region or account id. Hugging Face, Kilo and LLM7 remain explicit
-because they are provider routers or moving selectors, not direct immutable
-inference providers. **Any other slug is servable by
-declaring protocol and HTTPS root — no Go change.** Discovery and publication
-remain separate gates: Alibaba, Cohere, Anthropic and ElevenLabs have native
-authenticated catalogue ingestion,
-while Cloudflare is serving-only until its model-search response has a stable,
-provider-owned schema. A built-in adapter never invents a model list.
-Provider keys never enter this environment contract. They are ciphertext rows
-in PostgreSQL, decrypted by the Kaana task through KMS and bound to their
-`provider + keyId` identity with KMS encryption context.
-The full contract, including what each failure mode looks like, is in
-`docs/operating.md`.
+Which providers are built in, how to declare another one, and the rollout gates for
+a new provider are in [docs/provider-onboarding.md](docs/provider-onboarding.md) and
+[docs/adapters.md](docs/adapters.md). A built-in adapter never invents a model list.
 
 ## Layout
 
-```
-cmd/kaana/                      the binary: env config, wiring, graceful drain
-cmd/kaana-publisher/            re-issues the inventory snapshot on a cadence
-cmd/kaana-credentials/          migrate and administer encrypted provider keys
-cmd/kaana-credential-control/   signed customer-BYOK create/rotate/revoke task
-cmd/kaana-platform-credential-control/ signed platform-pool import/rotate task
-cmd/kaana-platform-credential-import/ host client; signed HTTPS, secret on stdin
-internal/contract/              Go types for the @kaana.ai/contracts wire (packages/contracts)
-internal/credentialcontrol/     mutation and exact-outcome BYOK HTTP boundary
-internal/credentialstore/       PostgreSQL ciphertext store and KMS boundary
-internal/edgeauth/              Ed25519 verification of the Oxy edge's signature
-internal/httpapi/               the Oxy-facing HTTP surface
-internal/inventory/             which providers serve which model, and staleness
-internal/kaana/                 the executor: routing, failover, framing, usage
-internal/provider/              the Adapter interface, key pools, error vocabulary
-  openaicompat/ anthropic/      the two protocol adapters
-  conformance/                  the suite every adapter must pass
-internal/providercost/          upstream cost; never a customer amount
-internal/rotation/              per-deployment circuit breakers and health scoring
-internal/sse/                   SSE decoding (upstream) and encoding (downstream)
-configs/inventory.json          the measured snapshot, for a publisher to re-issue
-configs/model-attribution.json  who RELEASED each model — the publisher's only editorial input
+```text
+cmd/kaana/                              the serving process: both lanes, settlement worker, reloads
+cmd/kaana-publisher/                    discovers models and re-issues the inventory on a cadence
+cmd/kaana-credentials/                  one-shot admin: migrate and administer encrypted provider keys
+cmd/kaana-credential-control/           signed customer-BYOK create/rotate/revoke task
+cmd/kaana-platform-credential-control/  signed platform-pool import/rotate task
+cmd/kaana-platform-credential-import/   operator-host client; signed HTTPS, secret on stdin
+cmd/kaana-probe/                        liveness probe used by the canary
+cmd/kaana-eval/                         latency benchmark through the public API
+internal/publicapi/                     the public lane: grants, routes, preferences, settlement, catalogue
+internal/httpapi/                       the signed lane
+internal/kaana/                         the executor: routing, failover, retries, framing, usage
+internal/realtime/                      realtime sessions, resume across tasks
+internal/provider/                      the Adapter interface, key pools, error vocabulary, adapters
+internal/inventory/                     which deployment serves which model, and staleness
+internal/publisher/                     discovery, zero-retention checks, withholding, S3 output
+internal/rotation/                      per-deployment breakers and latency / throughput readings
+internal/credentialstore/               PostgreSQL: ciphertext, key state, outbox, cost events, KMS
+internal/providercost/                  upstream provider cost and rate cards
+internal/contract/                      Go types for the @kaana.ai/contracts wire
+internal/edgeauth/                      Ed25519 verification of signed Oxy requests
+packages/contracts/  packages/sdk/      the wire contract and the client
+configs/                                public-catalogue.json, deployment-commercial.json, provider-rates.json,
+                                        model-attribution.json, inventory.json (a reference snapshot for tests)
 ```
 
 ## Documentation
 
-| | |
+Start with [docs/lanes.md](docs/lanes.md), then the topic you are changing. Each
+topic document ends with the rules a reviewer applies; `AGENTS.md` is the index.
+
+| Topic | Documents |
 |---|---|
-| [`docs/architecture.md`](docs/architecture.md) | the boundary with Oxy, the Oxy-facing surface, and what is deliberately out of scope |
-| [`docs/identity-and-routing.md`](docs/identity-and-routing.md) | the Kaana/Alia boundary, canonical domain, exact deployment selection and product request paths |
-| [`docs/inference-rules.md`](docs/inference-rules.md) | the inference rules every Oxy repository follows: who may call a provider, power levels, route priority, key custody |
-| [`docs/routing.md`](docs/routing.md) | cancellation, same-model failover, circuit breakers and health scoring |
-| [`docs/key-pools.md`](docs/key-pools.md) | several providers and a pool of keys for each; what a failure says about a KEY |
-| [`docs/customer-provider-credentials.md`](docs/customer-provider-credentials.md) | customer BYOK custody, exact handles, task split and rollout contract |
-| [`docs/provider-credential-id-cutover.md`](docs/provider-credential-id-cutover.md) | atomic removal of historical platform-key names and exact duplicate handling |
-| [`docs/inventory.md`](docs/inventory.md) | the deployment snapshot, how it is published, and what staleness costs |
-| [`docs/adapters.md`](docs/adapters.md) | the adapter interface, the two protocol adapters, the conformance harness |
-| [`docs/provider-onboarding.md`](docs/provider-onboarding.md) | verified endpoints, catalog semantics and rollout gates for new providers |
-| [`docs/operating.md`](docs/operating.md) | running it, and what a deployment must supply |
-| [`docs/cost.md`](docs/cost.md) | upstream provider cost, and why it is not a customer amount |
-| [`docs/contract.md`](docs/contract.md) | the wire contract, which is not authored here |
-| [`docs/rules.md`](docs/rules.md) | cross-cutting rules: secrets and customer data, what a test must prove, conventions |
-| `AGENTS.md` | the one-line index of rules; each topic doc ends with the full rule and its reason |
+| Shape of the system | [lanes](docs/lanes.md), [architecture](docs/architecture.md), [identity-and-routing](docs/identity-and-routing.md), [inference-rules](docs/inference-rules.md), [rules](docs/rules.md) |
+| Routing and execution | [routing](docs/routing.md), [key-pools](docs/key-pools.md), [determinism](docs/determinism.md) |
+| Inventory and publication | [inventory](docs/inventory.md), [operating](docs/operating.md) |
+| Contract and API | [contract](docs/contract.md), [anthropic-messages](docs/anthropic-messages.md), [json-repair](docs/json-repair.md), [decisions](docs/decisions.md) |
+| Providers | [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md), [openai-audio](docs/openai-audio.md), [elevenlabs](docs/elevenlabs.md), [deepgram](docs/deepgram.md), [realtime](docs/realtime.md) |
+| Keys and money | [customer-provider-credentials](docs/customer-provider-credentials.md), [cost](docs/cost.md), [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md) |
+| Decisions | [docs/adr/](docs/adr/) |
+| Records of one-off rollouts | [schema-0013-cutover](docs/schema-0013-cutover-2026-09-24.md), [provider-credential-id-cutover](docs/provider-credential-id-cutover.md), [first-party-producer](docs/first-party-producer.md), [first-party-transport](docs/first-party-transport.md), [platform-activity](docs/platform-activity.md), [groq-token-capacity](docs/groq-token-capacity-2026-09-13.md), [scoped-attempt-claims](docs/scoped-attempt-claims.md) |
 
 ---
 
-Tracked as workstream 13 of [OxyHQ/oxy#972][epic].
-
-[epic]: https://github.com/OxyHQ/oxy/issues/972
-[adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
+Tracked as workstream 13 of [OxyHQ/oxy#972](https://github.com/OxyHQ/oxy/issues/972).

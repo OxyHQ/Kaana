@@ -1,5 +1,9 @@
 # Provider credential ID cutover
 
+> **Historical record.** This describes one rollout as it was on the date in its title. It is not a rule and is not kept current; the live source of truth is named below.
+>
+> Live source of truth: `.github/credential-admin-operations.json`, which pins the image digest the operations run. The digest quoted below is the one at the time of this cutover.
+
 Platform provider credentials use opaque IDs. Historical IDs containing product
 or transport names remain only on disabled PostgreSQL rows and audit records;
 they are never selected by runtime configuration after this cutover. No

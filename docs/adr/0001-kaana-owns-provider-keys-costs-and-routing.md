@@ -1,6 +1,11 @@
 # ADR 0001 — Kaana owns provider keys, costs and routing; Oxy owns customers and limits
 
-- Status: accepted (phase 1 implemented here; phase 2 planned)
+- Status: accepted. Phase 1 and phase 2 are both implemented: phase 2 (Kaana
+  resolves levels and orders every provider and key) was executed by
+  [ADR 0002](0002-kaana-public-api-and-sdk.md) and is in
+  `internal/publicapi/routes.go` (`resolveGrant`) and `GET /v1/power-levels`.
+  Decision 2's "Oxy bills from Kaana's receipt" is the subject of
+  [ADR 0010](0010-kaana-sells-and-invoices.md), which proposes to change it.
 - Date: 2026-10-12
 - Decided by: the owner of Oxy
 - Counterpart: [Oxy ADR 0038](https://github.com/OxyHQ/oxy/blob/main/docs/adr/0038-kaana-owns-provider-keys-costs-and-routing.md),
@@ -42,7 +47,7 @@ be used by duplicating thirteen deployments and teaching Oxy to order them.
    funding ceiling Oxy sends (Alia Pro and Ultra: credits only) are never
    relaxed to reach a cheaper key. Within one economic tier: cheaper first,
    then the existing latency and health signals.
-4. **Power levels move to Kaana (phase 2).** `auto`, `instant`, `medium`,
+4. **Power levels move to Kaana (phase 2, implemented by ADR 0002).** `auto`, `instant`, `medium`,
    `high`, `xhigh`, `pro` and `ultra` are resolved by Kaana, which owns which
    models belong to each level. A request for a LEVEL means any model of that
    level, so the order of decision 3 applies across every model of the level
@@ -81,8 +86,8 @@ be used by duplicating thirteen deployments and teaching Oxy to order them.
   it** (`internal/publisher/withholding.go`), until the earliest one returns.
 - **A funding ceiling** (`KeyPool.WithinFunding`) bounds a walk to keys whose
   stated tier is at or below it, carried as `authorizedRoutes[].maxFundingTier`;
-  the usage report states the served `fundingTier` (`@oxy.so/contracts`
-  4.12.0, contract set 3.8.0 — step 2 below).
+  the usage report states the served `fundingTier` (contract set 3.8.0,
+  then `@oxy.so/contracts` 4.12.0 — step 2 below).
 
 ### Rollout order
 
@@ -102,7 +107,9 @@ be used by duplicating thirteen deployments and teaching Oxy to order them.
 unstated key beside the credit keys a credit-only route relies on, because no
 request can yet carry the ceiling that keeps a walk off it.
 
-## Phase 2 — planned, not implemented
+## Phase 2 — implemented (by ADR 0002)
+
+The text below is the plan as written on 2026-10-12. It shipped with the public API.
 
 Owned by Oxy ADR 0038, "Phase 2", which lists what moves, the contract
 changes, the migration and how billing stays correct. In short: Oxy stops
@@ -118,8 +125,8 @@ it CHARGES.
 
 Alia's end users choose only power levels: the app's model store
 (`packages/app`, model-store v4) replaced the model picker. Alia's AGENTS.md
-and ADR 0012 wording about a real-model picker is stale and will be fixed in
-Alia. Moving level resolution into Kaana therefore matches what Alia already
+and ADR 0012 wording about a real-model picker was stale when this was written;
+it is Alia's to fix and is not tracked here. Moving level resolution into Kaana therefore matches what Alia already
 sends.
 
 ## Consequences
