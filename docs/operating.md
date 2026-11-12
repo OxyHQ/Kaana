@@ -884,6 +884,24 @@ The publisher's S3 permission stays separate from serving. Writing the
 inventory decides routing, so a request-serving role must not acquire it merely
 because the two binaries ship in one image.
 
+## Measuring a route from the caller's side
+
+`cmd/kaana-eval` (not baked into the image) sends the same streamed
+`POST /v1/chat/completions` request N times per model with the credential in
+`KAANA_API_KEY` and prints one JSON line per model: runs, failures, time to
+first output and total time (p50/p95), median output tokens and tokens per
+second. A refused or broken run counts as a failure and is never averaged in as
+a fast answer; the credential is redacted from any error text; no prompt or
+completion is written. Every run is billed to that credential like any request,
+so the operator picks the models, `-runs` and `-max-tokens`. It changes no
+routing: the signed `authorizedRoutes` lane is never reordered by a measurement.
+Latency is a sample of one provider on one day (see [determinism](determinism.md));
+compare percentiles over many runs.
+
+```bash
+KAANA_API_KEY=oxy_sk_... go run ./cmd/kaana-eval -runs 20 -max-tokens 128 openai/gpt-5.4-mini anthropic/claude-haiku-5.5
+```
+
 ## The declared catalogue
 
 `configs/public-catalogue.json` is Kaana's catalogue and nobody else's (ADR 0002,
