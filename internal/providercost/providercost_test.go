@@ -591,3 +591,47 @@ func TestARateCardObservationIgnoresFormattingButNotPrices(t *testing.T) {
 		t.Fatalf("observation identity = %+v", compact)
 	}
 }
+
+// A cache write is Kaana's own cost at a premium rate. A card that prices
+// cache_write_input_tokens prices it apart from input; a card that does not
+// names it unpriced instead of costing the tokens at nothing, and the unit
+// reaches the persisted event either way.
+func TestACacheWriteIsPricedByItsOwnRateOrNamedUnpriced(t *testing.T) {
+	const withWrite = `{"schemaVersion":1,"rateCardVersionId":"rc_test_cw","source":"operator","sourceVersion":"test-fixture-cw","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
+  {"deploymentId":"dep_cw","currency":"XTS","rates":[
+    {"unit":"input_tokens","amountPerUnit":8},
+    {"unit":"cache_write_input_tokens","amountPerUnit":10}]}]}`
+	units := []contract.UsageQuantity{
+		{Unit: contract.UnitInputTokens, Quantity: 100},
+		{Unit: contract.UnitCacheWriteInputTokens, Quantity: 50},
+	}
+
+	priced := parse(t, withWrite).Measure("dep_cw", units)
+	if !priced.Complete() || priced.Cost.Amount != 100*8+50*10 {
+		t.Errorf("a card with the rate measured %+v, expected %d and complete", priced, 100*8+50*10)
+	}
+
+	unpriced := parse(t, twoCards).Measure("dep_a", units)
+	if unpriced.Complete() || len(unpriced.UnpricedUnits) != 1 || unpriced.UnpricedUnits[0] != contract.UnitCacheWriteInputTokens {
+		t.Errorf("a card without the rate measured %+v, expected cache_write_input_tokens named unpriced", unpriced)
+	}
+
+	at := time.Date(2026, time.November, 12, 12, 0, 0, 0, time.UTC)
+	record := parse(t, withWrite).MeasureRequest("req_cw", []providercost.AttemptUsage{
+		{AttemptIndex: 0, Provider: "anthropic", KeyID: "key", DeploymentID: "dep_cw", ModelReference: "anthropic/model@2026-11-01", OccurredAt: at, Telemetry: measured(at), Served: true, Units: units},
+	})
+	events, err := providercost.Events(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("%d events", len(events))
+	}
+	found := false
+	for _, quantity := range events[0].Units {
+		found = found || (quantity.Unit == contract.UnitCacheWriteInputTokens && quantity.Quantity == 50)
+	}
+	if !found {
+		t.Errorf("the persisted event dropped the cache-write unit: %+v", events[0].Units)
+	}
+}

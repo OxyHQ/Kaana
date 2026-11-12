@@ -107,8 +107,11 @@ accepted and ignored the same way: `context_management` (an Anthropic beta),
 provider trims, shows or loads, never what a request means or costs; every
 present one is named in `Kaana-Ignored-Parameters` (a comma-separated list in a
 fixed order). Any other member the schema does not name is still refused.
-Honouring the marker needs a priced cache-write unit (`cache_write_input_tokens`, contract 8.4.0) that Oxy rates and
-the Anthropic adapter emits; nothing does yet (issue #269).
+Honouring the marker needs a request-side contract field that carries it to the
+provider; none exists (issue #269). The cache-write unit itself
+(`cache_write_input_tokens`) is emitted by the Anthropic adapter and kept only for
+a grant that prices it ([cost.md](cost.md#cache-write-tokens)), so a marker with
+`ttl: "1h"` is ignored like any other and can never produce a 1-hour write.
 
 ## Refused, not dropped
 
@@ -146,8 +149,9 @@ execution. The route is therefore absent and answers as any unknown `/v1/` path.
 - **A parameter the contract cannot carry is refused by name**, never dropped.
   `cache_control` is the one marker that is accepted and ignored instead (see
   above), because ignoring it cannot change what a request costs.
-- **`usage` is measured units only.** Never an estimate, never a cache write
-  folded into input.
+- **`usage` is measured units only.** Never an estimate. A cache write appears
+  as `cache_creation_input_tokens` when the grant prices the unit and is part of
+  `input_tokens` otherwise.
 - **No provider, deployment or key in any body or frame**, and no prompt in a
   log line, error or fixture. An image refusal names the part, not the image.
 - **A new member of the request or an answer is Zod first**, then the fixture

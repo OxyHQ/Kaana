@@ -916,7 +916,11 @@ over image defaults. The file is loaded at start whether or not
 
 - **To add or reprice a model:** edit the file, give a changed price a NEW
   `priceVersionId` (a UUID; a published one never changes), cite the provider's
-  primary source in the commit, and run `make check`. A model with no price is
+  primary source in the commit, and run `make check`. Adding a unit to a line's
+  `unitPrices` is a change of price: Oxy rates by the version it admitted, and
+  finding one id with different prices prices the line at nothing
+  (`price_version_changed`). `TestOnlyAnthropicLinesPriceTheCacheWrite...` pins
+  the versions retired by the cache-write prices. A model with no price is
   allowed (BYOK-only), never one with a guessed field: if a required field has
   no primary evidence the model is not declared.
 - **To deprecate a model:** set `deprecation` to `deprecated` with `announcedAt`,

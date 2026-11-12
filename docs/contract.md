@@ -76,9 +76,11 @@ envelope are unchanged. A request names providers, a response never does.
 
 ## Contract set 8.4.0: cache-write unit and unreported capabilities
 
-MINOR, `@kaana.ai/contracts` 8.4.0. Additive and declared only: nothing emits
-either, and `configs/public-catalogue.json` is unchanged. A consumer on 8.3.0
-refuses what is new, so Oxy adopts it first.
+MINOR, `@kaana.ai/contracts` 8.4.0. Additive and declared only: nothing emitted
+either when it shipped, and `configs/public-catalogue.json` was unchanged. A
+consumer on 8.3.0 refuses what is new, so Oxy adopts it first. Oxy has (OxyHQ/oxy#2253);
+the unit is now emitted where a grant prices it (see [cost.md](cost.md#cache-write-tokens)),
+with no contract change.
 
 - Usage unit `cache_write_input_tokens`: input tokens written to a prompt cache
   on this request (the premium on the first request). A sibling under the

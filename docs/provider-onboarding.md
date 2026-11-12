@@ -265,8 +265,9 @@ breaker.[^anthropic-deprecations][^anthropic-overview]
 **Cost.** Anthropic's list prices (USD per million tokens, read 2026-10-11)
 differ by cache read multiplier per model and, for Claude Haiku 5.5, by prompt
 length ($0.10/$0.50 up to 100,000 prompt tokens, $0.50/$2.50 above), and add
-cache-write prices the contract has no unit for: the adapter folds cache writes
-into `input_tokens` (`architecture.md`, finding 5).[^anthropic-pricing]
+cache-write prices: the adapter reports the 5-minute write as
+`cache_write_input_tokens` and the executor folds it into `input_tokens` unless
+the grant prices it (`architecture.md`, finding 5; `cost.md`).[^anthropic-pricing]
 
 | Model | Input | Cache read | Output |
 |---|---|---|---|

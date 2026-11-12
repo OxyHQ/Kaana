@@ -160,9 +160,17 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
    price the most expensive input tokens in the request at the cheapest rate on
    the card. The units still partition the request; what is lost is the premium,
    on Kaana's own cost side. A `cache_write_input_tokens` unit would close it.
-   *The unit now exists in the contract (set 8.4.0, default TTL only) and is not
-   yet emitted: Oxy must accept it first (ADR 0009, decision 1), and until an
-   adapter reports it writes are still folded into `input_tokens`.*
+   *Resolved. The unit exists in the contract (set 8.4.0, default TTL only), Oxy
+   accepts it (OxyHQ/oxy#2253), and the Anthropic adapter now measures every
+   write separately from `input_tokens` (which excludes cache reads and writes
+   under the partition rule). It reaches the customer, the settlement and the
+   cost record only for a request whose granted price version prices the unit;
+   for every other request `kaana.FoldCacheWrite` puts the tokens back into
+   `input_tokens`, exactly as before, because Oxy rejects a settled unit its
+   price list lacks. The decision is made once, in the executor, not per
+   adapter: see [cost.md](cost.md#cache-write-tokens). Tokens a provider reports
+   as written with the 1-hour TTL stay in `input_tokens`: one unit cannot price
+   two TTLs.*
 6. **The closed error set has no non-retryable platform-side failure.**
    *Answered by OxyHQ/oxy#1019, which added `provider_credential_invalid`
    (non-retryable), published in `@oxy.so/contracts@0.28.0` and adopted here.*
@@ -240,9 +248,9 @@ contract fits one provider's shape and not another's.
     `modelDeploymentSchema` should carry a per-deployment output ceiling and the
     contract should say that an absent value means it — but it should say which.
 
-15. **There is no unit for cache-write tokens.** See item 5. A provider that
-    prices a cache write at a premium and a cache read at a tenth of the input
-    rate cannot be metered exactly against the published unit list.
+15. **There is no unit for cache-write tokens.** *Closed: see item 5.* A provider
+    that prices a cache write at a premium and a cache read at a tenth of the
+    input rate could not be metered exactly against the published unit list.
 
 16. **`refusal` had no finish reason of its own.** *Closed in
     `@oxy.so/contracts@0.29.0`.* The Messages API stops with

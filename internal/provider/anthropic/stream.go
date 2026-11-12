@@ -448,8 +448,11 @@ type usageMeter struct {
 	inputTokens         int
 	cacheReadTokens     int
 	cacheCreationTokens int
-	outputTokens        int
-	thinkingTokens      int
+	// cacheCreation1hTokens is the part of cacheCreationTokens written with the
+	// 1-hour TTL, when the provider breaks the write down by TTL.
+	cacheCreation1hTokens int
+	outputTokens          int
+	thinkingTokens        int
 	// seenAny records that the provider reported something, which is what
 	// separates "no usage" from "zero usage".
 	seenAny bool
@@ -476,6 +479,9 @@ func (m *usageMeter) absorb(reported *usage, final bool) {
 	}
 	if reported.CacheCreationInputTokens != nil {
 		m.cacheCreationTokens = nonNegative(*reported.CacheCreationInputTokens)
+	}
+	if reported.CacheCreation != nil && reported.CacheCreation.Ephemeral1hInputTokens != nil {
+		m.cacheCreation1hTokens = nonNegative(*reported.CacheCreation.Ephemeral1hInputTokens)
 	}
 	if reported.OutputTokens != nil {
 		m.outputTokens = nonNegative(*reported.OutputTokens)
@@ -505,12 +511,17 @@ func (m *usageMeter) absorb(reported *usage, final bool) {
 //     it. It IS nested, so the reasoning tokens are subtracted, exactly as an
 //     OpenAI-compatible `completion_tokens` needs.
 //
-// Cache CREATION tokens are folded into `input_tokens`. They are input tokens
-// the model processed, and the contract has no unit for a cache write — see
-// README, "What Oxy still has to decide". Reporting them as
-// `cached_input_tokens` would be worse than approximate: that unit means a
-// cache READ, which this provider prices at a tenth of the input rate while
-// charging a premium for the write.
+// Cache CREATION tokens are reported as `cache_write_input_tokens`: the input
+// tokens written to a prompt cache, a sibling of `input_tokens` and
+// `cached_input_tokens` under the partition rule, so `input_tokens` excludes
+// them. The unit is the DEFAULT 5-minute write (1.25x the input rate). Tokens
+// the provider says were written with the 1-hour TTL (2x) cannot be priced by
+// that unit, so they stay in `input_tokens`, which is how every write was
+// metered before the unit existed; an unbroken total is taken as the default
+// TTL. Whether the unit reaches the customer is NOT decided here: this adapter
+// reports what it measured, and the executor folds the unit back into
+// `input_tokens` unless the grant's price list prices it (kaana.FoldCacheWrite).
+// It is never reported as `cached_input_tokens`, which means a cache READ.
 func (m *usageMeter) units() ([]contract.UsageQuantity, contract.UsageSource) {
 	if !m.seenAny {
 		// Nothing was reported. An empty unit list with an estimated source is
@@ -520,12 +531,17 @@ func (m *usageMeter) units() ([]contract.UsageQuantity, contract.UsageSource) {
 	}
 
 	units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
+	oneHour := min(m.cacheCreation1hTokens, m.cacheCreationTokens)
+	cacheWrite := m.cacheCreationTokens - oneHour
 	units = append(units, contract.UsageQuantity{
 		Unit:     contract.UnitInputTokens,
-		Quantity: m.inputTokens + m.cacheCreationTokens,
+		Quantity: m.inputTokens + oneHour,
 	})
 	if m.cacheReadTokens > 0 {
 		units = append(units, contract.UsageQuantity{Unit: contract.UnitCachedInputTokens, Quantity: m.cacheReadTokens})
+	}
+	if cacheWrite > 0 {
+		units = append(units, contract.UsageQuantity{Unit: contract.UnitCacheWriteInputTokens, Quantity: cacheWrite})
 	}
 	units = append(units, contract.UsageQuantity{
 		Unit:     contract.UnitOutputTokens,

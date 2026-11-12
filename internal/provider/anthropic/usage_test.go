@@ -51,18 +51,21 @@ func TestUsageUnitsPartitionThePhysicalRequest(t *testing.T) {
 
 	// The three readings of the same four numbers, and what each would charge.
 	//
-	//   correct:  input 7 + cache write 2 = 9 uncached, 3 cached          = 12
+	//   correct:  input 7, cache write 2, cached 3                        = 12
 	//   nested:   input 7 alone, 3 cached                                 = 10  (loses the cache write)
 	//   openai:   input 7 − 3 cached = 4, 3 cached                        =  7  (subtracts what was never included)
 	//
 	// Only the first sums to the 12 prompt tokens the request consumed.
-	if got[contract.UnitInputTokens] != 9 {
-		t.Errorf("input_tokens is %d, expected 9 (7 uncached + 2 written to the cache)", got[contract.UnitInputTokens])
+	if got[contract.UnitInputTokens] != 7 {
+		t.Errorf("input_tokens is %d, expected 7: it excludes the cache read and the cache write", got[contract.UnitInputTokens])
 	}
 	if got[contract.UnitCachedInputTokens] != 3 {
 		t.Errorf("cached_input_tokens is %d, expected 3", got[contract.UnitCachedInputTokens])
 	}
-	if sum := got[contract.UnitInputTokens] + got[contract.UnitCachedInputTokens]; sum != 12 {
+	if got[contract.UnitCacheWriteInputTokens] != 2 {
+		t.Errorf("cache_write_input_tokens is %d, expected 2", got[contract.UnitCacheWriteInputTokens])
+	}
+	if sum := got[contract.UnitInputTokens] + got[contract.UnitCachedInputTokens] + got[contract.UnitCacheWriteInputTokens]; sum != 12 {
 		t.Errorf("the input units sum to %d and the request consumed 12 prompt tokens", sum)
 	}
 
@@ -82,14 +85,16 @@ func TestUsageUnitsPartitionThePhysicalRequest(t *testing.T) {
 	}
 }
 
-// TestCacheWriteTokensAreInputTokensAndNotCachedOnes pins the one mapping the
-// contract has no unit for.
+// TestCacheWriteTokensAreTheirOwnUnit pins the mapping of a cache WRITE.
 //
-// A cache WRITE is an input token the model processed and this provider charges
-// a premium for; a cache READ is one it charges a tenth of the input rate for.
-// Reporting a write under `cached_input_tokens` would price the most expensive
-// input tokens in the request at the cheapest rate on the card.
-func TestCacheWriteTokensAreInputTokensAndNotCachedOnes(t *testing.T) {
+// A write is an input token this provider charges a premium for (1.25x for the
+// default 5-minute TTL); a read is one it charges a tenth of the input rate
+// for. Reporting a write under `cached_input_tokens` would price the most
+// expensive input tokens in the request at the cheapest rate on the card, and
+// leaving it in `input_tokens` loses the premium. The adapter reports it as
+// `cache_write_input_tokens`; folding it back for a grant that does not price
+// the unit is the executor's job (kaana.FoldCacheWrite), tested there.
+func TestCacheWriteTokensAreTheirOwnUnit(t *testing.T) {
 	meter := &usageMeter{}
 	meter.absorb(&usage{
 		InputTokens:              intOf(4),
@@ -99,11 +104,54 @@ func TestCacheWriteTokensAreInputTokensAndNotCachedOnes(t *testing.T) {
 	}, true)
 
 	got := reported(mustUnits(t, meter))
-	if got[contract.UnitInputTokens] != 10 {
-		t.Errorf("input_tokens is %d, expected 10 (4 uncached + 6 written to the cache)", got[contract.UnitInputTokens])
+	if got[contract.UnitInputTokens] != 4 {
+		t.Errorf("input_tokens is %d, expected 4 (the write is not input)", got[contract.UnitInputTokens])
+	}
+	if got[contract.UnitCacheWriteInputTokens] != 6 {
+		t.Errorf("cache_write_input_tokens is %d, expected 6", got[contract.UnitCacheWriteInputTokens])
 	}
 	if _, present := got[contract.UnitCachedInputTokens]; present {
 		t.Error("nothing was read from the cache, and cached_input_tokens was reported anyway")
+	}
+}
+
+// No cache write measured: no unit. A zero-quantity unit would be priced (and
+// rejected by Oxy for a grant that does not price it) for nothing.
+func TestNoCacheWriteReportsNoCacheWriteUnit(t *testing.T) {
+	for name, creation := range map[string]*int{"absent": nil, "zero": intOf(0)} {
+		meter := &usageMeter{}
+		meter.absorb(&usage{InputTokens: intOf(4), CacheCreationInputTokens: creation, OutputTokens: intOf(2)}, true)
+		if _, present := reported(mustUnits(t, meter))[contract.UnitCacheWriteInputTokens]; present {
+			t.Errorf("%s: a cache_write_input_tokens unit was reported for a request that wrote nothing", name)
+		}
+	}
+}
+
+// The single unit is the default 5-minute write. Tokens the provider says it
+// wrote with the 1-hour TTL (2x) stay in input_tokens, as every write was
+// metered before the unit existed, and only the remainder is the unit; with no
+// per-TTL breakdown the whole total is the default TTL.
+func TestOnlyTheFiveMinuteWriteIsTheCacheWriteUnit(t *testing.T) {
+	cases := map[string]struct {
+		breakdown            *cacheCreation
+		wantInput, wantWrite int
+	}{
+		"no breakdown":     {nil, 4, 10},
+		"all five minutes": {&cacheCreation{Ephemeral1hInputTokens: intOf(0)}, 4, 10},
+		"mixed":            {&cacheCreation{Ephemeral1hInputTokens: intOf(3)}, 7, 7},
+		"all one hour":     {&cacheCreation{Ephemeral1hInputTokens: intOf(10)}, 14, 0},
+		"more than total":  {&cacheCreation{Ephemeral1hInputTokens: intOf(99)}, 14, 0},
+	}
+	for name, tc := range cases {
+		meter := &usageMeter{}
+		meter.absorb(&usage{InputTokens: intOf(4), CacheCreationInputTokens: intOf(10), CacheCreation: tc.breakdown, OutputTokens: intOf(2)}, true)
+		got := reported(mustUnits(t, meter))
+		if got[contract.UnitInputTokens] != tc.wantInput || got[contract.UnitCacheWriteInputTokens] != tc.wantWrite {
+			t.Errorf("%s: input_tokens %d, cache_write_input_tokens %d; want %d and %d", name, got[contract.UnitInputTokens], got[contract.UnitCacheWriteInputTokens], tc.wantInput, tc.wantWrite)
+		}
+		if got[contract.UnitInputTokens]+got[contract.UnitCacheWriteInputTokens] != 14 {
+			t.Errorf("%s: the units do not sum to the 14 prompt tokens", name)
+		}
 	}
 }
 

@@ -217,12 +217,16 @@ type messagesUsage struct {
 	InputTokens          int  `json:"input_tokens"`
 	OutputTokens         int  `json:"output_tokens"`
 	CacheReadInputTokens *int `json:"cache_read_input_tokens,omitempty"`
+	// CacheCreationInputTokens is present only when the route measured a cache
+	// write AND the grant prices it as its own unit; otherwise the tokens are
+	// in InputTokens (kaana.FoldCacheWrite).
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens,omitempty"`
 }
 
 // messagesUsageOf derives the block from the measured units. Output includes
 // reasoning tokens, as Anthropic counts them; the cache read is reported only
-// when the route measured one, and there is no cache creation (the contract has
-// no unit for a cache write).
+// when the route measured one, and a cache creation only when the grant prices
+// cache_write_input_tokens as its own unit.
 func messagesUsageOf(units []contract.UsageQuantity) messagesUsage {
 	var usage messagesUsage
 	for _, quantity := range units {
@@ -237,6 +241,12 @@ func messagesUsageOf(units []contract.UsageQuantity) messagesUsage {
 				read += *usage.CacheReadInputTokens
 			}
 			usage.CacheReadInputTokens = &read
+		case contract.UnitCacheWriteInputTokens:
+			written := quantity.Quantity
+			if usage.CacheCreationInputTokens != nil {
+				written += *usage.CacheCreationInputTokens
+			}
+			usage.CacheCreationInputTokens = &written
 		}
 	}
 	return usage
