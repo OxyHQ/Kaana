@@ -40,7 +40,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 65535
+        "maxOutputTokens": 65535,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -128,7 +134,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 300000,
-        "maxOutputTokens": 5120
+        "maxOutputTokens": 5120,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -214,7 +226,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 5120
+        "maxOutputTokens": 5120,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -302,7 +320,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 32000
+        "maxOutputTokens": 32000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -389,7 +413,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 300000,
-        "maxOutputTokens": 5120
+        "maxOutputTokens": 5120,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -475,7 +505,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -566,7 +603,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -661,7 +704,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -751,7 +800,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 64000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -809,7 +864,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -903,7 +964,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 32000
+        "maxOutputTokens": 32000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -997,7 +1064,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 64000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1054,7 +1127,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1111,7 +1190,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1169,7 +1254,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1227,7 +1318,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1285,7 +1382,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1342,7 +1445,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 64000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1436,7 +1545,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 64000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1530,7 +1645,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1587,7 +1708,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1645,7 +1772,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1703,7 +1836,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1795,7 +1934,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1887,7 +2032,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -1979,7 +2130,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2071,7 +2228,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2163,7 +2326,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2250,7 +2419,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 2048
+        "maxOutputTokens": 2048,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2336,7 +2512,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 8192,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2427,7 +2610,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 192000,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 64000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2513,7 +2702,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2599,7 +2794,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 115200
+        "maxOutputTokens": 115200,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2689,7 +2890,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2779,7 +2986,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 64000,
-        "maxOutputTokens": 16000
+        "maxOutputTokens": 16000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2869,7 +3082,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -2959,7 +3178,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 147456
+        "maxOutputTokens": 147456,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3049,7 +3274,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 147456
+        "maxOutputTokens": 147456,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3140,7 +3371,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 147456
+        "maxOutputTokens": 147456,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3230,7 +3467,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943717
+        "maxOutputTokens": 943717,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3320,7 +3563,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3412,7 +3661,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 262144
+        "maxOutputTokens": 262144,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3502,7 +3757,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 384000
+        "maxOutputTokens": 384000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3592,7 +3853,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 393216
+        "maxOutputTokens": 393216,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3684,7 +3951,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3775,7 +4048,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3868,7 +4147,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65535
+        "maxOutputTokens": 65535,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -3962,7 +4247,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65535
+        "maxOutputTokens": 65535,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4055,7 +4346,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4147,7 +4444,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4242,7 +4545,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4337,7 +4646,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4432,7 +4747,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4528,7 +4849,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4624,7 +4951,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4720,7 +5053,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4816,7 +5155,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -4912,7 +5257,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5000,7 +5351,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8192,
-        "maxOutputTokens": 2048
+        "maxOutputTokens": 2048,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5087,7 +5445,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5174,7 +5538,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5261,7 +5631,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5353,7 +5730,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5446,7 +5829,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5533,7 +5922,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8192,
-        "maxOutputTokens": 3686
+        "maxOutputTokens": 3686,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5623,7 +6019,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5713,7 +6115,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 50000
+        "maxOutputTokens": 50000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5803,7 +6211,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 260000,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5893,7 +6307,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -5985,7 +6405,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6071,7 +6497,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6157,7 +6590,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 8192,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6243,7 +6683,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8000,
-        "maxOutputTokens": 6000
+        "maxOutputTokens": 6000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6329,7 +6776,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6415,7 +6868,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6502,7 +6961,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 72000
+        "maxOutputTokens": 72000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6588,7 +7054,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6675,7 +7147,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6762,7 +7240,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1310720,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6850,7 +7334,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 163840,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -6941,7 +7432,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7027,7 +7524,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 16384,
-        "maxOutputTokens": 14745
+        "maxOutputTokens": 14745,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7114,7 +7618,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 65535,
-        "maxOutputTokens": 8000
+        "maxOutputTokens": 8000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7204,7 +7715,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 40000
+        "maxOutputTokens": 40000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7294,7 +7811,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7384,7 +7907,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7474,7 +8003,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7564,7 +8099,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7657,7 +8198,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 512000
+        "maxOutputTokens": 512000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7744,7 +8291,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 256000,
-        "maxOutputTokens": 204800
+        "maxOutputTokens": 204800,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7830,7 +8383,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 209715
+        "maxOutputTokens": 209715,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -7917,7 +8476,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 209715
+        "maxOutputTokens": 209715,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8004,7 +8569,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 104857
+        "maxOutputTokens": 104857,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8091,7 +8662,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 209715
+        "maxOutputTokens": 209715,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8178,7 +8755,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 102400
+        "maxOutputTokens": 102400,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8264,7 +8847,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 104857
+        "maxOutputTokens": 104857,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8351,7 +8940,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 209715
+        "maxOutputTokens": 209715,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8438,7 +9033,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 104857
+        "maxOutputTokens": 104857,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8529,7 +9130,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 209715
+        "maxOutputTokens": 209715,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8617,7 +9224,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 104857
+        "maxOutputTokens": 104857,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8703,7 +9316,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8789,7 +9408,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 26214
+        "maxOutputTokens": 26214,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8875,7 +9500,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -8966,7 +9598,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 209715
+        "maxOutputTokens": 209715,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9054,7 +9692,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 256000,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9140,7 +9784,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 65536,
-        "maxOutputTokens": 52428
+        "maxOutputTokens": 52428,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9227,7 +9877,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 26214
+        "maxOutputTokens": 26214,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9313,7 +9969,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 98304
+        "maxOutputTokens": 98304,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9399,7 +10061,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 98304
+        "maxOutputTokens": 98304,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9489,7 +10157,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 98304
+        "maxOutputTokens": 98304,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9580,7 +10254,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9671,7 +10351,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9763,7 +10449,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9855,7 +10547,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -9942,7 +10640,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 81920,
-        "maxOutputTokens": 38000
+        "maxOutputTokens": 38000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10028,7 +10733,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10114,7 +10826,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10200,7 +10919,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10290,7 +11016,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10380,7 +11113,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10471,7 +11210,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10562,7 +11307,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 182520
+        "maxOutputTokens": 182520,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10653,7 +11404,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10743,7 +11501,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10830,7 +11594,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 4095,
-        "maxOutputTokens": 3685
+        "maxOutputTokens": 3685,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -10917,7 +11687,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 16385,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11004,7 +11780,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8191,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11092,7 +11874,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1047576,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11180,7 +11968,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1047576,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11272,7 +12066,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1047576,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11361,7 +12161,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11449,7 +12255,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11537,7 +12349,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11625,7 +12443,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -11717,6 +12542,13 @@
         "maxOutputTokens": 2000,
         "apiFormats": [
           "audio_transcriptions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -11797,6 +12629,13 @@
         "maxOutputTokens": 2000,
         "apiFormats": [
           "audio_transcriptions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -11874,6 +12713,13 @@
         "maxOutputTokens": 2000,
         "apiFormats": [
           "audio_transcriptions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -11955,7 +12801,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12047,7 +12899,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12140,7 +12998,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12233,7 +13097,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12325,7 +13195,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12417,7 +13293,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12509,7 +13391,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12601,7 +13489,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12693,7 +13587,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 32000
+        "maxOutputTokens": 32000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12785,7 +13685,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12877,7 +13783,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -12969,7 +13881,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13065,7 +13983,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13161,7 +14085,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 400000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13257,7 +14187,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13349,7 +14285,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13445,7 +14387,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13541,7 +14489,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13633,7 +14587,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13729,7 +14689,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13821,7 +14787,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -13917,7 +14889,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14009,7 +14987,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14101,7 +15085,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14193,7 +15183,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14285,7 +15281,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14377,7 +15379,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14469,7 +15477,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14561,7 +15575,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14653,7 +15673,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14745,7 +15771,10 @@
         "streaming": true,
         "promptCaching": true,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 40960
+        "maxOutputTokens": 40960,
+        "unreported": [
+          "parallelToolCalls"
+        ]
       },
       "license": {
         "licenseId": "Apache-2.0",
@@ -14806,7 +15835,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14898,7 +15933,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -14990,7 +16031,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 8192,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15083,7 +16131,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 36864,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 8192,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15170,7 +16224,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 127072,
-        "maxOutputTokens": 114364
+        "maxOutputTokens": 114364,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15260,7 +16321,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 115200
+        "maxOutputTokens": 115200,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15347,7 +16415,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 8000
+        "maxOutputTokens": 8000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15438,7 +16513,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 8000
+        "maxOutputTokens": 8000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15529,7 +16611,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 115200
+        "maxOutputTokens": 115200,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15615,7 +16704,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15701,7 +16796,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 29491
+        "maxOutputTokens": 29491,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15788,7 +16889,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 115200
+        "maxOutputTokens": 115200,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15878,7 +16986,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 40960,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -15964,7 +17078,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16054,7 +17174,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 128000,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16144,7 +17270,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 40960,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16230,7 +17362,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16320,7 +17458,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16406,7 +17550,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16492,7 +17642,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16578,7 +17734,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16668,6 +17830,13 @@
         "maxOutputTokens": 28800,
         "apiFormats": [
           "embeddings"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -16745,7 +17914,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16835,7 +18010,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -16922,7 +18103,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17009,7 +18196,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17100,7 +18293,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17187,7 +18386,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17279,7 +18484,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17371,7 +18582,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 81920
+        "maxOutputTokens": 81920,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17463,7 +18680,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17555,7 +18778,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17648,7 +18877,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17740,7 +18975,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 81920
+        "maxOutputTokens": 81920,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17832,7 +19073,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -17923,7 +19170,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18015,7 +19268,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 235929,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18104,7 +19363,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 16384,
-        "maxOutputTokens": 14745
+        "maxOutputTokens": 14745,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18194,7 +19459,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 65536,
-        "maxOutputTokens": 58982
+        "maxOutputTokens": 58982,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18280,7 +19552,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 256000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18366,7 +19645,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 256000,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18452,7 +19737,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8192,
-        "maxOutputTokens": 7372
+        "maxOutputTokens": 7372,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18538,7 +19830,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18624,7 +19923,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18714,7 +20020,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 65536,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18806,7 +20118,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 230400
+        "maxOutputTokens": 230400,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18896,7 +20214,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -18982,7 +20307,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8192,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19068,7 +20400,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8192,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19154,7 +20493,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 8192,
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19244,7 +20590,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 262144,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19330,7 +20682,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19416,7 +20775,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 32768,
-        "maxOutputTokens": 29491
+        "maxOutputTokens": 29491,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19502,7 +20868,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1024000,
-        "maxOutputTokens": 819200
+        "maxOutputTokens": 819200,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19594,7 +20967,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 524288,
-        "maxOutputTokens": 471859
+        "maxOutputTokens": 471859,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19686,7 +21065,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 524288,
-        "maxOutputTokens": 262144
+        "maxOutputTokens": 262144,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19776,6 +21161,13 @@
         "maxOutputTokens": 28800,
         "apiFormats": [
           "decisions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -19852,7 +21244,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 6144,
-        "maxOutputTokens": 5529
+        "maxOutputTokens": 5529,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -19942,7 +21341,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 524288,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20032,7 +21437,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 524288,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20118,7 +21529,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1040000,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 8192,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20210,7 +21628,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 2000000,
-        "maxOutputTokens": 1800000
+        "maxOutputTokens": 1800000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20302,7 +21726,14 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 2000000,
-        "maxOutputTokens": 1800000
+        "maxOutputTokens": 1800000,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20394,7 +21825,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1000000,
-        "maxOutputTokens": 900000
+        "maxOutputTokens": 900000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20487,7 +21924,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 500000,
-        "maxOutputTokens": 450000
+        "maxOutputTokens": 450000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20580,7 +22023,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 500000,
-        "maxOutputTokens": 450000
+        "maxOutputTokens": 450000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20673,7 +22122,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 500000,
-        "maxOutputTokens": 450000
+        "maxOutputTokens": 450000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20761,7 +22216,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 256000,
-        "maxOutputTokens": 230400
+        "maxOutputTokens": 230400,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -20859,7 +22320,13 @@
           "sessionKinds": [
             "conversation"
           ]
-        }
+        },
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "xAI-Enterprise-Terms",
@@ -20951,6 +22418,13 @@
         "maxOutputTokens": 1,
         "apiFormats": [
           "audio_transcriptions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -21025,6 +22499,13 @@
         "maxOutputTokens": 1,
         "apiFormats": [
           "audio_transcriptions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -21099,6 +22580,13 @@
         "maxOutputTokens": 1,
         "apiFormats": [
           "audio_transcriptions"
+        ],
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
         ]
       },
       "license": {
@@ -21170,7 +22658,14 @@
         "streaming": false,
         "promptCaching": false,
         "maxContextTokens": 15008,
-        "maxOutputTokens": 1
+        "maxOutputTokens": 1,
+        "unreported": [
+          "tools",
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "xAI-Enterprise-Terms",
@@ -21252,7 +22747,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21342,7 +22843,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21435,7 +22942,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21528,7 +23041,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1050000,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21618,7 +23137,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 98304
+        "maxOutputTokens": 98304,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21708,7 +23233,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 98304
+        "maxOutputTokens": 98304,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21799,7 +23330,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 65536,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 16384,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21889,7 +23426,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -21981,7 +23524,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 131072,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 32768,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22071,7 +23620,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22161,7 +23716,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 200000,
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 117964,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22252,7 +23813,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22342,7 +23909,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 202752,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22432,7 +24005,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 204800,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 128000,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22523,7 +24102,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22614,7 +24199,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22707,7 +24298,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 943718,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22799,7 +24396,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 1048576,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",
@@ -22891,7 +24494,13 @@
         "streaming": true,
         "promptCaching": false,
         "maxContextTokens": 202752,
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 131072,
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
       },
       "license": {
         "licenseId": "LicenseRef-Kaana-Serving-Provider-Terms",

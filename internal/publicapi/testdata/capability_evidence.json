@@ -1,0 +1,632 @@
+{
+  "$comment": "Capability booleans that are TRUE in configs/public-catalogue.json, with the source that evidences each. 'migration-2026-10-15' means the value came from the one-time export of Oxy's catalogue and no primary source is cited: it is grandfathered, not evidence. Replace it with the provider's URL when one is read. A new true needs an entry here with a primary source.",
+  "evidence": {
+    "amazon/nova-2-lite-v1": {
+      "tools": "migration-2026-10-15"
+    },
+    "amazon/nova-lite-v1": {
+      "tools": "migration-2026-10-15"
+    },
+    "amazon/nova-micro-v1": {
+      "tools": "migration-2026-10-15"
+    },
+    "amazon/nova-premier-v1": {
+      "tools": "migration-2026-10-15"
+    },
+    "amazon/nova-pro-v1": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-fable-5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-fable-5.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-haiku-4.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-haiku-5.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-4.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-4.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-4.6": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-4.7": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-4.8": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-opus-5.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-sonnet-4": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-sonnet-4.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-sonnet-4.6": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-sonnet-5": {
+      "tools": "migration-2026-10-15"
+    },
+    "anthropic/claude-sonnet-5.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "bytedance-seed/seed-1.6": {
+      "tools": "migration-2026-10-15"
+    },
+    "bytedance-seed/seed-1.6-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "bytedance-seed/seed-2-1-turbo": {
+      "tools": "migration-2026-10-15"
+    },
+    "bytedance-seed/seed-2.0-code": {
+      "tools": "migration-2026-10-15"
+    },
+    "bytedance-seed/seed-2.0-lite": {
+      "tools": "migration-2026-10-15"
+    },
+    "bytedance-seed/seed-2.0-mini": {
+      "tools": "migration-2026-10-15"
+    },
+    "cohere/command-a-plus": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-chat": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-chat-v3-0324": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-chat-v3.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-r1": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-r1-0528": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v3.1-terminus": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v3.2": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v3.2-exp": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v4-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v4-flash-0731": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v4-flash-vision-exp": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v4-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v4-pro-0813": {
+      "tools": "migration-2026-10-15"
+    },
+    "deepseek/deepseek-v4.1-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "fireworks/ember-1": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-2.5-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-2.5-flash-lite": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-2.5-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-2.5-pro-preview": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3-flash-preview": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.1-flash-lite": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.1-pro-preview": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.5-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.5-flash-lite": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.6-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.7-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemini-3.8-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemma-3-12b-it": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemma-3-27b-it": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemma-4-26b-a4b-it": {
+      "tools": "migration-2026-10-15"
+    },
+    "google/gemma-4-31b-it": {
+      "tools": "migration-2026-10-15"
+    },
+    "ibm-granite/granite-4.2-8b": {
+      "tools": "migration-2026-10-15"
+    },
+    "inception/mercury-2": {
+      "tools": "migration-2026-10-15"
+    },
+    "inception/mercury-2.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "inclusionai/ling-3.0-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "inclusionai/ling-3.0-flash-vl": {
+      "tools": "migration-2026-10-15"
+    },
+    "meta-llama/llama-3.1-70b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "meta-llama/llama-3.1-8b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "meta-llama/llama-3.3-70b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "meta-llama/llama-4-maverick": {
+      "tools": "migration-2026-10-15"
+    },
+    "meta-llama/llama-4-scout": {
+      "tools": "migration-2026-10-15"
+    },
+    "meta/muse-glimmer-30b": {
+      "tools": "migration-2026-10-15"
+    },
+    "minimax/minimax-m1": {
+      "tools": "migration-2026-10-15"
+    },
+    "minimax/minimax-m2": {
+      "tools": "migration-2026-10-15"
+    },
+    "minimax/minimax-m2.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "minimax/minimax-m2.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "minimax/minimax-m2.7": {
+      "tools": "migration-2026-10-15"
+    },
+    "minimax/minimax-m3": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/codestral-2508": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/devstral-2512": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/ministral-14b-2512": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/ministral-3b-2512": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/ministral-8b-2512": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-large": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-large-2407": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-large-2512": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-medium-3": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-medium-3-5": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-medium-3.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-nemo": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-saba": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-small-2603": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mistral-small-3.2-24b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/mixtral-8x22b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "mistralai/voxtral-small-24b-2507": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k2": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k2-0905": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k2-thinking": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k2.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k2.6": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k2.7-code": {
+      "tools": "migration-2026-10-15"
+    },
+    "moonshotai/kimi-k3": {
+      "tools": "migration-2026-10-15"
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+      "tools": "migration-2026-10-15"
+    },
+    "nvidia/nemotron-3-super-120b-a12b": {
+      "tools": "migration-2026-10-15"
+    },
+    "nvidia/nemotron-3-ultra-550b-a55b": {
+      "tools": "migration-2026-10-15"
+    },
+    "nvidia/nemotron-3.5-lightning": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-3.5-turbo-0613": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-3.5-turbo-16k": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4.1-mini": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4.1-nano": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4o": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4o-2024-05-13": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-4o-2024-08-06": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5-mini": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5-nano": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.1-codex": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.1-codex-max": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.1-codex-mini": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.2": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.2-chat": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.2-codex": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.3-codex": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.4": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.4-mini": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.4-nano": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.4-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.6-luna": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.6-luna-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.6-sol": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.6-sol-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.6-terra": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-5.6-terra-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6-astra": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6-astra-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6-luna": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6-luna-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6-sol": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6-sol-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6.1-sol": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-6.1-sol-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-oss-120b": {
+      "tools": "migration-2026-10-15",
+      "structuredOutput": "migration-2026-10-15",
+      "jsonMode": "migration-2026-10-15",
+      "promptCaching": "migration-2026-10-15"
+    },
+    "openai/gpt-oss-20b": {
+      "tools": "migration-2026-10-15"
+    },
+    "openai/gpt-oss-safeguard-20b": {
+      "tools": "migration-2026-10-15"
+    },
+    "perceptron/perceptron-mk1.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen-2.5-72b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen-2.5-7b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-14b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-235b-a22b-2507": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-235b-a22b-thinking-2507": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-30b-a3b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-30b-a3b-instruct-2507": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-32b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-coder": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-coder-30b-a3b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-coder-next": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-next-80b-a3b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-next-80b-a3b-thinking": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-vl-235b-a22b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-vl-30b-a3b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-vl-30b-a3b-thinking": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3-vl-8b-instruct": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.5-122b-a10b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.5-27b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.5-35b-a3b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.5-397b-a17b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.5-9b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.6-27b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.6-35b-a3b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.8-2.4t-a95b": {
+      "tools": "migration-2026-10-15"
+    },
+    "qwen/qwen3.8-27b": {
+      "tools": "migration-2026-10-15"
+    },
+    "rekaai/reka-edge": {
+      "tools": "migration-2026-10-15"
+    },
+    "relace/relace-search": {
+      "tools": "migration-2026-10-15"
+    },
+    "stepfun/step-3.5-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "stepfun/step-3.7-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "tencent/hy3": {
+      "tools": "migration-2026-10-15"
+    },
+    "thinkingmachines/inkling": {
+      "tools": "migration-2026-10-15"
+    },
+    "thinkingmachines/inkling-small": {
+      "tools": "migration-2026-10-15"
+    },
+    "upstage/solar-mini4": {
+      "tools": "migration-2026-10-15"
+    },
+    "upstage/solar-pro4": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-4.20": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-4.3": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-4.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-4.6": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-4.7": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-build-0.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "x-ai/grok-voice-3.0": {
+      "tools": "migration-2026-10-15"
+    },
+    "xiaomi/mimo-v2.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "xiaomi/mimo-v2.5-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "xiaomi/mimo-v2.6-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "xiaomi/mimo-v2.6-pro": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.5": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.5-air": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.5v": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.6": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.6v": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.7": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-4.7-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5-turbo": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5.1": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5.2": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5.3": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5.3-flash": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5.3-flashx": {
+      "tools": "migration-2026-10-15"
+    },
+    "z-ai/glm-5v-turbo": {
+      "tools": "migration-2026-10-15"
+    }
+  }
+}

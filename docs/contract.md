@@ -88,7 +88,9 @@ refuses what is new, so Oxy adopts it first.
   recorded", not "known absent". The five booleans stay required because
   deployed readers parse them; a key listed here must be `false`; absent means
   undeclared, like `apiFormats`. `modelCapabilitiesSchema` is `notApplicable` in
-  the Go descriptor test, so no Go struct changes.
+  the Go descriptor test, so no Go struct changes. The declared catalogue now
+  populates it ([operating](operating.md#the-declared-catalogue)); the five
+  booleans themselves did not change.
 
 ## Contract set 8.3.0: Anthropic Messages (`POST /v1/messages`)
 

@@ -933,6 +933,34 @@ over image defaults. The file is loaded at start whether or not
   documentation cited in the commit. Without it no request carrying an image is
   granted on the line. It travels to Oxy on the declared document and is not
   served on `GET /v1/models`.
+- **Capabilities that are not recorded (`capabilities.unreported`):** the five
+  booleans `tools`, `parallelToolCalls`, `structuredOutput`, `jsonMode` and
+  `promptCaching` were hand-authored in the one-time export of Oxy's catalogue
+  and no entry cites a source for them, so a `false` means "not stated as true",
+  not "the model cannot". Each model lists, in the contract's order, every one of
+  the five that is `false` and has no primary source that the capability is
+  absent (contracts 8.4.0: a listed key must be `false`, listed once; the array
+  is omitted when empty). A `true` cannot be listed. Today that is every `false`:
+  `tools` on 52 models, `parallelToolCalls` on 260, `structuredOutput`,
+  `jsonMode` and `promptCaching` on 259 each; no boolean changed. A reader must
+  treat a listed key as unknown, never as "unsupported". Like `imageInput`, it
+  travels to Oxy on `declaredCatalogue` and is NOT served on `GET /v1/models`
+  yet (`withholdUnreported`): readers on `@kaana.ai/contracts` 4.4.0 and 5.0.0
+  (Alia on `@kaana.ai/sdk` 1.0.1) parse capabilities strictly and would refuse
+  the whole model list (the compatibility test in `packages/sdk` pins it). Serve
+  it publicly only when no deployed reader is older than 8.4.0.
+  `internal/publicapi/testdata/capability_evidence.json` is the evidence rule
+  the test `TestTheDeclaredCatalogueSaysWhichCapabilitiesItDoesNotKnow` applies:
+  every `true` needs a source under `evidence` (the 208 `tools` trues and the
+  three of `openai/gpt-oss-120b` carry `migration-2026-10-15`, which is
+  grandfathered, not evidence) and a `false` stays unlisted only with a source
+  under `absent`. **When evidence arrives** (the provider's own documentation
+  or a reviewed observation, cited in the commit): set the boolean to what it
+  says, delete that key from the model's `unreported` array (and the array when
+  it is empty), and record the source in `capability_evidence.json` (`evidence`
+  for a true, `absent` for a false). The observed `supportsTools` of the
+  inventory is a measurement of one deployment, not a statement about the model
+  line, so it does not by itself clear an entry.
 - **Gates:** `publicapi.ParsePublicCatalogue` (Go) and
   `declaredCatalogueSchema` (Zod, in `tools/contract validate`) both parse the
   whole file; a model may not carry `servingProviders`, `availabilityScope`,

@@ -121,25 +121,25 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "observed-2026-10-16"
     ],
     "capabilities": {
+      "apiFormats": [
+        "audio_transcriptions"
+      ],
       "inputModalities": [
         "audio"
       ],
+      "jsonMode": false,
+      "maxContextTokens": 1,
+      "maxOutputTokens": 1,
       "outputModalities": [
         "text"
       ],
-      "tools": false,
       "parallelToolCalls": false,
-      "structuredOutput": false,
-      "jsonMode": false,
+      "promptCaching": false,
       "reasoning": false,
       "reasoningEfforts": [],
       "streaming": false,
-      "promptCaching": false,
-      "maxContextTokens": 1,
-      "maxOutputTokens": 1,
-      "apiFormats": [
-        "audio_transcriptions"
-      ]
+      "structuredOutput": false,
+      "tools": false
     },
     "currentRevision": "observed-2026-10-16",
     "dataPolicy": {
@@ -1093,25 +1093,25 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "observed-2026-10-16"
     ],
     "capabilities": {
+      "apiFormats": [
+        "audio_transcriptions"
+      ],
       "inputModalities": [
         "audio"
       ],
+      "jsonMode": false,
+      "maxContextTokens": 1,
+      "maxOutputTokens": 1,
       "outputModalities": [
         "text"
       ],
-      "tools": false,
       "parallelToolCalls": false,
-      "structuredOutput": false,
-      "jsonMode": false,
+      "promptCaching": false,
       "reasoning": false,
       "reasoningEfforts": [],
       "streaming": false,
-      "promptCaching": false,
-      "maxContextTokens": 1,
-      "maxOutputTokens": 1,
-      "apiFormats": [
-        "audio_transcriptions"
-      ]
+      "structuredOutput": false,
+      "tools": false
     },
     "currentRevision": "observed-2026-10-16",
     "dataPolicy": {
@@ -1178,19 +1178,19 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "inputModalities": [
         "text"
       ],
+      "jsonMode": false,
+      "maxContextTokens": 15008,
+      "maxOutputTokens": 1,
       "outputModalities": [
         "audio"
       ],
-      "tools": false,
       "parallelToolCalls": false,
-      "structuredOutput": false,
-      "jsonMode": false,
+      "promptCaching": false,
       "reasoning": false,
       "reasoningEfforts": [],
       "streaming": false,
-      "promptCaching": false,
-      "maxContextTokens": 15008,
-      "maxOutputTokens": 1
+      "structuredOutput": false,
+      "tools": false
     },
     "currentRevision": "observed-2026-09-24",
     "dataPolicy": {
