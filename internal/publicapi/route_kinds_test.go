@@ -73,7 +73,7 @@ func twoWayGrant(operation contract.GrantOperation) *contract.Grant {
 
 func routedDeployments(t *testing.T, server *Server, operation contract.GrantOperation, kind *contract.RealtimeSessionKind) []contract.DeploymentID {
 	t.Helper()
-	resolved, failure := resolveGrant(twoWayGrant(operation), twoWayLine(t), nil, server.servesOperation(operation, kind), nil, time.Now())
+	resolved, failure := resolveGrant(twoWayGrant(operation), twoWayLine(t), nil, nil, server.servesOperation(operation, kind), nil, time.Now())
 	if failure != nil {
 		return nil
 	}

@@ -39,7 +39,8 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // every deployment serving them that the step's provider and region limits
 // admit and whose key pool holds a key within the step's funding ceiling;
 // ordered by the cheapest such key (free, credit, paid, unstated), then the
-// grant's line order, then the inventory's. A deployment a previous step
+// grant's line order, then recent time to first output in coarse bands
+// (latencyBand), then the inventory's. A deployment a previous step
 // already authorized is not repeated: a request moves to the next step only
 // when the previous one has no admissible route left, which the executor
 // decides attempt by attempt and only before any output.
@@ -56,20 +57,20 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // Kaana never adds a model line Oxy did not admit and never widens a limit.
 // What it cannot verify from its inventory (zero data retention, training,
 // licences) is the policy Oxy applied when it computed admittedModelLines.
-func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
 	if len(needs) > 0 {
 		// Prefer routes whose published accepted-parameter set takes every
 		// control the request carries (ADR 0008). When none does, resolve as
 		// before: the attempt then refuses with the exact parameter named, which
 		// is a better answer than "no route".
-		if resolved, failure := resolveGrantFor(grant, snapshot, funding, serves, needs, at); failure == nil {
+		if resolved, failure := resolveGrantFor(grant, snapshot, funding, latency, serves, needs, at); failure == nil {
 			return resolved, nil
 		}
 	}
-	return resolveGrantFor(grant, snapshot, funding, serves, nil, at)
+	return resolveGrantFor(grant, snapshot, funding, latency, serves, nil, at)
 }
 
-func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
 	for stepIndex, step := range grant.Steps {
@@ -77,6 +78,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 			route    provider.Route
 			rank     int
 			line     int
+			band     int
 			position int
 		}
 		var candidates []candidate
@@ -118,7 +120,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 					}
 					rank = cheapest
 				}
-				candidates = append(candidates, candidate{route: route, rank: rank, line: lineIndex, position: position})
+				candidates = append(candidates, candidate{route: route, rank: rank, line: lineIndex, band: latencyBand(latency, route.DeploymentID), position: position})
 			}
 		}
 		sort.SliceStable(candidates, func(a, b int) bool {
@@ -127,6 +129,9 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 			}
 			if candidates[a].line != candidates[b].line {
 				return candidates[a].line < candidates[b].line
+			}
+			if candidates[a].band != candidates[b].band {
+				return candidates[a].band < candidates[b].band
 			}
 			return candidates[a].position < candidates[b].position
 		})
@@ -257,4 +262,35 @@ func carriedParameters(maxOutput *int, sampling contract.SamplingParameters, too
 		}
 	}
 	return carried
+}
+
+// latencyBandRatio is how much slower than the band below a deployment must be
+// to fall into the next band. Bands, not a comparison with a margin, because
+// "within 25%" is not transitive and a sort over it is not well defined; bands
+// also keep two deployments of near-equal speed in inventory order instead of
+// swapping places on noise.
+const latencyBandRatio = 1.5
+
+// latencyBandFloor is the time to first output below which every deployment is
+// in band 1: under 100 ms the difference is not one a caller can feel.
+const latencyBandFloor = 100 * time.Millisecond
+
+// latencyBand ranks a deployment by recent time to first output. An unobserved
+// deployment is in band 0, ahead of every observed one: unknown is not slow,
+// and a cold deployment must get traffic to be measured at all. It only orders
+// routes that are equal on funding and line, never excludes one, and is the
+// "latency and health signals" ADR 0001 decision 3 already named (ADR 0008).
+func latencyBand(latency LatencyReader, deployment contract.DeploymentID) int {
+	if latency == nil {
+		return 0
+	}
+	observed, ok := latency.FirstOutput(deployment)
+	if !ok {
+		return 0
+	}
+	band := 1
+	for limit := latencyBandFloor; observed > limit; limit = time.Duration(float64(limit) * latencyBandRatio) {
+		band++
+	}
+	return band
 }

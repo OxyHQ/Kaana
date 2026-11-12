@@ -479,6 +479,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		switch {
 		case streamErr == nil:
 			permit.Succeeded()
+			permit.ObserveFirstOutput(telemetry.TimeToFirstOutput)
 		case last.cancelled:
 			// The customer withdrew. Nothing about this deployment failed, and
 			// re-running the request elsewhere would serve output nobody is

@@ -86,6 +86,10 @@ type Config struct {
 	// Funding ranks a route's cheapest admissible key; nil keeps the grant's
 	// order within each step.
 	Funding FundingRanker
+	// Latency reports a deployment's recent typical time to first output; it
+	// only orders routes that are otherwise equal (ADR 0008). Nil orders by
+	// the grant's and the inventory's positions alone.
+	Latency LatencyReader
 	// Kinds says which slugs this process serves as session adapters and
 	// which as request adapters; nil resolves every route of an admitted line.
 	Kinds RouteKinds
@@ -117,6 +121,7 @@ type Server struct {
 	settler    *Settler
 	inventory  *inventory.Store
 	funding    FundingRanker
+	latency    LatencyReader
 	kinds      RouteKinds
 	audio      AudioCatalogue
 	realtime   http.Handler
@@ -175,7 +180,7 @@ func New(config Config) (*Server, error) {
 	}
 	return &Server{
 		executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
-		inventory: config.Inventory, funding: config.Funding, kinds: config.Kinds, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
+		inventory: config.Inventory, funding: config.Funding, latency: config.Latency, kinds: config.Kinds, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
 		origins: origins, limiter: newLimiter(rate, now), logger: logger, now: now,
 	}, nil
 }
@@ -391,4 +396,10 @@ func (f RegistryFunding) CheapestTier(route provider.Route, ceiling provider.Fun
 		}
 	}
 	return fundingRankUnknown, true
+}
+
+// LatencyReader reports a deployment's recent typical time to first output. ok
+// is false when there is no recent observation: unknown is not slow.
+type LatencyReader interface {
+	FirstOutput(contract.DeploymentID) (time.Duration, bool)
 }

@@ -1,6 +1,6 @@
 # ADR 0008 — Provider selection: what Kaana adopts from OpenRouter, and what it refuses
 
-- Status: accepted for decisions 1-5 (Kaana-only, no contract change; 1 is implemented, 3 and 4 follow); decision 6
+- Status: accepted for decisions 1-5 (Kaana-only, no contract change; 1 and 3 are implemented, 4 is deferred); decision 6
   is proposed and needs Oxy's half before any contract change.
 - Date: 2026-11-12
 - Source: OpenRouter's provider-selection, traffic-routing, model-fallbacks and
@@ -46,11 +46,11 @@ are not gaps.
    never prevent your request from being executed": a slow route moves later, it
    is not removed. The signed `authorizedRoutes` lane is untouched: it is never
    reordered (`docs/routing.md`).
-4. **Cache affinity is allowed, bounded by the grant's order.** A conversation
-   may stay on the deployment that served it while that deployment is still in
-   the grant's admitted set and in rotation. Affinity never admits a route the
-   grant did not, never outranks the funding tier, and keeps no prompt: it keys
-   on an opaque value Oxy already signs.
+4. **Cache affinity is deferred.** OpenRouter keeps a conversation on the
+   provider whose prompt cache is warm. Kaana has no key to hold a conversation
+   to: a grant carries none, and deriving one from the prompt would persist
+   customer data. It waits for an opaque, Oxy-signed affinity value in the
+   grant (a contract widening, so decision 6's route).
 5. **Zero retention means zero retention.** OpenRouter's `zdr: true` also admits
    "Safety Retention" endpoints (retained only to detect abuse) unless the
    account or guardrail is set to ZDR only. Kaana's claim of zero retention is

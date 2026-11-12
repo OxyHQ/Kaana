@@ -57,7 +57,7 @@ func capabilityGrant() *contract.Grant {
 
 func routedFor(t *testing.T, line *inventory.Inventory, needs []provider.RequestParameter) []contract.DeploymentID {
 	t.Helper()
-	resolved, failure := resolveGrant(capabilityGrant(), line, nil, nil, needs, time.Now())
+	resolved, failure := resolveGrant(capabilityGrant(), line, nil, nil, nil, needs, time.Now())
 	if failure != nil {
 		t.Fatalf("resolveGrant refused: %v", failure)
 	}
@@ -93,7 +93,7 @@ func TestAGrantFallsBackWhenNoDeploymentAcceptsTheControl(t *testing.T) {
 	grant := capabilityGrant()
 	grant.Steps[0].Limits.ProviderAllowlist = []contract.ProviderSlug{"alpha", "gamma"}
 
-	resolved, failure := resolveGrant(grant, line, nil, nil, []provider.RequestParameter{provider.ParameterTemperature}, time.Now())
+	resolved, failure := resolveGrant(grant, line, nil, nil, nil, []provider.RequestParameter{provider.ParameterTemperature}, time.Now())
 	if failure != nil {
 		t.Fatalf("a request every admitted deployment refuses became %v instead of reaching the attempt", failure)
 	}
@@ -127,5 +127,61 @@ func TestCarriedParametersReadsTheWireTheWayTheAdapterDoes(t *testing.T) {
 		if !slices.Equal(c.got, c.want) {
 			t.Errorf("%s: got %v, want %v", name, c.got, c.want)
 		}
+	}
+}
+
+type fixedLatency map[contract.DeploymentID]time.Duration
+
+func (f fixedLatency) FirstOutput(id contract.DeploymentID) (time.Duration, bool) {
+	d, ok := f[id]
+	return d, ok
+}
+
+type tierByDeployment map[contract.DeploymentID]int
+
+func (f tierByDeployment) CheapestTier(route provider.Route, _ provider.FundingTier) (int, bool) {
+	return f[route.DeploymentID], true
+}
+
+func routedWithLatency(t *testing.T, funding FundingRanker, latency LatencyReader) []contract.DeploymentID {
+	t.Helper()
+	line := capabilityLine(t, `["tools"]`, `["tools"]`)
+	resolved, failure := resolveGrant(capabilityGrant(), line, funding, latency, nil, nil, time.Now())
+	if failure != nil {
+		t.Fatalf("resolveGrant refused: %v", failure)
+	}
+	var deployments []contract.DeploymentID
+	for _, route := range resolved.routes {
+		deployments = append(deployments, route.DeploymentID)
+	}
+	return deployments
+}
+
+// TestRecentLatencyOnlyBreaksTiesWithinAFundingTier: the faster deployment goes
+// first among equals, an unobserved one is tried before an observed one, near
+// equal speeds keep inventory order, and nothing is ever removed or moved
+// across a funding tier (ADR 0008, decision 3).
+func TestRecentLatencyOnlyBreaksTiesWithinAFundingTier(t *testing.T) {
+	// Inventory order is dep_refuses, dep_silent, dep_accepts.
+	slowFirst := fixedLatency{"dep_refuses": 4 * time.Second, "dep_silent": 300 * time.Millisecond, "dep_accepts": 900 * time.Millisecond}
+	if got := routedWithLatency(t, nil, slowFirst); !slices.Equal(got, []contract.DeploymentID{"dep_silent", "dep_accepts", "dep_refuses"}) {
+		t.Errorf("faster deployments were not first: %v", got)
+	}
+	// Control: with no latency evidence the order is the inventory's.
+	if got := routedWithLatency(t, nil, nil); !slices.Equal(got, []contract.DeploymentID{"dep_refuses", "dep_silent", "dep_accepts"}) {
+		t.Errorf("no evidence changed the order: %v", got)
+	}
+	// Unknown is not slow: the unobserved deployment is tried first.
+	if got := routedWithLatency(t, nil, fixedLatency{"dep_refuses": 50 * time.Millisecond, "dep_accepts": 60 * time.Millisecond}); got[0] != "dep_silent" {
+		t.Errorf("an unobserved deployment was ranked behind observed ones: %v", got)
+	}
+	// Within one band (here under the 100 ms floor) noise does not reorder.
+	if got := routedWithLatency(t, nil, fixedLatency{"dep_refuses": 90 * time.Millisecond, "dep_silent": 40 * time.Millisecond, "dep_accepts": 10 * time.Millisecond}); !slices.Equal(got, []contract.DeploymentID{"dep_refuses", "dep_silent", "dep_accepts"}) {
+		t.Errorf("near equal speeds were reordered: %v", got)
+	}
+	// Funding outranks speed: the fastest deployment on paid capacity stays behind.
+	funding := tierByDeployment{"dep_refuses": 0, "dep_silent": 2, "dep_accepts": 0}
+	if got := routedWithLatency(t, funding, fixedLatency{"dep_refuses": 4 * time.Second, "dep_silent": 10 * time.Millisecond, "dep_accepts": 900 * time.Millisecond}); !slices.Equal(got, []contract.DeploymentID{"dep_accepts", "dep_refuses", "dep_silent"}) {
+		t.Errorf("latency crossed a funding tier: %v", got)
 	}
 }
