@@ -12,6 +12,58 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.6.0: reasoning continuity (ADR 0009, decision 2)
+
+MINOR, `@kaana.ai/contracts` 8.6.0. Additive; everything 8.5.0 parses still
+parses. The owner reverted the earlier decision to leave reasoning out of
+`messages.ts` ("an opaque per-block blob needs a home nobody has chosen yet") and
+chose the home below; the reason is correctness: a thinking model that calls a
+tool cannot be continued unless its reasoning blocks come back unmodified and in
+order (Anthropic requires its thinking blocks and signatures, OpenRouter an
+ordered `reasoning_details` array).
+
+- **`reasoning: {effort?, maxTokens?, exclude?}`** (strict). `effort` and
+  `maxTokens` (a thinking budget in tokens) are alternatives, refused together.
+  `exclude: true` means the model may still reason, and be billed for it, but no
+  reasoning is returned (no delta, no part, no token); Kaana honours it itself,
+  on every route, so it is not a route parameter. `{}` is valid and opts in.
+  `reasoning.maxTokens` is a new request-parameter word (`provider.ParameterReasoningMaxTokens`;
+  OpenRouter's `reasoning` states it); an adapter that cannot take a budget
+  refuses it with `invalid_request` naming `reasoning.maxTokens`.
+- **The `reasoning` content part**, `{type: 'reasoning', text?, opaque?}`, an
+  assistant message only (refused elsewhere like `refusal`), at least one of the
+  two members. `text` is for people and is never forwarded alone. `opaque` is a
+  sealed continuation token the customer returns UNMODIFIED in the position it
+  arrived. Its content is internal (`internal/reasoningblock`: base64url JSON
+  `{f: <family>, p: <payload>}`); the public name and shape name no provider.
+  Sealing is an encoding, not a signature: a forged or edited token only gets the
+  customer the provider's own 400, and nothing relies on it for trust.
+- **The `reasoning` delta** may carry `opaque`, once per finished block after its
+  text deltas, with empty `text`. It is emitted only to a request that carried
+  `reasoning`, and a whole answer (`/v1/responses`, `/v1/messages`) carries
+  reasoning parts only for such a request, because a reader of an older contract
+  refuses a part type it does not know. The compatibility gate
+  (`compatibility.test.ts`) parses a delta with `opaque` under contracts 4.4.0 and
+  5.0.0. Oxy parses messages and the delta on the legacy signed lane, so it only
+  needs to bump its pin for that lane; the public/grant lane never sends messages
+  to Oxy.
+- **Which provider reads which block.** An adapter forwards only blocks of its
+  own family and drops every other, in order, never failing the request: after a
+  failover or a model switch the continuation is lost, the conversation is not.
+  Anthropic sends `thinking` / `redacted_thinking` ahead of the text and
+  `tool_use` they preceded; OpenRouter's adapter sends the `reasoning_details`
+  entries unmodified in order; every other route receives none.
+- **Surfaces.** `/v1/responses` carries the part and the delta token.
+  `/v1/messages` maps `thinking: {type: enabled, budget_tokens}` to
+  `reasoning.maxTokens`, `thinking: {type: adaptive}` to `reasoning: {}`, and
+  returns `thinking` blocks whose `signature` is the token (see
+  [anthropic-messages.md](anthropic-messages.md)). **`/v1/chat/completions`
+  carries none**: OpenAI's dialect has no standard field for it and a
+  non-standard one would break the clients that parse it, so a reasoning part
+  there is refused naming this decision and no chat answer or chunk ever carries
+  reasoning. Reasoning continuity is on `/v1/responses` and `/v1/messages`.
+- Reasoning blocks never enter the usage estimate beyond what a provider
+  reports, and are never logged or persisted (customer data).
 ## Contract set 8.5.0: provider preferences and prompt-cache key (ADR 0008)
 
 MINOR, `@kaana.ai/contracts` 8.5.0. Additive; everything 8.4.0 parses still

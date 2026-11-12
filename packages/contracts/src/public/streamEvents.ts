@@ -40,6 +40,14 @@ export const inferenceStreamDeltaEventSchema = z.object({
    */
   channel: z.enum(['output_text', 'reasoning', 'refusal', 'output_audio_transcript']),
   text: z.string(),
+  /**
+   * Contract set 8.6.0. On the `reasoning` channel only: the continuation token
+   * of one finished reasoning block, which the customer returns UNMODIFIED as the
+   * `opaque` of a `reasoning` content part, in the order the blocks arrived.
+   * Emitted once per block, after the block's text deltas (with empty `text`),
+   * and only to a request that carried `reasoning` and did not `exclude` it.
+   */
+  opaque: z.string().check(minUtf16Length(1)).optional(),
 });
 
 /** The encodings an audio output may carry. */

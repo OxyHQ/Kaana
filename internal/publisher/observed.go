@@ -543,7 +543,9 @@ func applyStatedAcceptedParameters(slug contract.ProviderSlug, models []Discover
 //     endpoints list only `max_completion_tokens` and serve `max_tokens`), and
 //     Kaana sends `max_tokens`.
 //   - `reasoning` and `reasoning_effort` are one control, as for
-//     reasoningEfforts above.
+//     reasoningEfforts above; `reasoning` alone also states the token budget,
+//     which OpenRouter documents as the other normalized form of it
+//     (`reasoning.max_tokens`).
 //   - `response_format` is what Kaana sends for every non-text response
 //     format; `structured_outputs` alone is not read as accepting it.
 //   - `tool_choice` is the field and, unless the provider states its values
@@ -554,6 +556,7 @@ func applyStatedAcceptedParameters(slug contract.ProviderSlug, models []Discover
 var providerParameterWords = map[provider.RequestParameter][]string{
 	provider.ParameterMaxOutputTokens:    {"max_tokens", "max_completion_tokens"},
 	provider.ParameterReasoningEffort:    {"reasoning", "reasoning_effort"},
+	provider.ParameterReasoningMaxTokens: {"reasoning"},
 	provider.ParameterResponseFormat:     {"response_format"},
 	provider.ParameterFrequencyPenalty:   {"frequency_penalty"},
 	provider.ParameterPresencePenalty:    {"presence_penalty"},

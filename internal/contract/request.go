@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 )
 
 // The discriminated unions below are flattened: one Go struct per union,
@@ -45,9 +46,12 @@ const (
 	ContentPartAudio   ContentPartType = "audio"
 	ContentPartFile    ContentPartType = "file"
 	ContentPartRefusal ContentPartType = "refusal"
+	// ContentPartReasoning is an assistant's reasoning: readable text and/or an
+	// opaque continuation token the customer returns unmodified.
+	ContentPartReasoning ContentPartType = "reasoning"
 )
 
-var contentPartTypeValues = []ContentPartType{ContentPartText, ContentPartImage, ContentPartAudio, ContentPartFile, ContentPartRefusal}
+var contentPartTypeValues = []ContentPartType{ContentPartText, ContentPartImage, ContentPartAudio, ContentPartFile, ContentPartRefusal, ContentPartReasoning}
 
 // ContentPart is one part of a message. A message is always a list of parts.
 type ContentPart struct {
@@ -56,6 +60,9 @@ type ContentPart struct {
 	Source   *ContentSource  `json:"source,omitempty"`
 	Detail   *ImageDetail    `json:"detail,omitempty"`
 	Filename *string         `json:"filename,omitempty"`
+	// Opaque is a reasoning part's continuation token. Customer data: it is
+	// never logged, persisted or parsed outside internal/reasoningblock.
+	Opaque *string `json:"opaque,omitempty"`
 }
 
 // ToolCall is a tool call an assistant made.
@@ -116,9 +123,24 @@ type SamplingParameters struct {
 // (`inferenceReasoningSchema`). Absent means the route's own default reasoning
 // behaviour; present, every adapter either sends the effort in its provider's
 // own documented field or refuses the request in Translate.
+//
+// Effort and MaxTokens (a thinking budget) are alternatives. Exclude asks that
+// no reasoning be returned. A request carrying `reasoning` at all, even empty,
+// opts in to reasoning continuation tokens.
 type ReasoningParameters struct {
-	Effort ReasoningEffort `json:"effort"`
+	Effort    *ReasoningEffort `json:"effort,omitempty"`
+	MaxTokens *int             `json:"maxTokens,omitempty"`
+	Exclude   *bool            `json:"exclude,omitempty"`
 }
+
+// HasEffort reports whether the caller named an effort.
+func (r *ReasoningParameters) HasEffort() bool { return r != nil && r.Effort != nil }
+
+// EffortPtr is a pointer to an effort, for building ReasoningParameters.
+func EffortPtr(effort ReasoningEffort) *ReasoningEffort { return &effort }
+
+// Excluded reports whether the caller asked that no reasoning be returned.
+func (r *ReasoningParameters) Excluded() bool { return r != nil && r.Exclude != nil && *r.Exclude }
 
 // ToolDefinition is a tool the model may call.
 //
@@ -494,8 +516,16 @@ func (r *Request) Validate() error {
 	if !isMember(r.Client.APIFormat, apiFormatValues) {
 		return fmt.Errorf("contract: %q is not an api format", r.Client.APIFormat)
 	}
-	if r.Reasoning != nil && !r.Reasoning.Effort.Valid() {
-		return fmt.Errorf("contract: reasoning.effort %q is not a reasoning effort", r.Reasoning.Effort)
+	if r.Reasoning != nil {
+		if r.Reasoning.Effort != nil && !r.Reasoning.Effort.Valid() {
+			return fmt.Errorf("contract: reasoning.effort %q is not a reasoning effort", *r.Reasoning.Effort)
+		}
+		if r.Reasoning.MaxTokens != nil && (*r.Reasoning.MaxTokens < 1 || *r.Reasoning.MaxTokens > math.MaxInt32) {
+			return fmt.Errorf("contract: reasoning.maxTokens must be between 1 and %d", math.MaxInt32)
+		}
+		if r.Reasoning.Effort != nil && r.Reasoning.MaxTokens != nil {
+			return fmt.Errorf("contract: reasoning takes an effort or a maxTokens budget, not both")
+		}
 	}
 	if r.MaxOutputTokens != nil && *r.MaxOutputTokens <= 0 {
 		return fmt.Errorf("contract: maxOutputTokens must be positive")
@@ -728,8 +758,8 @@ func (m Message) validate() error {
 		return fmt.Errorf("only an assistant message makes tool calls")
 	}
 	for index, part := range m.Content {
-		if m.Role != RoleAssistant && part.Type == ContentPartRefusal {
-			return fmt.Errorf("content[%d]: only an assistant message carries a refusal", index)
+		if m.Role != RoleAssistant && (part.Type == ContentPartRefusal || part.Type == ContentPartReasoning) {
+			return fmt.Errorf("content[%d]: only an assistant message carries a %s", index, part.Type)
 		}
 		if err := part.validate(); err != nil {
 			return fmt.Errorf("content[%d]: %w", index, err)
@@ -743,6 +773,13 @@ func (p ContentPart) validate() error {
 	case ContentPartText, ContentPartRefusal:
 		if p.Text == nil {
 			return fmt.Errorf("a %s part must carry text", p.Type)
+		}
+	case ContentPartReasoning:
+		if p.Text == nil && (p.Opaque == nil || *p.Opaque == "") {
+			return fmt.Errorf("a reasoning part carries text, an opaque token, or both")
+		}
+		if p.Opaque != nil && *p.Opaque == "" {
+			return fmt.Errorf("a reasoning part's opaque token is empty")
 		}
 	case ContentPartImage, ContentPartAudio, ContentPartFile:
 		if p.Source == nil {

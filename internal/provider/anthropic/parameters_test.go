@@ -166,7 +166,7 @@ func TestSamplingIsRefusedWhereAnthropicRejectsItAndThePublishedSetIsHonoured(t 
 	// set alone: a set lacking `reasoning.effort` refuses an effort, an
 	// unknown one refuses nothing.
 	effort := baseRequest("req_effort")
-	effort.Reasoning = &contract.ReasoningParameters{Effort: contract.ReasoningEffortLow}
+	effort.Reasoning = &contract.ReasoningParameters{Effort: contract.EffortPtr(contract.ReasoningEffortLow)}
 	withoutEffort := []provider.RequestParameter{provider.ParameterMaxOutputTokens, provider.ParameterTools}
 	route := testRoute()
 	route.AcceptedParameters = &withoutEffort

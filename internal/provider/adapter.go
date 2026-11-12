@@ -296,6 +296,13 @@ type Emitter interface {
 	Start(resolved contract.ModelReference, at time.Time) error
 	// Delta reports a chunk of output on one channel.
 	Delta(outputIndex int, channel contract.DeltaChannel, text string) error
+	// ReasoningBlock reports the continuation token of one FINISHED reasoning
+	// block (reasoningblock.Seal), in the order the model produced its blocks.
+	// It is model output, so it commits the request like a delta does. The
+	// emitter delivers it only to a request that carried `reasoning` and did not
+	// exclude it; for every other request it is dropped, which is what lets an
+	// adapter call it unconditionally.
+	ReasoningBlock(outputIndex int, opaque string) error
 	// ToolCall reports a tool call being streamed.
 	ToolCall(call ToolCallDelta) error
 	// Usage reports metered units for the request so far. Units only — a cost

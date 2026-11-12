@@ -266,7 +266,7 @@ func admitsRoute(limits contract.GrantStepLimits, route provider.Route) bool {
 // `text` response format sends nothing, `auto` tool choice is every provider's
 // default, and a tool choice is a value only when it is none, required or a
 // named function (openaicompat.wireToolChoiceValue reads the same way).
-func carriedParameters(maxOutput *int, sampling contract.SamplingParameters, tools int, choice *contract.ToolChoice, format *contract.ResponseFormat, reasoning bool) []provider.RequestParameter {
+func carriedParameters(maxOutput *int, sampling contract.SamplingParameters, tools int, choice *contract.ToolChoice, format *contract.ResponseFormat, reasoning *contract.ReasoningParameters) []provider.RequestParameter {
 	var carried []provider.RequestParameter
 	add := func(present bool, parameter provider.RequestParameter) {
 		if present {
@@ -274,7 +274,10 @@ func carriedParameters(maxOutput *int, sampling contract.SamplingParameters, too
 		}
 	}
 	add(maxOutput != nil, provider.ParameterMaxOutputTokens)
-	add(reasoning, provider.ParameterReasoningEffort)
+	// `exclude` and an empty `reasoning` need nothing from a route: Kaana
+	// delivers or withholds reasoning itself.
+	add(reasoning.HasEffort(), provider.ParameterReasoningEffort)
+	add(reasoning != nil && reasoning.MaxTokens != nil, provider.ParameterReasoningMaxTokens)
 	add(format != nil && format.Type != contract.ResponseFormatText, provider.ParameterResponseFormat)
 	add(sampling.FrequencyPenalty != nil, provider.ParameterFrequencyPenalty)
 	add(sampling.PresencePenalty != nil, provider.ParameterPresencePenalty)

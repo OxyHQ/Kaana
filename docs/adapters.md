@@ -227,7 +227,8 @@ deployment's own default applies.
 |---|---|
 | `openrouter` | `"reasoning": {"effort": "<effort>"}` beside the fixed `provider` policy, whose `require_parameters: true` keeps OpenRouter from routing to an upstream that ignores `reasoning` |
 | `openai`, `groq`, `cerebras`, `xai` | `"reasoning_effort": "<effort>"` |
-| `anthropic` | `"output_config": {"effort": "<effort>"}`; no `thinking` budget is synthesised, and `max_tokens` stays the caller's |
+| `anthropic` | `"output_config": {"effort": "<effort>"}`; no `thinking` budget is synthesised from an effort, and `max_tokens` stays the caller's. A caller's `reasoning.maxTokens` is `"thinking": {"type": "enabled", "budget_tokens": N}`, sent only to the models documented to take it (`noThinkingBudget` in `parameters.go`: Opus 4.5, Haiku 4.5, and Opus 4.6 / Sonnet 4.6, where it is deprecated but works) and only within the protocol's bounds (at least 1024, below `maxOutputTokens`); every other model is refused naming `reasoning.maxTokens` |
+| `openrouter` budget | `"reasoning": {"max_tokens": N}`; the direct providers refuse `reasoning.maxTokens` naming it |
 | any other `openaicompat` slug | refused: `reasoning_effort` is OpenAI's spelling, and a provider that silently ignores it would report an effort that did nothing |
 
 Which MODELS take an effort is, in general, not a table here: it is discovered
@@ -255,10 +256,23 @@ Both protocol implementations use the same `Provider`/`Translate`/`Stream`/
 `Health`, `Call`, `Route` and `Outcome` boundary. Three surrounding invariants
 are required for that boundary to remain protocol-independent:
 
-- **`Emitter` has nowhere to put provider-opaque block metadata.** A thinking
-  block's `signature` is what makes multi-turn tool use with reasoning work, and
-  no contract stream event has a field for it. The adapter reads it so it cannot
-  be mistaken for output, and drops it. Item 17.
+- **`Emitter.ReasoningBlock` carries a finished reasoning block's continuation
+  token** (contract set 8.6.0, architecture item 17). An adapter seals the
+  provider's own block with `internal/reasoningblock` under its protocol family and
+  calls it once per block, after the block's text deltas; the kaana emitter
+  delivers it only to a request that carried `reasoning` and did not exclude it.
+  Anthropic: a thinking block's text and `signature` (or a `redacted_thinking`'s
+  `data`), sealed at `content_block_stop` (a block with no signature yields no
+  token); OpenRouter: each `reasoning_details` entry, joined across stream chunks
+  by `type` and `index`. Going back, an adapter forwards only blocks of its own
+  family, in order, unmodified: Anthropic as `thinking` / `redacted_thinking`
+  ahead of the rest of the assistant message, OpenRouter as `reasoning_details`
+  on it. A foreign or unreadable block is dropped. Anthropic requires thinking
+  blocks on a tool turn only while thinking is enabled, and Kaana enables it only
+  for an explicit `reasoning.maxTokens`: if the current tool loop has a turn with
+  no block it can send, thinking is left off for that request instead of sending
+  an invalid sequence. An effort-only request never sets `thinking`. A reasoning
+  block's tokens are never in the usage estimate and never logged.
 - **The conformance suite accepts every refusal the protocol needs to express**,
   as a list rather than a single protocol-shaped special case.
 - **Credential redaction could not be left to the contract's pattern.** It is

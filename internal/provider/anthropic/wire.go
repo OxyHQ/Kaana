@@ -30,6 +30,11 @@ type messagesRequest struct {
 	// it only when the caller named an effort; absent keeps the model's default.
 	OutputConfig *outputConfig `json:"output_config,omitempty"`
 
+	// Thinking is the extended-thinking token budget, sent only for a caller's
+	// `reasoning.maxTokens` and only to a model documented to take it
+	// (budgetThinkingModels).
+	Thinking *thinkingConfig `json:"thinking,omitempty"`
+
 	Temperature   *float64 `json:"temperature,omitempty"`
 	TopP          *float64 `json:"top_p,omitempty"`
 	TopK          *int     `json:"top_k,omitempty"`
@@ -41,6 +46,26 @@ type messagesRequest struct {
 // high verbatim.
 type outputConfig struct {
 	Effort string `json:"effort"`
+}
+
+// thinkingConfig is `{"type":"enabled","budget_tokens":N}`.
+type thinkingConfig struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens"`
+}
+
+// thinkingBlockParam and redactedThinkingBlockParam send an assistant's earlier
+// reasoning back, exactly as the provider issued it: the signature is how the
+// provider recognises its own block, so nothing here may be edited.
+type thinkingBlockParam struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
+}
+
+type redactedThinkingBlockParam struct {
+	Type string `json:"type"`
+	Data string `json:"data"`
 }
 
 // systemBlock carries the system prompt, which this protocol hoists out of the
@@ -134,12 +159,16 @@ type message struct {
 // different blocks carrying different channels, which is why the normalized
 // stream can separate reasoning from the answer without guessing.
 type contentBlock struct {
-	Type     string          `json:"type"`
-	Text     *string         `json:"text"`
-	Thinking *string         `json:"thinking"`
-	ID       *string         `json:"id"`
-	Name     *string         `json:"name"`
-	Input    json.RawMessage `json:"input"`
+	Type     string  `json:"type"`
+	Text     *string `json:"text"`
+	Thinking *string `json:"thinking"`
+	// Signature is a thinking block's signature; Data is a redacted_thinking
+	// block's opaque payload. Both must come back unmodified.
+	Signature *string         `json:"signature"`
+	Data      *string         `json:"data"`
+	ID        *string         `json:"id"`
+	Name      *string         `json:"name"`
+	Input     json.RawMessage `json:"input"`
 }
 
 /* -------------------------------------------------------------------------- */
@@ -200,9 +229,8 @@ type streamDelta struct {
 	// input_json_delta: a FRAGMENT of a tool call's arguments, not valid JSON
 	// on its own.
 	PartialJSON *string `json:"partial_json"`
-	// signature_delta carries the encrypted thinking signature. Kaana reads it
-	// so it is not mistaken for output, and emits nothing: no contract event
-	// has a field for provider-opaque block metadata. See README.
+	// signature_delta carries the thinking block's signature. It is never
+	// output; it is kept and sealed into the block's continuation token.
 	Signature *string `json:"signature"`
 	// message_delta
 	StopReason *string `json:"stop_reason"`

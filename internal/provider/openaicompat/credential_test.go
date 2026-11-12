@@ -429,3 +429,5 @@ func TestAnInvalidRequestDoesNotRetireTheKey(t *testing.T) {
 		t.Fatalf("the walk tried %d keys for a request fault; the pool must not be spent on one", attempts)
 	}
 }
+
+func (silentEmitter) ReasoningBlock(int, string) error { return nil }

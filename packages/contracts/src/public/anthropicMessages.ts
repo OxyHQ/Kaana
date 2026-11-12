@@ -17,17 +17,29 @@
  *    over input, so honouring the marker while folding the write into
  *    `input_tokens` would report less than the request cost. The marker is
  *    refused, by name and path, instead of being dropped.
- *  - **`thinking` other than `{ type: 'disabled' }`.** The contract's reasoning
- *    control is an effort (`low`, `medium`, `high`), not a token budget, and a
- *    thinking block has no part in a message: reasoning is private and is never
- *    returned. Reasoning effort is asked with `output_config.effort`, which
- *    maps one to one. A `thinking` or `redacted_thinking` block in a message is
- *    refused for the same reason.
+ *  - **`thinking.display`** and every other `thinking` member this file does
+ *    not name.
  *  - **Server tools** (`web_search`, `bash`, `text_editor`, …), `mcp_servers`,
  *    `container`, `service_tier`, `disable_parallel_tool_use`, `document`
  *    blocks and any other member this file does not name.
  *  - **An image `url` source**: nothing fetches an image URL (ADR 0007); a
  *    `base64` source is carried inline under the image rules.
+ *
+ * ## Reasoning (contract set 8.6.0, ADR 0009 decision 2)
+ *
+ * `thinking: {type: 'enabled', budget_tokens}` is the contract's
+ * `reasoning.maxTokens` and `thinking: {type: 'adaptive'}` opts in to reasoning
+ * with the route's own sizing; `output_config.effort` is `reasoning.effort`, and
+ * a budget beside an effort is refused (the contract treats them as
+ * alternatives). A route that cannot take a budget refuses it by name.
+ *
+ * An answer carries `thinking` blocks before its text and tool calls, and an
+ * assistant message sent back carries them again, UNMODIFIED, ahead of its
+ * `tool_use` blocks. The block's `signature` is the contract's opaque
+ * continuation token (the sealed string a `reasoning` part carries), which is
+ * why a stock Anthropic SDK continues a tool turn without knowing anything
+ * else: it returns what it received. `redacted_thinking` is accepted on the way
+ * in (its `data` is the same token) and never produced.
  *
  * `stop_reason: 'stop_sequence'` is never produced: the finish reason Kaana
  * measures does not say WHICH stop sequence ended the turn, and `stop_sequence`
@@ -68,6 +80,23 @@ const imageBlockSchema = z
   })
   .strict();
 
+/**
+ * An assistant's reasoning. `thinking` is the readable text (empty when the
+ * model returned none); `signature` is the continuation token to return
+ * unmodified, empty only for a block that cannot be continued.
+ */
+const thinkingBlockSchema = z
+  .object({
+    type: z.literal('thinking'),
+    thinking: z.string(),
+    signature: z.string(),
+  })
+  .strict();
+
+const redactedThinkingBlockSchema = z
+  .object({ type: z.literal('redacted_thinking'), data: nonEmpty(1_000_000) })
+  .strict();
+
 const toolUseBlockSchema = z
   .object({
     type: z.literal('tool_use'),
@@ -99,7 +128,14 @@ const messageSchema = z
       z.string(),
       z
         .array(
-          z.union([textBlockSchema, imageBlockSchema, toolUseBlockSchema, toolResultBlockSchema]),
+          z.union([
+            textBlockSchema,
+            imageBlockSchema,
+            toolUseBlockSchema,
+            toolResultBlockSchema,
+            thinkingBlockSchema,
+            redactedThinkingBlockSchema,
+          ]),
         )
         .min(1),
     ]),
@@ -108,10 +144,11 @@ const messageSchema = z
   .superRefine((message, ctx) => {
     if (typeof message.content === 'string') return;
     for (const [index, block] of message.content.entries()) {
+      const reasoning = block.type === 'thinking' || block.type === 'redacted_thinking';
       const allowed =
         message.role === 'assistant'
-          ? block.type === 'text' || block.type === 'tool_use'
-          : block.type !== 'tool_use';
+          ? block.type === 'text' || block.type === 'tool_use' || reasoning
+          : block.type !== 'tool_use' && !reasoning;
       if (!allowed) {
         ctx.addIssue({
           code: 'custom',
@@ -154,10 +191,22 @@ export const anthropicMessagesRequestSchema = z
     stream: z.boolean().optional(),
     tools: z.array(toolSchema).max(128).optional(),
     tool_choice: toolChoiceSchema.optional(),
-    /** Only "off" is accepted: see the file comment. */
+    /**
+     * `disabled` asks for nothing; `adaptive` opts in to reasoning (the
+     * contract's `reasoning: {}`); `enabled` sets a token budget
+     * (`reasoning.maxTokens`). See the file comment.
+     */
     thinking: z
-      .object({ type: z.literal('disabled') })
-      .strict()
+      .discriminatedUnion('type', [
+        z.object({ type: z.literal('disabled') }).strict(),
+        z.object({ type: z.literal('adaptive') }).strict(),
+        z
+          .object({
+            type: z.literal('enabled'),
+            budget_tokens: z.number().int().positive().safe(),
+          })
+          .strict(),
+      ])
       .optional(),
     /** `effort` is the contract's reasoning effort; no other member is carried. */
     output_config: z.object({ effort: reasoningEffortSchema.optional() }).strict().optional(),
@@ -190,6 +239,7 @@ const usageSchema = z
 const stopReasonSchema = z.enum(['end_turn', 'max_tokens', 'tool_use', 'refusal']);
 
 const outputBlockSchema = z.discriminatedUnion('type', [
+  thinkingBlockSchema,
   textBlockSchema,
   toolUseBlockSchema.extend({ input: z.record(z.string(), z.unknown()) }),
 ]);
@@ -262,6 +312,13 @@ export const anthropicStreamEventSchema = z.discriminatedUnion('type', [
       type: z.literal('content_block_start'),
       index: z.number().int().nonnegative(),
       content_block: z.discriminatedUnion('type', [
+        z
+          .object({
+            type: z.literal('thinking'),
+            thinking: z.literal(''),
+            signature: z.literal(''),
+          })
+          .strict(),
         z.object({ type: z.literal('text'), text: z.literal('') }).strict(),
         toolUseBlockSchema.extend({ input: z.object({}).strict() }),
       ]),
@@ -273,6 +330,8 @@ export const anthropicStreamEventSchema = z.discriminatedUnion('type', [
       index: z.number().int().nonnegative(),
       delta: z.discriminatedUnion('type', [
         z.object({ type: z.literal('text_delta'), text: z.string() }).strict(),
+        z.object({ type: z.literal('thinking_delta'), thinking: z.string() }).strict(),
+        z.object({ type: z.literal('signature_delta'), signature: z.string() }).strict(),
         z.object({ type: z.literal('input_json_delta'), partial_json: z.string() }).strict(),
       ]),
     })

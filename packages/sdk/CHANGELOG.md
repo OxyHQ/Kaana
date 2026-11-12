@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.9.0
+
+Depend on contracts 8.6.0: reasoning continuity (Kaana ADR 0009 decision 2).
+`reasoning` takes `maxTokens` (a thinking budget; an alternative to `effort`)
+and `exclude` beside `effort`, and an assistant message's content may carry
+`{type: 'reasoning', text?, opaque?}` parts. A request that carries `reasoning`
+(even `{}`) is sent each reasoning block's continuation token, and
+`responses.stream(...).final` folds the blocks, in order, into `reasoning`
+parts ahead of the answer: send the assistant turn back unmodified, tool calls
+included, to continue a thinking model across a tool turn. A request without
+`reasoning`, or with `exclude: true`, folds to the same response as before. The
+token is sealed, not secret: return it exactly as received.
+
 ## 3.8.0
 
 Depend on contracts 8.5.0: the client states contract set 8.5.0 and its request

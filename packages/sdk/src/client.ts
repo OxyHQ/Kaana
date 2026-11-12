@@ -182,6 +182,7 @@ export class Kaana {
           transport,
           body({ ...request, stream: true }, responsesRequestSchema),
           options,
+          { keepReasoning: request.reasoning !== undefined && request.reasoning.exclude !== true },
         ),
     };
     this.chat = {

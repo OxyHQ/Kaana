@@ -175,6 +175,18 @@ func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provi
 		}
 		outcome.Units = []contract.UsageQuantity{{Unit: contract.UnitAudioInputMilliseconds, Quantity: 1000}}
 	default:
+		if request.Reasoning != nil {
+			// A model that reasons in two blocks before it answers: each block's
+			// words, then its continuation token.
+			for _, block := range []string{"a", "b"} {
+				if err := out.Delta(0, contract.ChannelReasoning, "think "+block+" "); err != nil {
+					return outcome, err
+				}
+				if err := out.ReasoningBlock(0, "opaque-"+block); err != nil {
+					return outcome, err
+				}
+			}
+		}
 		for index := range chunks {
 			if failAfter > 0 && index == failAfter {
 				return outcome, errUpstream

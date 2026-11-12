@@ -67,12 +67,15 @@ func TestWriteWireFixtures(t *testing.T) {
 	// credential). Contract set 4.1.0 (ADR 0002 phase 3) adds 10 grant-exchange
 	// fixtures and 3 grant-exchange controls, and 16 public-surface fixtures
 	// and 2 public-surface controls. Contract set 4.4.0 adds 2 deployment
-	// commercial fixtures and 2 controls.
-	if len(valid) != 113 {
-		t.Fatalf("expected 113 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// commercial fixtures and 2 controls. Contract set 8.6.0 (reasoning continuity)
+	// adds 3 fixtures (a budget with exclude, an opt-in, a block token) and 4
+	// controls (reasoning on a user message, an effort beside a budget, an empty
+	// reasoning part, a zero budget).
+	if len(valid) != 116 {
+		t.Fatalf("expected 116 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 43 {
-		t.Fatalf("expected 43 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 47 {
+		t.Fatalf("expected 47 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
@@ -192,6 +195,8 @@ func validFixtures(t *testing.T) []fixture {
 					Content: []ContentPart{
 						{Type: ContentPartText, Text: pointerTo("")},
 						{Type: ContentPartRefusal, Text: pointerTo("I cannot help with that")},
+						{Type: ContentPartReasoning, Text: pointerTo("plan the lookup"), Opaque: pointerTo("eyJmIjoiYW50aHJvcGljIiwicCI6e319")},
+						{Type: ContentPartReasoning, Opaque: pointerTo("eyJmIjoib3BlbnJvdXRlciIsInAiOnt9fQ")},
 					},
 					ToolCalls: []ToolCall{
 						{ID: "call_1", Name: "lookup", Arguments: `{"q":"x"}`},
@@ -215,7 +220,7 @@ func validFixtures(t *testing.T) []fixture {
 			Seed:             pointerTo(7),
 			StopSequences:    []string{"\n\n"},
 		},
-		Reasoning: &ReasoningParameters{Effort: ReasoningEffortHigh},
+		Reasoning: &ReasoningParameters{Effort: EffortPtr(ReasoningEffortHigh)},
 		Tools: []ToolDefinition{{
 			Type:        "function",
 			Name:        "lookup",
@@ -260,6 +265,10 @@ func validFixtures(t *testing.T) []fixture {
 
 	// A platform route under a funding ceiling (Oxy ADR 0038). A ceiling is
 	// refused beside a customer credential, so it is its own fixture.
+	budgeted := request
+	budgeted.Reasoning = &ReasoningParameters{MaxTokens: pointerTo(2048), Exclude: pointerTo(true)}
+	optedIn := request
+	optedIn.Reasoning = &ReasoningParameters{}
 	ceilinged := request
 	ceilinged.AuthorizedRoutes = []AuthorizedRoute{{
 		Substitution:   SubstitutionSameModel,
@@ -368,6 +377,8 @@ func validFixtures(t *testing.T) []fixture {
 
 	return []fixture{
 		{Schema: "inferenceRequestSchema", Case: "messages-with-every-optional-field", Value: request},
+		{Schema: "inferenceRequestSchema", Case: "reasoning-budget-excluded", Value: budgeted},
+		{Schema: "inferenceRequestSchema", Case: "reasoning-opt-in-only", Value: optedIn},
 		{Schema: "inferenceRequestSchema", Case: "platform-route-with-funding-ceiling", Value: ceilinged},
 		{Schema: "inferenceRequestSchema", Case: "text-input-routing-profile-id", Value: textTarget},
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
@@ -388,6 +399,10 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceStreamEventSchema", Case: "delta", Value: &StreamDeltaEvent{
 			SchemaVersion: SchemaVersion, Type: EventDelta, RequestID: attribution.RequestID, Seq: 1,
 			OutputIndex: 0, Channel: ChannelOutputText, Text: "hello",
+		}},
+		{Schema: "inferenceStreamEventSchema", Case: "reasoning-block-token", Value: &StreamDeltaEvent{
+			SchemaVersion: SchemaVersion, Type: EventDelta, RequestID: attribution.RequestID, Seq: 1,
+			OutputIndex: 0, Channel: ChannelReasoning, Text: "", Opaque: pointerTo("eyJmIjoiYW50aHJvcGljIiwicCI6e319"),
 		}},
 		{Schema: "inferenceStreamEventSchema", Case: "tool-call", Value: &StreamToolCallEvent{
 			SchemaVersion: SchemaVersion, Type: EventToolCall, RequestID: attribution.RequestID, Seq: 2,
@@ -585,7 +600,15 @@ func invalidFixtures() []fixture {
 	// A provider's own effort word (OpenAI's "minimal", Anthropic's "max") is
 	// not the contract's vocabulary; Oxy must refuse it before it is signed.
 	providerEffort := validAuthorizedRouteRequest()
-	providerEffort.Reasoning = &ReasoningParameters{Effort: "minimal"}
+	providerEffort.Reasoning = &ReasoningParameters{Effort: EffortPtr("minimal")}
+	userReasoning := validAuthorizedRouteRequest()
+	userReasoning.Input.Messages[0].Content = []ContentPart{{Type: ContentPartReasoning, Text: pointerTo("thinking")}}
+	effortAndBudget := validAuthorizedRouteRequest()
+	effortAndBudget.Reasoning = &ReasoningParameters{Effort: EffortPtr(ReasoningEffortLow), MaxTokens: pointerTo(2048)}
+	emptyReasoningPart := validAuthorizedRouteRequest()
+	emptyReasoningPart.Input.Messages = append(emptyReasoningPart.Input.Messages, Message{Role: RoleAssistant, Content: []ContentPart{{Type: ContentPartReasoning}}})
+	zeroBudget := validAuthorizedRouteRequest()
+	zeroBudget.Reasoning = &ReasoningParameters{MaxTokens: pointerTo(0)}
 	// A funding ceiling names one of the contract's tiers, never a key class.
 	unknownTier := validAuthorizedRouteRequest()
 	unknownTier.AuthorizedRoutes[0].MaxFundingTier = pointerTo(FundingTier("promotional"))
@@ -605,6 +628,10 @@ func invalidFixtures() []fixture {
 		{Schema: "inferenceRequestSchema", Case: "cross-model-without-literal-authorization", Value: falseCrossModelAuthorization},
 		{Schema: "inferenceRequestSchema", Case: "refusal-on-user-message", Value: userRefusal},
 		{Schema: "inferenceRequestSchema", Case: "provider-specific-reasoning-effort", Value: providerEffort},
+		{Schema: "inferenceRequestSchema", Case: "reasoning-on-user-message", Value: userReasoning},
+		{Schema: "inferenceRequestSchema", Case: "reasoning-effort-and-budget", Value: effortAndBudget},
+		{Schema: "inferenceRequestSchema", Case: "reasoning-part-with-nothing", Value: emptyReasoningPart},
+		{Schema: "inferenceRequestSchema", Case: "reasoning-budget-of-zero", Value: zeroBudget},
 		{Schema: "inferenceRequestSchema", Case: "funding-ceiling-outside-the-tiers", Value: unknownTier},
 		{Schema: "inferenceRequestSchema", Case: "funding-ceiling-beside-customer-credential", Value: ceilingBesideCredential},
 		{

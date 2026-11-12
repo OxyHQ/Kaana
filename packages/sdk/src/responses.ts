@@ -24,6 +24,7 @@ export function responsesStream(
   transport: Transport,
   body: string,
   options: RequestOptions,
+  foldOptions: ResponseFoldOptions = {},
 ): KaanaStream<ResponseStreamEvent, Response> {
   return new StreamHandle<ResponseStreamEvent, Response>(async function* (context) {
     const sent = await transport.send({
@@ -37,7 +38,7 @@ export function responsesStream(
     const requestId = sent.requestId;
     context.setRequestId(requestId);
     const routingPolicy = routingPolicyFrom(sent.response, requestId);
-    const fold = new ResponseFold();
+    const fold = new ResponseFold(foldOptions);
     let lastSequence = -1;
     let output = false;
 
@@ -98,8 +99,24 @@ function routingPolicyFrom(
   );
 }
 
+/** What a fold keeps of a response, decided by the request that asked for it. */
+export interface ResponseFoldOptions {
+  /**
+   * Keep the response's reasoning as `reasoning` parts, in order, each with the
+   * continuation token to return unmodified (contract set 8.6.0). Set it for a
+   * request that carried `reasoning` and did not `exclude` it; without it the
+   * folded response is what it was before reasoning continuity, because a
+   * reader of an older contract refuses a part type it does not know.
+   */
+  readonly keepReasoning?: boolean;
+}
+
 /** Folds the events of one response into the `Response` it describes. */
 export class ResponseFold {
+  readonly #keepReasoning: boolean;
+  readonly #reasoning: InferenceContentPart[] = [];
+  /** The text of the reasoning block being folded; its token, or the end, closes it. */
+  #reasoningText = '';
   #start: Extract<ResponseStreamEvent, { type: 'start' }> | undefined;
   #done: Extract<ResponseStreamEvent, { type: 'done' }> | undefined;
   #text = '';
@@ -108,6 +125,10 @@ export class ResponseFold {
   #audioMediaType: string | undefined;
   #usage: Usage = [];
   readonly #toolCalls = new Map<string, { name: string; arguments: string }>();
+
+  constructor(options: ResponseFoldOptions = {}) {
+    this.#keepReasoning = options.keepReasoning === true;
+  }
 
   add(event: ResponseStreamEvent): void {
     switch (event.type) {
@@ -119,6 +140,16 @@ export class ResponseFold {
           this.#text += event.text;
         } else if (event.channel === 'refusal') {
           this.#refusal += event.text;
+        } else if (event.channel === 'reasoning' && this.#keepReasoning) {
+          this.#reasoningText += event.text;
+          if (event.opaque !== undefined) {
+            this.#reasoning.push({
+              type: 'reasoning',
+              ...(this.#reasoningText.length > 0 ? { text: this.#reasoningText } : {}),
+              opaque: event.opaque,
+            });
+            this.#reasoningText = '';
+          }
         }
         break;
       case 'audio':
@@ -149,7 +180,10 @@ export class ResponseFold {
     if (start === undefined || done === undefined) {
       throw new KaanaProtocolError('The stream ended without start and done.', requestId);
     }
-    const content: InferenceContentPart[] = [];
+    const content: InferenceContentPart[] = [...this.#reasoning];
+    if (this.#reasoningText.length > 0) {
+      content.push({ type: 'reasoning', text: this.#reasoningText });
+    }
     if (this.#text.length > 0) content.push({ type: 'text', text: this.#text });
     if (this.#refusal.length > 0) content.push({ type: 'refusal', text: this.#refusal });
     if (this.#audio.length > 0 && this.#audioMediaType !== undefined) {

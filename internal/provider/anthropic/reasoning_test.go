@@ -42,7 +42,7 @@ func sendEffort(t *testing.T, effort contract.ReasoningEffort) map[string]json.R
 	request := baseRequest("req_effort")
 	request.Stream = false
 	if effort != "" {
-		request.Reasoning = &contract.ReasoningParameters{Effort: effort}
+		request.Reasoning = &contract.ReasoningParameters{Effort: contract.EffortPtr(effort)}
 	}
 	call, err := adapter.Translate(request, testRoute())
 	if err != nil {
@@ -81,3 +81,5 @@ func TestAnAbsentEffortSendsNoOutputConfig(t *testing.T) {
 		t.Errorf("output_config was invented for a request that named no effort: %s", wire["output_config"])
 	}
 }
+
+func (quietEmitter) ReasoningBlock(int, string) error { return nil }

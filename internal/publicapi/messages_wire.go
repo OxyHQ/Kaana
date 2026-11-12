@@ -54,10 +54,15 @@ type messagesBlock struct {
 	ToolUseID *string              `json:"tool_use_id,omitempty"`
 	Content   *messagesBlocks      `json:"content,omitempty"`
 	IsError   *bool                `json:"is_error,omitempty"`
+	// Thinking, Signature and Data are the members of an assistant's thinking
+	// and redacted_thinking blocks.
+	Thinking  *string `json:"thinking,omitempty"`
+	Signature *string `json:"signature,omitempty"`
+	Data      *string `json:"data,omitempty"`
 }
 
-// UnmarshalJSON reads the four block types Kaana carries strictly. A block of
-// any other type (thinking, document, a server tool's) keeps only its type, so
+// UnmarshalJSON reads the six block types Kaana carries strictly. A block of
+// any other type (document, a server tool's) keeps only its type, so
 // it is refused by that type at its own path rather than as an unknown member;
 // its content is never kept.
 func (b *messagesBlock) UnmarshalJSON(data []byte) error {
@@ -68,7 +73,7 @@ func (b *messagesBlock) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch head.Type {
-	case "text", "image", "tool_use", "tool_result":
+	case "text", "image", "tool_use", "tool_result", "thinking", "redacted_thinking":
 		type strict messagesBlock
 		decoder := json.NewDecoder(bytes.NewReader(data))
 		decoder.DisallowUnknownFields()
@@ -127,19 +132,34 @@ func (c *messagesToolChoice) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// messagesThinking accepts only an explicit "off": the contract's reasoning
-// control is an effort, not a token budget.
-type messagesThinking struct{}
+// messagesThinking is the request's `thinking`: disabled (nothing asked),
+// adaptive (reasoning with the route's own sizing) or enabled with a token
+// budget (the contract's reasoning.maxTokens).
+type messagesThinking struct {
+	enabled bool
+	budget  *int
+}
 
-func (*messagesThinking) UnmarshalJSON(data []byte) error {
-	var wire map[string]any
-	if err := json.Unmarshal(data, &wire); err != nil {
-		return fieldError{"thinking", "thinking is {type: disabled}"}
+func (t *messagesThinking) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Type         string `json:"type"`
+		BudgetTokens *int   `json:"budget_tokens,omitempty"`
 	}
-	if wire["type"] == "disabled" && len(wire) == 1 {
-		return nil
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return fieldError{"thinking", "thinking is {type: disabled}, {type: adaptive} or {type: enabled, budget_tokens}"}
 	}
-	return fieldError{"thinking", "thinking is not supported; ask for reasoning with output_config.effort (low, medium or high)"}
+	switch {
+	case wire.Type == "disabled" && wire.BudgetTokens == nil:
+	case wire.Type == "adaptive" && wire.BudgetTokens == nil:
+		t.enabled = true
+	case wire.Type == "enabled" && wire.BudgetTokens != nil && *wire.BudgetTokens > 0:
+		t.enabled, t.budget = true, wire.BudgetTokens
+	default:
+		return fieldError{"thinking", "thinking is {type: disabled}, {type: adaptive} or {type: enabled, budget_tokens} with a positive budget"}
+	}
+	return nil
 }
 
 type messagesOutputConfig struct {
@@ -222,13 +242,15 @@ func messagesUsageOf(units []contract.UsageQuantity) messagesUsage {
 	return usage
 }
 
-// messagesOutputBlock is a text or tool_use block of an answer.
+// messagesOutputBlock is a thinking, text or tool_use block of an answer.
 type messagesOutputBlock struct {
-	Type  string          `json:"type"`
-	Text  *string         `json:"text,omitempty"`
-	ID    string          `json:"id,omitempty"`
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
+	Type      string          `json:"type"`
+	Text      *string         `json:"text,omitempty"`
+	Thinking  *string         `json:"thinking,omitempty"`
+	Signature *string         `json:"signature,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
 }
 
 // messagesAnswer is anthropicMessageSchema.

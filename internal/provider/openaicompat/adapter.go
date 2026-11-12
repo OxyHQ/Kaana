@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -294,7 +295,7 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		}
 	}
 
-	messages, err := translateConversation(request.Input.Messages)
+	messages, err := translateConversation(request.Input.Messages, a.forwardsReasoningDetails())
 	if err != nil {
 		return nil, err
 	}
@@ -324,11 +325,27 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	if request.Stream {
 		body.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
-	if request.Reasoning != nil {
-		if err := refuseUnstatedEffort(a.config.Provider, route.UpstreamModelID, request.Reasoning.Effort); err != nil {
+	if request.Reasoning != nil && request.Reasoning.MaxTokens != nil && reasoningDialectFor(a.config.Provider) != reasoningObject {
+		// A thinking token budget is OpenRouter's normalized `reasoning.max_tokens`
+		// and no other chat-completions dialect's: `reasoning_effort` is the only
+		// control the other reviewed providers document. Sending a budget as an
+		// effort, or dropping it, would change what the model does while
+		// reporting success.
+		return nil, provider.ErrUnsupported{
+			Code:   contract.CodeInvalidRequest,
+			Param:  "reasoning.maxTokens",
+			Detail: "this provider's chat completions dialect has no thinking token budget; use reasoning.effort, or omit reasoning to use the model's own behaviour",
+		}
+	}
+	if request.Reasoning != nil && !request.Reasoning.HasEffort() && request.Reasoning.MaxTokens != nil {
+		// OpenRouter's budget form: `reasoning: {"max_tokens": N}`.
+		body.Reasoning = &openRouterReasoning{MaxTokens: request.Reasoning.MaxTokens}
+	}
+	if request.Reasoning.HasEffort() {
+		if err := refuseUnstatedEffort(a.config.Provider, route.UpstreamModelID, *request.Reasoning.Effort); err != nil {
 			return nil, err
 		}
-		effort := string(request.Reasoning.Effort)
+		effort := string(*request.Reasoning.Effort)
 		switch reasoningDialectFor(a.config.Provider) {
 		case reasoningObject:
 			body.Reasoning = &openRouterReasoning{Effort: effort}
@@ -448,6 +465,10 @@ func (a *Adapter) refuseUnacceptedParameters(encoded []byte, route provider.Rout
 	if value, present := fields["tool_choice"]; present && string(value) != "null" {
 		sent = append(sent, wireToolChoiceValue(value))
 	}
+	if value, present := fields["reasoning"]; present && string(value) != "null" {
+		sent = slices.DeleteFunc(sent, func(parameter provider.RequestParameter) bool { return parameter == provider.ParameterReasoningEffort })
+		sent = append(sent, wireReasoningParameters(value)...)
+	}
 	parameter, refused := route.UnacceptedParameter(sent...)
 	if !refused {
 		return nil
@@ -475,6 +496,24 @@ func wireToolChoiceValue(value json.RawMessage) provider.RequestParameter {
 		return provider.ParameterToolChoice
 	}
 	return provider.ParameterToolChoiceFunction
+}
+
+// wireReasoningParameters is what an OpenRouter `reasoning` object carries: an
+// effort, a token budget, or (sent alone) both words' common ground, the
+// effort, so an empty object is read as the control it enables.
+func wireReasoningParameters(value json.RawMessage) []provider.RequestParameter {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(value, &object) != nil {
+		return []provider.RequestParameter{provider.ParameterReasoningEffort}
+	}
+	var sent []provider.RequestParameter
+	if _, present := object["max_tokens"]; present {
+		sent = append(sent, provider.ParameterReasoningMaxTokens)
+	}
+	if _, present := object["effort"]; present || len(sent) == 0 {
+		sent = append(sent, provider.ParameterReasoningEffort)
+	}
+	return sent
 }
 
 // wireParameters maps the Chat Completions body fields this adapter (and the
@@ -603,7 +642,7 @@ const toolImagesFollow = "The result is the image in the next message."
 // sent in a user message right after the run of tool results they belong to:
 // each tool result keeps its text (or says its image follows), and the model
 // reads the same conversation (Kaana ADR 0007).
-func translateConversation(conversation []contract.Message) ([]chatMessage, error) {
+func translateConversation(conversation []contract.Message, forwardReasoning bool) ([]chatMessage, error) {
 	messages := make([]chatMessage, 0, len(conversation))
 	var toolImages []any
 	flush := func() {
@@ -627,7 +666,7 @@ func translateConversation(conversation []contract.Message) ([]chatMessage, erro
 				toolImages = append(toolImages, converted)
 			}
 		}
-		translated, err := translateMessage(message)
+		translated, err := translateMessage(message, forwardReasoning)
 		if err != nil {
 			return nil, annotate(err, fmt.Sprintf("input.messages[%d]", index))
 		}
@@ -659,11 +698,17 @@ func withoutImages(message contract.Message) (contract.Message, []contract.Conte
 	return message, images
 }
 
-func translateMessage(message contract.Message) (chatMessage, error) {
+func translateMessage(message contract.Message, forwardReasoning bool) (chatMessage, error) {
 	translated := chatMessage{
 		Role:       string(message.Role),
 		Name:       message.Name,
 		ToolCallID: message.ToolCallID,
+	}
+	if message.Role == contract.RoleAssistant {
+		if forwardReasoning {
+			translated.ReasoningDetails = reasoningDetailsFor(message.Content)
+		}
+		message.Content = withoutReasoning(message.Content)
 	}
 	for _, call := range message.ToolCalls {
 		translated.ToolCalls = append(translated.ToolCalls, chatToolCall{

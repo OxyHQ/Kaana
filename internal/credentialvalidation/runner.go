@@ -303,6 +303,7 @@ type discardEmitter struct{}
 
 func (discardEmitter) Start(contract.ModelReference, time.Time) error { return nil }
 func (discardEmitter) Delta(int, contract.DeltaChannel, string) error { return nil }
+func (discardEmitter) ReasoningBlock(int, string) error               { return nil }
 func (discardEmitter) ToolCall(provider.ToolCallDelta) error          { return nil }
 func (discardEmitter) Usage([]contract.UsageQuantity, contract.UsageSource) error {
 	return nil

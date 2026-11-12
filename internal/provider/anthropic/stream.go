@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -105,6 +106,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			}
 
 		case eventContentBlockStart:
+			blocks.startReasoning(event)
 			toolCall, started := blocks.start(event)
 			if started {
 				if err := out.ToolCall(toolCall); err != nil {
@@ -118,6 +120,11 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			}
 
 		case eventContentBlockStop:
+			if token, sealed := blocks.finishReasoning(event); sealed {
+				if err := out.ReasoningBlock(*event.Index, token); err != nil {
+					return measured(outcome, meter), err
+				}
+			}
 			toolCall, finished := blocks.stop(event)
 			if finished {
 				if err := out.ToolCall(toolCall); err != nil {
@@ -203,6 +210,7 @@ func (a *Adapter) emitDelta(out provider.Emitter, blocks *blockTracker, event st
 
 	case deltaThinking:
 		if text := derefString(event.Delta.Thinking); text != "" {
+			blocks.addThinking(*event.Index, text)
 			return out.Delta(*event.Index, contract.ChannelReasoning, text)
 		}
 
@@ -219,11 +227,11 @@ func (a *Adapter) emitDelta(out provider.Emitter, blocks *blockTracker, event st
 		}
 
 	case deltaSignature:
-		// The encrypted signature of a thinking block. It is read so that it is
-		// not mistaken for output, and dropped because no contract stream event
-		// has a field for provider-opaque block metadata — see README, "What Oxy
-		// still has to decide". Emitting it as reasoning text would render an
-		// encrypted blob to a customer as though the model had said it.
+		// The signature of a thinking block. It is never output: emitting it as
+		// reasoning text would render an encrypted blob to a customer as though
+		// the model had said it. It is kept, and sealed with the block's text
+		// into the continuation token the block's end emits.
+		blocks.setSignature(*event.Index, derefString(event.Delta.Signature))
 	}
 	return nil
 }
@@ -265,9 +273,19 @@ func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider
 					return measured(outcome, meter), err
 				}
 			}
+			if token, sealed := sealThinking(derefString(block.Thinking), derefString(block.Signature)); sealed {
+				if err := out.ReasoningBlock(index, token); err != nil {
+					return measured(outcome, meter), err
+				}
+			}
 		case blockRedacted:
 			// Safety-redacted reasoning: an opaque blob with no readable text.
-			// There is nothing to render and nothing to meter separately.
+			// There is nothing to render, but it must be sent back to continue.
+			if token, sealed := sealRedacted(derefString(block.Data)); sealed {
+				if err := out.ReasoningBlock(index, token); err != nil {
+					return measured(outcome, meter), err
+				}
+			}
 		case blockText:
 			if text := derefString(block.Text); text != "" {
 				if err := out.Delta(index, contract.ChannelOutputText, text); err != nil {
@@ -317,10 +335,68 @@ func (a *Adapter) readComplete(body io.Reader, call *provider.Call, out provider
 // client would have no way to tell reasoning from an answer.
 type blockTracker struct {
 	toolCalls map[int]string
+	// reasoning holds each open thinking or redacted_thinking block until its
+	// end: the signature arrives after the text, in its own delta, so the block
+	// can only be sealed when it closes.
+	reasoning map[int]*openReasoning
+}
+
+// openReasoning is one reasoning block being assembled. Its text and signature
+// are customer data: they are held only until the block closes and are never
+// logged.
+type openReasoning struct {
+	redacted  bool
+	thinking  strings.Builder
+	signature string
+	data      string
 }
 
 func newBlockTracker() *blockTracker {
-	return &blockTracker{toolCalls: make(map[int]string)}
+	return &blockTracker{toolCalls: make(map[int]string), reasoning: make(map[int]*openReasoning)}
+}
+
+// startReasoning records an opening thinking or redacted_thinking block.
+func (b *blockTracker) startReasoning(event streamEvent) {
+	if event.Index == nil || event.ContentBlock == nil {
+		return
+	}
+	switch event.ContentBlock.Type {
+	case blockThinking:
+		open := &openReasoning{signature: derefString(event.ContentBlock.Signature)}
+		open.thinking.WriteString(derefString(event.ContentBlock.Thinking))
+		b.reasoning[*event.Index] = open
+	case blockRedacted:
+		b.reasoning[*event.Index] = &openReasoning{redacted: true, data: derefString(event.ContentBlock.Data)}
+	}
+}
+
+func (b *blockTracker) addThinking(index int, text string) {
+	if open, known := b.reasoning[index]; known && !open.redacted {
+		open.thinking.WriteString(text)
+	}
+}
+
+func (b *blockTracker) setSignature(index int, signature string) {
+	if open, known := b.reasoning[index]; known && !open.redacted {
+		open.signature = signature
+	}
+}
+
+// finishReasoning closes a reasoning block and returns its continuation token.
+// A block that cannot be continued (no signature, no data) yields none.
+func (b *blockTracker) finishReasoning(event streamEvent) (string, bool) {
+	if event.Index == nil {
+		return "", false
+	}
+	open, known := b.reasoning[*event.Index]
+	if !known {
+		return "", false
+	}
+	delete(b.reasoning, *event.Index)
+	if open.redacted {
+		return sealRedacted(open.data)
+	}
+	return sealThinking(open.thinking.String(), open.signature)
 }
 
 // start records an opening block and reports the tool call it announces, if it

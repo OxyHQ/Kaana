@@ -141,6 +141,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 	}
 
 	calls := newToolCallAccumulator()
+	details := newDetailsAccumulator()
 	decoder := sse.NewDecoder(body)
 	terminated := false
 
@@ -190,6 +191,7 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 			if err := emitDelta(out, choice); err != nil {
 				return outcome, err
 			}
+			details.absorb(choice.Index, choice.Delta.ReasoningDetails)
 			if err := calls.absorb(out, choice.Delta.ToolCalls); err != nil {
 				return outcome, err
 			}
@@ -215,6 +217,9 @@ func (a *Adapter) readStream(ctx context.Context, body io.Reader, call *provider
 		return outcome, a.TransportFailure(ctx, io.ErrUnexpectedEOF)
 	}
 
+	if err := details.flush(out); err != nil {
+		return outcome, err
+	}
 	if outcome.UsageSource == contract.UsageProviderReported && len(outcome.Units) > 0 {
 		if err := out.Usage(outcome.Units, outcome.UsageSource); err != nil {
 			return outcome, err
@@ -317,10 +322,16 @@ func emitDelta(out provider.Emitter, choice streamChoice) error {
 }
 
 func emitCompletionMessage(out provider.Emitter, choice completionChoice) error {
-	if text := choice.Message.ReasoningContent; text != nil && *text != "" {
-		if err := out.Delta(choice.Index, contract.ChannelReasoning, *text); err != nil {
-			return err
+	for _, text := range []*string{choice.Message.ReasoningContent, choice.Message.Reasoning} {
+		if text != nil && *text != "" {
+			if err := out.Delta(choice.Index, contract.ChannelReasoning, *text); err != nil {
+				return err
+			}
+			break
 		}
+	}
+	if err := emitDetailEntries(out, choice.Index, choice.Message.ReasoningDetails); err != nil {
+		return err
 	}
 	if text := choice.Message.Refusal; text != nil && *text != "" {
 		if err := out.Delta(choice.Index, contract.ChannelRefusal, *text); err != nil {

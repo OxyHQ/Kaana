@@ -252,7 +252,9 @@ contract fits one provider's shape and not another's.
     whether to rephrase, and a distinction the delta channels already carried.
     `refusal` is now a finish reason and this adapter emits it.
 
-17. **No stream event can carry provider-opaque block metadata.** An
+17. **No stream event can carry provider-opaque block metadata.** *Closed in
+    contract set 8.6.0 (ADR 0009 decision 2): the `reasoning` content part and
+    the delta's `opaque` token. The paragraph below is what it was.* An
     extended-thinking response returns a `signature` per thinking block, and the
     provider REQUIRES those blocks back, unmodified, on the next turn of a
     tool-use conversation. `streamDeltaEvent` has `channel` and `text` and

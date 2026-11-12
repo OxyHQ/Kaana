@@ -86,4 +86,46 @@ describe('what Kaana sends parses in the releases running in production', () => 
       expect(parsed.success ? [] : parsed.error.issues).toEqual([]);
     }
   });
+
+  // Reasoning continuity (contract set 8.6.0): the delta gained an optional
+  // `opaque`, sent only to a request that carried `reasoning`. A reader of an
+  // older contract must still read the stream; a reader that never asked never
+  // receives the token, nor a `reasoning` part in a whole answer, which it
+  // would refuse (Kaana ADR 0009 decision 2).
+  it('a reasoning delta carrying a continuation token parses in every deployed contract', () => {
+    const delta = {
+      schemaVersion: 1,
+      type: 'delta',
+      requestId: 'req_compat',
+      sequence: 3,
+      outputIndex: 0,
+      channel: 'reasoning',
+      text: '',
+      opaque: 'eyJmIjoiYSJ9',
+    };
+    for (const schema of [
+      contracts440.responseStreamEventSchema,
+      contracts500.responseStreamEventSchema,
+    ]) {
+      const parsed = schema.safeParse(delta);
+      expect(parsed.success ? [] : parsed.error.issues).toEqual([]);
+    }
+  });
+
+  it('a whole answer without reasoning is the answer deployed contracts always parsed', () => {
+    const answer = {
+      schemaVersion: 1,
+      requestId: 'req_compat',
+      model: 'stub/model@2026-05-01',
+      finishReason: 'stop',
+      output: [{ role: 'assistant', content: [{ type: 'text', text: 'ok' }] }],
+      usage: [{ unit: 'output_tokens', quantity: 1 }],
+      routingPolicy: { routingPolicyId: 'rp_1', policyVersion: 1 },
+      latencyMs: 5,
+    };
+    for (const schema of [contracts440.responseSchema, contracts500.responseSchema]) {
+      const parsed = schema.safeParse(answer);
+      expect(parsed.success ? [] : parsed.error.issues).toEqual([]);
+    }
+  });
 });

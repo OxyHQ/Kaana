@@ -36,34 +36,44 @@ export const inferenceContentSourceSchema = z.discriminatedUnion('kind', [
 /**
  * One part of a message's content. A message is always a list of parts.
  *
- * ## `refusal` is a member and `reasoning` is not, and the asymmetry is the point
+ * ## `refusal` and `reasoning` are members, and neither is ever answer text
  *
  * A model that DECLINES says why, and those words are meant for the customer:
  * they are the difference between "rephrase this" and "stop asking". Before this
  * member existed there was nowhere in an {@link InferenceMessage} to put them, so
- * a non-streaming fold kept `finishReason: 'refusal'` and dropped the sentence —
- * the customer learned they were refused and not why, while a streaming caller of
- * the same request got the whole explanation on the `refusal` delta channel.
- *
- * Reasoning is the opposite case and stays absent. It is the model's private
- * working, and a `text` part is where somebody would put it — which renders
- * private reasoning to the customer AS the answer, the product bug the delta
- * channels exist to prevent. An opaque per-block reasoning blob crossing this
- * boundary needs a home nobody has chosen yet, and inventing one here would
- * choose it by accident.
- *
- * Both public dialects can carry a refusal, which is what separates the two
- * cases at the boundary as well as in principle: `refusal` is OpenAI's OWN field
- * in both of its shapes (`delta.refusal` streaming, `message.refusal`
- * non-streaming), while reasoning has no OpenAI field at all — the
- * `reasoning_content`/`reasoning` spellings an OpenAI-compatible provider emits
- * are provider extensions. So carrying the refusal costs no dialect its
- * standard-client parseability, and carrying reasoning would.
- *
+ * a non-streaming fold kept `finishReason: 'refusal'` and dropped the sentence.
  * The part is a MEMBER rather than a field because a refusal need not have text:
  * an Anthropic `stop_reason: "refusal"` maps to the finish reason and separates
- * no words from the answer, while an OpenAI-compatible `refusal` does. A required
- * field would force the first provider to invent a sentence.
+ * no words from the answer, while an OpenAI-compatible `refusal` does.
+ *
+ * ## `reasoning` (contract set 8.6.0, Kaana ADR 0009 decision 2)
+ *
+ * Reasoning was deliberately absent until the owner chose its home, because an
+ * opaque per-block reasoning blob had none. The cost of that absence was
+ * correctness: a thinking model that calls a tool cannot be continued unless the
+ * assistant's reasoning blocks, with their signatures, come back to the provider
+ * unmodified and in order, and a customer who only ever received reasoning TEXT
+ * on the `reasoning` delta channel had nothing to send back.
+ *
+ * The part is `{type: 'reasoning', text?, opaque?}`:
+ *
+ * - `text` is what a person may read. It is a display value and is never
+ *   forwarded to a provider on its own.
+ * - `opaque` is a continuation token the customer MUST return UNMODIFIED, in the
+ *   position it arrived. Its content is Kaana's to define and the customer's to
+ *   treat as a sealed string: it is provider-neutral on the surface and carries
+ *   whatever the serving provider needs to continue. Sealing is NOT
+ *   cryptographic: a forged or edited token is no more than a request the
+ *   provider refuses, so nothing may rely on it for trust.
+ * - at least one of the two is present.
+ *
+ * A reasoning part is the assistant's alone, exactly as a refusal is. It is
+ * never a `text` part, so no renderer can present private reasoning as the
+ * answer, and the delta channels keep reasoning apart for the same reason.
+ *
+ * What a route does with a token it cannot read (it was issued by another
+ * provider family, after a failover or a model switch) is drop it, never fail:
+ * the continuation is lost, the conversation is not.
  */
 export const inferenceContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }).strict(),
@@ -88,6 +98,20 @@ export const inferenceContentPartSchema = z.discriminatedUnion('type', [
    * renderer can present a refusal as the answer that was asked for.
    */
   z.object({ type: z.literal('refusal'), text: z.string() }).strict(),
+  /**
+   * The assistant's reasoning, readable and/or as an opaque continuation token
+   * to return unmodified. See the member note above.
+   */
+  z
+    .object({
+      type: z.literal('reasoning'),
+      text: z.string().optional(),
+      opaque: z.string().check(minUtf16Length(1)).optional(),
+    })
+    .strict()
+    .refine((part) => part.text !== undefined || part.opaque !== undefined, {
+      message: 'a reasoning part carries text, an opaque token, or both',
+    }),
 ]);
 
 /* -------------------------------------------------------------------------- */
@@ -283,15 +307,15 @@ export const inferenceMessageSchema = z
     }
 
     // Same rule as `toolCalls`, for the same reason: only the assistant can
-    // decline, so a refusal on any other role is a part every provider would
-    // silently ignore — and one a renderer might not.
+    // decline or reason, so either part on any other role is one every provider
+    // would silently ignore — and one a renderer might not.
     if (message.role !== 'assistant') {
       for (const [index, part] of message.content.entries()) {
-        if (part.type === 'refusal') {
+        if (part.type === 'refusal' || part.type === 'reasoning') {
           ctx.addIssue({
             code: 'custom',
             path: ['content', index, 'type'],
-            message: 'only an assistant message carries a refusal',
+            message: `only an assistant message carries a ${part.type}`,
           });
         }
       }
@@ -358,12 +382,33 @@ export const responseFormatSchema = z.discriminatedUnion('type', [
 
 /**
  * The caller's reasoning control. Strict, like every leaf: a provider-specific
- * knob (`budget_tokens`, `summary`) is refused rather than silently dropped.
+ * knob (`summary`) is refused rather than silently dropped.
  *
- * Oxy forwards it only after checking the resolved model advertises the effort
- * in its catalogue `reasoningEfforts`; Kaana translates it per provider.
+ * - `effort` is how much to reason, in the catalogue's words. Oxy forwards it
+ *   only after checking the resolved model advertises it in `reasoningEfforts`.
+ * - `maxTokens` is a thinking BUDGET in tokens. It is the other way to size
+ *   reasoning, so it excludes `effort`. A route that cannot take a budget
+ *   refuses it with `invalid_request` naming `reasoning.maxTokens`.
+ * - `exclude: true` means the model may still reason, and be billed for it, but
+ *   no reasoning is returned: no `reasoning` delta, no reasoning part, no opaque
+ *   token. A caller that excludes reasoning cannot continue it.
+ *
+ * Carrying `reasoning` at all, even as `{}`, opts in to receiving reasoning
+ * continuation tokens (the `opaque` field of a `reasoning` delta); a request
+ * without it never receives one, which is what keeps older readers of the
+ * stream unaffected.
  */
-export const inferenceReasoningSchema = z.object({ effort: reasoningEffortSchema }).strict();
+export const inferenceReasoningSchema = z
+  .object({
+    effort: reasoningEffortSchema.optional(),
+    maxTokens: z.number().int().min(1).max(2_147_483_647).optional(),
+    exclude: z.boolean().optional(),
+  })
+  .strict()
+  .refine((reasoning) => reasoning.effort === undefined || reasoning.maxTokens === undefined, {
+    message: 'reasoning takes an effort or a maxTokens budget, not both',
+    path: ['maxTokens'],
+  });
 
 /** Parameters for text-to-speech, preserved in the signed request. */
 export const inferenceSpeechParametersSchema = z

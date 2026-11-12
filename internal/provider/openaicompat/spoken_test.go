@@ -148,3 +148,5 @@ func TestOpenRouterSpokenStreamFailureKeepsWhatWasMeasured(t *testing.T) {
 		t.Errorf("outcome = %+v; the units measured before the failure were lost", outcome)
 	}
 }
+
+func (*spokenCapture) ReasoningBlock(int, string) error { return nil }

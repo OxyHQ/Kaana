@@ -131,7 +131,7 @@ func TestDiscoveryKeepsWhatOpenRouterPublishesAboutEachModel(t *testing.T) {
 	// Nebius, seed/stop/tools only on Groq, and every tool-choice value Groq's
 	// `supports_tool_choice` marks supported.
 	accepted := []provider.RequestParameter{
-		provider.ParameterMaxOutputTokens, provider.ParameterReasoningEffort, provider.ParameterResponseFormat,
+		provider.ParameterMaxOutputTokens, provider.ParameterReasoningEffort, provider.ParameterReasoningMaxTokens, provider.ParameterResponseFormat,
 		provider.ParameterFrequencyPenalty, provider.ParameterSeed, provider.ParameterStopSequences,
 		provider.ParameterTemperature, provider.ParameterTopP, provider.ParameterToolChoice,
 		provider.ParameterToolChoiceFunction, provider.ParameterToolChoiceNone, provider.ParameterToolChoiceRequired,
@@ -282,7 +282,7 @@ func TestObservedMetadataReachesTheReaderWithoutMovingTheSnapshotID(t *testing.T
 	if entry.SupportsTools == nil || !*entry.SupportsTools || entry.ReasoningEfforts == nil || len(*entry.ReasoningEfforts) != 3 {
 		t.Errorf("capabilities = tools %v efforts %v", entry.SupportsTools, entry.ReasoningEfforts)
 	}
-	if entry.AcceptedParameters == nil || len(*entry.AcceptedParameters) != 13 {
+	if entry.AcceptedParameters == nil || len(*entry.AcceptedParameters) != 14 {
 		t.Errorf("accepted parameters = %v, want OpenRouter's zero-retention union with Groq abstaining", entry.AcceptedParameters)
 	}
 	if len(entry.ListPrices) != 1 || entry.ListPrices[0].Provider != "openrouter" || entry.ListPrices[0].Input != "0.072" {

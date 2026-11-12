@@ -72,7 +72,7 @@ func reasoningRequest(effort contract.ReasoningEffort) *contract.Request {
 	request := requestWith([]contract.Message{{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("think")}}})
 	request.Stream = false
 	if effort != "" {
-		request.Reasoning = &contract.ReasoningParameters{Effort: effort}
+		request.Reasoning = &contract.ReasoningParameters{Effort: contract.EffortPtr(effort)}
 	}
 	return request
 }

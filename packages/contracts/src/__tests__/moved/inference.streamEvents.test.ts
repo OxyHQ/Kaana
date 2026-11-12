@@ -106,6 +106,24 @@ describe('inferenceStreamDeltaEventSchema', () => {
   });
 });
 
+describe('the reasoning continuation token on a delta (contract set 8.5.0)', () => {
+  it('is optional, so every earlier delta parses the same', () => {
+    const parsed = inferenceStreamDeltaEventSchema.parse(delta);
+    expect(parsed.opaque).toBeUndefined();
+    expect('opaque' in parsed).toBe(false);
+  });
+
+  it('rides a reasoning delta with empty text and round-trips unmodified', () => {
+    const event = { ...delta, channel: 'reasoning' as const, text: '', opaque: 'eyJmIjoieCJ9' };
+    expect(inferenceStreamDeltaEventSchema.parse(JSON.parse(JSON.stringify(event)))).toEqual(event);
+    expect(inferenceStreamEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it('refuses an empty token', () => {
+    expect(inferenceStreamDeltaEventSchema.safeParse({ ...delta, opaque: '' }).success).toBe(false);
+  });
+});
+
 describe('inferenceRouteSwitchDetailSchema', () => {
   it('accepts same-model deployment failover with no authorization field', () => {
     expect(

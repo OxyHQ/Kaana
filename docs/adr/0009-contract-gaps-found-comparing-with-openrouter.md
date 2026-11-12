@@ -1,7 +1,9 @@
 # ADR 0009 — Contract gaps found comparing Kaana with OpenRouter
 
-- Status: proposed. Every decision below widens a shared contract, so each needs
-  the owner's decision and, where stated, Oxy's half first.
+- Status: proposed, except decision 2, which the owner accepted and which is
+  implemented (contract set 8.6.0). Every other decision below widens a shared
+  contract, so each needs the owner's decision and, where stated, Oxy's half
+  first.
 - Date: 2026-11-12
 - Companion: [ADR 0008](0008-provider-selection-lessons.md) covers provider
   selection (capability-aware routes, measured tie-breaks, cache affinity, caller
@@ -25,7 +27,7 @@ request, no amount in any response, a cost row for every attempt, BYOK custody
 with no read route, an exact model reference that is never substituted, and no
 prompt in any log.
 
-## Decisions (all proposed)
+## Decisions
 
 1. **Cache write as its own unit** (needs Oxy first). The cache-write premium
    (Anthropic charges 1.25x for a five-minute write and 2x for a one-hour one, per
@@ -36,14 +38,39 @@ prompt in any log.
    shape. `USAGE_UNITS` is closed and settlement prices every reported unit
    (`money.ts`), so a unit Oxy's ledger and price versions do not know would be
    refused or mispriced: Oxy ships the unit and its price first.
-2. **Reasoning continuity** (needs the owner). `messages.ts` omits reasoning on
-   purpose, because an opaque per-block blob "needs a home nobody has chosen yet".
-   Anthropic thinking blocks and their signatures must be sent back unmodified
-   across tool turns; OpenRouter does it with an ordered `reasoning_details`
-   array. Dropping them is a correctness gap for tool use on thinking models.
-   What is to be decided is where the opaque block lives and that it is never
-   rendered as answer text. A reasoning token budget and an `exclude` flag are
-   smaller additions on the same surface.
+2. **Reasoning continuity** (accepted; the owner reverted the earlier omission:
+   "forget what was before, improve everything"). Implemented in contract set
+   8.6.0. `messages.ts` had left reasoning out because an opaque per-block blob
+   "needs a home nobody has chosen yet"; the cost was correctness, since Anthropic
+   requires its thinking blocks and signatures back, unmodified and in order,
+   across tool turns, and OpenRouter requires its ordered `reasoning_details`.
+   The design:
+   - **Control.** `reasoning: {effort?, maxTokens?, exclude?}`; `effort` and the
+     thinking budget `maxTokens` are alternatives; `exclude` withholds what the
+     model still reasons (and bills). `reasoning.maxTokens` is a request-parameter
+     word; each adapter states what it accepts and refuses the rest by name
+     without naming a provider (ADR 0003): Anthropic sends `thinking.budget_tokens`
+     only to the models documented to take it (Opus 4.5, Haiku 4.5, and the
+     deprecated-but-working Opus 4.6 and Sonnet 4.6; current models answer it
+     with a 400), OpenRouter sends `reasoning.max_tokens`, direct OpenAI-compatible
+     providers refuse it. `exclude` is applied once, in the emitter, for every
+     route, so no route states it.
+   - **The block.** A new assistant-only content part `{type: 'reasoning', text?,
+     opaque?}`. `opaque` is a sealed, provider-family-tagged token the customer
+     returns unmodified; the public shape names no provider. An adapter forwards
+     only its own family's blocks, in order, and drops the rest; where the
+     provider requires thinking blocks (Anthropic with a thinking budget on a tool
+     turn) and none can be sent, the request is sent without thinking rather than
+     with an invalid sequence. Sealing is not cryptographic: a forged block only
+     gets the customer a provider 400.
+   - **Streaming.** The `reasoning` delta keeps carrying text and gains an
+     optional `opaque`, once per finished block, only for a request that carried
+     `reasoning`, so older readers never see it.
+   - **Surfaces.** `/v1/responses` and `/v1/messages` (thinking blocks, the
+     signature being the token). Chat completions carries none: no standard field.
+   - **Boundaries kept.** Reasoning is never delivered as a `text` part; no
+     reasoning block, token or signature is persisted or logged; nothing public
+     names a provider.
 3. **An Anthropic Messages dialect** (needs Oxy first). Serving `/v1/messages`
    lets Claude Code and similar clients change only a base URL. `APIFormat` is a
    closed enum that Oxy authorizes by, so Oxy learns the format first.
@@ -76,5 +103,6 @@ prompt in any log.
 ## Rules a reviewer applies
 
 - A new usage unit or `APIFormat` is never added to Kaana before Oxy accepts it.
-- Reasoning is never delivered as a `text` part.
+- Reasoning is never delivered as a `text` part, and an opaque reasoning token is
+  never logged, persisted or parsed outside `internal/reasoningblock`.
 - Nothing public names a provider.

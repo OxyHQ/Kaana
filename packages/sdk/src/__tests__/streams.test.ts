@@ -114,6 +114,103 @@ describe('responses.stream', () => {
     expect(response.generationId).toBe('gen_1');
   });
 
+  describe('reasoning continuity', () => {
+    const reasoningFrames = (requestId: string) => [
+      event(requestId, 0, { type: 'start', model: MODEL, startedAt: AT }),
+      event(requestId, 1, { type: 'delta', outputIndex: 0, channel: 'reasoning', text: 'let me ' }),
+      event(requestId, 2, { type: 'delta', outputIndex: 0, channel: 'reasoning', text: 'think' }),
+      event(requestId, 3, {
+        type: 'delta',
+        outputIndex: 0,
+        channel: 'reasoning',
+        text: '',
+        opaque: 'eyJmIjoiYSJ9',
+      }),
+      event(requestId, 4, {
+        type: 'delta',
+        outputIndex: 1,
+        channel: 'reasoning',
+        text: '',
+        opaque: 'eyJmIjoiYiJ9',
+      }),
+      event(requestId, 5, { type: 'delta', outputIndex: 2, channel: 'output_text', text: 'Hola.' }),
+      event(requestId, 6, {
+        type: 'tool_call',
+        toolCallId: 'call_1',
+        name: 'lookup',
+        argumentsDelta: '{}',
+        complete: true,
+      }),
+      event(requestId, 7, { type: 'done', finishReason: 'tool_calls', completedAt: LATER }),
+    ];
+
+    it('folds the blocks in order, each with its token, ahead of the answer', async () => {
+      fake.on('POST /responses', (_request, recorded) => {
+        expect(responsesRequestSchema.parse(recorded.json).reasoning).toEqual({ maxTokens: 2048 });
+        const requestId = nextRequestId();
+        return sse(requestId, reasoningFrames(requestId), policyHeaders);
+      });
+      const response = await kaana.responses.stream({
+        model: MODEL,
+        input: 'Hola',
+        reasoning: { maxTokens: 2048 },
+      }).final;
+      expect(response.output[0].content).toEqual([
+        { type: 'reasoning', text: 'let me think', opaque: 'eyJmIjoiYSJ9' },
+        { type: 'reasoning', opaque: 'eyJmIjoiYiJ9' },
+        { type: 'text', text: 'Hola.' },
+      ]);
+    });
+
+    it('returns a folded response that is a valid assistant turn to send back', async () => {
+      fake.on('POST /responses', () => {
+        const requestId = nextRequestId();
+        return sse(requestId, reasoningFrames(requestId), policyHeaders);
+      });
+      const response = await kaana.responses.stream({
+        model: MODEL,
+        input: 'Hola',
+        reasoning: {},
+      }).final;
+      const next = responsesRequestSchema.safeParse({
+        model: MODEL,
+        input: [
+          { role: 'user', content: [{ type: 'text', text: 'Hola' }] },
+          ...response.output,
+          { role: 'tool', toolCallId: 'call_1', content: [{ type: 'text', text: '42' }] },
+        ],
+        reasoning: {},
+      });
+      expect(next.success).toBe(true);
+    });
+
+    it('keeps the response exactly as it was for a request that did not opt in or excluded it', async () => {
+      fake.on('POST /responses', () => {
+        const requestId = nextRequestId();
+        return sse(requestId, reasoningFrames(requestId), policyHeaders);
+      });
+      for (const reasoning of [undefined, { exclude: true }]) {
+        const response = await kaana.responses.stream({
+          model: MODEL,
+          input: 'Hola',
+          ...(reasoning === undefined ? {} : { reasoning }),
+        }).final;
+        expect(response.output[0].content).toEqual([{ type: 'text', text: 'Hola.' }]);
+      }
+    });
+
+    it('refuses an effort beside a budget before sending anything', () => {
+      expect(() =>
+        kaana.responses.stream({
+          model: MODEL,
+          input: 'Hola',
+          reasoning: { effort: 'low', maxTokens: 2048 },
+        }),
+      ).toThrow('reasoning takes an effort or a maxTokens budget, not both');
+      expect(fake.requests.length).toBe(0);
+    });
+  });
+
   it('drains when only final is awaited', async () => {
     fake.on('POST /responses', () => {
       const requestId = nextRequestId();

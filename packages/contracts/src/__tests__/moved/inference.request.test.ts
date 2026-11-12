@@ -240,16 +240,58 @@ describe('inferenceInputSchema', () => {
     }
   });
 
-  it('has no member for reasoning, so private working cannot ride as content', () => {
-    // The asymmetry with `refusal` above: OpenAI has its own field for a refusal
-    // in both of its shapes and none at all for reasoning, and a `text` part
-    // would render the model's private working as its answer.
+  it('carries reasoning as its own part, text and an opaque token, never as answer text', () => {
+    const parsed = inferenceMessageSchema.parse({
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: 'first I should check whether…', opaque: 'eyJmIjoieCJ9' },
+        { type: 'reasoning', opaque: 'eyJmIjoieSJ9' },
+        { type: 'reasoning', text: 'readable only' },
+        { type: 'text', text: 'the answer' },
+      ],
+    });
+    // A distinct `type`, so no renderer can present private reasoning as the answer,
+    // and the order of the blocks is the order they were sent in.
+    expect(parsed.content.map((part) => part.type)).toEqual([
+      'reasoning',
+      'reasoning',
+      'reasoning',
+      'text',
+    ]);
+    expect(parsed.content[0]).toEqual({
+      type: 'reasoning',
+      text: 'first I should check whether…',
+      opaque: 'eyJmIjoieCJ9',
+    });
+  });
+
+  it('refuses a reasoning part with neither text nor a token, or an empty token', () => {
+    for (const part of [
+      { type: 'reasoning' },
+      { type: 'reasoning', opaque: '' },
+      { type: 'reasoning', text: 'x', signature: 's' },
+    ]) {
+      expect(inferenceMessageSchema.safeParse({ role: 'assistant', content: [part] }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('lets only an assistant message carry reasoning', () => {
+    for (const role of ['user', 'system', 'developer', 'tool']) {
+      const message = { role, content: [{ type: 'reasoning', text: 'x', opaque: 'eyJ9' }] };
+      expect(
+        inferenceMessageSchema.safeParse(
+          role === 'tool' ? { ...message, toolCallId: 'c' } : message,
+        ).success,
+      ).toBe(false);
+    }
     expect(
       inferenceMessageSchema.safeParse({
         role: 'assistant',
-        content: [{ type: 'reasoning', text: 'first I should check whether…' }],
+        content: [{ type: 'reasoning', text: 'x', opaque: 'eyJ9' }],
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('lets only an assistant message carry a refusal', () => {
@@ -596,11 +638,44 @@ describe('reasoning effort on the envelope', () => {
   });
 
   it('refuses a provider-specific knob beside the effort (strict leaf)', () => {
-    expect(
-      inferenceRequestSchema.safeParse({
-        ...request,
-        reasoning: { effort: 'low', budget_tokens: 1024 },
-      }).success,
-    ).toBe(false);
+    for (const knob of [{ budget_tokens: 1024 }, { summary: 'auto' }]) {
+      expect(
+        inferenceRequestSchema.safeParse({ ...request, reasoning: { effort: 'low', ...knob } })
+          .success,
+      ).toBe(false);
+    }
+  });
+
+  it('carries a thinking budget and an exclude flag, each optional', () => {
+    for (const reasoning of [
+      {},
+      { maxTokens: 2048 },
+      { exclude: true },
+      { maxTokens: 1, exclude: false },
+      { effort: 'low', exclude: true },
+    ]) {
+      expect(inferenceRequestSchema.parse({ ...request, reasoning }).reasoning).toEqual(reasoning);
+    }
+  });
+
+  it('treats an effort and a budget as alternatives', () => {
+    const both = inferenceRequestSchema.safeParse({
+      ...request,
+      reasoning: { effort: 'low', maxTokens: 2048 },
+    });
+    expect(both.success).toBe(false);
+    if (!both.success) {
+      expect(
+        both.error.issues.some((issue) => issue.path.join('.') === 'reasoning.maxTokens'),
+      ).toBe(true);
+    }
+  });
+
+  it('refuses a budget that is not a positive whole number of tokens', () => {
+    for (const maxTokens of [0, -1, 1.5, 2_147_483_648, '2048']) {
+      expect(
+        inferenceRequestSchema.safeParse({ ...request, reasoning: { maxTokens } }).success,
+      ).toBe(false);
+    }
   });
 });

@@ -60,11 +60,14 @@ type openRouterProviderPolicy struct {
 }
 
 // openRouterReasoning is OpenRouter's unified reasoning control. Kaana sends
-// only `effort`: OpenRouter maps it onto each upstream's own effort or token
-// budget, and with `provider.require_parameters` it routes only to upstreams
-// that accept `reasoning` at all.
+// `effort` or `max_tokens`, never both: OpenRouter maps either onto each
+// upstream's own effort or token budget, and with
+// `provider.require_parameters` it routes only to upstreams that accept
+// `reasoning` at all. `exclude` is never sent: Kaana withholds reasoning
+// itself (internal/kaana's emitter), for every route alike.
 type openRouterReasoning struct {
-	Effort string `json:"effort"`
+	Effort    string `json:"effort,omitempty"`
+	MaxTokens *int   `json:"max_tokens,omitempty"`
 }
 
 // streamOptions is what makes a streamed request report usage at all.
@@ -100,6 +103,9 @@ type chatMessage struct {
 	Name       *string        `json:"name,omitempty"`
 	ToolCallID *string        `json:"tool_call_id,omitempty"`
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	// ReasoningDetails sends an assistant's earlier reasoning back to a
+	// provider that continues from it, unmodified and in order.
+	ReasoningDetails []json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type chatToolCall struct {
@@ -206,10 +212,12 @@ type streamChoice struct {
 // under the unread spelling would have it rendered as answer text — a product
 // bug, not a display preference.
 type streamDelta struct {
-	Content          *string             `json:"content"`
-	Refusal          *string             `json:"refusal"`
-	ReasoningContent *string             `json:"reasoning_content"`
-	Reasoning        *string             `json:"reasoning"`
+	Content          *string `json:"content"`
+	Refusal          *string `json:"refusal"`
+	ReasoningContent *string `json:"reasoning_content"`
+	Reasoning        *string `json:"reasoning"`
+	// ReasoningDetails is OpenRouter's ordered reasoning array (reasoning.go).
+	ReasoningDetails []json.RawMessage   `json:"reasoning_details"`
 	ToolCalls        []streamToolCallRef `json:"tool_calls"`
 }
 
@@ -239,10 +247,12 @@ type completionChoice struct {
 }
 
 type completionMessage struct {
-	Content          *string        `json:"content"`
-	Refusal          *string        `json:"refusal"`
-	ReasoningContent *string        `json:"reasoning_content"`
-	ToolCalls        []chatToolCall `json:"tool_calls"`
+	Content          *string           `json:"content"`
+	Refusal          *string           `json:"refusal"`
+	ReasoningContent *string           `json:"reasoning_content"`
+	Reasoning        *string           `json:"reasoning"`
+	ReasoningDetails []json.RawMessage `json:"reasoning_details"`
+	ToolCalls        []chatToolCall    `json:"tool_calls"`
 }
 
 type chatUsage struct {

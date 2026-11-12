@@ -332,13 +332,18 @@ func TestMessagesRefuseWhatTheContractCannotCarry(t *testing.T) {
 		extra map[string]any
 		param string
 	}{
-		"thinking with a budget": {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048}}, "thinking"},
-		"effort beyond high":     {map[string]any{"output_config": map[string]any{"effort": "max"}}, "output_config.effort"},
-		"a server tool":          {map[string]any{"tools": []any{map[string]any{"type": "web_search_20250305", "name": "web_search"}}}, "tools[0].type"},
+		"thinking enabled without a budget": {map[string]any{"thinking": map[string]any{"type": "enabled"}}, "thinking"},
+		"thinking with a display":           {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048, "display": "summarized"}}, "thinking"},
+		"a budget beside an effort": {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048},
+			"output_config": map[string]any{"effort": "low"}}, "thinking.budget_tokens"},
+		"a thinking block on a user message": {map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "thinking", "thinking": "hmm", "signature": "s"}}}}}, "messages[0].content[0]"},
+		"a thinking block with nothing": {map[string]any{"messages": []any{map[string]any{"role": "assistant", "content": []any{
+			map[string]any{"type": "thinking", "thinking": "", "signature": ""}}}}}, "messages[0].content[0]"},
+		"effort beyond high": {map[string]any{"output_config": map[string]any{"effort": "max"}}, "output_config.effort"},
+		"a server tool":      {map[string]any{"tools": []any{map[string]any{"type": "web_search_20250305", "name": "web_search"}}}, "tools[0].type"},
 		"an image url": {map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
 			map[string]any{"type": "image", "source": map[string]any{"type": "url", "url": "https://example.test/a.png"}}}}}}, "messages[0].content[0].source"},
-		"a thinking block": {map[string]any{"messages": []any{map[string]any{"role": "assistant", "content": []any{
-			map[string]any{"type": "thinking", "thinking": "hmm", "signature": "s"}}}}}, "messages[0].content[0]"},
 		"a document": {map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
 			map[string]any{"type": "document", "source": map[string]any{"type": "text", "data": "x"}}}}}}, "messages[0].content[0]"},
 		"parallel tool use off": {map[string]any{"tools": []any{lookupTool}, "tool_choice": map[string]any{"type": "auto", "disable_parallel_tool_use": true}}, "disable_parallel_tool_use"},
@@ -358,7 +363,7 @@ func TestMessagesRefuseWhatTheContractCannotCarry(t *testing.T) {
 	if response := h.post("/v1/messages", validKey, accepted); response.StatusCode != http.StatusOK {
 		t.Fatalf("%d %s", response.StatusCode, response.Body)
 	}
-	if reasoning := h.adapter.lastCall().Reasoning; reasoning == nil || reasoning.Effort != contract.ReasoningEffortHigh {
+	if reasoning := h.adapter.lastCall().Reasoning; reasoning == nil || !reasoning.HasEffort() || *reasoning.Effort != contract.ReasoningEffortHigh {
 		t.Errorf("reasoning = %+v", reasoning)
 	}
 	if strings.Contains(h.oxy.authorizationBodies()[0], `"u"`) {

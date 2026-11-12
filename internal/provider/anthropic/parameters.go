@@ -13,6 +13,7 @@ import (
 var messagesControls = []provider.RequestParameter{
 	provider.ParameterMaxOutputTokens,
 	provider.ParameterReasoningEffort,
+	provider.ParameterReasoningMaxTokens,
 	provider.ParameterStopSequences,
 	provider.ParameterTemperature,
 	provider.ParameterTopP,
@@ -22,6 +23,16 @@ var messagesControls = []provider.RequestParameter{
 	provider.ParameterToolChoiceRequired,
 	provider.ParameterTools,
 }
+
+// noThinkingBudget: `thinking: {type: "enabled", budget_tokens}` "is rejected
+// with a 400" on Claude Fable 5, 5.1 and 5.2, Opus 5.5, 5, 4.8 and 4.7, Sonnet
+// 5.5 and 5 and Haiku 5.5, which think adaptively; it is deprecated but still
+// functional on Opus 4.6 and Sonnet 4.6, and required for thinking on Opus 4.5
+// and Haiku 4.5 (Anthropic's extended-thinking and model-migration guides, as
+// summarised in the claude-api reference, read 2026-11-12). So the budget is
+// accepted for exactly the models below that do not carry this entry, and a
+// model nobody reviewed takes none (Translate refuses it).
+var noThinkingBudget = []provider.RequestParameter{provider.ParameterReasoningMaxTokens}
 
 // fixedSampling: "Setting temperature, top_p, or top_k to any non-default
 // value on Claude Opus 4.7 and later models ... returns a 400 error"
@@ -46,18 +57,18 @@ var noForcedToolChoice = []provider.RequestParameter{provider.ParameterToolChoic
 // catalogue says nothing. `TestEveryAttributedAnthropicModelHasAReviewedParameterStatement`
 // pins the table to the attribution with an exact count.
 var refusedByModel = map[string][]provider.RequestParameter{
-	"claude-fable-5-1":          concat(fixedSampling, noForcedToolChoice),
-	"claude-fable-5":            fixedSampling,
-	"claude-opus-5-5":           concat(fixedSampling, noForcedToolChoice),
-	"claude-opus-5":             fixedSampling,
-	"claude-opus-4-8":           fixedSampling,
-	"claude-opus-4-7":           fixedSampling,
+	"claude-fable-5-1":          concat(fixedSampling, noForcedToolChoice, noThinkingBudget),
+	"claude-fable-5":            concat(fixedSampling, noThinkingBudget),
+	"claude-opus-5-5":           concat(fixedSampling, noForcedToolChoice, noThinkingBudget),
+	"claude-opus-5":             concat(fixedSampling, noThinkingBudget),
+	"claude-opus-4-8":           concat(fixedSampling, noThinkingBudget),
+	"claude-opus-4-7":           concat(fixedSampling, noThinkingBudget),
 	"claude-opus-4-6":           nil,
 	"claude-opus-4-5-20251101":  nil,
-	"claude-sonnet-5-5":         concat(fixedSampling, noForcedToolChoice),
-	"claude-sonnet-5":           fixedSampling,
+	"claude-sonnet-5-5":         concat(fixedSampling, noForcedToolChoice, noThinkingBudget),
+	"claude-sonnet-5":           concat(fixedSampling, noThinkingBudget),
 	"claude-sonnet-4-6":         nil,
-	"claude-haiku-5-5":          fixedSampling,
+	"claude-haiku-5-5":          concat(fixedSampling, noThinkingBudget),
 	"claude-haiku-4-5-20251001": nil,
 }
 
@@ -105,8 +116,11 @@ func AcceptedParameters(upstreamModelID string) (parameters []provider.RequestPa
 // value (provider.ToolChoiceParameters).
 func carriedParameters(request *contract.Request) []provider.RequestParameter {
 	carried := []provider.RequestParameter{provider.ParameterMaxOutputTokens}
-	if request.Reasoning != nil {
+	if request.Reasoning.HasEffort() {
 		carried = append(carried, provider.ParameterReasoningEffort)
+	}
+	if request.Reasoning != nil && request.Reasoning.MaxTokens != nil {
+		carried = append(carried, provider.ParameterReasoningMaxTokens)
 	}
 	if len(request.Sampling.StopSequences) > 0 {
 		carried = append(carried, provider.ParameterStopSequences)
