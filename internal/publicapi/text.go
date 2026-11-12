@@ -267,6 +267,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, failure)
 		return
 	}
+	s.catalogue.announceLifecycle(w.Header(), request.Model)
 	envelope := admitted.request(contract.ModalityText, contract.APIFormatResponses, contract.Input{Format: contract.InputMessages, Messages: request.Input.messages})
 	envelope.Stream = stream
 	envelope.MaxOutputTokens = request.MaxOutputTokens
@@ -395,6 +396,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		refuse(failure)
 		return
 	}
+	s.catalogue.announceLifecycle(w.Header(), &request.Model)
 	envelope := admitted.request(contract.ModalityText, contract.APIFormatChatCompletions, contract.Input{Format: contract.InputMessages, Messages: messages})
 	envelope.Stream, envelope.MaxOutputTokens = stream, maxTokens
 	envelope.Sampling = contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,

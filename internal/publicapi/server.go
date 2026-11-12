@@ -228,7 +228,7 @@ var (
 	corsAllowedHeaders = strings.Join([]string{"Authorization", "Content-Type", HeaderContractVersion, HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
 	corsExposedHeaders = strings.Join([]string{
 		HeaderRequestID, HeaderContractVersion, HeaderModel, HeaderUsage,
-		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After",
+		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After", HeaderDeprecation, HeaderSunset, "Link",
 	}, ", ")
 )
 
