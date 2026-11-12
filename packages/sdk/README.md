@@ -32,6 +32,13 @@ one, e.g. `ws` in older Node), `timeoutMs` (default 120 000) and `maxRetries`
 (default 2: only before the first byte, only for retryable codes, honouring
 `retryAfterMs`).
 
+Do not wrap calls in your own timeout-and-retry loop on top of these. Kaana
+already retries and fails over server-side (bounded, and only before any output
+is delivered), so a second layer multiplies load exactly when a provider is
+slow and turns slowness into total failure. Set `timeoutMs` to the longest wait
+you can accept, leave `maxRetries` at its default, and reuse one
+`idempotencyKey` if you must resubmit.
+
 Every method takes `RequestOptions`: `signal`, `idempotencyKey`
 (`Idempotency-Key`, reused by every retry), `onBehalfOfUserId`
 (`X-Oxy-User-Id`, honoured only with a service token) and `timeoutMs`.

@@ -30,7 +30,7 @@ bun run lint:fix                                 # apply Biome fixes
   - provider keys, BYOK: [key-pools](docs/key-pools.md), [customer-provider-credentials](docs/customer-provider-credentials.md)
   - provider amounts: [cost](docs/cost.md)
   - providers: [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md), [realtime](docs/realtime.md)
-  - decisions: [docs/adr/](docs/adr/)
+  - decisions: [docs/adr/](docs/adr/); reproducibility claims: [determinism](docs/determinism.md)
 
 ## Conventions that differ from defaults
 
