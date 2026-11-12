@@ -76,6 +76,52 @@ describe('POST /v1/messages request', () => {
     expect(continued.success).toBe(true);
   });
 
+  // Claude Code puts a cache_control marker on every request, so the schema
+  // accepts it wherever the dialect does (the handler ignores it).
+  it.each([
+    ['a block', { messages: [textWith({ cache_control: { type: 'ephemeral' } })] }],
+    [
+      'system',
+      { system: [{ type: 'text', text: 'x', cache_control: { type: 'ephemeral', ttl: '1h' } }] },
+    ],
+    ['a tool', { tools: [{ name: 'a', input_schema: {}, cache_control: { type: 'ephemeral' } }] }],
+    ['the request', { cache_control: { type: 'ephemeral', scope: 'global' } }],
+  ])('accepts cache_control on %s', (_name, change) => {
+    expect(anthropicMessagesRequestSchema.safeParse({ ...request, ...change }).success).toBe(true);
+  });
+
+  it('accepts what Claude Code sends: display, context_management and defer_loading', () => {
+    const sent = {
+      ...request,
+      thinking: { type: 'adaptive', display: 'omitted' },
+      context_management: { edits: [{ type: 'clear_tool_uses_20250919', keep: 'all' }] },
+      tools: [{ name: 'a', input_schema: {}, defer_loading: true }],
+    };
+    expect(anthropicMessagesRequestSchema.safeParse(sent).success).toBe(true);
+    expect(
+      anthropicMessagesRequestSchema.safeParse({ ...sent, context_managements: {} }).success,
+    ).toBe(false);
+  });
+
+  it('accepts a text-only system message and refuses a system message with an image', () => {
+    const text = { role: 'system', content: [{ type: 'text', text: 'Answer in French.' }] };
+    expect(
+      anthropicMessagesRequestSchema.safeParse({
+        ...request,
+        messages: [...request.messages, text],
+      }).success,
+    ).toBe(true);
+    const image = {
+      role: 'system',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+      ],
+    };
+    expect(
+      anthropicMessagesRequestSchema.safeParse({ ...request, messages: [image] }).success,
+    ).toBe(false);
+  });
+
   it('requires max_tokens, as Anthropic does', () => {
     const { max_tokens: _omitted, ...without } = request;
     expect(anthropicMessagesRequestSchema.safeParse(without).success).toBe(false);
@@ -84,26 +130,10 @@ describe('POST /v1/messages request', () => {
   // The control above proves the schema accepts the shape; each case below
   // changes ONE thing, so a refusal is that thing's.
   it.each([
-    [
-      'cache_control on a block',
-      { messages: [textWith({ cache_control: { type: 'ephemeral' } })] },
-    ],
-    [
-      'cache_control on system',
-      { system: [{ type: 'text', text: 'x', cache_control: { type: 'ephemeral' } }] },
-    ],
-    [
-      'cache_control on a tool',
-      { tools: [{ name: 'a', input_schema: {}, cache_control: { type: 'ephemeral' } }] },
-    ],
-    ['cache_control on the request', { cache_control: { type: 'ephemeral' } }],
     ['thinking enabled without a budget', { thinking: { type: 'enabled' } }],
     ['a thinking budget of zero', { thinking: { type: 'enabled', budget_tokens: 0 } }],
     ['a budget on adaptive thinking', { thinking: { type: 'adaptive', budget_tokens: 2048 } }],
-    [
-      'thinking display',
-      { thinking: { type: 'enabled', budget_tokens: 2048, display: 'summarized' } },
-    ],
+    ['an unknown thinking member', { thinking: { type: 'adaptive', displays: 'omitted' } }],
     ['effort beyond high', { output_config: { effort: 'max' } }],
     ['a server tool', { tools: [{ type: 'web_search_20250305', name: 'web_search' }] }],
     [

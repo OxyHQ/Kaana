@@ -11,12 +11,6 @@
  *
  * ## What is refused, and why
  *
- *  - **`cache_control`, anywhere** (on a block, a tool, `system` or the
- *    request). Kaana's usage units have no unit for a cache WRITE (see the
- *    Anthropic adapter's usage meter): a cache write is billed at a premium
- *    over input, so honouring the marker while folding the write into
- *    `input_tokens` would report less than the request cost. The marker is
- *    refused, by name and path, instead of being dropped.
  *  - **`thinking.display`** and every other `thinking` member this file does
  *    not name.
  *  - **Server tools** (`web_search`, `bash`, `text_editor`, …), `mcp_servers`,
@@ -24,6 +18,26 @@
  *    blocks and any other member this file does not name.
  *  - **An image `url` source**: nothing fetches an image URL (ADR 0007); a
  *    `base64` source is carried inline under the image rules.
+ *
+ * ## `cache_control`: accepted and IGNORED
+ *
+ * Claude Code puts a `cache_control` marker on every request, so refusing it
+ * made the endpoint unusable by its main client. The marker is accepted wherever
+ * the dialect puts it (the request, `system`, a tool, a content block) and is
+ * NOT honoured: Kaana forwards no cache hint, so no cache write happens and the
+ * usage it reports stays exactly what the request cost. The only effect is the
+ * one the caller asked for and does not get: no prompt-cache discount on a write
+ * (reads that a provider caches on its own are still metered as
+ * `cache_read_input_tokens`). A request whose marker was ignored is answered
+ * with `Kaana-Ignored-Parameters: cache_control`. Honouring it needs a priced
+ * cache-write unit (`cache_write_input_tokens`, contract 8.4.0) that nothing
+ * emits yet.
+ *
+ * The same holds for three more members Claude Code sends: `context_management`,
+ * `thinking.display` and `tools[].defer_loading`. Each is a hint or a beta that
+ * changes how a provider trims, shows or loads, never what a request means or
+ * costs; each present one is named in `Kaana-Ignored-Parameters`. Any other
+ * member this file does not name is still refused.
  *
  * ## Reasoning (contract set 8.6.0, ADR 0009 decision 2)
  *
@@ -61,11 +75,24 @@ import { modelTargetSchema } from './responses.js';
 
 const nonEmpty = (max: number) => z.string().check(minUtf16Length(1)).check(maxUtf16Length(max));
 
-const textBlockSchema = z.object({ type: z.literal('text'), text: z.string() }).strict();
+/** Accepted and ignored, whatever members it carries (`type`, `ttl`, `scope`): see "`cache_control`" in the file comment. */
+const cacheControlSchema = z.record(z.string(), z.unknown());
+
+/** Accepted and ignored: how much reasoning text a client wants shown. */
+const thinkingDisplaySchema = z.string();
+
+const textBlockSchema = z
+  .object({
+    type: z.literal('text'),
+    text: z.string(),
+    cache_control: cacheControlSchema.optional(),
+  })
+  .strict();
 
 const imageBlockSchema = z
   .object({
     type: z.literal('image'),
+    cache_control: cacheControlSchema.optional(),
     source: z.discriminatedUnion('type', [
       z
         .object({
@@ -103,6 +130,7 @@ const toolUseBlockSchema = z
     id: nonEmpty(128),
     name: nonEmpty(128),
     input: z.record(z.string(), z.unknown()),
+    cache_control: cacheControlSchema.optional(),
   })
   .strict();
 
@@ -118,12 +146,14 @@ const toolResultBlockSchema = z
      * own content is what the model reads; the flag is not forwarded.
      */
     is_error: z.boolean().optional(),
+    cache_control: cacheControlSchema.optional(),
   })
   .strict();
 
 const messageSchema = z
   .object({
-    role: z.enum(['user', 'assistant']),
+    /** `system` is a mid-conversation instruction Claude Code sends: text blocks only. */
+    role: z.enum(['user', 'assistant', 'system']),
     content: z.union([
       z.string(),
       z
@@ -148,7 +178,9 @@ const messageSchema = z
       const allowed =
         message.role === 'assistant'
           ? block.type === 'text' || block.type === 'tool_use' || reasoning
-          : block.type !== 'tool_use' && !reasoning;
+          : message.role === 'system'
+            ? block.type === 'text'
+            : block.type !== 'tool_use' && !reasoning;
       if (!allowed) {
         ctx.addIssue({
           code: 'custom',
@@ -166,6 +198,9 @@ const toolSchema = z
     description: z.string().check(maxUtf16Length(32768)).optional(),
     input_schema: z.record(z.string(), z.unknown()),
     strict: z.boolean().optional(),
+    cache_control: cacheControlSchema.optional(),
+    /** Accepted and ignored: Kaana loads every tool it is sent. */
+    defer_loading: z.boolean().optional(),
   })
   .strict();
 
@@ -184,6 +219,7 @@ export const anthropicMessagesRequestSchema = z
     max_tokens: z.number().int().positive().safe(),
     messages: z.array(messageSchema).min(1),
     system: z.union([z.string(), z.array(textBlockSchema)]).optional(),
+    cache_control: cacheControlSchema.optional(),
     temperature: z.number().min(0).max(1).optional(),
     top_p: z.number().min(0).max(1).optional(),
     top_k: z.number().int().positive().safe().optional(),
@@ -199,15 +235,20 @@ export const anthropicMessagesRequestSchema = z
     thinking: z
       .discriminatedUnion('type', [
         z.object({ type: z.literal('disabled') }).strict(),
-        z.object({ type: z.literal('adaptive') }).strict(),
+        z
+          .object({ type: z.literal('adaptive'), display: thinkingDisplaySchema.optional() })
+          .strict(),
         z
           .object({
             type: z.literal('enabled'),
             budget_tokens: z.number().int().positive().safe(),
+            display: thinkingDisplaySchema.optional(),
           })
           .strict(),
       ])
       .optional(),
+    /** Accepted and ignored (an Anthropic beta Claude Code sends). */
+    context_management: z.record(z.string(), z.unknown()).optional(),
     /** `effort` is the contract's reasoning effort; no other member is carried. */
     output_config: z.object({ effort: reasoningEffortSchema.optional() }).strict().optional(),
     /** Accepted and not forwarded or stored. */

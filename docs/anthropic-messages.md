@@ -68,7 +68,7 @@ final `message_delta` carries them. The request id is in `Request-Id` and
 
 Errors are `{"type":"error","error":{"type","message"},"request_id"}` with the
 status the public code already has. A refusal of a parameter names it at the
-start of the message (`messages[0].content[1].cache_control: ...`).
+start of the message (`messages[0].content[1].source: ...`).
 
 | Public code | Anthropic `error.type` |
 | --- | --- |
@@ -83,19 +83,39 @@ start of the message (`messages[0].content[1].cache_control: ...`).
 | `provider_error`, `service_unavailable`, `no_route_available`, `internal_error`, `cancelled` | `api_error` |
 | every other code | `invalid_request_error` |
 
+## A system message in `messages`
+
+Claude Code sends a `role: "system"` message after the user's turn. It is
+accepted with text blocks only (anything else is refused naming the block) and is
+carried in the position it was sent; the Anthropic adapter hoists it into the
+provider's system prompt like any system message.
+
+## Accepted and ignored: `cache_control` and what Claude Code sends
+
+Claude Code puts a `cache_control` marker on every request (`system[1]` in the
+request that exposed this), so refusing it made the endpoint unusable by its
+main client. It is accepted on the request, `system`, a tool, a content block or
+a tool result's block, and **ignored**: Kaana forwards no cache hint, so no cache
+write happens and `usage` stays exactly what the request cost. The caller does not
+get a prompt-cache write discount; a read a provider caches on its own is still
+reported as `cache_read_input_tokens`. A request whose marker was ignored is
+answered with `Kaana-Ignored-Parameters: cache_control`, so it is never left to
+inference. A key named `cache_control` inside a tool's own `input_schema` or
+`input` is the caller's data and is not read. Three more members Claude Code sends are
+accepted and ignored the same way: `context_management` (an Anthropic beta),
+`thinking.display` and `tools[].defer_loading`. Each is a hint that changes how a
+provider trims, shows or loads, never what a request means or costs; every
+present one is named in `Kaana-Ignored-Parameters` (a comma-separated list in a
+fixed order). Any other member the schema does not name is still refused.
+Honouring the marker needs a priced cache-write unit (`cache_write_input_tokens`, contract 8.4.0) that Oxy rates and
+the Anthropic adapter emits; nothing does yet (issue #269).
+
 ## Refused, not dropped
 
 The schema is strict, so a parameter Kaana does not implement is refused with
 `invalid_request` naming it.
 
-- **`cache_control`**, on the request, `system`, a tool, a content block or a
-  tool result's block. Kaana's usage units have no unit for a cache *write*
-  (`internal/provider/anthropic/stream.go`, `units()`), and a write is billed at
-  a premium over input. Honouring the marker would fold the write into
-  `input_tokens` and report less than the request cost. A key named
-  `cache_control` inside a tool's own `input_schema` or `input` is the caller's
-  data and is not read.
-- **`thinking.display`** and every other `thinking` member not named above.
+- Every `thinking` member not named above (`display` is accepted and ignored: see above).
   (Reasoning was refused here until contract set 8.6.0; see
   [contract.md](contract.md#contract-set-860-reasoning-continuity-adr-0009-decision-2).)
 - Server tools (`web_search`, `bash`, `text_editor`, ...), `disable_parallel_tool_use`,
@@ -124,8 +144,8 @@ execution. The route is therefore absent and answers as any unknown `/v1/` path.
   endpoint.** It rides on `responses`; a change that needs one is a contract
   change that asks first.
 - **A parameter the contract cannot carry is refused by name**, never dropped.
-  `cache_control` stays refused until a cache-write unit exists in the usage
-  contract and the adapters measure it.
+  `cache_control` is the one marker that is accepted and ignored instead (see
+  above), because ignoring it cannot change what a request costs.
 - **`usage` is measured units only.** Never an estimate, never a cache write
   folded into input.
 - **No provider, deployment or key in any body or frame**, and no prompt in a

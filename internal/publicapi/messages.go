@@ -38,9 +38,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		refuse(failure)
 		return
 	}
-	if failure := refuseCacheControl(requestID, body); failure != nil {
-		refuse(failure)
-		return
+	body, ignored := stripIgnored(body)
+	if len(ignored) > 0 {
+		w.Header().Set(HeaderIgnoredParameters, strings.Join(ignored, ", "))
 	}
 	var request messagesRequest
 	if failure := decodeRequest(body, requestID, &request); failure != nil {
@@ -188,61 +188,112 @@ func messagesContent(requestID contract.RequestID, folded *collected) ([]message
 /*  Request checks and translation                                            */
 /* -------------------------------------------------------------------------- */
 
-// refuseCacheControl refuses a `cache_control` marker wherever the dialect
-// puts one: the request, `system`, a tool, a content block and a tool result's
-// blocks. It is not read inside a tool's input or input_schema, where a key of
-// that name is the caller's own data. Kaana has no usage unit for a cache
-// write, so honouring the marker would report less than the request cost; it is
-// refused by name and path rather than dropped.
-func refuseCacheControl(requestID contract.RequestID, body []byte) *contract.PublicError {
-	refusal := func(path string) *contract.PublicError {
-		return invalid(requestID, path+".cache_control", "cache_control is not supported: Kaana meters no cache writes, so it would report less than the request cost; remove it")
-	}
+// Members of the Anthropic dialect that Kaana accepts and does not honour.
+// Each is a hint or a beta feature that changes how a provider caches, trims or
+// loads, never what the request means or what it costs, and Claude Code sends
+// them on every request: refusing them made the endpoint unusable by its main
+// client. They are removed before the strict decode, and the answer names every
+// one that was present in Kaana-Ignored-Parameters so nothing is left to inference.
+const (
+	ignoredCacheControl      = "cache_control"
+	ignoredContextManagement = "context_management"
+	ignoredThinkingDisplay   = "thinking.display"
+	ignoredToolDeferLoading  = "tools.defer_loading"
+)
+
+// stripIgnored removes the accepted-and-ignored members from a request body and
+// returns the body and the names that were present, in a fixed order.
+//
+// `cache_control` is removed wherever the dialect puts it: the request,
+// `system`, a tool, a content block and a tool result's blocks. It is not read
+// inside a tool's `input` or `input_schema`, where a key of that name is the
+// caller's own data. Because Kaana forwards no cache hint, no cache write
+// happens and the usage it reports stays exactly what the request cost; honouring
+// it needs a priced cache-write unit nothing emits yet (issue #269).
+func stripIgnored(body []byte) ([]byte, []string) {
 	root, ok := objectOf(body)
 	if !ok {
-		return nil
+		return body, nil
 	}
-	if _, found := root["cache_control"]; found {
-		return invalid(requestID, "cache_control", "cache_control is not supported: Kaana meters no cache writes, so it would report less than the request cost; remove it")
-	}
-	for index, item := range arrayOf(root["system"]) {
-		if object, ok := objectOf(item); ok {
-			if _, found := object["cache_control"]; found {
-				return refusal(fmt.Sprintf("system[%d]", index))
-			}
-		}
-	}
-	for index, item := range arrayOf(root["tools"]) {
-		if object, ok := objectOf(item); ok {
-			if _, found := object["cache_control"]; found {
-				return refusal(fmt.Sprintf("tools[%d]", index))
-			}
-		}
-	}
-	for messageIndex, item := range arrayOf(root["messages"]) {
-		message, ok := objectOf(item)
+	found := map[string]bool{}
+	drop := func(raw json.RawMessage, key, name string) json.RawMessage {
+		object, ok := objectOf(raw)
 		if !ok {
-			continue
+			return raw
 		}
-		for blockIndex, raw := range arrayOf(message["content"]) {
-			block, ok := objectOf(raw)
-			if !ok {
-				continue
-			}
-			path := fmt.Sprintf("messages[%d].content[%d]", messageIndex, blockIndex)
-			if _, found := block["cache_control"]; found {
-				return refusal(path)
-			}
-			for nestedIndex, nested := range arrayOf(block["content"]) {
-				if object, ok := objectOf(nested); ok {
-					if _, found := object["cache_control"]; found {
-						return refusal(fmt.Sprintf("%s.content[%d]", path, nestedIndex))
-					}
-				}
-			}
+		if _, present := object[key]; !present {
+			return raw
+		}
+		delete(object, key)
+		found[name] = true
+		out, _ := json.Marshal(object)
+		return out
+	}
+	marker := func(raw json.RawMessage) json.RawMessage { return drop(raw, "cache_control", ignoredCacheControl) }
+	each := func(raw json.RawMessage, visit func(json.RawMessage) json.RawMessage) json.RawMessage {
+		items := arrayOf(raw)
+		if items == nil {
+			return raw
+		}
+		for index := range items {
+			items[index] = visit(items[index])
+		}
+		out, _ := json.Marshal(items)
+		return out
+	}
+	withNested := func(raw json.RawMessage, key string, visit func(json.RawMessage) json.RawMessage) json.RawMessage {
+		object, ok := objectOf(raw)
+		if !ok {
+			return raw
+		}
+		nested, present := object[key]
+		if !present || arrayOf(nested) == nil {
+			return raw
+		}
+		object[key] = each(nested, visit)
+		out, _ := json.Marshal(object)
+		return out
+	}
+	block := func(raw json.RawMessage) json.RawMessage { return withNested(marker(raw), "content", marker) }
+	tool := func(raw json.RawMessage) json.RawMessage {
+		return drop(marker(raw), "defer_loading", ignoredToolDeferLoading)
+	}
+	if _, present := root["cache_control"]; present {
+		delete(root, "cache_control")
+		found[ignoredCacheControl] = true
+	}
+	if _, present := root["context_management"]; present {
+		delete(root, "context_management")
+		found[ignoredContextManagement] = true
+	}
+	if thinking, present := root["thinking"]; present {
+		root["thinking"] = drop(thinking, "display", ignoredThinkingDisplay)
+	}
+	if system, present := root["system"]; present {
+		root["system"] = each(system, marker)
+	}
+	if tools, present := root["tools"]; present {
+		root["tools"] = each(tools, tool)
+	}
+	if messages, present := root["messages"]; present {
+		root["messages"] = each(messages, func(raw json.RawMessage) json.RawMessage {
+			return withNested(raw, "content", block)
+		})
+	}
+	var names []string
+	for _, name := range []string{ignoredCacheControl, ignoredContextManagement, ignoredThinkingDisplay, ignoredToolDeferLoading} {
+		if found[name] {
+			names = append(names, name)
 		}
 	}
-	return nil
+	if len(names) == 0 {
+		return body, nil
+	}
+	out, err := json.Marshal(root)
+	if err != nil {
+		return body, nil
+	}
+	return out, names
 }
 
 func objectOf(raw []byte) (map[string]json.RawMessage, bool) {
@@ -373,8 +424,13 @@ func translateMessages(requestID contract.RequestID, request messagesRequest) ([
 		case "user":
 		case "assistant":
 			role = contract.RoleAssistant
+		case "system":
+			// A mid-conversation instruction (Claude Code sends one). It stays
+			// where it was sent and carries text only; the Anthropic adapter
+			// hoists it into the provider's system prompt like any system message.
+			role = contract.RoleSystem
 		default:
-			return nil, nil, invalid(requestID, base+".role", "role is user or assistant; the system prompt is the system parameter")
+			return nil, nil, invalid(requestID, base+".role", "role is user, assistant or system")
 		}
 		if message.Content == nil {
 			return nil, nil, invalid(requestID, base+".content", "content is a string or a list of content blocks")
@@ -399,6 +455,9 @@ func translateMessages(requestID contract.RequestID, request messagesRequest) ([
 		}
 		for blockIndex, block := range message.Content.blocks {
 			path := fmt.Sprintf("%s.content[%d]", base, blockIndex)
+			if role == contract.RoleSystem && block.Type != "text" {
+				return nil, nil, invalid(requestID, path, "a system message carries text blocks only")
+			}
 			switch block.Type {
 			case "text":
 				if block.Text == nil || !onlyMembers(block, "text") {

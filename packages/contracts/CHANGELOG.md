@@ -1,5 +1,19 @@
 # Changelog
 
+## 8.7.0
+
+`POST /v1/messages` accepts `cache_control`, `context_management`,
+`thinking.display` and `tools[].defer_loading` and ignores them (the members
+Claude Code sends), and a `role: "system"` message with text blocks in `messages`. Additive: everything
+8.6.0 parses still parses; the signed grant and envelope are unchanged.
+
+- Claude Code sends a `cache_control` marker on every request, so refusing it made
+  the endpoint unusable by its main client. The marker is accepted on the request,
+  `system`, a tool, a content block and a tool result's block, whatever members it
+  carries, and is not honoured: no cache hint is forwarded, no cache write
+  happens, and `usage` is what the request cost. A request whose marker was
+  ignored is answered with `Kaana-Ignored-Parameters: cache_control`.
+
 ## 8.6.0
 
 Reasoning continuity (Kaana ADR 0009 decision 2). Additive: everything 8.5.0

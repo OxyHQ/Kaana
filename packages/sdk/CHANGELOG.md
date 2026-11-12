@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.10.0
+
+Depend on contracts 8.7.0: the client states contract set 8.7.0 (the Messages
+endpoint accepts and ignores `cache_control`, `context_management`,
+`thinking.display` and `tools[].defer_loading`). The SDK adds no method.
+
 ## 3.9.0
 
 Depend on contracts 8.6.0: reasoning continuity (Kaana ADR 0009 decision 2).
