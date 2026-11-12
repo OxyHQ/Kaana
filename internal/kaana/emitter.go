@@ -67,6 +67,9 @@ type emitter struct {
 	// opt in to reasoning continuation, and Exclude means it asked for no
 	// reasoning at all. Both are applied here, once, for every provider.
 	reasoning *contract.ReasoningParameters
+	// cacheWritePriced is whether the attempt being served may report
+	// cache_write_input_tokens (see FoldCacheWrite); serving's caller sets it.
+	cacheWritePriced bool
 }
 
 func newEmitter(sink Sink, request *contract.Request, generationID *contract.GenerationID, admittedAt time.Time) *emitter {
@@ -90,6 +93,7 @@ func (e *emitter) serving(slug contract.ProviderSlug, deployment contract.Deploy
 	e.attemptOutputAt = time.Time{}
 	e.toolAudit.reset()
 	e.attemptStarted = false
+	e.cacheWritePriced = false
 	e.pendingStart = nil
 	e.pending = nil
 }
@@ -326,6 +330,7 @@ func (e *emitter) Usage(units []contract.UsageQuantity, source contract.UsageSou
 		// whole stream frame rather than the empty list.
 		return fmt.Errorf("kaana: a usage event must carry at least one unit")
 	}
+	units = FoldCacheWrite(units, e.cacheWritePriced)
 	// Usage is progress, not output: it is held with the start until the
 	// attempt delivers something. An attempt that fails first keeps its units
 	// in its Outcome, and so in the operator cost record, without telling the

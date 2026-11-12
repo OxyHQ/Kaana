@@ -209,7 +209,8 @@ const (
 // inside a tool's `input` or `input_schema`, where a key of that name is the
 // caller's own data. Because Kaana forwards no cache hint, no cache write
 // happens and the usage it reports stays exactly what the request cost; honouring
-// it needs a priced cache-write unit nothing emits yet (issue #269).
+// it needs a request-side contract field that does not exist yet (issue #269).
+// That includes `ttl: "1h"`, which the single cache-write unit could not price.
 func stripIgnored(body []byte) ([]byte, []string) {
 	root, ok := objectOf(body)
 	if !ok {

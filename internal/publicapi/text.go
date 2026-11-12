@@ -675,7 +675,9 @@ func chatUsageOf(units []contract.UsageQuantity) chatUsage {
 	var audioIn, audioOut int
 	for _, quantity := range units {
 		switch quantity.Unit {
-		case contract.UnitInputTokens:
+		case contract.UnitInputTokens, contract.UnitCacheWriteInputTokens:
+			// A cache write is a prompt token like any other here: the total a
+			// client sees does not depend on whether the grant prices it apart.
 			usage.PromptTokens += quantity.Quantity
 		case contract.UnitAudioInputTokens:
 			usage.PromptTokens += quantity.Quantity

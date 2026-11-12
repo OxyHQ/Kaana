@@ -163,6 +163,45 @@ identity-bound endpoint, never inferred from a field called `pricing`; a
 negative or unreadable value is left absent, never zeroed. It never enters an
 inference stream event, a usage report, an error body or any contract shape.
 
+## Cache-write tokens
+
+The Anthropic adapter reports input tokens written to a prompt cache as
+`cache_write_input_tokens`, apart from `input_tokens` (the partition rule: the
+provider's `input_tokens` already excludes both cache counts). Anthropic charges
+1.25x the input rate for a 5-minute write and 2x for a 1-hour one, so the unit
+is the default 5-minute write only. When the provider breaks a write down by TTL
+(`cache_creation.ephemeral_1h_input_tokens`), the 1-hour tokens stay in
+`input_tokens`, where every write was metered before the unit existed; the
+public API refuses `cache_control` altogether, `ttl: "1h"` included.
+
+Whether the unit may leave Kaana is decided once, in the executor, from the
+price list the request was granted against. `publicapi` tells the executor, per
+model line, whether the grant's admitted `priceVersionId` is the one
+`configs/public-catalogue.json` declares for the line and that declaration
+prices `cache_write_input_tokens` (`PublicCatalogue.PricesUnit`). Oxy adds a
+cache-write hold vertex only for a price list that carries the unit and rejects
+a settlement carrying the unit against one that does not (`unpriced_unit`, 422),
+so:
+
+- priced: the unit is kept on the customer's stream, in the settlement report
+  and in the operator cost record;
+- anything else (the line unpriced, an older price version, a line admitted at
+  two versions, a context that says nothing): `kaana.FoldCacheWrite` adds the
+  quantity to `input_tokens` on all three, which is byte-for-byte what was
+  reported before the unit existed.
+
+The catalogue prices the unit only for the Anthropic lines that carry a price,
+at 1.25x the line's own input price, from Anthropic's published pricing page
+(https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-12). A
+price change is a new `priceVersionId` ([operating.md](operating.md#the-declared-catalogue)).
+
+The provider-cost side is separate and unchanged in shape: a rate card in
+`configs/provider-rates.json` prices a unit only if it lists it, and a measured
+unit it does not list is named in `unpricedUnits`, never costed at zero.
+`providercost` records the unit on the persisted event either way. No
+production rate card prices an Anthropic deployment yet, and none gains the
+unit here: there is no primary evidence for Kaana's own contracted rate.
+
 ## Rules a reviewer applies
 
 - **`internal/providercost` is the only package that may hold an amount**, it is

@@ -265,7 +265,15 @@ type usage struct {
 	OutputTokens             *int                 `json:"output_tokens"`
 	CacheReadInputTokens     *int                 `json:"cache_read_input_tokens"`
 	CacheCreationInputTokens *int                 `json:"cache_creation_input_tokens"`
+	CacheCreation            *cacheCreation       `json:"cache_creation"`
 	OutputTokensDetails      *outputTokensDetails `json:"output_tokens_details"`
+}
+
+// cacheCreation is the per-TTL breakdown of cache_creation_input_tokens. Only
+// the 1-hour part matters here: the contract's one cache-write unit is the
+// default 5-minute write, so 1-hour tokens must be told apart from it.
+type cacheCreation struct {
+	Ephemeral1hInputTokens *int `json:"ephemeral_1h_input_tokens"`
 }
 
 type outputTokensDetails struct {

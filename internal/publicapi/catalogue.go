@@ -14,6 +14,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
+	"github.com/OxyHQ/Kaana/internal/kaana"
 )
 
 // PublicCatalogue is the part of GET /v1/models Kaana does not measure: who
@@ -381,6 +382,54 @@ func (m declaredModel) pricePerMinute(entry inventory.CatalogueEntry) (*contract
 		total.Add(total, amount.Mul(amount, big.NewRat(quantity, price.Per)))
 	}
 	return &contract.Money{Amount: contract.ExactDecimal(ceilDecimal(total, 12)), Currency: pricing.Currency}, nil
+}
+
+// PricesUnit reports whether the declared list price of a model line, at the
+// price version a grant admitted for it, carries a price for unit. A line the
+// file does not declare, one without pricing, or one declared at a different
+// price version answers false: Oxy rates a grant by the version it admitted, so
+// a unit this file prices only under another version is not priced for it.
+func (c *PublicCatalogue) PricesUnit(line contract.ModelID, priceVersionID string, unit contract.UsageUnit) bool {
+	if c == nil {
+		return false
+	}
+	model, declared := c.models[line]
+	if !declared {
+		return false
+	}
+	raw, present := model.fields["pricing"]
+	if !present {
+		return false
+	}
+	var pricing struct {
+		PriceVersionID string              `json:"priceVersionId"`
+		UnitPrices     []declaredUnitPrice `json:"unitPrices"`
+	}
+	if err := json.Unmarshal(raw, &pricing); err != nil || pricing.PriceVersionID == "" || pricing.PriceVersionID != priceVersionID {
+		return false
+	}
+	return slices.ContainsFunc(pricing.UnitPrices, func(price declaredUnitPrice) bool { return price.Unit == unit })
+}
+
+// cacheWritePriced is the decision the executor applies to cache_write_input_tokens
+// (kaana.FoldCacheWrite): true for a model whose line the grant admitted at a
+// price version that prices the unit.
+func (s *Server) cacheWritePriced(grant *contract.Grant) kaana.CacheWritePriced {
+	admitted := make(map[contract.ModelID]string)
+	for _, step := range grant.Steps {
+		for _, line := range step.Limits.AdmittedModelLines {
+			if existing, seen := admitted[line.ModelLine]; seen && existing != line.PriceVersionID {
+				admitted[line.ModelLine] = ""
+				continue
+			}
+			admitted[line.ModelLine] = line.PriceVersionID
+		}
+	}
+	return func(model contract.ModelReference) bool {
+		line := model.ModelID()
+		version := admitted[line]
+		return version != "" && s.catalogue.PricesUnit(line, version, contract.UnitCacheWriteInputTokens)
+	}
 }
 
 // declaredUnitPrice is one list price of the declared catalogue.

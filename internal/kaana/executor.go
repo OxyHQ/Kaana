@@ -443,9 +443,12 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		abandoned = nil
 
 		emit.serving(route.Provider, route.DeploymentID)
+		cacheWritePriced := cacheWritePricedFrom(ctx) != nil && cacheWritePricedFrom(ctx)(route.ModelReference)
+		emit.cacheWritePriced = cacheWritePriced
 		providerBilledCustomer := route.CustomerProviderCredential != nil
 		attemptStartedAt, attemptClock := e.now(), time.Now()
 		outcome, streamErr := streamAttempt(ctx, adapter, call, emit, credentials)
+		outcome.Units = FoldCacheWrite(outcome.Units, cacheWritePriced)
 		emptyAnswer := producedNoOutput(request.Client.APIFormat, streamErr, emit, outcome)
 		if emptyAnswer {
 			streamErr = emptyAnswerFailure(route.Provider)

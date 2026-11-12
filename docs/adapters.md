@@ -199,6 +199,11 @@ attached: `input_tokens` **excludes** cached tokens where an OpenAI-compatible
 as `completion_tokens` does. So one of the two normalising subtractions the
 contract's partition needs applies here and **the other must not** — and an
 adapter written by copying the first one would under-report every cached request.
+Cache writes are a third sibling: this adapter reports them as
+`cache_write_input_tokens` and leaves `input_tokens` without them. It does not
+decide whether the unit may leave Kaana; the executor folds it back into
+`input_tokens` unless the grant prices it ([cost.md](cost.md#cache-write-tokens)),
+so an adapter that measures a write only reports it.
 
 **Protocol invariants.** The adapter preserves text, tool calls, reasoning, stop
 reasons and usage through Kaana's normalized stream. It handles streamed and

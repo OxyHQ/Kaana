@@ -157,7 +157,7 @@ func (a *admission) request(modality contract.Modality, format contract.APIForma
 // writes both in one transaction.
 func (s *Server) execute(ctx context.Context, a *admission, request *contract.Request, sink kaana.Sink) kaana.Result {
 	executing := time.Now()
-	result := s.executor.Execute(kaana.DeferCostRecording(ctx), request, sink)
+	result := s.executor.Execute(kaana.WithCacheWritePriced(kaana.DeferCostRecording(ctx), s.cacheWritePriced(a.grant)), request, sink)
 	traceFrom(ctx).executed(time.Since(executing), result.Failure)
 	if result.Failure != nil {
 		s.logFailure(a, result)
