@@ -12,6 +12,14 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.10.0: price controls in `provider` (ADR 0008)
+
+MINOR, `@kaana.ai/contracts` 8.10.0. Additive; everything 8.9.0 parses still
+parses. `provider.max_price` (`prompt` and `completion`, USD per million tokens)
+and `provider.sort: "price"` read the declared list price of a model line, the
+price Oxy rates the grant at. They decide which line serves the request, never
+expose an amount, and the signed grant and envelope are unchanged.
+
 ## Contract set 8.9.0: opt-in JSON repair (ADR 0009, decision 5)
 
 MINOR, `@kaana.ai/contracts` 8.9.0. Additive; everything 8.8.0 parses still

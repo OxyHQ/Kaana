@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.13.0
+
+Depend on contracts 8.10.0: the `provider` routing preference's request types
+gain `max_price` and `sort: "price"`.
+
 ## 3.12.0
 
 Depend on contracts 8.9.0: `responses.create` takes `responseFormat.repair: true`

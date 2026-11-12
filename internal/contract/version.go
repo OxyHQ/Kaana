@@ -65,8 +65,11 @@ package contract
 // text, image or file content part and on a tool definition.
 // 8.9.0 adds the optional `repair` member of POST /v1/responses's responseFormat
 // and the Kaana-Repaired response header (Kaana ADR 0009 decision 5); public
-// only, the signed grant and envelope are unchanged.
-const ContractVersion = "8.9.0"
+// only, the signed grant and envelope are unchanged;
+// 8.10.0 adds `max_price` and `sort: "price"` to the `provider` routing
+// preference (Kaana ADR 0008); public only, the signed grant and envelope are
+// unchanged.
+const ContractVersion = "8.10.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set
