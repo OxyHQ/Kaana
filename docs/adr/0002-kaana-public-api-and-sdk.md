@@ -3,6 +3,47 @@
 > **Status note (2026-11-12).** This ADR is in Spanish and is the longest in the repository. It is accepted and most of it is implemented: Kaana serves `https://kaana.ai/v1`, resolves levels and keys (`internal/publicapi`), and publishes its own SDK. Its phase plan, its 2026-10-15 consumer snapshot and its list of superseded text are history. The current English statement of the lanes is [lanes.md](../lanes.md); decision 1 (no accounts of its own) and decision 3 (no customer amounts) are what [ADR 0010](0010-kaana-sells-and-invoices.md) proposes to change.
 
 
+## English summary
+
+*A reading aid; the Spanish text below is the record. Written 2026-11-12.*
+
+Kaana serves a public API of its own, `https://kaana.ai/v1`, and publishes its own SDK
+and contract. The thirteen decisions:
+
+1. **Oxy Console is the only management surface.** Applications, `oxy_sk_` keys, inference
+   policy, limits, budgets, usage, billing and receipts live there. Kaana has no console,
+   accounts or keys of its own and links to `https://console.oxy.so`.
+2. **Kaana serves `/v1` in its own Go process.** What touches the request (parsing, streaming,
+   the OpenAI dialect, audio, realtime, resolving levels, choosing model, deployment and key)
+   is Kaana's. Who may spend, and how much, stays in Oxy as an internal API Kaana calls.
+3. **Oxy decides who spends: grant and settlement.** Each billable request opens a grant at
+   `POST /internal/kaana/v1/authorizations` and closes with a settlement. Kaana forwards the
+   credential opaquely with content-free facts, verifies a signed grant (Ed25519, 60 seconds to
+   start) and runs inside it. Settlement is written exactly once, to a durable outbox in Kaana's
+   PostgreSQL in the same transaction as its provider-cost rows, and Oxy reconciles from a signed
+   read endpoint. Kaana does not know customer amounts.
+4. **The grant carries today's funding model unchanged:** the principal, economics treatment, the
+   reservation ceiling, capacity, and ordered steps with limits and admitted model lines.
+5. **Kaana resolves power levels in this same cut** (ADR 0001's phase 2).
+6. **Credentials on `kaana.ai/v1`** are resolved by Oxy: an `oxy_sk_` key, a service token with the
+   audience `kaana.ai`, or a user session with `inference:invoke`.
+7. **One public surface, no aliases:** models, power levels, responses, chat completions,
+   embeddings, speech, transcriptions, images, decisions, generations and realtime. HTTP status
+   decides only before the first byte; afterwards every failure is the terminal `error` event. A
+   provider, key or deployment is never exposed.
+8. **`speechStream` enters the new contract** (`stream_format` of `audio` or `sse`).
+9. **Voice limits are published and validated before reserving** (voices, languages, formats,
+   `speed`, maximum characters, the intersection across providers).
+10. **The contract moves to Kaana as `@kaana.ai/contracts`** (Zod to descriptor to Go, plus a
+    generated OpenAPI), with a smaller public error vocabulary and an internal one.
+11. **The SDK and contracts live in this repository** and publish through trusted publishing.
+12. **Developer documentation lives in Oxy**, pointing at `https://kaana.ai/v1`.
+13. **A clean cut, no notice to third parties.** The old Oxy edge was deleted whole.
+
+Two amendments follow in the text: the declared catalogue became Kaana's alone (2026-10-15) and
+`decisions` became an ordinary grant (2026-10-18). Decisions 1 and 3 are what
+[ADR 0010](0010-kaana-sells-and-invoices.md) proposes to change.
+
 - Status: accepted (el dueño lo aceptó el 2026-10-15; sus respuestas al
   primer borrador están incorporadas como decisiones)
 - Date: 2026-10-15

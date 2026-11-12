@@ -6,6 +6,8 @@ boundary mints an opaque `credentialHandle`, versions it and records durable
 mutation outcomes without exposing a plaintext or ciphertext read route.
 
 Source support is not by itself a production-availability claim. The
+`kaana-credential-control` service that accepts BYOK mutations does not exist in production
+(checked in ECS on 2026-11-12), so no customer key can be created today. The
 coordinated Oxy cut stores only the returned handle and revision beside
 Oxy-owned connection metadata. Its authenticated edge source signs the exact
 `ready + active + valid` resolver result and carries a separate platform-fee

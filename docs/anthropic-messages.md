@@ -101,7 +101,7 @@ Forwarded (contract set 8.8.0): a marker of type `ephemeral` with no `ttl` (or
 `"5m"`), on a `system` block, a tool, a `text` or `image` block, or a
 `tool_result` block (or a block inside its content), becomes the signed
 contract's `cacheBreakpoint` on the part, system message or tool that carried it
-([contract.md](contract.md#contract-set-880-prompt-cache-breakpoint)). The
+([contract.md](contract-history.md#contract-set-880-prompt-cache-breakpoint)). The
 Anthropic adapter sends it as `cache_control: {"type":"ephemeral"}`, and the
 write it provokes comes back as `cache_creation_input_tokens` in `usage`
 (`cache_write_input_tokens` upstream, priced at 1.25x input:
@@ -147,7 +147,7 @@ The schema is strict, so a parameter Kaana does not implement is refused with
 
 - Every `thinking` member not named above (`display` is accepted and ignored: see above).
   (Reasoning was refused here until contract set 8.6.0; see
-  [contract.md](contract.md#contract-set-860-reasoning-continuity-adr-0009-decision-2).)
+  [contract.md](contract-history.md#contract-set-860-reasoning-continuity-adr-0009-decision-2).)
 - Server tools (`web_search`, `bash`, `text_editor`, ...), `disable_parallel_tool_use`,
   `document` blocks, an image `url` source (nothing fetches an image URL),
   `mcp_servers`, `container`, `service_tier`, `output_config.format` and every

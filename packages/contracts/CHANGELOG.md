@@ -186,3 +186,8 @@ Historical signed records without an authority field remain external.
 The Kaana reader accepts existing external grants and the new first-party shape.
 Deploy that reader before enabling Oxy's first-party emitter. Signature,
 audience, billing, route and account boundaries remain enforced.
+
+## Earlier sets
+
+Contract sets 3.8.0 to 7.0.0, published before this changelog began, and the longer reasoning behind
+every set, are in [`docs/contract-history.md`](../../docs/contract-history.md).
