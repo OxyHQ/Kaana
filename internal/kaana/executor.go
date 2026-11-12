@@ -224,6 +224,10 @@ type attempt struct {
 	// funding is the stated funding of the platform key the attempt spent;
 	// unstated for a customer credential or a key nobody described.
 	funding provider.Funding
+	// empty records that the attempt completed without producing any output
+	// and was turned into a provider failure (producedNoOutput). The customer
+	// is never billed for it: the units stay in the operator cost row only.
+	empty bool
 }
 
 // candidate is one destination resolved from the request's signed
@@ -442,6 +446,10 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		providerBilledCustomer := route.CustomerProviderCredential != nil
 		attemptStartedAt, attemptClock := e.now(), time.Now()
 		outcome, streamErr := streamAttempt(ctx, adapter, call, emit, credentials)
+		emptyAnswer := producedNoOutput(request.Client.APIFormat, streamErr, emit, outcome)
+		if emptyAnswer {
+			streamErr = emptyAnswerFailure(route.Provider)
+		}
 		telemetry := attemptTelemetry(ctx, requestID, route.Provider, streamErr, attemptStartedAt, attemptClock, emit.attemptOutputAt)
 		reportCustomerLimitOutcome(customerPermit, streamErr)
 		e.reportCustomerCredentialValidation(route, streamErr)
@@ -479,6 +487,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			outcome:   outcome,
 			err:       streamErr,
 			cancelled: streamErr != nil && isCancellation(ctx, streamErr),
+			empty:     emptyAnswer,
 			funding:   attemptFunding(platformCredentials, route, outcome.KeyID),
 		}
 
@@ -946,7 +955,7 @@ func (e *Executor) settle(
 		// customer never received that output, so charging for it would be
 		// wrong. The provider will invoice for it all the same, which is what
 		// UpstreamCost records.
-		Units:                  last.outcome.Units,
+		Units:                  reportUnits(last),
 		UsageSource:            last.outcome.UsageSource,
 		ResolvedModelReference: last.route.ModelReference,
 		ServingProvider:        last.route.Provider,
@@ -1047,9 +1056,66 @@ func (e *Executor) settle(
 	return e.finalize(report, nil, sinkErr, cost)
 }
 
+// reportUnits are the units the customer is told about. An empty answer that
+// failed carries none, even though the provider measured input tokens for it:
+// reporting them would make the outcome partial and billable, and the customer
+// received nothing. The operator cost row keeps the measured units.
+func reportUnits(last *attempt) []contract.UsageQuantity {
+	if last.empty {
+		return nil
+	}
+	return last.outcome.Units
+}
+
+// producedNoOutput reports whether a completed text-generation attempt
+// delivered nothing at all. Such an attempt is a provider failure, not an
+// empty answer: a warming-up provider or reasoning that consumed the whole
+// budget answers 200 with no content, and serving that (and billing it) is the
+// worse outcome. It never applies to embeddings, decisions, speech,
+// transcription, images or realtime, whose answers are not a text stream, nor
+// to an attempt that reported output or reasoning tokens, or finished for a
+// reason that explains an empty body (length, tool_calls, content_filter,
+// refusal, cancelled). The residual risk is a legitimate empty answer, such as
+// an immediate stop sequence, which blames the deployment; it is accepted.
+func producedNoOutput(format contract.APIFormat, streamErr error, emit *emitter, outcome provider.Outcome) bool {
+	switch format {
+	case contract.APIFormatResponses, contract.APIFormatChatCompletions:
+	default:
+		return false
+	}
+	if streamErr != nil || !emit.attemptStarted || emit.hasDeliveredOutput() {
+		return false
+	}
+	switch outcome.FinishReason {
+	case "", contract.FinishStop:
+	default:
+		return false
+	}
+	for _, unit := range outcome.Units {
+		if (unit.Unit == contract.UnitOutputTokens || unit.Unit == contract.UnitReasoningTokens) && unit.Quantity > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// emptyAnswerFailure is the failure an attempt that produced nothing counts
+// as: a transient server error of the deployment, so the breaker, the retry
+// and failover read it like any other.
+func emptyAnswerFailure(slug contract.ProviderSlug) error {
+	return provider.ErrUpstream{
+		Code:     contract.CodeProviderError,
+		Category: contract.UpstreamServerError,
+		Detail:   fmt.Sprintf("%s completed the response without producing any output", slug),
+	}
+}
+
 func outcomeFor(last *attempt) contract.RequestOutcome {
 	if last.err == nil {
 		return contract.OutcomeCompleted
+	}
+	if last.empty {
+		return contract.OutcomeFailed
 	}
 	if len(last.outcome.Units) > 0 {
 		return contract.OutcomePartial

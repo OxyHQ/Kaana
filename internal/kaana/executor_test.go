@@ -730,6 +730,9 @@ func TestPlatformAndCustomerCredentialBreakerLanesCannotInterfere(t *testing.T) 
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 			return provider.Outcome{}, err
 		}
+		if err := out.Delta(0, contract.ChannelOutputText, "served"); err != nil {
+			return provider.Outcome{}, err
+		}
 		return provider.Outcome{
 			Units:        []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}},
 			UsageSource:  contract.UsageProviderReported,

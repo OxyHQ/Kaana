@@ -35,8 +35,9 @@ type emitter struct {
 	// started means the customer-visible start event has been WRITTEN: the
 	// request is committed to the attempt that wrote it and can no longer move.
 	// It becomes true at the attempt's first delivered output (or at done, for
-	// an answer with no output), never at the adapter's Start call — see
-	// "Deferred start" on Start.
+	// an answer that legitimately has none: an embedding, speech, or a text
+	// answer that ended in length, tool_calls or content_filter), never at the
+	// adapter's Start call — see "Deferred start" on Start.
 	started bool
 	// attemptStarted means the attempt being served has called Start. It is
 	// what the adapter-facing ordering rules check, and it resets with serving.
@@ -173,7 +174,9 @@ func stampSequence(event contract.StreamEvent, sequence int) {
 //
 // The start event is validated here and HELD, not written. It is written when
 // the attempt delivers its first output — a non-empty delta, a tool call, audio
-// — or completes without any (done). Until then nothing the customer can act on
+// — or completes without any (done). A text attempt that completes with no
+// output at all never reaches done: the executor counts it a provider failure
+// (producedNoOutput) and discards this start. Until then nothing the customer can act on
 // exists, so the request can still be retried on the same deployment or moved
 // to the next authorized one: an upstream that answers 200 and then reports a
 // rate limit inside the stream has delivered nothing, and having had its
@@ -387,8 +390,10 @@ func (e *emitter) finishWithDone(reason contract.FinishReason, at time.Time) err
 	if err := e.requireStarted(contract.EventDone); err != nil {
 		return err
 	}
-	// An answer with no output commits here: the attempt completed, so it is
-	// the one that served, and its start and usage precede done.
+	// An answer with no output commits here only when the executor accepted it
+	// as complete (an empty answer of a text request is a failure and never
+	// gets here): the attempt is the one that served, and its start and usage
+	// precede done.
 	if err := e.commit(); err != nil {
 		return err
 	}

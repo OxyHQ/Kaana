@@ -808,6 +808,9 @@ func TestARefusedExactCredentialFailsOverToAnotherKeyOfTheSameProvider(t *testin
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 			return provider.Outcome{}, err
 		}
+		if err := out.Delta(0, contract.ChannelOutputText, "served"); err != nil {
+			return provider.Outcome{}, err
+		}
 		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
 		return provider.Outcome{KeyID: key.ID, Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
 	}}
@@ -1004,6 +1007,9 @@ func TestANewDeploymentOfASingleKeyProviderServesOnItsKey(t *testing.T) {
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 			return provider.Outcome{}, err
 		}
+		if err := out.Delta(0, contract.ChannelOutputText, "served"); err != nil {
+			return provider.Outcome{}, err
+		}
 		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
 		return provider.Outcome{KeyID: key.ID, Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
 	}}
@@ -1049,6 +1055,9 @@ func TestASpentKeyMovesThePlatformRequestToTheNextKeyOfThePool(t *testing.T) {
 			return provider.Outcome{KeyID: key.ID}, err
 		}
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+			return provider.Outcome{}, err
+		}
+		if err := out.Delta(0, contract.ChannelOutputText, "served"); err != nil {
 			return provider.Outcome{}, err
 		}
 		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
