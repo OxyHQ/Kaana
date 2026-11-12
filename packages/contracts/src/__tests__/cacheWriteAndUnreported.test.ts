@@ -31,8 +31,9 @@ describe('cache_write_input_tokens', () => {
     ).toBe(false);
   });
 
-  it('states contract set 8.4.0', () => {
-    expect(INFERENCE_CONTRACT_VERSION).toBe('8.4.0');
+  it('is carried by contract set 8.4.0 or any later one', () => {
+    const [major = 0, minor = 0] = INFERENCE_CONTRACT_VERSION.split('.').map(Number);
+    expect(major > 8 || (major === 8 && minor >= 4)).toBe(true);
   });
 });
 

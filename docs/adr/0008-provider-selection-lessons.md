@@ -62,7 +62,7 @@ are not gaps.
    true only while that account setting holds, so the publisher's use of
    `/endpoints/zdr` is recorded as depending on it
    ([inventory](../inventory.md)), and the setting is part of the rollout check.
-6. **Caller preferences that only narrow are accepted** (contract 8.4.0). An
+6. **Caller preferences that only narrow are accepted** (contract 8.5.0). An
    optional `provider` object on chat completions and responses, in
    OpenRouter's names so a client written for OpenRouter works: `order`, `only`,
    `ignore`, `allow_fallbacks`, `require_parameters`, `quantizations`, `sort`
