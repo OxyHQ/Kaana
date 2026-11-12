@@ -212,9 +212,12 @@ decision 5):
   (`safety_retention` on every endpoint of the model). Such a model has nothing
   plain to fall back to, so it is kept, not withdrawn. While the OpenRouter
   account Kaana uses is set to ZDR only, OpenRouter answers it with no endpoint
-  and it cannot be served; otherwise it is served with Safety Retention. That
-  account setting is an operator check outside this repository, to make before
-  any rollout that touches OpenRouter routes.
+  and it cannot be served; otherwise it is served with Safety Retention. The
+  owner confirmed on 2026-11-12 that the account allows Safety Retention, so
+  these lines ARE served with it, which is why the catalogue declares it and why
+  the six models with a plain endpoint name the Safety Retention upstream in
+  `provider.ignore`. The setting lives outside this repository: re-check it
+  before any rollout that touches OpenRouter routes.
 
 `acceptedParameters` names caller controls by the contract request path a
 caller sets and a refusal names (`provider.RequestParameter`), sorted, from a
