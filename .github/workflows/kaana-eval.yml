@@ -1,0 +1,72 @@
+name: Measure models through the public API
+
+# Runs cmd/kaana-eval against https://kaana.ai/v1 on a schedule and keeps the
+# JSON lines as a run artifact. It SPENDS: every request is billed to the
+# credential in the KAANA_EVAL_API_KEY secret, so it does nothing until an
+# operator opts in by setting the repository variable KAANA_EVAL_ENABLED to
+# "true" and states the models and the bound below. The most it can spend is
+# bounded by models x runs x max-tokens (all repository variables, with small
+# defaults). It writes figures only and changes no routing; the signed
+# authorizedRoutes lane is never reordered by a measurement.
+#
+#   vars.KAANA_EVAL_ENABLED     "true" to run (anything else: the job is skipped)
+#   vars.KAANA_EVAL_MODELS      space-separated publisher/model references (required)
+#   vars.KAANA_EVAL_RUNS        requests per model (default 5, at most 50)
+#   vars.KAANA_EVAL_MAX_TOKENS  output cap per request (default 128, at most 1024)
+#   secrets.KAANA_EVAL_API_KEY  an oxy_sk_ credential for a dedicated, budgeted account
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kaana-eval
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: kaana-eval
+    if: vars.KAANA_EVAL_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.7"
+          cache: true
+
+      - name: Measure
+        env:
+          KAANA_API_KEY: ${{ secrets.KAANA_EVAL_API_KEY }}
+          MODELS: ${{ vars.KAANA_EVAL_MODELS }}
+          RUNS: ${{ vars.KAANA_EVAL_RUNS }}
+          MAX_TOKENS: ${{ vars.KAANA_EVAL_MAX_TOKENS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KAANA_API_KEY}" ] || [ -z "${MODELS}" ]; then
+            echo "KAANA_EVAL_API_KEY and KAANA_EVAL_MODELS must be set; nothing was measured." >&2
+            exit 1
+          fi
+          runs="${RUNS:-5}"
+          tokens="${MAX_TOKENS:-128}"
+          case "${runs}${tokens}" in *[!0-9]*) echo "KAANA_EVAL_RUNS and KAANA_EVAL_MAX_TOKENS are whole numbers." >&2; exit 1 ;; esac
+          if [ "${runs}" -lt 1 ] || [ "${runs}" -gt 50 ] || [ "${tokens}" -lt 1 ] || [ "${tokens}" -gt 1024 ]; then
+            echo "runs must be 1-50 and max tokens 1-1024: that bounds the spend." >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086  # MODELS is a space-separated list on purpose
+          go run ./cmd/kaana-eval -runs "${runs}" -max-tokens "${tokens}" ${MODELS} | tee kaana-eval.jsonl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaana-eval
+          path: kaana-eval.jsonl
+          retention-days: 90
