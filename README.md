@@ -142,7 +142,7 @@ topic document ends with the rules a reviewer applies; `AGENTS.md` is the index.
 | Routing and execution | [routing](docs/routing.md), [key-pools](docs/key-pools.md), [determinism](docs/determinism.md) |
 | Inventory and publication | [inventory](docs/inventory.md), [operating](docs/operating.md) |
 | Contract and API | [contract](docs/contract.md), [contract history](docs/contract-history.md), [anthropic-messages](docs/anthropic-messages.md), [json-repair](docs/json-repair.md), [decisions](docs/decisions.md) |
-| Providers | [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md), [openai-audio](docs/openai-audio.md), [elevenlabs](docs/elevenlabs.md), [deepgram](docs/deepgram.md), [realtime](docs/realtime.md) |
+| Providers | [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md), [dated reviews](docs/provider-onboarding-log.md), [openai-audio](docs/openai-audio.md), [elevenlabs](docs/elevenlabs.md), [deepgram](docs/deepgram.md), [realtime](docs/realtime.md), [realtime findings](docs/realtime-findings.md) |
 | Keys and money | [customer-provider-credentials](docs/customer-provider-credentials.md), [cost](docs/cost.md), [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md) |
 | Decisions | [docs/adr/](docs/adr/) |
 | Records of one-off rollouts | [schema-0013-cutover](docs/schema-0013-cutover-2026-09-24.md), [provider-credential-id-cutover](docs/provider-credential-id-cutover.md), [first-party-producer](docs/first-party-producer.md), [first-party-transport](docs/first-party-transport.md), [platform-activity](docs/platform-activity.md), [groq-token-capacity](docs/groq-token-capacity-2026-09-13.md), [scoped-attempt-claims](docs/scoped-attempt-claims.md) |
