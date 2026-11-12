@@ -208,6 +208,38 @@ describe('typed errors', () => {
     expect(fake.requests.length).toBe(0);
   });
 
+  it('sends responseFormat.repair and refuses it with a stream before sending', async () => {
+    fake.on('POST /responses', () => {
+      return json(nextRequestId(), {
+        schemaVersion: 1,
+        requestId: 'req_repair',
+        model: MODEL,
+        finishReason: 'stop',
+        output: [],
+        usage: [],
+        routingPolicy: { routingPolicyId: 'rp_1', policyVersion: 3 },
+        latencyMs: 1,
+      });
+    });
+    const response = await kaana.responses.create({
+      model: MODEL,
+      input: 'Give JSON',
+      responseFormat: { type: 'json_object', repair: true },
+    });
+    expect(response.requestId).toBe('req_repair');
+    expect(fake.requests[0]?.json).toMatchObject({
+      responseFormat: { type: 'json_object', repair: true },
+    });
+    expect(() =>
+      kaana.responses.stream({
+        model: MODEL,
+        input: 'Give JSON',
+        responseFormat: { type: 'json_object', repair: true },
+      }),
+    ).toThrow(KaanaInvalidRequestError);
+    expect(fake.requests.length).toBe(1);
+  });
+
   it('treats a body outside the contract as a protocol error', async () => {
     fake.on('POST /embeddings', () => json(nextRequestId(), { object: 'list', data: [] }));
     const error = await kaana.embeddings

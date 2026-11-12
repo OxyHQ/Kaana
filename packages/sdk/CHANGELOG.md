@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.12.0
+
+Depend on contracts 8.9.0: `responses.create` takes `responseFormat.repair: true`
+on a `json_object` or `json_schema` format, asking Kaana to repair nearly valid
+JSON in a non-streaming answer (a code fence, surrounding prose, trailing commas,
+closers a normal stop forgot). Off by default; refused with a streamed request;
+never applied to an answer cut by the token limit. The type comes from the
+contracts package; the SDK adds no method.
+
 ## 3.11.0
 
 Depend on contracts 8.8.0: the client states contract set 8.8.0 (the optional

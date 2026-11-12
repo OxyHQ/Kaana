@@ -54,7 +54,11 @@ const (
 	HeaderModel           = "Kaana-Model"
 	// HeaderIgnoredParameters names request parameters Kaana accepted and did not
 	// honour, so a caller is never left to infer it.
-	HeaderIgnoredParameters    = "Kaana-Ignored-Parameters"
+	HeaderIgnoredParameters = "Kaana-Ignored-Parameters"
+	// HeaderRepaired is "true" when Kaana changed the model's JSON text because
+	// the request asked for repair (docs/json-repair.md). A header, never a body
+	// field, so no reader of an older contract meets a new member.
+	HeaderRepaired             = "Kaana-Repaired"
 	HeaderUsage                = "Kaana-Usage"
 	HeaderRoutingPolicyID      = "Kaana-Routing-Policy-Id"
 	HeaderRoutingPolicyVersion = "Kaana-Routing-Policy-Version"
@@ -238,7 +242,7 @@ var (
 	corsAllowedHeaders = strings.Join([]string{"Authorization", HeaderAPIKey, "Anthropic-Version", "Content-Type", HeaderContractVersion, HeaderIdempotencyKey, HeaderOnBehalfOf}, ", ")
 	corsExposedHeaders = strings.Join([]string{
 		HeaderRequestID, HeaderContractVersion, HeaderModel, HeaderUsage,
-		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After", HeaderDeprecation, HeaderSunset, "Link", HeaderServerTiming, HeaderIgnoredParameters,
+		HeaderRoutingPolicyID, HeaderRoutingPolicyVersion, "Retry-After", HeaderDeprecation, HeaderSunset, "Link", HeaderServerTiming, HeaderIgnoredParameters, HeaderRepaired,
 	}, ", ")
 )
 

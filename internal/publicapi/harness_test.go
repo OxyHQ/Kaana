@@ -99,6 +99,10 @@ type stubAdapter struct {
 	// failDeployment fails before any output on that deployment only.
 	failDeployment contract.DeploymentID
 	chunks         int
+	// answer, when set, is the whole text a text request is answered with, in
+	// one delta, and finish (stop when unset) is why it ended.
+	answer string
+	finish contract.FinishReason
 }
 
 func (*stubAdapter) Provider() contract.ProviderSlug { return "stub" }
@@ -140,6 +144,7 @@ func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provi
 	s.mu.Lock()
 	request := s.calls[len(s.calls)-1]
 	failAfter, chunks := s.failAfter, max(s.chunks, 3)
+	answer, finish := s.answer, s.finish
 	s.mu.Unlock()
 	outcome := provider.Outcome{UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}
 	if request.Client.APIFormat == contract.APIFormatDecisions {
@@ -186,6 +191,16 @@ func (s *stubAdapter) Stream(ctx context.Context, call *provider.Call, out provi
 					return outcome, err
 				}
 			}
+		}
+		if answer != "" {
+			if err := out.Delta(0, contract.ChannelOutputText, answer); err != nil {
+				return outcome, err
+			}
+			outcome.Units = []contract.UsageQuantity{{Unit: contract.UnitInputTokens, Quantity: 7}, {Unit: contract.UnitOutputTokens, Quantity: 5}}
+			if finish != "" {
+				outcome.FinishReason = finish
+			}
+			chunks = 0
 		}
 		for index := range chunks {
 			if failAfter > 0 && index == failAfter {

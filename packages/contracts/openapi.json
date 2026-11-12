@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.8.0",
+    "version": "8.9.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -8026,7 +8026,7 @@
             "$ref": "#/components/schemas/ToolChoice"
           },
           "responseFormat": {
-            "$ref": "#/components/schemas/ResponseFormat"
+            "$ref": "#/components/schemas/ResponsesResponseFormat"
           },
           "reasoning": {
             "$ref": "#/components/schemas/InferenceReasoning"
@@ -8050,6 +8050,73 @@
           "input"
         ],
         "additionalProperties": false
+      },
+      "ResponsesResponseFormat": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "text"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "json_object"
+              },
+              "repair": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "json_schema"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "schema": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "strict": {
+                "type": "boolean"
+              },
+              "repair": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "name",
+              "schema",
+              "strict"
+            ],
+            "additionalProperties": false
+          }
+        ]
       },
       "RoutingPolicyReference": {
         "type": "object",

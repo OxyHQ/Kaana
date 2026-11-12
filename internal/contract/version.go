@@ -63,7 +63,10 @@ package contract
 // request shape only).
 // 8.8.0 adds the optional prompt-cache breakpoint (`cacheBreakpoint`) on a
 // text, image or file content part and on a tool definition.
-const ContractVersion = "8.8.0"
+// 8.9.0 adds the optional `repair` member of POST /v1/responses's responseFormat
+// and the Kaana-Repaired response header (Kaana ADR 0009 decision 5); public
+// only, the signed grant and envelope are unchanged.
+const ContractVersion = "8.9.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

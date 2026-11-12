@@ -6,12 +6,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/jsonrepair"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/sse"
@@ -40,6 +42,11 @@ type collected struct {
 	// reasoningText is the text of the reasoning block being folded, which its
 	// opaque token (or the end of the answer) closes. Customer data.
 	reasoningText bytes.Buffer
+	// repairJSON is whether the request opted in to JSON repair
+	// (`responseFormat.repair`, docs/json-repair.md). repaired is set by
+	// message() when the text it returned is not the text the model wrote.
+	repairJSON bool
+	repaired   bool
 }
 
 func newCollected() *collected { return &collected{tools: make(map[string]*contract.ToolCall)} }
@@ -129,6 +136,12 @@ func (c *collected) message() contract.Message {
 		message.Content = append(message.Content, c.reasoningParts()...)
 	}
 	text := c.text.String() + c.transcript.String()
+	// Repair is for an answer the model finished (stop) and nothing but text:
+	// a token-limit cut (length), a filter, a refusal or a tool call is not a
+	// JSON answer that merely forgot its closers, and is never touched.
+	if c.repairJSON && c.finish == contract.FinishStop && c.transcript.Len() == 0 && c.refusal.Len() == 0 && len(c.toolOrder) == 0 {
+		text, c.repaired = jsonrepair.Repair(text)
+	}
 	if text != "" {
 		message.Content = append(message.Content, contract.ContentPart{Type: contract.ContentPartText, Text: &text})
 	}
@@ -316,7 +329,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		needs: requestNeeds{inputTokens: estimate, maxOutputTokens: request.MaxOutputTokens, prefs: request.Provider,
 			parameters: carriedParameters(request.MaxOutputTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,
 				FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences},
-				len(request.Tools), request.ToolChoice, request.ResponseFormat, request.Reasoning)},
+				len(request.Tools), request.ToolChoice, request.ResponseFormat.signed(), request.Reasoning)},
 	})
 	if failure != nil {
 		writeError(w, requestID, failure)
@@ -328,13 +341,14 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	envelope.MaxOutputTokens = request.MaxOutputTokens
 	envelope.Sampling = contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP, TopK: request.TopK,
 		FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences}
-	envelope.Tools, envelope.ToolChoice, envelope.ResponseFormat, envelope.Reasoning = request.Tools, request.ToolChoice, request.ResponseFormat, request.Reasoning
+	envelope.Tools, envelope.ToolChoice, envelope.ResponseFormat, envelope.Reasoning = request.Tools, request.ToolChoice, request.ResponseFormat.signed(), request.Reasoning
 	policyHeaders := func(header http.Header) {
 		header.Set(HeaderRoutingPolicyID, admitted.grant.RoutingPolicy.RoutingPolicyID)
 		header.Set(HeaderRoutingPolicyVersion, strconv.Itoa(admitted.grant.RoutingPolicy.PolicyVersion))
 	}
 	folded := newCollected()
 	folded.keepReasoning = envelope.Reasoning != nil && !envelope.Reasoning.Excluded()
+	folded.repairJSON = request.ResponseFormat.repairs()
 	if stream {
 		events := &streamSink{w: w, requestID: requestID, headers: policyHeaders, collected: folded}
 		result := s.execute(r.Context(), admitted, &envelope, events.sink)
@@ -350,10 +364,15 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	policyHeaders(w.Header())
 	stampServerTiming(r.Context(), w.Header())
+	message := folded.message()
+	if folded.repaired {
+		w.Header().Set(HeaderRepaired, "true")
+		slog.InfoContext(r.Context(), "json response repaired", "request_id", requestID)
+	}
 	writeJSON(w, requestID, http.StatusOK, response{
 		SchemaVersion: contract.SchemaVersion, RequestID: requestID, GenerationID: folded.generationID,
 		Model: result.Report.ResolvedModelReference, FinishReason: finishOr(folded.finish),
-		Output: []contract.Message{folded.message()}, Usage: nonNilUnits(result.Report.Units),
+		Output: []contract.Message{message}, Usage: nonNilUnits(result.Report.Units),
 		RoutingPolicy: admitted.grant.RoutingPolicy, LatencyMs: int(max(0, s.now().Sub(receivedAt).Milliseconds())),
 	})
 }
@@ -376,10 +395,30 @@ func validateResponses(requestID contract.RequestID, request responsesRequest) *
 		}
 		names[tool.Name] = struct{}{}
 	}
+	if failure := validateRepair(requestID, request); failure != nil {
+		return failure
+	}
 	if failure := validateReasoning(requestID, request.Reasoning); failure != nil {
 		return failure
 	}
 	return validateReasoningParts(requestID, request.Input.messages, "input")
+}
+
+// validateRepair refuses `responseFormat.repair` where it cannot be honoured
+// (ADR 0009 decision 5): repair is of a finished JSON answer, so it needs a
+// JSON format, and it needs the whole answer, so it needs a request that is
+// not streamed.
+func validateRepair(requestID contract.RequestID, request responsesRequest) *contract.PublicError {
+	if request.ResponseFormat == nil || request.ResponseFormat.Repair == nil {
+		return nil
+	}
+	switch {
+	case request.ResponseFormat.Type == contract.ResponseFormatText:
+		return invalid(requestID, "responseFormat.repair", "responseFormat.repair needs a json_object or json_schema response format")
+	case request.Stream != nil && *request.Stream && *request.ResponseFormat.Repair:
+		return invalid(requestID, "responseFormat.repair", "responseFormat.repair repairs a whole answer and cannot be used with stream: true")
+	}
+	return nil
 }
 
 // validateReasoning applies the contract's rules for the reasoning control

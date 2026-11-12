@@ -12,6 +12,18 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.9.0: opt-in JSON repair (ADR 0009, decision 5)
+
+MINOR, `@kaana.ai/contracts` 8.9.0. Additive; everything 8.8.0 parses still
+parses. `POST /v1/responses`' `responseFormat` gains `repair?: boolean` on
+`json_object` and `json_schema` (`responsesResponseFormatSchema`), and a repaired
+answer carries the response header `Kaana-Repaired: true` (`KAANA_REPAIRED_HEADER`),
+never a body member, so every reader of an older contract parses what Kaana
+serves. The signed grant and envelope are unchanged: `repair` is a public request
+member that never reaches Oxy or a provider, it is not a request-parameter word
+and it does not narrow route selection. The rules, the order of repairs and what
+is never touched are in [json-repair.md](json-repair.md).
+
 ## Contract set 8.8.0: prompt-cache breakpoint
 
 MINOR, `@kaana.ai/contracts` 8.8.0. Additive: an optional boolean

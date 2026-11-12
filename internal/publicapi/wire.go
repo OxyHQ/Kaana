@@ -83,6 +83,28 @@ func (i *responsesInput) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// responsesResponseFormat is the response format of POST /v1/responses: the
+// signed contract's format and the one control that is Kaana's alone. `repair`
+// asks Kaana to repair nearly valid JSON in the final text of a non-streaming
+// answer (docs/json-repair.md). It is not part of the signed request and never
+// reaches Oxy or a provider.
+type responsesResponseFormat struct {
+	contract.ResponseFormat
+	Repair *bool `json:"repair,omitempty"`
+}
+
+// repairs is whether the caller asked for JSON repair.
+func (f *responsesResponseFormat) repairs() bool { return f != nil && f.Repair != nil && *f.Repair }
+
+// signed is the format as the signed request carries it, without `repair`.
+func (f *responsesResponseFormat) signed() *contract.ResponseFormat {
+	if f == nil {
+		return nil
+	}
+	format := f.ResponseFormat
+	return &format
+}
+
 // responsesRequest is responsesRequestSchema.
 type responsesRequest struct {
 	Model            *modelTarget                  `json:"model,omitempty"`
@@ -98,7 +120,7 @@ type responsesRequest struct {
 	StopSequences    []string                      `json:"stopSequences,omitempty"`
 	Tools            []contract.ToolDefinition     `json:"tools,omitempty"`
 	ToolChoice       *contract.ToolChoice          `json:"toolChoice,omitempty"`
-	ResponseFormat   *contract.ResponseFormat      `json:"responseFormat,omitempty"`
+	ResponseFormat   *responsesResponseFormat      `json:"responseFormat,omitempty"`
 	Reasoning        *contract.ReasoningParameters `json:"reasoning,omitempty"`
 	Labels           contract.RequestLabels        `json:"labels,omitempty"`
 	ClientRequestID  *string                       `json:"clientRequestId,omitempty"`

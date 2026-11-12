@@ -1,7 +1,8 @@
 # ADR 0009 — Contract gaps found comparing Kaana with OpenRouter
 
 - Status: proposed, except decision 2, which the owner accepted and which is
-  implemented (contract set 8.6.0). Every other decision below widens a shared
+  implemented (contract set 8.6.0), and decision 5, which the owner authorized
+  and which is accepted and implemented (contract set 8.9.0). Every other decision below widens a shared
   contract, so each needs the owner's decision and, where stated, Oxy's half
   first.
 - Date: 2026-11-12
@@ -78,10 +79,35 @@ prompt in any log.
    `jsonMode` and `promptCaching` are true on 1 model of 260, because the flag
    means "observed". A reader cannot tell "no" from "not recorded". The catalogue
    rule (primary evidence only) stands; the schema needs a way to say unknown.
-5. **Response healing for `json_schema`** (needs the owner). Repairing nearly
-   valid JSON (a missing bracket, a markdown fence) without a retry, non-streaming
-   only, as OpenRouter's plugin does. It rewrites model output, which Kaana does
-   nowhere else, so it is opt-in per request or not at all.
+5. **Response healing for JSON formats** (accepted; the owner authorized the
+   contract widening; implemented in contract set 8.9.0). Repairing nearly valid
+   JSON (a markdown fence, prose around the value, a trailing comma, closers a
+   model forgot) without a retry, non-streaming only, as OpenRouter's plugin
+   does. It rewrites model output, which Kaana does nowhere else, so it is
+   opt-in per request. The design:
+   - **Control.** `responseFormat.repair?: boolean` on `json_object` and
+     `json_schema` of `POST /v1/responses`; default off, byte-for-byte the old
+     behaviour. Refused as `invalid_request` naming `responseFormat.repair` on a
+     `text` format and with `stream: true`. Chat completions and `/v1/messages`
+     carry no such member: a standard client has no typed field for it, and the
+     Messages dialect has no JSON format at all.
+   - **Kaana-side.** It runs on the final assembled text, in the public API fold,
+     never in an adapter. It needs nothing from a provider, so it is not a
+     request-parameter word, does not narrow routing and is not in the signed
+     request or the grant.
+   - **Only a finished answer.** Only when the finish reason is `stop`: an answer
+     cut by the token limit (`length`), a filter, a refusal or a tool call is
+     never touched (the truncation OpenRouter's plugin also cannot repair).
+   - **Deterministic, conservative.** `internal/jsonrepair`: trim, strip one code
+     fence, extract the first balanced object or array from prose, drop trailing
+     commas, close an unterminated string and brackets at the end. Text that
+     parses is never altered; text no step makes valid is returned untouched.
+     Nothing is invented or reordered. There is no schema validation: Kaana
+     carries no validator.
+   - **Marker.** The response header `Kaana-Repaired: true`, never a body member,
+     so every older reader parses the answer. Usage and cost are the provider's
+     and unchanged. No text is logged; only a count line with the request id.
+   Details: [json-repair.md](../json-repair.md).
 
 ## Not adopted
 
