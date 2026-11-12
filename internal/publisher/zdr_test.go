@@ -304,3 +304,59 @@ func TestAPinnedOpenRouterModelNeedsAPinnedZeroRetentionUpstream(t *testing.T) {
 		})
 	}
 }
+
+// openRouterSafetyRetentionModels and ...ZDR reproduce the live list's shape:
+// `mixed/model` has a Google endpoint that keeps prompts for abuse detection and
+// a plain one on DeepInfra; `only/google-model` has only the Google one.
+const openRouterSafetyRetentionModels = `{"data":[
+ {"id":"mixed/model","canonical_slug":"mixed/model-20260101","name":"Mixed","supported_parameters":["max_tokens","temperature","tools"]},
+ {"id":"only/google-model","canonical_slug":"only/google-model-20260101","name":"Only Google","supported_parameters":["max_tokens","temperature","tools"]}
+]}`
+
+const openRouterSafetyRetentionZDR = `{"data":[
+ {"model_id":"mixed/model","tag":"google-vertex/global","quantization":"bf16","safety_retention":true,
+  "supported_parameters":["max_tokens","temperature","tools","tool_choice"],"status":0},
+ {"model_id":"mixed/model","tag":"deepinfra/fp8","quantization":"fp8","safety_retention":false,
+  "supported_parameters":["max_tokens"],"status":0},
+ {"model_id":"only/google-model","tag":"google-vertex","quantization":"unknown","safety_retention":true,
+  "supported_parameters":["max_tokens","temperature","tools"],"status":0}
+]}`
+
+// TestASafetyRetentionUpstreamIsAvoidedWhenAPlainOneExists: OpenRouter's
+// `zdr: true` also admits endpoints that keep prompts for abuse detection, so
+// for a model that has a plain zero-retention endpoint the others are named in
+// `provider.ignore` and their words do not describe what a Kaana request can
+// reach; a model with ONLY such endpoints is kept as it was, never withdrawn.
+func TestASafetyRetentionUpstreamIsAvoidedWhenAPlainOneExists(t *testing.T) {
+	server := serveOpenRouter(t, openRouterSafetyRetentionModels, openRouterSafetyRetentionZDR)
+	models, err := Discover(context.Background(), server.Client(), Provider{Slug: "openrouter", BaseURL: server.URL + "/v1", APIKey: "k"})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	byID := map[string]DiscoveredModel{}
+	for _, model := range models {
+		byID[model.UpstreamModelID] = model
+	}
+
+	mixed := byID["mixed/model"]
+	if mixed.Unservable != "" || mixed.Observed == nil {
+		t.Fatalf("mixed = %+v", mixed)
+	}
+	if !slices.Equal(mixed.Observed.AvoidUpstreams, []string{"google-vertex"}) {
+		t.Errorf("avoid = %v, want [google-vertex]", mixed.Observed.AvoidUpstreams)
+	}
+	if accepted := *mixed.Observed.AcceptedParameters; slices.Contains(accepted, provider.ParameterTemperature) || slices.Contains(accepted, provider.ParameterTools) {
+		t.Errorf("the Safety Retention endpoint's parameters were counted as reachable: %v", accepted)
+	}
+	if !slices.Equal(mixed.Observed.Quantizations, []string{"fp8"}) {
+		t.Errorf("quantizations = %v, want only the plain endpoint's [fp8]", mixed.Observed.Quantizations)
+	}
+
+	only := byID["only/google-model"]
+	if only.Unservable != "" || only.Observed == nil || len(only.Observed.AvoidUpstreams) != 0 {
+		t.Errorf("a model with only Safety Retention endpoints must be kept and ignore nothing: %+v", only)
+	}
+	if accepted := *only.Observed.AcceptedParameters; !slices.Contains(accepted, provider.ParameterTemperature) {
+		t.Errorf("with nothing else to fall back to, its own endpoints still describe it: %v", accepted)
+	}
+}

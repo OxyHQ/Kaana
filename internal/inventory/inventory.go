@@ -127,6 +127,12 @@ type Observed struct {
 	// sorted, from OpenRouter's vocabulary. Absent is UNKNOWN. It reaches a route
 	// only so a caller's `provider.quantizations` can filter on it.
 	Quantizations []string `json:"quantizations,omitempty"`
+	// AvoidUpstreams are OpenRouter upstream slugs a request for this model must
+	// not be routed through: ones whose only endpoints keep prompts for abuse
+	// detection (Safety Retention) while another upstream is plain zero
+	// retention. Sorted slugs; absent is none. It reaches a route and the
+	// request's `provider.ignore`; it can only narrow.
+	AvoidUpstreams []string `json:"avoidUpstreams,omitempty"`
 	// ListPrice is the provider's own published catalogue price. It is an
 	// observation of a public catalogue, not Kaana's cost and not a customer
 	// price; its type is providercost's, the only package that holds an amount.
@@ -219,6 +225,14 @@ func (o Observed) Validate() error {
 			if index > 0 && o.Quantizations[index-1] >= word {
 				return fmt.Errorf("quantizations must be sorted and name each level once (at %q)", word)
 			}
+		}
+	}
+	for index, slug := range o.AvoidUpstreams {
+		if slug == "" || strings.TrimSpace(slug) != slug || strings.ContainsAny(slug, "/ ") {
+			return fmt.Errorf("avoidUpstreams[%d] %q is not an upstream slug", index, slug)
+		}
+		if index > 0 && o.AvoidUpstreams[index-1] >= slug {
+			return fmt.Errorf("avoidUpstreams must be sorted and name each upstream once (at %q)", slug)
 		}
 	}
 	if o.ListPrice != nil {
@@ -334,6 +348,7 @@ func (s RouteSet) Candidates() []provider.Route {
 			ContextTokens:      windowOf(endpoint.Observed, func(o *Observed) *int { return o.ContextTokens }),
 			MaxOutputTokens:    windowOf(endpoint.Observed, func(o *Observed) *int { return o.MaxOutputTokens }),
 			Quantizations:      quantizationsOf(endpoint.Observed),
+			AvoidUpstreams:     avoidUpstreamsOf(endpoint.Observed),
 		})
 	}
 	return routes
@@ -917,4 +932,13 @@ func quantizationsOf(observed *Observed) []string {
 		return nil
 	}
 	return append([]string(nil), observed.Quantizations...)
+}
+
+// avoidUpstreamsOf copies a deployment's avoided upstreams so a route cannot
+// alias the inventory's slice.
+func avoidUpstreamsOf(observed *Observed) []string {
+	if observed == nil || len(observed.AvoidUpstreams) == 0 {
+		return nil
+	}
+	return append([]string(nil), observed.AvoidUpstreams...)
 }

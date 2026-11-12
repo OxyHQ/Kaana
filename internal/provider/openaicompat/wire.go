@@ -54,7 +54,11 @@ type openRouterProviderPolicy struct {
 	// Only, Order and AllowFallbacks pin the upstreams of a model listed in
 	// providerconfig.OpenRouterUpstreamOrder; absent, OpenRouter routes it.
 	// They narrow the zero-retention set, never widen it.
-	Only           []string `json:"only,omitempty"`
+	Only []string `json:"only,omitempty"`
+	// Ignore names upstreams that keep prompts for abuse detection while the
+	// model has a plain zero-retention one (inventory observed.avoidUpstreams).
+	// It only removes endpoints from OpenRouter's choice.
+	Ignore         []string `json:"ignore,omitempty"`
 	Order          []string `json:"order,omitempty"`
 	AllowFallbacks *bool    `json:"allow_fallbacks,omitempty"`
 }

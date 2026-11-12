@@ -238,3 +238,42 @@ func identityBoundTestBaseURL(slug contract.ProviderSlug) (string, bool) {
 		return "", false
 	}
 }
+
+// TestASafetyRetentionUpstreamIsNamedInIgnoreAndNothingElseWeakens: a route that
+// carries avoided upstreams adds `provider.ignore` to the fixed zero-retention
+// policy and weakens nothing in it; a route without any keeps exactly the
+// three-field policy (ADR 0008, decision 5).
+func TestASafetyRetentionUpstreamIsNamedInIgnoreAndNothingElseWeakens(t *testing.T) {
+	baseURL, _ := identityBoundTestBaseURL("openrouter")
+	adapter, err := New(Config{Provider: "openrouter", BaseURL: baseURL, Declarations: provider.DeclareKeys([]string{fakeAPIKey})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := requestWith([]contract.Message{{Role: contract.RoleUser, Content: []contract.ContentPart{textPartOf("hola")}}})
+	route := provider.Route{DeploymentID: "dep_or", Provider: "openrouter", ModelReference: "acme/chat@observed-2026-11-12", UpstreamModelID: "acme/chat"}
+
+	providerPolicy := func(route provider.Route) json.RawMessage {
+		call, err := adapter.Translate(request, route)
+		if err != nil {
+			t.Fatalf("Translate: %v", err)
+		}
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(call.Body, &wire); err != nil {
+			t.Fatal(err)
+		}
+		return wire["provider"]
+	}
+
+	assertExactOpenRouterProviderPolicy(t, providerPolicy(route))
+
+	route.AvoidUpstreams = []string{"google-vertex"}
+	var policy map[string]any
+	if err := json.Unmarshal(providerPolicy(route), &policy); err != nil {
+		t.Fatal(err)
+	}
+	ignore, _ := policy["ignore"].([]any)
+	if len(policy) != 4 || len(ignore) != 1 || ignore[0] != "google-vertex" ||
+		policy["zdr"] != true || policy["data_collection"] != "deny" || policy["require_parameters"] != true {
+		t.Errorf("the policy with an avoided upstream = %v", policy)
+	}
+}

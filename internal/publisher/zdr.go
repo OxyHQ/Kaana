@@ -73,6 +73,10 @@ type zeroRetentionModel struct {
 	// (`quantization`), the vocabulary the public `provider.quantizations`
 	// filter speaks.
 	quantizations map[string]bool
+	// avoidUpstreams are the OpenRouter upstream slugs whose endpoints for this
+	// model are all Safety Retention while another upstream is plain zero
+	// retention: the request names them in `provider.ignore`.
+	avoidUpstreams []string
 }
 
 // supportsToolChoiceValues maps OpenRouter's per-endpoint
@@ -118,6 +122,9 @@ type zeroRetentionEndpoint struct {
 	ModelID      string `json:"model_id"`
 	Tag          string `json:"tag"`
 	Quantization string `json:"quantization"`
+	// SafetyRetention marks an endpoint that keeps prompts to detect abuse. It
+	// is in the zero-retention list but is not zero retention.
+	SafetyRetention bool `json:"safety_retention"`
 }
 
 // readZeroRetentionEndpoints fetches and indexes OpenRouter's zero-retention
@@ -158,7 +165,15 @@ func readZeroRetentionEndpoints(ctx context.Context, client *http.Client, target
 		return nil, fmt.Errorf("publisher: %s reports no zero-retention endpoints at all", target.Slug)
 	}
 
-	models := make(map[string]*zeroRetentionModel)
+	// First pass: group the endpoints by model, so a model's Safety Retention
+	// endpoints can be told apart from its zero-retention ones before anything
+	// is derived from them.
+	type listed struct {
+		raw      json.RawMessage
+		entry    zeroRetentionEndpoint
+		upstream string
+	}
+	byModel := make(map[string][]listed)
 	for _, raw := range list.Data {
 		var entry zeroRetentionEndpoint
 		if err := json.Unmarshal(raw, &entry); err != nil {
@@ -171,34 +186,68 @@ func readZeroRetentionEndpoints(ctx context.Context, client *http.Client, target
 			// one Kaana can read faithfully.
 			return nil, fmt.Errorf("publisher: %s's zero-retention endpoint list contains an endpoint with no model_id", target.Slug)
 		}
-		model := models[id]
-		if model == nil {
-			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}, upstreams: map[string]bool{}, quantizations: map[string]bool{}}
-			models[id] = model
-		}
-		if upstream, _, _ := strings.Cut(strings.TrimSpace(entry.Tag), "/"); upstream != "" {
-			model.upstreams[upstream] = true
-		}
-		if word := strings.TrimSpace(entry.Quantization); word != "" {
-			if !inventory.ValidQuantization(word) {
-				// A word outside the vocabulary is "unknown", never a guess at
-				// a level. An absent field says nothing and records nothing.
-				word = "unknown"
+		upstream, _, _ := strings.Cut(strings.TrimSpace(entry.Tag), "/")
+		byModel[id] = append(byModel[id], listed{raw: raw, entry: entry, upstream: upstream})
+	}
+
+	models := make(map[string]*zeroRetentionModel, len(byModel))
+	for id, endpoints := range byModel {
+		model := &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}, upstreams: map[string]bool{}, quantizations: map[string]bool{}}
+		models[id] = model
+
+		// A Safety Retention endpoint keeps prompts to detect abuse, which is not
+		// zero retention. OpenRouter's `zdr: true` still admits it unless the
+		// account is set to ZDR only, so when the model ALSO has a plain
+		// zero-retention endpoint, the Safety Retention upstreams are named in the
+		// request's `provider.ignore` (avoidUpstreams) and their endpoints say
+		// nothing about what Kaana can reach. A model that has only Safety
+		// Retention endpoints has nothing to fall back to and is kept as it was:
+		// docs/inventory.md records the dependency.
+		plain := map[string]bool{}
+		for _, endpoint := range endpoints {
+			if !endpoint.entry.SafetyRetention {
+				plain[endpoint.upstream] = true
 			}
-			model.quantizations[word] = true
 		}
-		var fields map[string]json.RawMessage
-		_ = json.Unmarshal(raw, &fields)
-		parameters, ok := stringListField(fields, "supported_parameters")
-		if !ok {
-			model.complete = false
-			continue
+		avoid := map[string]bool{}
+		for _, endpoint := range endpoints {
+			if endpoint.entry.SafetyRetention && len(plain) > 0 && endpoint.upstream != "" && !plain[endpoint.upstream] {
+				avoid[endpoint.upstream] = true
+			}
 		}
-		for _, parameter := range parameters {
-			model.parameters[parameter] = true
-			if parameter == "tool_choice" {
-				for value, supported := range endpointToolChoiceValues(fields) {
-					model.toolChoiceValues[value] = model.toolChoiceValues[value] || supported
+		for upstream := range avoid {
+			model.avoidUpstreams = append(model.avoidUpstreams, upstream)
+		}
+		slices.Sort(model.avoidUpstreams)
+
+		for _, endpoint := range endpoints {
+			if endpoint.entry.SafetyRetention && len(plain) > 0 {
+				continue
+			}
+			if endpoint.upstream != "" {
+				model.upstreams[endpoint.upstream] = true
+			}
+			if word := strings.TrimSpace(endpoint.entry.Quantization); word != "" {
+				if !inventory.ValidQuantization(word) {
+					// A word outside the vocabulary is "unknown", never a guess
+					// at a level. An absent field says nothing and records nothing.
+					word = "unknown"
+				}
+				model.quantizations[word] = true
+			}
+			var fields map[string]json.RawMessage
+			_ = json.Unmarshal(endpoint.raw, &fields)
+			parameters, ok := stringListField(fields, "supported_parameters")
+			if !ok {
+				model.complete = false
+				continue
+			}
+			for _, parameter := range parameters {
+				model.parameters[parameter] = true
+				if parameter == "tool_choice" {
+					for value, supported := range endpointToolChoiceValues(fields) {
+						model.toolChoiceValues[value] = model.toolChoiceValues[value] || supported
+					}
 				}
 			}
 		}
@@ -247,6 +296,9 @@ func restrictToZeroRetention(models []DiscoveredModel, zeroRetention map[string]
 		slices.Sort(levels)
 		if len(levels) > 0 {
 			observed.Quantizations = levels
+		}
+		if len(reachable.avoidUpstreams) > 0 {
+			observed.AvoidUpstreams = reachable.avoidUpstreams
 		}
 		if encoded, err := json.Marshal(observed); err == nil && string(encoded) == "{}" {
 			observed = nil

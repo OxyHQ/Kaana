@@ -190,12 +190,23 @@ for the cycle, exactly as a failed `/models` read does
 (`provider-onboarding.md`, "OpenRouter").
 
 The list names zero-retention endpoints, and OpenRouter's `zdr: true` also
-admits its "Safety Retention" endpoints (prompts kept only to detect abuse; for
-Google models through Vertex since 2026-10-18) unless the account or guardrail
-is set to ZDR only. Kaana's zero-retention statement therefore holds only while
-the OpenRouter account Kaana uses is set to ZDR only: check it as part of any
-rollout that touches OpenRouter routes
-([ADR 0008](adr/0008-provider-selection-lessons.md)).
+admits its "Safety Retention" endpoints (prompts kept only to detect abuse, up to
+90 days; Google models through Vertex since 2026-10-18) unless the account or
+guardrail is set to ZDR only. Each list entry carries `safety_retention`, and the
+publisher reads it ([ADR 0008](adr/0008-provider-selection-lessons.md),
+decision 5):
+
+- For a model that has a plain zero-retention endpoint, the upstreams whose only
+  endpoints are Safety Retention are published as `observed.avoidUpstreams`,
+  every OpenRouter request for it names them in `provider.ignore`, and their
+  endpoints no longer count towards the parameters, tool-choice values,
+  quantizations or upstreams the route is said to reach. This holds whatever the
+  account setting.
+- A model whose endpoints are ALL Safety Retention (most Gemini models today)
+  has nothing plain to fall back to. It is kept, not withdrawn, and its
+  zero-retention statement holds only while the OpenRouter account Kaana uses is
+  set to ZDR only: an operator check, outside this repository, to make before any
+  rollout that touches OpenRouter routes.
 
 `acceptedParameters` names caller controls by the contract request path a
 caller sets and a refusal names (`provider.RequestParameter`), sorted, from a
