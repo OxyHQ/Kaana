@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.7.0
+
+Depend on contracts 8.4.0: the client states contract set 8.4.0, which declares
+the usage unit `cache_write_input_tokens` and the optional
+`capabilities.unreported`. The SDK adds no method and the request shapes it
+sends are unchanged.
+
 ## 3.6.0
 
 Depend on contracts 8.3.0: the client states contract set 8.3.0, which adds the

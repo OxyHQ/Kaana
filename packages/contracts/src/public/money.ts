@@ -159,6 +159,16 @@ export const moneySchema = z
  * (`routes/inferenceEdge.ts` renders `prompt_tokens` as
  * `input_tokens + cached_input_tokens`).
  *
+ * **`cache_write_input_tokens` is the first-request premium** (added in contract
+ * set 8.4.0): input tokens written to a prompt cache on THIS request, which a
+ * provider bills above the base input rate (Anthropic's 5-minute write is 1.25x
+ * input). It is a sibling under the partition rule, never inside `input_tokens`
+ * or `cached_input_tokens`: a cache read and a cache write of the same token
+ * cannot both happen, so the three never count one token twice. It covers the
+ * provider's DEFAULT time-to-live only; a longer TTL is a different price and
+ * is not expressible by this unit, so a route that cannot price it refuses it.
+ * Declared before anything emits it: Oxy must accept the unit first.
+ *
  * Time is carried in integer MILLISECONDS rather than seconds so that no unit
  * quantity is ever fractional: a 12.5-second transcription is `12500`, exactly,
  * and the "units are integers" rule holds for every modality instead of holding
@@ -181,6 +191,7 @@ export const USAGE_UNITS = [
   'audio_output_tokens',
   'session_milliseconds',
   'input_transcription_milliseconds',
+  'cache_write_input_tokens',
 ] as const;
 
 export const usageUnitSchema = z.enum(USAGE_UNITS);

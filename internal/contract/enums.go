@@ -228,6 +228,13 @@ const (
 	// Provider-reported; never reported by a provider whose session price
 	// includes the transcription.
 	UnitInputTranscriptionMilliseconds UsageUnit = "input_transcription_milliseconds"
+	// UnitCacheWriteInputTokens is the input tokens written to a prompt cache
+	// on this request (contract set 8.4.0): the first-request premium
+	// (Anthropic's 5-minute write is 1.25x input). A sibling of
+	// UnitInputTokens and UnitCachedInputTokens under the partition rule,
+	// covering the provider's default TTL only. Declared; nothing emits it
+	// until Oxy accepts it.
+	UnitCacheWriteInputTokens UsageUnit = "cache_write_input_tokens"
 )
 
 var usageUnitValues = []UsageUnit{
@@ -235,7 +242,7 @@ var usageUnitValues = []UsageUnit{
 	UnitRequests, UnitImages, UnitAudioInputMilliseconds, UnitAudioOutputMilliseconds,
 	UnitVideoMilliseconds, UnitCharacters, UnitEmbeddings,
 	UnitAudioInputTokens, UnitCachedAudioInputTokens, UnitAudioOutputTokens,
-	UnitSessionMilliseconds, UnitInputTranscriptionMilliseconds,
+	UnitSessionMilliseconds, UnitInputTranscriptionMilliseconds, UnitCacheWriteInputTokens,
 }
 
 // Valid reports whether the unit is one the contract declares. A unit that is

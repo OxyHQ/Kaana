@@ -152,6 +152,18 @@ export const modelRealtimeCapabilitiesSchema = z
   .strict();
 
 /**
+ * The boolean capabilities that may be listed as unreported (contract set
+ * 8.4.0): the five whose `false` has so far meant both "no" and "not recorded".
+ */
+export const UNREPORTED_CAPABILITY_KEYS = [
+  'tools',
+  'parallelToolCalls',
+  'structuredOutput',
+  'jsonMode',
+  'promptCaching',
+] as const;
+
+/**
  * What a model can do, in the terms a caller has to decide against before
  * sending a request: can it call tools, does it accept images, will it honour a
  * JSON schema, how much context does it take, how much can it emit.
@@ -192,9 +204,38 @@ export const modelCapabilitiesSchema = z
     apiFormats: z.array(inferenceApiFormatSchema).min(1).optional(),
     /** Realtime sessions this model holds; absent means none. Contract set 3.2.0. */
     realtime: modelRealtimeCapabilitiesSchema.optional(),
+    /**
+     * The boolean capabilities whose value is NOT evidence: nobody recorded an
+     * answer, so `false` there means "not stated as true", not "known absent".
+     * Added in contract set 8.4.0 so the five required booleans keep their
+     * shape for every deployed reader while a producer can still say which of
+     * them it never established. A listed key is always `false`. ABSENT means
+     * undeclared (a catalogue from an older producer): every boolean is read
+     * as it was before this field existed.
+     */
+    unreported: z.array(z.enum(UNREPORTED_CAPABILITY_KEYS)).optional(),
   })
   .strict()
   .superRefine((capabilities, ctx) => {
+    const unreported = capabilities.unreported;
+    if (unreported !== undefined) {
+      if (new Set(unreported).size !== unreported.length) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['unreported'],
+          message: 'each unreported capability is listed at most once',
+        });
+      }
+      for (const [index, key] of unreported.entries()) {
+        if (capabilities[key]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['unreported', index],
+            message: `${key} is true, so it is reported: an unreported capability is false`,
+          });
+        }
+      }
+    }
     const formats = capabilities.apiFormats;
     if (formats !== undefined && new Set(formats).size !== formats.length) {
       ctx.addIssue({

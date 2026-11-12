@@ -50,8 +50,10 @@ package contract
 // 8.2.0 adds image input (Kaana ADR 0007): the image rules, the declared
 // model's `imageInput` and the grant fact `inputImages`;
 // 8.3.0 adds the Anthropic-Messages-compatible POST /v1/messages (public
-// shapes only; the signed grant and envelope are unchanged).
-const ContractVersion = "8.3.0"
+// shapes only; the signed grant and envelope are unchanged);
+// 8.4.0 adds the usage unit cache_write_input_tokens and the optional
+// capabilities.unreported (declared; nothing emits either yet).
+const ContractVersion = "8.4.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

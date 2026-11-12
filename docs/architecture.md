@@ -160,6 +160,9 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
    price the most expensive input tokens in the request at the cheapest rate on
    the card. The units still partition the request; what is lost is the premium,
    on Kaana's own cost side. A `cache_write_input_tokens` unit would close it.
+   *The unit now exists in the contract (set 8.4.0, default TTL only) and is not
+   yet emitted: Oxy must accept it first (ADR 0009, decision 1), and until an
+   adapter reports it writes are still folded into `input_tokens`.*
 6. **The closed error set has no non-retryable platform-side failure.**
    *Answered by OxyHQ/oxy#1019, which added `provider_credential_invalid`
    (non-retryable), published in `@oxy.so/contracts@0.28.0` and adopted here.*
