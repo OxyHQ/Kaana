@@ -55,7 +55,7 @@ func capabilityGrant() *contract.Grant {
 	}
 }
 
-func routedFor(t *testing.T, line *inventory.Inventory, needs []provider.RequestParameter) []contract.DeploymentID {
+func routedFor(t *testing.T, line *inventory.Inventory, needs requestNeeds) []contract.DeploymentID {
 	t.Helper()
 	resolved, failure := resolveGrant(capabilityGrant(), line, nil, nil, nil, needs, time.Now())
 	if failure != nil {
@@ -75,11 +75,11 @@ func TestAGrantSkipsADeploymentThatRefusesAControlTheRequestCarries(t *testing.T
 	line := capabilityLine(t, `["tools"]`, `["sampling.temperature","tools"]`)
 	temperature := []provider.RequestParameter{provider.ParameterTemperature}
 
-	if got := routedFor(t, line, temperature); !slices.Equal(got, []contract.DeploymentID{"dep_silent", "dep_accepts"}) {
+	if got := routedFor(t, line, requestNeeds{parameters: temperature}); !slices.Equal(got, []contract.DeploymentID{"dep_silent", "dep_accepts"}) {
 		t.Errorf("a request with a temperature was routed to %v", got)
 	}
 	// Positive control: with no control carried, nothing is skipped.
-	if got := routedFor(t, line, nil); !slices.Equal(got, []contract.DeploymentID{"dep_refuses", "dep_silent", "dep_accepts"}) {
+	if got := routedFor(t, line, requestNeeds{}); !slices.Equal(got, []contract.DeploymentID{"dep_refuses", "dep_silent", "dep_accepts"}) {
 		t.Errorf("a request carrying nothing was routed to %v", got)
 	}
 }
@@ -93,7 +93,7 @@ func TestAGrantFallsBackWhenNoDeploymentAcceptsTheControl(t *testing.T) {
 	grant := capabilityGrant()
 	grant.Steps[0].Limits.ProviderAllowlist = []contract.ProviderSlug{"alpha", "gamma"}
 
-	resolved, failure := resolveGrant(grant, line, nil, nil, nil, []provider.RequestParameter{provider.ParameterTemperature}, time.Now())
+	resolved, failure := resolveGrant(grant, line, nil, nil, nil, requestNeeds{parameters: []provider.RequestParameter{provider.ParameterTemperature}}, time.Now())
 	if failure != nil {
 		t.Fatalf("a request every admitted deployment refuses became %v instead of reaching the attempt", failure)
 	}
@@ -146,7 +146,7 @@ func (f tierByDeployment) CheapestTier(route provider.Route, _ provider.FundingT
 func routedWithLatency(t *testing.T, funding FundingRanker, latency LatencyReader) []contract.DeploymentID {
 	t.Helper()
 	line := capabilityLine(t, `["tools"]`, `["tools"]`)
-	resolved, failure := resolveGrant(capabilityGrant(), line, funding, latency, nil, nil, time.Now())
+	resolved, failure := resolveGrant(capabilityGrant(), line, funding, latency, nil, requestNeeds{}, time.Now())
 	if failure != nil {
 		t.Fatalf("resolveGrant refused: %v", failure)
 	}
@@ -183,5 +183,72 @@ func TestRecentLatencyOnlyBreaksTiesWithinAFundingTier(t *testing.T) {
 	funding := tierByDeployment{"dep_refuses": 0, "dep_silent": 2, "dep_accepts": 0}
 	if got := routedWithLatency(t, funding, fixedLatency{"dep_refuses": 4 * time.Second, "dep_silent": 10 * time.Millisecond, "dep_accepts": 900 * time.Millisecond}); !slices.Equal(got, []contract.DeploymentID{"dep_accepts", "dep_refuses", "dep_silent"}) {
 		t.Errorf("latency crossed a funding tier: %v", got)
+	}
+}
+
+// windowLine serves one line from a small-window deployment, one that states
+// nothing, and a large-window one, in that inventory order.
+func windowLine(t *testing.T) *inventory.Inventory {
+	t.Helper()
+	deployment := func(id, slug, observed string) map[string]any {
+		entry := map[string]any{
+			"deploymentId": id, "provider": slug, "current": true,
+			"modelReference": "acme/chat@observed-2026-11-12", "upstreamModelId": "chat",
+		}
+		if observed != "" {
+			entry["observed"] = json.RawMessage(observed)
+		}
+		return entry
+	}
+	document, err := json.Marshal(map[string]any{
+		"snapshotId": "snap_window", "issuedAt": contract.NewTimestamp(time.Now()),
+		"deployments": []map[string]any{
+			deployment("dep_small", "alpha", `{"contextTokens":8000,"maxOutputTokens":1000}`),
+			deployment("dep_silent", "beta", ""),
+			deployment("dep_large", "gamma", `{"contextTokens":200000,"maxOutputTokens":64000}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := inventory.Parse(document, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return current
+}
+
+// TestAGrantSkipsADeploymentWhoseWindowTheRequestCannotFit: an input past a
+// deployment's context window, or an output limit above its own, skips it while
+// another route can serve; a deployment that states no window is kept.
+func TestAGrantSkipsADeploymentWhoseWindowTheRequestCannotFit(t *testing.T) {
+	line := windowLine(t)
+	output := 5000
+	for name, c := range map[string]struct {
+		needs requestNeeds
+		want  []contract.DeploymentID
+	}{
+		"a small request fits everywhere": {requestNeeds{inputTokens: 500}, []contract.DeploymentID{"dep_small", "dep_silent", "dep_large"}},
+		"an input past the small window":  {requestNeeds{inputTokens: 50000}, []contract.DeploymentID{"dep_silent", "dep_large"}},
+		"an output past the small limit":  {requestNeeds{inputTokens: 500, maxOutputTokens: &output}, []contract.DeploymentID{"dep_silent", "dep_large"}},
+		"exactly the window still fits":   {requestNeeds{inputTokens: 8000}, []contract.DeploymentID{"dep_small", "dep_silent", "dep_large"}},
+	} {
+		resolved, failure := resolveGrant(capabilityGrant(), line, nil, nil, nil, c.needs, time.Now())
+		if failure != nil {
+			t.Fatalf("%s: %v", name, failure)
+		}
+		var got []contract.DeploymentID
+		for _, route := range resolved.routes {
+			got = append(got, route.DeploymentID)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: routed to %v, want %v", name, got, c.want)
+		}
+	}
+	// Every admitted deployment too small: the request still reaches an attempt.
+	grant := capabilityGrant()
+	grant.Steps[0].Limits.ProviderAllowlist = []contract.ProviderSlug{"alpha"}
+	if resolved, failure := resolveGrant(grant, line, nil, nil, nil, requestNeeds{inputTokens: 50000}, time.Now()); failure != nil || len(resolved.routes) != 1 {
+		t.Errorf("a request no admitted window fits was turned into %v instead of reaching the attempt", failure)
 	}
 }

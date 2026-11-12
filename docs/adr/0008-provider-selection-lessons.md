@@ -31,9 +31,11 @@ are not gaps.
    while another admitted route could serve it. A deployment with no such
    statement (`nil`) is kept, as today. If no admitted deployment accepts the
    control, resolution falls back to the old behaviour so the attempt refuses
-   with the exact parameter named, never a bare "no route". Context and output
-   windows are not used: a route does not carry them, and adding them would
-   widen `provider.Route`.
+   with the exact parameter named, never a bare "no route". The same applies to
+   a deployment's observed `contextTokens` and `maxOutputTokens`: a route
+   carries them (`provider.Route`), an input past the window or an output limit
+   above the deployment's own skips it, and the estimate being rough means only
+   a clear excess does.
 2. **`maxPricePerRequest` stays Oxy's.** OpenRouter's `max_price` blocks on
    price, but Kaana never prices (`docs/cost.md`): Oxy applies the ceiling when
    it computes `admittedModelLines` and sizes the hold, and Kaana relays it.

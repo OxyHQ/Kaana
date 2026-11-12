@@ -97,6 +97,12 @@ type Route struct {
 	// control the upstream would reject before anything is spent. It can only
 	// refuse: nothing in it is ever sent or defaulted.
 	AcceptedParameters *[]RequestParameter
+	// ContextTokens and MaxOutputTokens are the deployment's observed window
+	// (inventory `observed`). Nil is UNKNOWN and excludes nothing. They only let
+	// route choice skip a deployment a request cannot fit, never size or default
+	// anything sent upstream.
+	ContextTokens   *int
+	MaxOutputTokens *int
 	// CustomerProviderCredential is the exact non-secret binding Oxy signed for
 	// this route. Nil means the provider call uses Kaana's platform pool.
 	CustomerProviderCredential *contract.CustomerProviderCredential

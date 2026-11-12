@@ -50,15 +50,16 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // paid inside that deployment, ADR 0001), so the request never moves to another
 // provider of the same line within the step.
 //
-// A request's `needs` (the controls it carries, see carriedParameters) drop a
-// deployment whose published accepted-parameter set refuses one; a deployment
-// with no such statement is kept, as absence is "nobody said".
+// A request's `needs` (the controls it carries, see carriedParameters, and its
+// size) drop a deployment whose published accepted-parameter set refuses one or
+// whose observed window it cannot fit; a deployment with no such statement is
+// kept, as absence is "nobody said".
 //
 // Kaana never adds a model line Oxy did not admit and never widens a limit.
 // What it cannot verify from its inventory (zero data retention, training,
 // licences) is the policy Oxy applied when it computed admittedModelLines.
-func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
-	if len(needs) > 0 {
+func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
+	if needs.any() {
 		// Prefer routes whose published accepted-parameter set takes every
 		// control the request carries (ADR 0008). When none does, resolve as
 		// before: the attempt then refuses with the exact parameter named, which
@@ -67,10 +68,10 @@ func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding 
 			return resolved, nil
 		}
 	}
-	return resolveGrantFor(grant, snapshot, funding, latency, serves, nil, at)
+	return resolveGrantFor(grant, snapshot, funding, latency, serves, requestNeeds{}, at)
 }
 
-func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
 	for stepIndex, step := range grant.Steps {
@@ -102,7 +103,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) {
 					continue
 				}
-				if _, refused := route.UnacceptedParameter(needs...); refused {
+				if needs.refusedBy(route) {
 					continue
 				}
 				if _, taken := resolved.steps[route.DeploymentID]; taken {
@@ -293,4 +294,33 @@ func latencyBand(latency LatencyReader, deployment contract.DeploymentID) int {
 		band++
 	}
 	return band
+}
+
+// requestNeeds is what a request asks of a route beyond where it may go: the
+// controls it carries and how much it needs to read and write. It stays in
+// Kaana and is never sent to Oxy.
+type requestNeeds struct {
+	parameters []provider.RequestParameter
+	// inputTokens is the content-free estimate Oxy sized the hold from; zero
+	// when the request has none.
+	inputTokens     int
+	maxOutputTokens *int
+}
+
+func (n requestNeeds) any() bool {
+	return len(n.parameters) > 0 || n.inputTokens > 0 || n.maxOutputTokens != nil
+}
+
+// refusedBy reports whether the route's published statements say it cannot
+// serve this request: a control it does not accept, an input larger than its
+// context window, or an output limit above its own. Unknown statements refuse
+// nothing, and the estimate is rough, so only a clear excess refuses.
+func (n requestNeeds) refusedBy(route provider.Route) bool {
+	if _, refused := route.UnacceptedParameter(n.parameters...); refused {
+		return true
+	}
+	if route.ContextTokens != nil && n.inputTokens > *route.ContextTokens {
+		return true
+	}
+	return route.MaxOutputTokens != nil && n.maxOutputTokens != nil && *n.maxOutputTokens > *route.MaxOutputTokens
 }
