@@ -69,3 +69,18 @@ func FoldCacheWrite(units []contract.UsageQuantity, priced bool) []contract.Usag
 	}
 	return folded
 }
+
+// withheldCacheBreakpoints is the request a route is sent. A prompt-cache
+// breakpoint makes the provider write the cache, which it bills above the plain
+// input rate, so a route whose granted price version does not price
+// cache_write_input_tokens is sent the request without them: it behaves exactly
+// as it did before the marker existed, and nothing is written that the settlement
+// could not price. A priced route gets the request as it came. The request is
+// never modified, because a later route of the same request may be priced.
+func withheldCacheBreakpoints(request *contract.Request, priced bool) *contract.Request {
+	if priced {
+		return request
+	}
+	withheld, _ := contract.LimitCacheBreakpoints(request, 0)
+	return withheld
+}

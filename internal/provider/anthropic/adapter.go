@@ -37,6 +37,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -160,6 +161,11 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		}
 	}
 
+	// At most the provider's four breakpoints are sent, the earliest in prompt
+	// order; the rest are dropped and the request still succeeds, because a
+	// breakpoint is a hint and never a reason to fail a request.
+	request, _ = contract.LimitCacheBreakpoints(request, contract.MaxCacheBreakpoints)
+
 	system, messages, err := translateConversation(request.Input.Messages)
 	if err != nil {
 		return nil, err
@@ -253,9 +259,10 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 			schema = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
 		body.Tools = append(body.Tools, toolParam{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: schema,
+			Name:         tool.Name,
+			Description:  tool.Description,
+			InputSchema:  schema,
+			CacheControl: ephemeral(tool.CacheBreakpoint != nil && *tool.CacheBreakpoint),
 		})
 	}
 	if choice := request.ToolChoice; choice != nil {
@@ -423,10 +430,14 @@ func translateConversation(messages []contract.Message) ([]systemBlock, []messag
 			if text == "" {
 				continue
 			}
-			system = append(system, systemBlock{Type: "text", Text: text})
+			// The parts are one block here, so a breakpoint on any of them is
+			// the block's.
+			system = append(system, systemBlock{Type: "text", Text: text, CacheControl: ephemeral(anyBreakpoint(message.Content))})
 
 		case contract.RoleTool:
-			content, err := translateParts(message.Content)
+			// The breakpoint is the tool_result block's, below, not each of its
+			// parts': the provider caches up to and including the block.
+			content, err := translateParts(withoutBreakpoints(message.Content))
 			if err != nil {
 				return nil, nil, annotate(err, fmt.Sprintf("input.messages[%d]", index))
 			}
@@ -436,6 +447,9 @@ func translateConversation(messages []contract.Message) ([]systemBlock, []messag
 					Type:      "tool_result",
 					ToolUseID: derefString(message.ToolCallID),
 					Content:   content,
+					// The result's parts are one block's content, so a breakpoint
+					// on any of them is the tool_result block's.
+					CacheControl: ephemeral(anyBreakpoint(message.Content)),
 				}},
 			})
 
@@ -505,21 +519,21 @@ func translateParts(parts []contract.ContentPart) ([]any, error) {
 func translateContentPart(part contract.ContentPart) (any, error) {
 	switch part.Type {
 	case contract.ContentPartText:
-		return textBlockParam{Type: "text", Text: derefString(part.Text)}, nil
+		return textBlockParam{Type: "text", Text: derefString(part.Text), CacheControl: ephemeral(breakpointOf(part))}, nil
 
 	case contract.ContentPartImage:
 		source, err := imageSourceFor(part.Source)
 		if err != nil {
 			return nil, err
 		}
-		return imageBlockParam{Type: "image", Source: source}, nil
+		return imageBlockParam{Type: "image", Source: source, CacheControl: ephemeral(breakpointOf(part))}, nil
 
 	case contract.ContentPartFile:
 		source, err := documentSourceFor(part.Source)
 		if err != nil {
 			return nil, err
 		}
-		return documentBlockParam{Type: "document", Source: source, Title: part.Filename}, nil
+		return documentBlockParam{Type: "document", Source: source, Title: part.Filename, CacheControl: ephemeral(breakpointOf(part))}, nil
 
 	case contract.ContentPartAudio:
 		// The messages api has no audio content block. Transcribing it here
@@ -639,6 +653,23 @@ func plainText(parts []contract.ContentPart) string {
 		builder.WriteString(derefString(part.Text))
 	}
 	return builder.String()
+}
+
+func breakpointOf(part contract.ContentPart) bool {
+	return part.CacheBreakpoint != nil && *part.CacheBreakpoint
+}
+
+// withoutBreakpoints is the parts with their breakpoints removed, as a copy.
+func withoutBreakpoints(parts []contract.ContentPart) []contract.ContentPart {
+	plain := slices.Clone(parts)
+	for index := range plain {
+		plain[index].CacheBreakpoint = nil
+	}
+	return plain
+}
+
+func anyBreakpoint(parts []contract.ContentPart) bool {
+	return slices.ContainsFunc(parts, breakpointOf)
 }
 
 func derefString(value *string) string {

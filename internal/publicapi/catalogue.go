@@ -741,3 +741,23 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	}
 	writeError(w, requestID, failure)
 }
+
+// forwardsCacheMarkers is whether a cache_control marker may reach a provider
+// for this request: only when EVERY route the request may be served on prices
+// the cache write at the price version the grant admitted. One unpriced route
+// (a fallback, say) makes the whole request ignore the marker, so the answer to
+// "was it honoured" does not depend on which route happened to serve. The
+// executor applies the same test per route as well (kaana.withheldCacheBreakpoints),
+// which is what keeps a request on another endpoint from provoking a cache write.
+func (s *Server) forwardsCacheMarkers(a *admission) bool {
+	if len(a.plan.routes) == 0 {
+		return false
+	}
+	priced := s.cacheWritePriced(a.grant)
+	for _, route := range a.plan.routes {
+		if !priced(route.ModelReference) {
+			return false
+		}
+	}
+	return true
+}

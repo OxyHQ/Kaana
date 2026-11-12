@@ -1,5 +1,21 @@
 # Changelog
 
+## 8.8.0
+
+An optional prompt-cache breakpoint, `cacheBreakpoint`, on a `text`, `image` or
+`file` content part and on a tool definition (not on a realtime tool). Additive:
+everything 8.7.0 parses still parses and a request without it is unchanged.
+
+- The marker means Anthropic's `cache_control: {type: "ephemeral"}` with the
+  default 5-minute lifetime and nothing else. A route that cannot express it
+  ignores it; the Anthropic adapter sends it (at most 4 per request, the earliest
+  in prompt order: tools, system, messages). The executor sends it only to a route
+  whose granted price version prices `cache_write_input_tokens`.
+- `POST /v1/messages` translates a `cache_control` of type `ephemeral` without a
+  `ttl` (or with `"5m"`) into the marker where the route prices the write; any
+  other marker, and every marker on an unpriced route, is still ignored and named
+  in `Kaana-Ignored-Parameters`.
+
 ## 8.7.0
 
 `POST /v1/messages` accepts `cache_control`, `context_management`,

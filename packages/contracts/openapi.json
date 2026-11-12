@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.7.0",
+    "version": "8.8.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -4079,6 +4079,9 @@
               },
               "text": {
                 "type": "string"
+              },
+              "cacheBreakpoint": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -4104,6 +4107,9 @@
                   "low",
                   "high"
                 ]
+              },
+              "cacheBreakpoint": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -4142,6 +4148,9 @@
               "filename": {
                 "type": "string",
                 "maxLength": 255
+              },
+              "cacheBreakpoint": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -8307,6 +8316,9 @@
             "additionalProperties": {}
           },
           "strict": {
+            "type": "boolean"
+          },
+          "cacheBreakpoint": {
             "type": "boolean"
           }
         },

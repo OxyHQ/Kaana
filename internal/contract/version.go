@@ -61,7 +61,9 @@ package contract
 // `opaque` token (8.4.0 and 8.5.0 are released separately).
 // 8.7.0 accepts (and ignores) cache_control on POST /v1/messages (public
 // request shape only).
-const ContractVersion = "8.7.0"
+// 8.8.0 adds the optional prompt-cache breakpoint (`cacheBreakpoint`) on a
+// text, image or file content part and on a tool definition.
+const ContractVersion = "8.8.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

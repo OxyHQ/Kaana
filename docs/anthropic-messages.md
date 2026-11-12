@@ -12,7 +12,7 @@ export ANTHROPIC_API_KEY=oxy_sk_...        # sent as x-api-key
 `model` is a Kaana model reference (`publisher/model[@revision]`) or a power
 level, exactly as on `/v1/chat/completions`; a vendor model name is not mapped.
 The contract is `packages/contracts/src/public/anthropicMessages.ts` (contract
-set 8.3.0); the handler is `internal/publicapi/messages.go`.
+set 8.3.0; `cache_control` forwarding is 8.8.0); the handler is `internal/publicapi/messages.go`.
 
 ## It is the `responses` operation
 
@@ -90,28 +90,55 @@ accepted with text blocks only (anything else is refused naming the block) and i
 carried in the position it was sent; the Anthropic adapter hoists it into the
 provider's system prompt like any system message.
 
-## Accepted and ignored: `cache_control` and what Claude Code sends
+## `cache_control`: honoured where it can be priced, ignored elsewhere
 
 Claude Code puts a `cache_control` marker on every request (`system[1]` in the
 request that exposed this), so refusing it made the endpoint unusable by its
-main client. It is accepted on the request, `system`, a tool, a content block or
-a tool result's block, and **ignored**: Kaana forwards no cache hint, so no cache
-write happens and `usage` stays exactly what the request cost. The caller does not
-get a prompt-cache write discount; a read a provider caches on its own is still
-reported as `cache_read_input_tokens`. A request whose marker was ignored is
-answered with `Kaana-Ignored-Parameters: cache_control`, so it is never left to
-inference. A key named `cache_control` inside a tool's own `input_schema` or
-`input` is the caller's data and is not read. Three more members Claude Code sends are
-accepted and ignored the same way: `context_management` (an Anthropic beta),
+main client. It is accepted on the request, `system`, a tool, a content block
+and a tool result's block, and then either **forwarded** or **ignored**.
+
+Forwarded (contract set 8.8.0): a marker of type `ephemeral` with no `ttl` (or
+`"5m"`), on a `system` block, a tool, a `text` or `image` block, or a
+`tool_result` block (or a block inside its content), becomes the signed
+contract's `cacheBreakpoint` on the part, system message or tool that carried it
+([contract.md](contract.md#contract-set-880-prompt-cache-breakpoint)). The
+Anthropic adapter sends it as `cache_control: {"type":"ephemeral"}`, and the
+write it provokes comes back as `cache_creation_input_tokens` in `usage`
+(`cache_write_input_tokens` upstream, priced at 1.25x input:
+[cost.md](cost.md#cache-write-tokens)). It is forwarded only when **every** route
+the request may be served on is one whose granted price version prices
+`cache_write_input_tokens` (`Server.forwardsCacheMarkers`, from
+`PublicCatalogue.PricesUnit`): a write is never provoked that the settlement
+could not price. At most four are forwarded (Anthropic's limit), the earliest in
+prompt order (tools, system, messages); the rest are ignored and the request
+still succeeds.
+
+Ignored: every other marker, which changes nothing about the request, so no
+cache write happens and `usage` stays what the request cost. That is: any
+marker on a route that does not price the write (as before this was honoured),
+`ttl: "1h"` (the cache-write unit prices the 5-minute write only, so a 1-hour
+write could not be priced), a marker with a type or member Kaana does not know,
+the request-level marker (automatic placement), a marker on a block the contract
+has no breakpoint for (`tool_use`, `thinking`, an empty text block), and any
+beyond four. The answer carries `Kaana-Ignored-Parameters: cache_control`
+whenever at least one marker was **not** forwarded, so it is never left to
+inference; a request whose every marker was forwarded carries no such header.
+A read a provider caches on its own is reported as `cache_read_input_tokens`
+either way.
+
+A key named `cache_control` inside a tool's own `input_schema` or `input` is the
+caller's data and is not read. Three more members Claude Code sends are accepted
+and ignored the same way: `context_management` (an Anthropic beta),
 `thinking.display` and `tools[].defer_loading`. Each is a hint that changes how a
 provider trims, shows or loads, never what a request means or costs; every
 present one is named in `Kaana-Ignored-Parameters` (a comma-separated list in a
-fixed order). Any other member the schema does not name is still refused.
-Honouring the marker needs a request-side contract field that carries it to the
-provider; none exists (issue #269). The cache-write unit itself
-(`cache_write_input_tokens`) is emitted by the Anthropic adapter and kept only for
-a grant that prices it ([cost.md](cost.md#cache-write-tokens)), so a marker with
-`ttl: "1h"` is ignored like any other and can never produce a 1-hour write.
+fixed order, `cache_control` first). Any other member the schema does not name is
+still refused.
+
+What is not verified: the provider's acceptance of the marker has been checked
+against a fake that speaks the documented wire, never a live Anthropic key, and
+the 5-minute default and the four-breakpoint limit are as Anthropic documents
+them. Other adapters cannot express the marker, ignore it and succeed.
 
 ## Refused, not dropped
 
@@ -147,8 +174,10 @@ execution. The route is therefore absent and answers as any unknown `/v1/` path.
   endpoint.** It rides on `responses`; a change that needs one is a contract
   change that asks first.
 - **A parameter the contract cannot carry is refused by name**, never dropped.
-  `cache_control` is the one marker that is accepted and ignored instead (see
-  above), because ignoring it cannot change what a request costs.
+  `cache_control` is the one marker that is accepted and either forwarded or
+  ignored instead (see above), because ignoring it cannot change what a request
+  costs. It is forwarded only where the cache write is priced, and never with a
+  lifetime; whatever is not forwarded is named in `Kaana-Ignored-Parameters`.
 - **`usage` is measured units only.** Never an estimate. A cache write appears
   as `cache_creation_input_tokens` when the grant prices the unit and is part of
   `input_tokens` otherwise.
