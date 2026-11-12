@@ -90,12 +90,16 @@ absent, and the code refuses rather than pretending.
 - **A threshold-based `approaching_limit` quota state.** It would need a
   threshold nobody has chosen, and nothing in this build would act on it: a key
   is usable or it is not.
-- **Modalities other than text and embeddings.** Embeddings are served only
-  where the capability table (`providerconfig.ExecutableAPIFormats`) lists an
-  embeddings endpoint: today the OpenAI-compatible adapter's
-  `POST {base}/embeddings` for `siliconflow` and `openrouter`, non-streaming,
-  text or text-batch input, at a fixed 1024 dimensions; images, audio and
-  rerank are refused with `unsupported_modality` rather than mistranslated.
+- **Modalities other than text, embeddings, speech, transcription and image
+  generation.** Embeddings are served only where the capability table
+  (`providerconfig.ExecutableAPIFormats`) lists an embeddings endpoint: today
+  the OpenAI-compatible adapter's `POST {base}/embeddings` for `siliconflow`
+  and `openrouter`, non-streaming, text or text-batch input, at a fixed 1024
+  dimensions. Speech and transcription have their own endpoints
+  (`POST /v1/audio/speech`, `POST /v1/audio/transcriptions`; see
+  [openai-audio](openai-audio.md)) and image generation is
+  `POST /v1/images/generations`. Rerank and any other modality are refused
+  with `unsupported_modality` rather than mistranslated.
 - **Replay protection beyond the signature time window.** Kaana keeps no nonce
   cache; the edge owns request idempotency.
 - **Realtime translation sessions and customer (BYOK) credentials for a
