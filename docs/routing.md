@@ -48,8 +48,9 @@ The signed lane above is never reordered. On the public `kaana.ai/v1` lane
 Oxy signs a grant, not a route list, and Kaana resolves it into one
 (`publicapi.resolveGrant`). Per step it drops deployments the grant's provider
 and region limits refuse, whose key pool has no key inside the funding ceiling,
-or whose published `acceptedParameters` refuse a control the request carries
-(unless none accepts it, which keeps the attempt's precise refusal), then
+or whose published `acceptedParameters` refuse a control the request carries,
+or whose observed context window or output limit it clearly exceeds (unless none
+fits, which keeps the attempt's precise refusal), then
 orders by cheapest key tier, the grant's line order, recent time to first
 output in coarse bands, and inventory position. The latency reading is
 `rotation.Registry.FirstOutput`, a 5-minute moving average per deployment fed

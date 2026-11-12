@@ -262,9 +262,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		labels: request.Labels, clientRequestID: request.ClientRequestID,
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: request.MaxOutputTokens,
 			InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
-		needs: carriedParameters(request.MaxOutputTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,
-			FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences},
-			len(request.Tools), request.ToolChoice, request.ResponseFormat, request.Reasoning != nil),
+		needs: requestNeeds{inputTokens: estimate, maxOutputTokens: request.MaxOutputTokens,
+			parameters: carriedParameters(request.MaxOutputTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,
+				FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences},
+				len(request.Tools), request.ToolChoice, request.ResponseFormat, request.Reasoning != nil)},
 	})
 	if failure != nil {
 		writeError(w, requestID, failure)
@@ -390,7 +391,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		operation: contract.GrantChatCompletions, target: request.Model.grantTarget(), body: body, endpoint: "/v1/chat/completions",
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: maxTokens, InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
 	}
-	ask.needs = chatNeeds(request, maxTokens)
+	ask.needs = requestNeeds{inputTokens: estimate, maxOutputTokens: maxTokens, parameters: chatParameters(request, maxTokens)}
 	if request.User != nil {
 		user := contract.UserID(*request.User)
 		ask.onBehalfOf = &user
@@ -864,8 +865,8 @@ func (d *dataWriter) raw(data []byte) error {
 	return nil
 }
 
-// chatNeeds is the set of controls a Chat Completions request carries.
-func chatNeeds(request chatRequest, maxTokens *int) []provider.RequestParameter {
+// chatParameters is the set of controls a Chat Completions request carries.
+func chatParameters(request chatRequest, maxTokens *int) []provider.RequestParameter {
 	sampling := contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,
 		FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed}
 	if request.Stop != nil {

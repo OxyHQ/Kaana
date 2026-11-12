@@ -313,9 +313,21 @@ func (s RouteSet) Candidates() []provider.Route {
 			// carries: it only lets Translate refuse what the upstream would
 			// reject, so it cannot change where a request goes or what is sent.
 			AcceptedParameters: acceptedParametersOf(endpoint.Observed),
+			ContextTokens:      windowOf(endpoint.Observed, func(o *Observed) *int { return o.ContextTokens }),
+			MaxOutputTokens:    windowOf(endpoint.Observed, func(o *Observed) *int { return o.MaxOutputTokens }),
 		})
 	}
 	return routes
+}
+
+// windowOf copies one observed window limit so a route cannot alias the
+// inventory's. Nil stays nil: unknown is not unlimited and not zero.
+func windowOf(observed *Observed, field func(*Observed) *int) *int {
+	if observed == nil || field(observed) == nil {
+		return nil
+	}
+	limit := *field(observed)
+	return &limit
 }
 
 // acceptedParametersOf copies a deployment's accepted-parameter set so a route

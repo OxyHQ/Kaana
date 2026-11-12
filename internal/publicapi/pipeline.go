@@ -28,7 +28,7 @@ type authorization struct {
 	onBehalfOf *contract.UserID
 	// needs are the caller controls the request carries. They stay in Kaana:
 	// they steer route choice (resolveGrant) and are never sent to Oxy.
-	needs []provider.RequestParameter
+	needs requestNeeds
 }
 
 // admission is a request Oxy granted and Kaana resolved: everything the
