@@ -430,3 +430,114 @@ during which the server finishes in-flight handlers.
    `contractVersion 3.0.0`; the old one reports 2.0.0. It still accepts request
    envelope versions 1 and 2. Steps 4 and 5 are what show that Oxy's live client
    works with it.
+
+## Staged rollout procedure
+
+Moved from `operating.md`, where it was the runbook while the rollout was open.
+
+*Historical.* This section records the 0013 cutover, when every multi-key
+deployment needed an exact binding. Since ADR 0001 a binding is an optional
+pin and an unpinned deployment executes on its provider's pool; the startup
+gate now refuses only a generation whose served providers hold no key.
+
+Do not turn a schema migration into a serving cutover. The release workflow
+will not update ECS until the repository variable
+`KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE` is exactly `true`, and the new
+serving process independently refuses to start when its binding table is
+effectively unpopulated: when more than half of the deployments in its mounted
+production inventory whose provider it serves do not resolve to one exact,
+active credential. A deployment resolves through its exact binding, or, when it
+has none, through its provider's key if the provider holds exactly one enabled
+key ([key-pools](key-pools.md#several-providers-and-a-key-pool-for-each)). ECS therefore retains the previous healthy revision if the
+database is empty or mostly empty, names the wrong provider, or points at
+disabled keys. A smaller gap starts, and each unbound deployment is refused per
+request and named by the `deployments without an exact credential binding are
+unroutable until bound` WARN. Completeness is proven by the exact readback and
+by that WARN's absence, not by the process starting.
+
+Roll out in this order:
+
+1. Push the reviewed commit to main. The release workflow builds its immutable
+   candidate and, while the 0013 completeness variable is false or absent,
+   runs that candidate's migrator as a one-shot. It does not call
+   `update-service`, and completes successfully after schema preparation.
+   Verify the migration task's clean exit. Pin that candidate digest and source
+   commit in `.github/credential-admin-operations.json` through review before
+   using its new administration commands.
+2. Leave the repository cutover variable unset while bindings are populated.
+3. Obtain the exact deployment IDs and provider slugs from the current signed
+   production readback and the exact active key IDs from the credential-admin
+   readback. Kaana's reviewed cutover manifest is the authority for the exact
+   assignment; never choose the first pool row or infer a key at runtime from
+   price, position, a secret value, or provider name.
+4. Run the single `apply-production-deployment-bindings` operation. It applies
+   every row with its unique `kdb_*` operation ID and the workflow actor, then
+   compares complete readback to the manifest. Neither output contains secret
+   material.
+5. Canary the candidate task definition against the same mounted inventory. It
+   must remain running and make a real signed request through every distinct
+   `(deploymentId, provider, keyId)` binding class, and its log must carry no
+   unbound-deployment WARN. An unpopulated table fails at process startup; an
+   unusable exact key fails its canary and is never replaced by another key from
+   the provider pool.
+6. Only after the set comparison and canaries pass, set
+   `KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE=true` and manually dispatch
+   `Deploy to AWS` in `deploy` mode. Confirm the registered digest, ECS steady
+   state, and a signed production request before allowing later main pushes to
+   auto-deploy.
+
+If any proof fails, leave the variable false and the old serving revision in
+place. Rebinding is an explicit audited mutation; do not weaken the startup gate
+or add an ambient provider-pool fallback to get a candidate healthy.
+
+The first production assignment was
+`configs/cutovers/production-bindings-snap_dfd6904a99d6313b.json`: 340 explicit
+rows, applied and verified on 2026-09-11. It stays in the repository as the
+record of the rows it created. The schema 0013 cutover applied and verified
+`configs/cutovers/production-bindings-snap_ebf19b144959bbb8.json` (333 rows plus
+8 retained) on 2026-09-24; it stays as the record of the one row it added. The
+current reviewed assignment is
+`configs/cutovers/production-bindings-snap_37548e4f1f8ec610.json`, the first
+snapshot with xAI speech, and it is the only manifest baked into the image. Its
+inventory provenance is an immutable S3 `VersionId` of the snapshot's reviewed
+archive (`inventory/reviewed/<snapshotId>.json`, never the live key — see
+[Pinning an inventory snapshot](operating.md#pinning-an-inventory-snapshot)), ETag and locally
+computed SHA-256. The raw S3 inventory document is
+IAM-controlled but is **not cryptographically signed**; do not describe it as
+signed. Before either batch apply or verify, the admin workflow downloads that
+exact immutable object and compares its content hash, snapshot ID, count, and
+complete sorted `(deploymentId, provider)` set to the manifest's `assignments`.
+The database mutation still independently refuses a missing, disabled, or
+wrong-provider key.
+
+A successor manifest describes the database its predecessor produced:
+
+- a deployment that is still published keeps its exact applied row, including
+  its `kdb_*` operation ID;
+- a new deployment takes a new, never-used operation ID;
+- a deployment the publisher withdrew is listed verbatim under
+  `retainedBindings`. There is no unbind mutation, so its audited row stays in
+  the database. It is inert — serving checks only the deployments its mounted
+  inventory names — but it is still part of the exact readback.
+
+`apply-production-deployment-bindings` binds only the assignments the database
+does not already hold exactly, then requires exact complete readback: every
+assignment and every retained row, and nothing else.
+`verify-production-deployment-bindings` performs the same readback without a
+mutation. Skipping an exact row, rather than replaying it, is what lets a
+partially applied manifest be finished: the database treats a replay of an
+operation ID by a different actor as a conflict, and every workflow run is a
+different actor.
+
+After the cutover the startup gate is also the inventory reload gate. Since
+ADR 0001 it refuses a published snapshot (the previous one keeps serving until
+it passes `KAANA_INVENTORY_MAX_AGE`) only when more than half of its served
+deployments resolve to no platform credential: their provider holds no enabled
+key, or their pin names a key that is not enabled. A newly discovered
+deployment resolves to its provider's pool with no bind at all, whatever the
+number of keys. Every inventory load logs the unresolvable ones at WARN as
+`deployments without a platform credential are unroutable`, with `unroutable`,
+`served`, `deploymentIds`, `providers` and `snapshotId`; alert on it. Adding a
+second enabled key to a provider never makes a deployment unroutable: it joins
+the pool in funding order.
+
