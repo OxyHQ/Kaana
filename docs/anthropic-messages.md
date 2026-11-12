@@ -40,7 +40,8 @@ preflight.
 | `tools[].input_schema`, `tool_choice` `auto` / `any` / `none` / `tool` | tool definitions; `any` is `required` |
 | `max_tokens` (required), `temperature`, `top_p`, `top_k`, `stop_sequences` | the same parameters |
 | `output_config.effort` `low` / `medium` / `high` | `reasoning.effort` |
-| `thinking: {type: "disabled"}`, `metadata.user_id` | accepted; `user_id` is neither forwarded nor stored |
+| `thinking: {type: "enabled", budget_tokens}` (>= 1024) | `reasoning.effort`, **approximated**: under 4,096 `low`, under 16,384 `medium`, else `high`; the budget is not a cap, and `output_config.effort` wins |
+| `thinking: {type: "adaptive"}` or `{type: "disabled"}`, `metadata.user_id` | accepted, asking for nothing; `user_id` is neither forwarded nor stored |
 | `stream: true` | SSE: `message_start`, `ping`, `content_block_start` / `_delta` / `_stop`, `message_delta`, `message_stop`; a failure after the first frame is one `event: error` frame and no `message_stop` |
 
 The answer has `id` (`msg_` + the request id), `type`, `role`, `model` (the
@@ -87,10 +88,10 @@ The schema is strict, so a parameter Kaana does not implement is refused with
   `input_tokens` and report less than the request cost. A key named
   `cache_control` inside a tool's own `input_schema` or `input` is the caller's
   data and is not read.
-- **`thinking` other than `disabled`**, and `thinking` / `redacted_thinking`
-  blocks in a message. The contract's reasoning control is an effort, not a
-  token budget, and reasoning is never returned, so there is none to send back.
-  Ask with `output_config.effort`.
+- **`thinking` / `redacted_thinking` blocks in a message.** Reasoning is never
+  returned, so there is none to send back. A `thinking` request control is
+  accepted (see above); a budget below 1,024 or a member the schema does not name
+  is refused.
 - Server tools (`web_search`, `bash`, `text_editor`, ...), `disable_parallel_tool_use`,
   `document` blocks, an image `url` source (nothing fetches an image URL),
   `mcp_servers`, `container`, `service_tier`, `output_config.format` and every

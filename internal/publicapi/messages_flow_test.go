@@ -332,9 +332,11 @@ func TestMessagesRefuseWhatTheContractCannotCarry(t *testing.T) {
 		extra map[string]any
 		param string
 	}{
-		"thinking with a budget": {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048}}, "thinking"},
-		"effort beyond high":     {map[string]any{"output_config": map[string]any{"effort": "max"}}, "output_config.effort"},
-		"a server tool":          {map[string]any{"tools": []any{map[string]any{"type": "web_search_20250305", "name": "web_search"}}}, "tools[0].type"},
+		"thinking enabled without a budget":   {map[string]any{"thinking": map[string]any{"type": "enabled"}}, "thinking"},
+		"thinking with a budget under 1024":   {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 512}}, "thinking"},
+		"thinking disabled carrying a budget": {map[string]any{"thinking": map[string]any{"type": "disabled", "budget_tokens": 2048}}, "thinking"},
+		"effort beyond high":                  {map[string]any{"output_config": map[string]any{"effort": "max"}}, "output_config.effort"},
+		"a server tool":                       {map[string]any{"tools": []any{map[string]any{"type": "web_search_20250305", "name": "web_search"}}}, "tools[0].type"},
 		"an image url": {map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
 			map[string]any{"type": "image", "source": map[string]any{"type": "url", "url": "https://example.test/a.png"}}}}}}, "messages[0].content[0].source"},
 		"a thinking block": {map[string]any{"messages": []any{map[string]any{"role": "assistant", "content": []any{
@@ -363,6 +365,48 @@ func TestMessagesRefuseWhatTheContractCannotCarry(t *testing.T) {
 	}
 	if strings.Contains(h.oxy.authorizationBodies()[0], `"u"`) {
 		t.Error("metadata.user_id reached Oxy")
+	}
+}
+
+// A thinking budget is mapped to the nearest effort (under 4,096 low, under
+// 16,384 medium, else high) and is not a cap; adaptive and disabled ask for
+// nothing, and an explicit output_config.effort wins over a budget. The control
+// is the request with no thinking at all, which must send no reasoning either.
+func TestMessagesMapAThinkingBudgetToAnEffort(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	for name, tc := range map[string]struct {
+		extra map[string]any
+		want  contract.ReasoningEffort
+	}{
+		"a small budget":        {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 2048}}, contract.ReasoningEffortLow},
+		"the low boundary":      {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 4096}}, contract.ReasoningEffortMedium},
+		"a medium budget":       {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 8000}}, contract.ReasoningEffortMedium},
+		"the medium boundary":   {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 16384}}, contract.ReasoningEffortHigh},
+		"a large budget":        {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 32000}}, contract.ReasoningEffortHigh},
+		"effort beats a budget": {map[string]any{"thinking": map[string]any{"type": "enabled", "budget_tokens": 32000}, "output_config": map[string]any{"effort": "low"}}, contract.ReasoningEffortLow},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if response := h.post("/v1/messages", validKey, messagesBody(tc.extra)); response.StatusCode != http.StatusOK {
+				t.Fatalf("%d %s", response.StatusCode, response.Body)
+			}
+			if reasoning := h.adapter.lastCall().Reasoning; reasoning == nil || reasoning.Effort != tc.want {
+				t.Errorf("reasoning = %+v, want %s", reasoning, tc.want)
+			}
+		})
+	}
+	for name, thinking := range map[string]any{"none": nil, "adaptive": map[string]any{"type": "adaptive"}, "disabled": map[string]any{"type": "disabled"}} {
+		t.Run(name, func(t *testing.T) {
+			extra := map[string]any{}
+			if thinking != nil {
+				extra["thinking"] = thinking
+			}
+			if response := h.post("/v1/messages", validKey, messagesBody(extra)); response.StatusCode != http.StatusOK {
+				t.Fatalf("%d %s", response.StatusCode, response.Body)
+			}
+			if reasoning := h.adapter.lastCall().Reasoning; reasoning != nil {
+				t.Errorf("reasoning = %+v, want none", reasoning)
+			}
+		})
 	}
 }
 

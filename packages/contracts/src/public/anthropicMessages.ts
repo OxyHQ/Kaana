@@ -17,12 +17,15 @@
  *    over input, so honouring the marker while folding the write into
  *    `input_tokens` would report less than the request cost. The marker is
  *    refused, by name and path, instead of being dropped.
- *  - **`thinking` other than `{ type: 'disabled' }`.** The contract's reasoning
- *    control is an effort (`low`, `medium`, `high`), not a token budget, and a
- *    thinking block has no part in a message: reasoning is private and is never
- *    returned. Reasoning effort is asked with `output_config.effort`, which
- *    maps one to one. A `thinking` or `redacted_thinking` block in a message is
- *    refused for the same reason.
+ *  - **A `thinking` or `redacted_thinking` block in a message.** Reasoning is
+ *    private and is never returned, so there is none to send back.
+ *
+ * Accepted, with an approximation stated here: `thinking` is `disabled`,
+ * `adaptive` (the route's own default reasoning), or `enabled` with a
+ * `budget_tokens`. The contract's reasoning control is an effort, not a token
+ * budget, so a budget is mapped to the nearest effort: under 4,096 is `low`,
+ * under 16,384 `medium`, otherwise `high`. The budget is NOT enforced as a cap.
+ * `output_config.effort`, when present, wins over any budget.
  *  - **Server tools** (`web_search`, `bash`, `text_editor`, …), `mcp_servers`,
  *    `container`, `service_tier`, `disable_parallel_tool_use`, `document`
  *    blocks and any other member this file does not name.
@@ -154,10 +157,18 @@ export const anthropicMessagesRequestSchema = z
     stream: z.boolean().optional(),
     tools: z.array(toolSchema).max(128).optional(),
     tool_choice: toolChoiceSchema.optional(),
-    /** Only "off" is accepted: see the file comment. */
+    /** A budget is mapped to an effort, not enforced: see the file comment. */
     thinking: z
-      .object({ type: z.literal('disabled') })
-      .strict()
+      .union([
+        z.object({ type: z.literal('disabled') }).strict(),
+        z.object({ type: z.literal('adaptive') }).strict(),
+        z
+          .object({
+            type: z.literal('enabled'),
+            budget_tokens: z.number().int().min(1024).safe(),
+          })
+          .strict(),
+      ])
       .optional(),
     /** `effort` is the contract's reasoning effort; no other member is carried. */
     output_config: z.object({ effort: reasoningEffortSchema.optional() }).strict().optional(),

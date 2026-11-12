@@ -67,7 +67,13 @@ describe('POST /v1/messages request', () => {
       { tools: [{ name: 'a', input_schema: {}, cache_control: { type: 'ephemeral' } }] },
     ],
     ['cache_control on the request', { cache_control: { type: 'ephemeral' } }],
-    ['thinking enabled', { thinking: { type: 'enabled', budget_tokens: 2048 } }],
+    ['thinking enabled without a budget', { thinking: { type: 'enabled' } }],
+    [
+      'thinking enabled with a budget under 1024',
+      { thinking: { type: 'enabled', budget_tokens: 512 } },
+    ],
+    ['thinking disabled with a budget', { thinking: { type: 'disabled', budget_tokens: 2048 } }],
+    ['an unknown thinking type', { thinking: { type: 'maximum' } }],
     ['effort beyond high', { output_config: { effort: 'max' } }],
     ['a server tool', { tools: [{ type: 'web_search_20250305', name: 'web_search' }] }],
     [

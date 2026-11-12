@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.5.0",
+    "version": "8.6.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -1812,17 +1812,53 @@
             ]
           },
           "thinking": {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "disabled"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "disabled"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "adaptive"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "enabled"
+                  },
+                  "budget_tokens": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "budget_tokens"
+                ],
+                "additionalProperties": false
               }
-            },
-            "required": [
-              "type"
-            ],
-            "additionalProperties": false
+            ]
           },
           "output_config": {
             "type": "object",

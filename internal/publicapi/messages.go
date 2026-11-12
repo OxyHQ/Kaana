@@ -84,8 +84,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		choice := request.ToolChoice.choice
 		envelope.ToolChoice = &choice
 	}
-	if request.OutputConfig != nil && request.OutputConfig.Effort != nil {
+	switch {
+	case request.OutputConfig != nil && request.OutputConfig.Effort != nil:
 		envelope.Reasoning = &contract.ReasoningParameters{Effort: *request.OutputConfig.Effort}
+	case request.Thinking != nil && request.Thinking.effort != nil:
+		envelope.Reasoning = &contract.ReasoningParameters{Effort: *request.Thinking.effort}
 	}
 	if stream {
 		s.messagesStream(r.Context(), w, admitted, &envelope)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.0
+
+Depend on contracts 8.6.0: the client states contract set 8.6.0 (the Messages
+endpoint accepts `thinking` `adaptive` and `enabled`). The SDK adds no method.
+
 ## 3.8.0
 
 Depend on contracts 8.5.0: the client states contract set 8.5.0 and its request

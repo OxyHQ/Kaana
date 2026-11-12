@@ -1,5 +1,17 @@
 # Changelog
 
+## 8.6.0
+
+`POST /v1/messages` accepts `thinking: {type: "adaptive"}` and
+`{type: "enabled", budget_tokens}` (at least 1,024), so a client that turns
+extended thinking on is no longer refused. Additive: everything 8.5.0 parses
+still parses; the signed grant and envelope are unchanged.
+
+- The contract's reasoning control is an effort, not a token budget, so a budget
+  is mapped to the nearest effort (under 4,096 `low`, under 16,384 `medium`,
+  otherwise `high`) and is not enforced as a cap. `output_config.effort` wins
+  over a budget; `adaptive` and `disabled` ask for nothing.
+
 ## 8.5.0
 
 OpenRouter-style routing preference and prompt-cache key (Kaana ADR 0008).

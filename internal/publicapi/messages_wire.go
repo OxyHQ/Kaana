@@ -127,19 +127,48 @@ func (c *messagesToolChoice) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// messagesThinking accepts only an explicit "off": the contract's reasoning
-// control is an effort, not a token budget.
-type messagesThinking struct{}
+// messagesThinking is the dialect's thinking control. The contract's reasoning
+// control is an effort, not a token budget, so an enabled budget is mapped to
+// the nearest effort (effort below) and is not enforced as a cap.
+type messagesThinking struct {
+	effort *contract.ReasoningEffort
+}
 
-func (*messagesThinking) UnmarshalJSON(data []byte) error {
-	var wire map[string]any
+const (
+	thinkingLowBelow    = 4096
+	thinkingMediumBelow = 16384
+	thinkingMinBudget   = 1024
+)
+
+func (t *messagesThinking) UnmarshalJSON(data []byte) error {
+	bad := fieldError{"thinking", "thinking is {type: disabled}, {type: adaptive} or {type: enabled, budget_tokens: >= 1024}"}
+	var wire map[string]json.RawMessage
 	if err := json.Unmarshal(data, &wire); err != nil {
-		return fieldError{"thinking", "thinking is {type: disabled}"}
+		return bad
 	}
-	if wire["type"] == "disabled" && len(wire) == 1 {
+	var kind string
+	if raw, ok := wire["type"]; !ok || json.Unmarshal(raw, &kind) != nil {
+		return bad
+	}
+	switch {
+	case (kind == "disabled" || kind == "adaptive") && len(wire) == 1:
+		return nil
+	case kind == "enabled" && len(wire) == 2:
+		var budget int
+		if raw, ok := wire["budget_tokens"]; !ok || json.Unmarshal(raw, &budget) != nil || budget < thinkingMinBudget {
+			return bad
+		}
+		effort := contract.ReasoningEffortHigh
+		switch {
+		case budget < thinkingLowBelow:
+			effort = contract.ReasoningEffortLow
+		case budget < thinkingMediumBelow:
+			effort = contract.ReasoningEffortMedium
+		}
+		t.effort = &effort
 		return nil
 	}
-	return fieldError{"thinking", "thinking is not supported; ask for reasoning with output_config.effort (low, medium or high)"}
+	return bad
 }
 
 type messagesOutputConfig struct {
