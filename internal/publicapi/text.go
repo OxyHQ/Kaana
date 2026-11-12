@@ -296,6 +296,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	policyHeaders(w.Header())
+	stampServerTiming(r.Context(), w.Header())
 	writeJSON(w, requestID, http.StatusOK, response{
 		SchemaVersion: contract.SchemaVersion, RequestID: requestID, GenerationID: folded.generationID,
 		Model: result.Report.ResolvedModelReference, FinishReason: finishOr(folded.finish),
@@ -455,6 +456,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		output.ID, output.Type, output.Function.Name, output.Function.Arguments = call.ID, "function", call.Name, call.Arguments
 		message.ToolCalls = append(message.ToolCalls, output)
 	}
+	stampServerTiming(r.Context(), w.Header())
 	completion := chatCompletion{ID: string(requestID), Object: "chat.completion", Created: created, Model: string(result.Report.ResolvedModelReference),
 		Choices: []chatChoice{{Index: 0, Message: message, FinishReason: string(finishOr(folded.finish))}}, Usage: chatUsageOf(result.Report.Units)}
 	if folded.audio.Len() > 0 {

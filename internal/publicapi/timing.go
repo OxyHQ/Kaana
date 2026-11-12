@@ -2,8 +2,10 @@ package publicapi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,4 +118,41 @@ func (s *Server) logTiming(ctx context.Context, trace *requestTrace, started tim
 		slog.Int64("kaanaMs", max(own, 0).Milliseconds()),
 	}
 	s.logger.LogAttrs(context.WithoutCancel(ctx), slog.LevelInfo, "public request timing", append(attrs, summary.Attrs()...)...)
+}
+
+// HeaderServerTiming is the W3C Server-Timing header.
+const HeaderServerTiming = "Server-Timing"
+
+// serverTiming is the caller's own answer to "where did my request's time go",
+// in the standard header: the authorization round trip, the upstream exchanges
+// and any retry backoff, each in milliseconds. It carries durations only: no
+// provider, route or key is named, so it discloses nothing the response does
+// not (docs/rules.md). A metric that was not measured is omitted, never
+// reported as zero. It is stamped just before a non-streamed body is written,
+// when these phases are complete; a stream has already sent its headers.
+func (t *requestTrace) serverTiming() string {
+	if t == nil {
+		return ""
+	}
+	t.mu.Lock()
+	grant := t.grant
+	t.mu.Unlock()
+	summary := t.recording.Summary()
+	var metrics []string
+	add := func(name string, d time.Duration, measured bool) {
+		if measured {
+			metrics = append(metrics, fmt.Sprintf("%s;dur=%.1f", name, float64(d.Microseconds())/1000))
+		}
+	}
+	add("grant", grant, grant > 0)
+	add("upstream", summary.Provider, summary.ProviderExchanges > 0)
+	add("retry", summary.RetryWait, summary.RetryWait > 0)
+	return strings.Join(metrics, ", ")
+}
+
+// stampServerTiming sets Server-Timing from the request's trace, if any.
+func stampServerTiming(ctx context.Context, header http.Header) {
+	if value := traceFrom(ctx).serverTiming(); value != "" {
+		header.Set(HeaderServerTiming, value)
+	}
 }
