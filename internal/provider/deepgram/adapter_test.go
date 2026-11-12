@@ -259,3 +259,5 @@ func TestEndpointAndUnconfiguredHealth(t *testing.T) {
 		t.Fatal("missing credential reported healthy")
 	}
 }
+
+func (*capture) ReasoningBlock(int, string) error { return nil }

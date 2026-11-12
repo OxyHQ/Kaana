@@ -396,3 +396,5 @@ func TestHealthNeverSpendsTranscriptionCredit(t *testing.T) {
 		t.Fatal("configuration invented a credential")
 	}
 }
+
+func (*capture) ReasoningBlock(int, string) error { return nil }

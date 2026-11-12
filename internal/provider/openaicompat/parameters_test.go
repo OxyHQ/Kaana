@@ -261,6 +261,10 @@ func TestEveryRequestParameterHasAWireField(t *testing.T) {
 	for _, value := range []string{`"none"`, `"required"`, `{"type":"function","function":{"name":"lookup"}}`} {
 		covered[wireToolChoiceValue(json.RawMessage(value))] = true
 	}
+	// A reasoning budget is read from inside OpenRouter's `reasoning` object.
+	for _, parameter := range wireReasoningParameters(json.RawMessage(`{"max_tokens":2048}`)) {
+		covered[parameter] = true
+	}
 	for _, parameter := range provider.RequestParameters() {
 		if !covered[parameter] {
 			t.Errorf("%s has no wire field, so Translate can never refuse it", parameter)

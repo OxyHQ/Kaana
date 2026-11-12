@@ -410,8 +410,10 @@ func TestUnspeakableChatRequestsAreRefusedBeforeSending(t *testing.T) {
 		"streamed wav":   {func(r *contract.Request) { r.Stream, r.AudioOutput.Format = true, "wav" }, "audioOutput.format"},
 		"unknown format": {func(r *contract.Request) { r.AudioOutput.Format = "aac" }, "audioOutput.format"},
 		"no voice":       {func(r *contract.Request) { r.AudioOutput.Voice = "" }, "audioOutput.voice"},
-		"reasoning":      {func(r *contract.Request) { r.Reasoning = &contract.ReasoningParameters{Effort: "low"} }, "reasoning.effort"},
-		"tools":          {func(r *contract.Request) { r.Tools = []contract.ToolDefinition{{Type: "function", Name: "f"}} }, "tools"},
+		"reasoning": {func(r *contract.Request) {
+			r.Reasoning = &contract.ReasoningParameters{Effort: contract.EffortPtr("low")}
+		}, "reasoning.effort"},
+		"tools": {func(r *contract.Request) { r.Tools = []contract.ToolDefinition{{Type: "function", Name: "f"}} }, "tools"},
 		"structured": {func(r *contract.Request) {
 			r.ResponseFormat = &contract.ResponseFormat{Type: contract.ResponseFormatJSONObject}
 		}, "responseFormat"},
@@ -582,3 +584,5 @@ func TestTheAudioAdapterDeclaresTranscriptionAndSpokenChat(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func (*spoken) ReasoningBlock(int, string) error { return nil }

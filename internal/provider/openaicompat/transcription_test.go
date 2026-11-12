@@ -341,3 +341,5 @@ func TestTranscriptionRefusesAResponseWithoutADuration(t *testing.T) {
 		})
 	}
 }
+
+func (*transcriptCapture) ReasoningBlock(int, string) error { return nil }

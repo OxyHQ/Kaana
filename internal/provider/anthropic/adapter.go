@@ -176,7 +176,7 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		TopK:          request.Sampling.TopK,
 		StopSequences: request.Sampling.StopSequences,
 	}
-	if request.Reasoning != nil {
+	if request.Reasoning.HasEffort() {
 		// The Messages API's own reasoning control is `output_config.effort`,
 		// whose low/medium/high are the contract's words, so the effort is sent
 		// as it was asked. The older extended-thinking token budget is
@@ -184,8 +184,25 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 		// number nobody asked for, and current models reject the budget form
 		// outright. A model that takes no effort is refused by the provider
 		// with its own invalid-request error, never silently ignored.
-		body.OutputConfig = &outputConfig{Effort: string(request.Reasoning.Effort)}
+		body.OutputConfig = &outputConfig{Effort: string(*request.Reasoning.Effort)}
 	}
+	thinking, err := thinkingBudget(request, route)
+	if err != nil {
+		return nil, err
+	}
+	if thinking != nil && !continuable(request.Input.Messages) {
+		// The Messages API requires an assistant turn that called a tool to open
+		// with its own thinking blocks whenever thinking is enabled, and one of
+		// these turns has none Kaana can send: its blocks were issued by another
+		// provider (a failover or a model switch), were never returned, or were
+		// edited into something unreadable. Sending the budget anyway is a 400
+		// for a request that was otherwise servable, and sending the turn
+		// without blocks while thinking is on is the same 400. So thinking is
+		// left off for THIS request and the conversation continues; the caller
+		// loses the budget for one turn, never the answer.
+		thinking = nil
+	}
+	body.Thinking = thinking
 	if request.Sampling.FrequencyPenalty != nil {
 		// Dropping it silently would change what the model does while reporting
 		// success, which is the one thing translation must never do.
@@ -427,6 +444,12 @@ func translateConversation(messages []contract.Message) ([]systemBlock, []messag
 			if err != nil {
 				return nil, nil, annotate(err, fmt.Sprintf("input.messages[%d]", index))
 			}
+			if message.Role == contract.RoleAssistant {
+				// The assistant's own reasoning goes first, unmodified and in the
+				// order it was issued: the provider requires its thinking blocks
+				// ahead of the text and tool_use blocks they preceded.
+				content = append(thinkingBlocks(message.Content), content...)
+			}
 			for callIndex, call := range message.ToolCalls {
 				translated, err := translateToolCall(call)
 				if err != nil {
@@ -464,6 +487,12 @@ func translateConversation(messages []contract.Message) ([]systemBlock, []messag
 func translateParts(parts []contract.ContentPart) ([]any, error) {
 	converted := make([]any, 0, len(parts))
 	for index, part := range parts {
+		if part.Type == contract.ContentPartReasoning {
+			// Reasoning is not a content block here: thinkingBlocks sends the
+			// blocks this protocol owns, ahead of the rest, and a block it does
+			// not own is dropped.
+			continue
+		}
 		translated, err := translateContentPart(part)
 		if err != nil {
 			return nil, annotate(err, fmt.Sprintf("content[%d]", index))

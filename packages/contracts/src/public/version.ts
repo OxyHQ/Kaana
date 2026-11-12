@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.5.0';
+export const INFERENCE_CONTRACT_VERSION = '8.6.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -216,6 +216,15 @@ export const INFERENCE_CONTRACT_VERSION = '8.5.0';
  * `promptCacheKey`) on `POST /v1/chat/completions` and `POST /v1/responses`
  * (Kaana ADR 0008). The preference only narrows what the grant admits. Nothing
  * in 8.4.0 changes and the signed grant and envelope are untouched.
+ *
+ * Contract set 8.6.0 is additive: reasoning continuity (Kaana ADR 0009 decision
+ * 2). `reasoning` takes `maxTokens` and `exclude` beside `effort` (all optional;
+ * `effort` and `maxTokens` are exclusive), a message's content gains the
+ * assistant-only `reasoning` part (`text?`, `opaque?`), and a `reasoning` delta
+ * may carry `opaque`. Every 8.5.0 message parses the same; the delta's `opaque`
+ * is emitted only to a request that carried `reasoning`. A consumer on 8.5.0 or
+ * earlier (Oxy's legacy signed lane) refuses a message or request that carries
+ * what is new, so Oxy reads it before a customer sends it.
  */
 
 /** The public API's one origin and version. */

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,6 +31,15 @@ type collected struct {
 	tools        map[string]*contract.ToolCall
 	finish       contract.FinishReason
 	completedAt  contract.Timestamp
+	// keepReasoning is whether the request opted in to reasoning
+	// (`reasoning`, and not excluded): only then is reasoning part of the
+	// folded message, because a reader of an older contract refuses a part type
+	// it does not know and a caller that never asked must keep its old answer.
+	keepReasoning bool
+	reasoning     []contract.ContentPart
+	// reasoningText is the text of the reasoning block being folded, which its
+	// opaque token (or the end of the answer) closes. Customer data.
+	reasoningText bytes.Buffer
 }
 
 func newCollected() *collected { return &collected{tools: make(map[string]*contract.ToolCall)} }
@@ -45,6 +55,10 @@ func (c *collected) fold(event contract.StreamEvent) error {
 			c.text.WriteString(e.Text)
 		case contract.ChannelRefusal:
 			c.refusal.WriteString(e.Text)
+		case contract.ChannelReasoning:
+			if c.keepReasoning {
+				c.foldReasoning(e)
+			}
 		case contract.ChannelOutputAudioTranscript:
 			c.transcript.WriteString(e.Text)
 		}
@@ -79,9 +93,41 @@ func (c *collected) fold(event contract.StreamEvent) error {
 	return nil
 }
 
+// foldReasoning folds one reasoning delta. Text accumulates until a block's
+// continuation token arrives, which closes the block (its text, if any, and
+// the token as one part); text no token closes is a part of its own, with
+// nothing to continue.
+func (c *collected) foldReasoning(e *contract.StreamDeltaEvent) {
+	c.reasoningText.WriteString(e.Text)
+	if e.Opaque == nil {
+		return
+	}
+	part := contract.ContentPart{Type: contract.ContentPartReasoning, Opaque: e.Opaque}
+	if c.reasoningText.Len() > 0 {
+		text := c.reasoningText.String()
+		part.Text = &text
+		c.reasoningText.Reset()
+	}
+	c.reasoning = append(c.reasoning, part)
+}
+
+// reasoningParts is the reasoning the answer carries, in order, closing a
+// trailing block no token closed.
+func (c *collected) reasoningParts() []contract.ContentPart {
+	parts := append([]contract.ContentPart(nil), c.reasoning...)
+	if c.reasoningText.Len() > 0 {
+		text := c.reasoningText.String()
+		parts = append(parts, contract.ContentPart{Type: contract.ContentPartReasoning, Text: &text})
+	}
+	return parts
+}
+
 // message is the assistant message the events fold into.
 func (c *collected) message() contract.Message {
 	message := contract.Message{Role: contract.RoleAssistant, Content: []contract.ContentPart{}}
+	if c.keepReasoning {
+		message.Content = append(message.Content, c.reasoningParts()...)
+	}
 	text := c.text.String() + c.transcript.String()
 	if text != "" {
 		message.Content = append(message.Content, contract.ContentPart{Type: contract.ContentPartText, Text: &text})
@@ -270,7 +316,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		needs: requestNeeds{inputTokens: estimate, maxOutputTokens: request.MaxOutputTokens, prefs: request.Provider,
 			parameters: carriedParameters(request.MaxOutputTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,
 				FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences},
-				len(request.Tools), request.ToolChoice, request.ResponseFormat, request.Reasoning != nil)},
+				len(request.Tools), request.ToolChoice, request.ResponseFormat, request.Reasoning)},
 	})
 	if failure != nil {
 		writeError(w, requestID, failure)
@@ -288,6 +334,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		header.Set(HeaderRoutingPolicyVersion, strconv.Itoa(admitted.grant.RoutingPolicy.PolicyVersion))
 	}
 	folded := newCollected()
+	folded.keepReasoning = envelope.Reasoning != nil && !envelope.Reasoning.Excluded()
 	if stream {
 		events := &streamSink{w: w, requestID: requestID, headers: policyHeaders, collected: folded}
 		result := s.execute(r.Context(), admitted, &envelope, events.sink)
@@ -328,6 +375,47 @@ func validateResponses(requestID contract.RequestID, request responsesRequest) *
 			return invalid(requestID, "tools", "tool names must be unique within one request")
 		}
 		names[tool.Name] = struct{}{}
+	}
+	if failure := validateReasoning(requestID, request.Reasoning); failure != nil {
+		return failure
+	}
+	return validateReasoningParts(requestID, request.Input.messages, "input")
+}
+
+// validateReasoning applies the contract's rules for the reasoning control
+// (`inferenceReasoningSchema`).
+func validateReasoning(requestID contract.RequestID, reasoning *contract.ReasoningParameters) *contract.PublicError {
+	switch {
+	case reasoning == nil:
+		return nil
+	case reasoning.Effort != nil && !reasoning.Effort.Valid():
+		return invalid(requestID, "reasoning.effort", "reasoning.effort is low, medium or high")
+	case reasoning.MaxTokens != nil && (*reasoning.MaxTokens < 1 || *reasoning.MaxTokens > math.MaxInt32):
+		return invalid(requestID, "reasoning.maxTokens", "reasoning.maxTokens is a positive number of tokens")
+	case reasoning.Effort != nil && reasoning.MaxTokens != nil:
+		return invalid(requestID, "reasoning.maxTokens", "reasoning takes an effort or a maxTokens budget, not both")
+	}
+	return nil
+}
+
+// validateReasoningParts applies the contract's rules for a reasoning part: the
+// assistant's alone, and carrying text, an opaque token, or both.
+func validateReasoningParts(requestID contract.RequestID, messages []contract.Message, prefix string) *contract.PublicError {
+	for messageIndex, message := range messages {
+		for partIndex, part := range message.Content {
+			if part.Type != contract.ContentPartReasoning {
+				continue
+			}
+			path := fmt.Sprintf("%s[%d].content[%d]", prefix, messageIndex, partIndex)
+			switch {
+			case message.Role != contract.RoleAssistant:
+				return invalid(requestID, path+".type", "only an assistant message carries a reasoning part")
+			case part.Text == nil && (part.Opaque == nil || *part.Opaque == ""):
+				return invalid(requestID, path, "a reasoning part carries text, an opaque token, or both")
+			case part.Opaque != nil && *part.Opaque == "":
+				return invalid(requestID, path+".opaque", "a reasoning part's opaque token is not empty")
+			}
+		}
 	}
 	return nil
 }
@@ -437,7 +525,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if request.ReasoningEffort != nil {
-		envelope.Reasoning = &contract.ReasoningParameters{Effort: *request.ReasoningEffort}
+		envelope.Reasoning = &contract.ReasoningParameters{Effort: request.ReasoningEffort}
 	}
 	if request.Audio != nil {
 		format := contract.AudioOutputFormat(request.Audio.Format)
@@ -551,6 +639,15 @@ func chatMessages(requestID contract.RequestID, request chatRequest) ([]contract
 		translated := contract.Message{Role: message.Role, Name: message.Name, ToolCallID: message.ToolCallID, Content: []contract.ContentPart{}}
 		if message.Content != nil {
 			translated.Content = message.Content.parts
+		}
+		for partIndex, part := range translated.Content {
+			if part.Type == contract.ContentPartReasoning {
+				// Reasoning continuity is carried by /v1/responses and
+				// /v1/messages. OpenAI's chat-completions dialect has no field
+				// for it, and a non-standard one would break the standard
+				// clients that parse this endpoint (docs/contract.md).
+				return nil, invalid(requestID, fmt.Sprintf("messages[%d].content[%d].type", index, partIndex), "chat completions carries no reasoning part; reasoning continuity is on /v1/responses and /v1/messages")
+			}
 		}
 		for _, call := range message.ToolCalls {
 			if call.Type != "function" {
@@ -892,5 +989,9 @@ func chatParameters(request chatRequest, maxTokens *int) []provider.RequestParam
 	if request.ResponseFormat != nil {
 		format = &contract.ResponseFormat{Type: contract.ResponseFormatType(request.ResponseFormat.Type)}
 	}
-	return carriedParameters(maxTokens, sampling, len(request.Tools), choice, format, request.ReasoningEffort != nil)
+	var reasoning *contract.ReasoningParameters
+	if request.ReasoningEffort != nil {
+		reasoning = &contract.ReasoningParameters{Effort: request.ReasoningEffort}
+	}
+	return carriedParameters(maxTokens, sampling, len(request.Tools), choice, format, reasoning)
 }

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.5.0",
+    "version": "8.6.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -1287,6 +1287,27 @@
                   "properties": {
                     "type": {
                       "type": "string",
+                      "const": "thinking"
+                    },
+                    "thinking": {
+                      "type": "string"
+                    },
+                    "signature": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "thinking",
+                    "signature"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
                       "const": "text"
                     },
                     "text": {
@@ -1644,6 +1665,46 @@
                               "tool_use_id"
                             ],
                             "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "thinking"
+                              },
+                              "thinking": {
+                                "type": "string"
+                              },
+                              "signature": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "thinking",
+                              "signature"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "redacted_thinking"
+                              },
+                              "data": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1000000
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "data"
+                            ],
+                            "additionalProperties": false
                           }
                         ]
                       }
@@ -1812,17 +1873,53 @@
             ]
           },
           "thinking": {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "disabled"
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "disabled"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "adaptive"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "enabled"
+                  },
+                  "budget_tokens": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "type",
+                  "budget_tokens"
+                ],
+                "additionalProperties": false
               }
-            },
-            "required": [
-              "type"
-            ],
-            "additionalProperties": false
+            ]
           },
           "output_config": {
             "type": "object",
@@ -1894,6 +1991,27 @@
                     "type": "array",
                     "items": {
                       "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "thinking"
+                            },
+                            "thinking": {
+                              "type": "string"
+                            },
+                            "signature": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "thinking",
+                            "signature"
+                          ],
+                          "additionalProperties": false
+                        },
                         {
                           "type": "object",
                           "properties": {
@@ -2019,6 +2137,29 @@
                     "properties": {
                       "type": {
                         "type": "string",
+                        "const": "thinking"
+                      },
+                      "thinking": {
+                        "type": "string",
+                        "const": ""
+                      },
+                      "signature": {
+                        "type": "string",
+                        "const": ""
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "thinking",
+                      "signature"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
                         "const": "text"
                       },
                       "text": {
@@ -2101,6 +2242,40 @@
                     "required": [
                       "type",
                       "text"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "thinking_delta"
+                      },
+                      "thinking": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "thinking"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "signature_delta"
+                      },
+                      "signature": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "signature"
                     ],
                     "additionalProperties": false
                   },
@@ -3876,6 +4051,26 @@
               "text"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "reasoning"
+              },
+              "text": {
+                "type": "string"
+              },
+              "opaque": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -4062,11 +4257,16 @@
         "properties": {
           "effort": {
             "$ref": "#/components/schemas/ReasoningEffort"
+          },
+          "maxTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "exclude": {
+            "type": "boolean"
           }
         },
-        "required": [
-          "effort"
-        ],
         "additionalProperties": false
       },
       "InferenceRegion": {
@@ -4193,6 +4393,10 @@
           },
           "text": {
             "type": "string"
+          },
+          "opaque": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [

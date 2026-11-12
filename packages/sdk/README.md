@@ -107,7 +107,33 @@ A stream is iterated once. Breaking out of the loop, or `stream.abort()`,
 cancels the request upstream. Awaiting `final` alone drains the stream.
 
 The API is also compatible with the OpenAI SDK for chat completions:
-`new OpenAI({ baseURL: 'https://kaana.ai/v1', apiKey: 'oxy_sk_…' })`.
+`new OpenAI({ baseURL: 'https://kaana.ai/v1', apiKey: 'oxy_sk_…' })`. Chat
+completions never carries reasoning; use `responses` (or `/v1/messages` with
+Anthropic's SDK) for it.
+
+### Reasoning and tool turns
+
+A thinking model that calls a tool must be given its own reasoning back to
+continue. Ask for reasoning with `reasoning` (`{}` opts in; `effort` or
+`maxTokens`, a thinking budget, size it; `exclude: true` returns none), and send
+the assistant turn back unmodified, in order, with the tool result:
+
+```ts
+const first = await kaana.responses.stream({ model, input: messages, tools, reasoning: { effort: 'high' } }).final;
+// first.output[0] is the assistant turn: reasoning parts (each with an `opaque`
+// token), text and toolCalls. Return it exactly as received.
+const second = await kaana.responses.stream({
+  model,
+  input: [...messages, ...first.output, { role: 'tool', toolCallId, content: [{ type: 'text', text: result }] }],
+  tools,
+  reasoning: { effort: 'high' },
+}).final;
+```
+
+The `opaque` token is sealed, not secret: an edited one is refused by the
+provider, never trusted. After a model switch or failover the continuation is
+dropped and the conversation goes on. A request without `reasoning` folds to the
+same response as before.
 
 ## Audio
 

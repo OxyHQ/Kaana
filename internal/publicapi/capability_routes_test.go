@@ -114,15 +114,15 @@ func TestCarriedParametersReadsTheWireTheWayTheAdapterDoes(t *testing.T) {
 		got  []provider.RequestParameter
 		want []provider.RequestParameter
 	}{
-		"nothing":            {carriedParameters(nil, contract.SamplingParameters{}, 0, nil, nil, false), nil},
-		"text sends nothing": {carriedParameters(nil, contract.SamplingParameters{}, 0, nil, text, false), nil},
-		"auto sends nothing": {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Mode: &auto}, nil, false), []provider.RequestParameter{provider.ParameterTools}},
-		"a json object":      {carriedParameters(nil, contract.SamplingParameters{}, 0, nil, object, false), []provider.RequestParameter{provider.ParameterResponseFormat}},
-		"limits and sampling": {carriedParameters(&max, contract.SamplingParameters{Temperature: &temperature}, 0, nil, nil, true),
+		"nothing":            {carriedParameters(nil, contract.SamplingParameters{}, 0, nil, nil, nil), nil},
+		"text sends nothing": {carriedParameters(nil, contract.SamplingParameters{}, 0, nil, text, nil), nil},
+		"auto sends nothing": {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Mode: &auto}, nil, nil), []provider.RequestParameter{provider.ParameterTools}},
+		"a json object":      {carriedParameters(nil, contract.SamplingParameters{}, 0, nil, object, nil), []provider.RequestParameter{provider.ParameterResponseFormat}},
+		"limits and sampling": {carriedParameters(&max, contract.SamplingParameters{Temperature: &temperature}, 0, nil, nil, &contract.ReasoningParameters{Effort: contract.EffortPtr(contract.ReasoningEffortHigh)}),
 			[]provider.RequestParameter{provider.ParameterMaxOutputTokens, provider.ParameterReasoningEffort, provider.ParameterTemperature}},
-		"none":     {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Mode: &none}, nil, false), []provider.RequestParameter{provider.ParameterTools, provider.ParameterToolChoiceNone}},
-		"required": {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Mode: &required}, nil, false), []provider.RequestParameter{provider.ParameterTools, provider.ParameterToolChoiceRequired}},
-		"function": {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "f"}}, nil, false), []provider.RequestParameter{provider.ParameterTools, provider.ParameterToolChoiceFunction}},
+		"none":     {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Mode: &none}, nil, nil), []provider.RequestParameter{provider.ParameterTools, provider.ParameterToolChoiceNone}},
+		"required": {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Mode: &required}, nil, nil), []provider.RequestParameter{provider.ParameterTools, provider.ParameterToolChoiceRequired}},
+		"function": {carriedParameters(nil, contract.SamplingParameters{}, 1, &contract.ToolChoice{Function: &contract.ToolChoiceFunction{Name: "f"}}, nil, nil), []provider.RequestParameter{provider.ParameterTools, provider.ParameterToolChoiceFunction}},
 	} {
 		if !slices.Equal(c.got, c.want) {
 			t.Errorf("%s: got %v, want %v", name, c.got, c.want)

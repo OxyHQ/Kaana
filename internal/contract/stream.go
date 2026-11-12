@@ -69,6 +69,9 @@ type StreamDeltaEvent struct {
 	OutputIndex   int             `json:"outputIndex"`
 	Channel       DeltaChannel    `json:"channel"`
 	Text          string          `json:"text"`
+	// Opaque is, on the reasoning channel, the continuation token of one
+	// finished reasoning block (with empty Text). Customer data.
+	Opaque *string `json:"opaque,omitempty"`
 }
 
 func (e *StreamDeltaEvent) EventType() StreamEventType { return EventDelta }

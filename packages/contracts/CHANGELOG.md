@@ -1,5 +1,26 @@
 # Changelog
 
+## 8.6.0
+
+Reasoning continuity (Kaana ADR 0009 decision 2). Additive: everything 8.5.0
+parses still parses.
+
+- `inferenceReasoningSchema` gains `maxTokens` (a thinking budget; an
+  alternative to `effort`, refused together) and `exclude`; `effort` is now
+  optional, so `reasoning: {}` opts in to reasoning continuation tokens.
+- `inferenceContentPartSchema` gains the assistant-only
+  `{type: 'reasoning', text?, opaque?}` part. `opaque` is a sealed token the
+  customer returns unmodified; it names no provider. A reasoning part on any
+  other role is refused, as a refusal part is.
+- The `reasoning` delta may carry `opaque`, once per finished block, only to a
+  request that carried `reasoning`.
+- `anthropicMessagesRequestSchema` accepts `thinking: {type: 'enabled',
+  budget_tokens}` and `{type: 'adaptive'}` and `thinking` / `redacted_thinking`
+  blocks on assistant messages; answers and streams carry `thinking` blocks, the
+  `signature` being the continuation token.
+- Oxy parses these shapes on the legacy signed lane and needs to bump its pin for
+  it; the public/grant lane never sends messages to Oxy.
+
 ## 8.5.0
 
 OpenRouter-style routing preference and prompt-cache key (Kaana ADR 0008).

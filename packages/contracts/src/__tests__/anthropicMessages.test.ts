@@ -46,6 +46,36 @@ describe('POST /v1/messages request', () => {
     expect(anthropicMessagesRequestSchema.safeParse(request).success).toBe(true);
   });
 
+  it('accepts thinking in every form and the thinking blocks of an assistant turn', () => {
+    for (const thinking of [
+      { type: 'disabled' },
+      { type: 'adaptive' },
+      { type: 'enabled', budget_tokens: 2048 },
+    ]) {
+      expect(anthropicMessagesRequestSchema.safeParse({ ...request, thinking }).success).toBe(true);
+    }
+    const continued = anthropicMessagesRequestSchema.safeParse({
+      ...request,
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'plan', signature: 'c2ln' },
+            { type: 'redacted_thinking', data: 'ZGF0YQ' },
+            { type: 'text', text: 'calling' },
+            { type: 'tool_use', id: 'toolu_1', name: 'weather', input: {} },
+          ],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '21C' }],
+        },
+      ],
+    });
+    expect(continued.success).toBe(true);
+  });
+
   it('requires max_tokens, as Anthropic does', () => {
     const { max_tokens: _omitted, ...without } = request;
     expect(anthropicMessagesRequestSchema.safeParse(without).success).toBe(false);
@@ -67,14 +97,35 @@ describe('POST /v1/messages request', () => {
       { tools: [{ name: 'a', input_schema: {}, cache_control: { type: 'ephemeral' } }] },
     ],
     ['cache_control on the request', { cache_control: { type: 'ephemeral' } }],
-    ['thinking enabled', { thinking: { type: 'enabled', budget_tokens: 2048 } }],
+    ['thinking enabled without a budget', { thinking: { type: 'enabled' } }],
+    ['a thinking budget of zero', { thinking: { type: 'enabled', budget_tokens: 0 } }],
+    ['a budget on adaptive thinking', { thinking: { type: 'adaptive', budget_tokens: 2048 } }],
+    [
+      'thinking display',
+      { thinking: { type: 'enabled', budget_tokens: 2048, display: 'summarized' } },
+    ],
     ['effort beyond high', { output_config: { effort: 'max' } }],
     ['a server tool', { tools: [{ type: 'web_search_20250305', name: 'web_search' }] }],
     [
-      'a thinking block',
+      'a thinking block from the user',
       {
         messages: [
-          { role: 'assistant', content: [{ type: 'thinking', thinking: 'x', signature: 's' }] },
+          { role: 'user', content: [{ type: 'thinking', thinking: 'x', signature: 's' }] },
+        ],
+      },
+    ],
+    [
+      'a redacted_thinking block from the user',
+      { messages: [{ role: 'user', content: [{ type: 'redacted_thinking', data: 'x' }] }] },
+    ],
+    [
+      'a thinking block with an unknown member',
+      {
+        messages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'thinking', thinking: 'x', signature: 's', display: 'y' }],
+          },
         ],
       },
     ],
@@ -149,6 +200,58 @@ describe('POST /v1/messages response', () => {
         usage: { ...usage, cache_creation_input_tokens: 1 },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('POST /v1/messages reasoning blocks', () => {
+  it('returns thinking blocks ahead of the text, the signature being the continuation token', () => {
+    const body = {
+      id: 'msg_1',
+      type: 'message',
+      role: 'assistant',
+      model,
+      content: [
+        { type: 'thinking', thinking: 'plan', signature: 'eyJmIjoieCJ9' },
+        { type: 'thinking', thinking: '', signature: 'eyJmIjoieSJ9' },
+        { type: 'text', text: 'Looking.' },
+      ],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage,
+    };
+    expect(anthropicMessageSchema.safeParse(body).success).toBe(true);
+    // redacted_thinking is accepted on the way in and never produced.
+    expect(
+      anthropicMessageSchema.safeParse({
+        ...body,
+        content: [{ type: 'redacted_thinking', data: 'x' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    [
+      'content_block_start thinking',
+      {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: '', signature: '' },
+      },
+    ],
+    [
+      'thinking_delta',
+      { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hm' } },
+    ],
+    [
+      'signature_delta',
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'signature_delta', signature: 'eyJmIjoieCJ9' },
+      },
+    ],
+  ])('parses a %s frame', (_name, frame) => {
+    expect(anthropicStreamEventSchema.safeParse(frame).success).toBe(true);
   });
 });
 

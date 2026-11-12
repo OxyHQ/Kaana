@@ -25,6 +25,10 @@ type RequestParameter string
 // served through sends it (openaicompat refuses it outright), so a set that
 // named it would advertise a control the route refuses.
 //
+// `reasoning.exclude` is deliberately absent: Kaana honours it itself, by not
+// delivering reasoning (internal/kaana's emitter), on every route, so no route
+// needs to state that it accepts it.
+//
 // A tool choice is stated per VALUE, because providers accept the values
 // differently: Anthropic answers a forced choice on Claude Fable 5.1, Opus 5.5
 // and Sonnet 5.5 with a 400 while taking `none`, and OpenRouter publishes each
@@ -37,6 +41,7 @@ type RequestParameter string
 const (
 	ParameterMaxOutputTokens    RequestParameter = "maxOutputTokens"
 	ParameterReasoningEffort    RequestParameter = "reasoning.effort"
+	ParameterReasoningMaxTokens RequestParameter = "reasoning.maxTokens"
 	ParameterResponseFormat     RequestParameter = "responseFormat"
 	ParameterFrequencyPenalty   RequestParameter = "sampling.frequencyPenalty"
 	ParameterPresencePenalty    RequestParameter = "sampling.presencePenalty"
@@ -56,6 +61,7 @@ func RequestParameters() []RequestParameter {
 	return []RequestParameter{
 		ParameterMaxOutputTokens,
 		ParameterReasoningEffort,
+		ParameterReasoningMaxTokens,
 		ParameterResponseFormat,
 		ParameterFrequencyPenalty,
 		ParameterPresencePenalty,

@@ -257,3 +257,5 @@ func TestSpeechCannotCrossAnAuthorizedDeploymentModality(t *testing.T) {
 		t.Fatal("speech deployment accepted chat")
 	}
 }
+
+func (*speechCapture) ReasoningBlock(int, string) error { return nil }

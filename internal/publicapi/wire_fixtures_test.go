@@ -62,6 +62,14 @@ func TestWritePublicWireFixtures(t *testing.T) {
 	add("responseStreamEventSchema", "error-after-output", frames[len(frames)-1].data)
 	h.adapter.failAfter = 0
 
+	// Reasoning continuity (contract set 8.6.0): the whole answer with reasoning
+	// parts and the stream's reasoning delta with its continuation token.
+	reasoned := h.post("/v1/responses", validKey, responsesBody(map[string]any{"reasoning": map[string]any{}}))
+	add("responseSchema", "with-reasoning-parts", reasoned.Body)
+	for index, frame := range readSSE(t, h.post("/v1/responses", validKey, responsesBody(map[string]any{"stream": true, "reasoning": map[string]any{"maxTokens": 2048}}))) {
+		add("responseStreamEventSchema", fmt.Sprintf("reasoning-frame-%02d-%s", index, frame.event), frame.data)
+	}
+
 	// Chat completions, whole, streamed, refused.
 	chat := map[string]any{"model": "stub/model", "messages": []any{map[string]any{"role": "user", "content": "Hola"}}}
 	add("chatCompletionSchema", "whole", h.post("/v1/chat/completions", validKey, chat).Body)
@@ -90,6 +98,15 @@ func TestWritePublicWireFixtures(t *testing.T) {
 	for index, frame := range readSSE(t, h.post("/v1/messages", validKey, anthropic)) {
 		add("anthropicStreamEventSchema", fmt.Sprintf("text-frame-%02d-%s", index, frame.event), frame.data)
 	}
+	// Thinking blocks: whole and streamed, the signature being the token.
+	anthropic["thinking"] = map[string]any{"type": "adaptive"}
+	for index, frame := range readSSE(t, h.post("/v1/messages", validKey, anthropic)) {
+		add("anthropicStreamEventSchema", fmt.Sprintf("thinking-frame-%02d-%s", index, frame.event), frame.data)
+	}
+	delete(anthropic, "stream")
+	add("anthropicMessageSchema", "with-thinking-blocks", h.post("/v1/messages", validKey, anthropic).Body)
+	anthropic["stream"] = true
+	delete(anthropic, "thinking")
 	h.adapter.failAfter = 2
 	frames = readSSE(t, h.post("/v1/messages", validKey, anthropic))
 	add("anthropicStreamEventSchema", "error-after-output", frames[len(frames)-1].data)

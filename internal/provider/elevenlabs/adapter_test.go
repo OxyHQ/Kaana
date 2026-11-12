@@ -173,7 +173,7 @@ func TestUnsupportedControlsSpendNothing(t *testing.T) {
 		"fast":          func(r *contract.Request, _ *provider.Route) { x := 1.5; r.Speech.Speed = &x },
 		"sampling":      func(r *contract.Request, _ *provider.Route) { x := 0.5; r.Sampling.Temperature = &x },
 		"reasoning": func(r *contract.Request, _ *provider.Route) {
-			r.Reasoning = &contract.ReasoningParameters{Effort: "low"}
+			r.Reasoning = &contract.ReasoningParameters{Effort: contract.EffortPtr("low")}
 		},
 		"empty": func(r *contract.Request, _ *provider.Route) { s := ""; r.Input.Text = &s },
 		"too long for v3": func(r *contract.Request, route *provider.Route) {
@@ -379,3 +379,5 @@ func TestEndpointAndUnconfiguredHealth(t *testing.T) {
 		t.Fatal("a configured key is healthy before any signed canary")
 	}
 }
+
+func (*capture) ReasoningBlock(int, string) error { return nil }

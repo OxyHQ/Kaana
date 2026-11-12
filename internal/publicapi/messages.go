@@ -61,12 +61,23 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		refuse(failure)
 		return
 	}
+	reasoning, failure := messagesReasoning(requestID, request)
+	if failure != nil {
+		refuse(failure)
+		return
+	}
 	stream := request.Stream != nil && *request.Stream
 	estimate := estimatedTokens(messages) + estimatedToolTokens(request.Tools)
+	var choice *contract.ToolChoice
+	if request.ToolChoice != nil {
+		choice = &request.ToolChoice.choice
+	}
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
 		operation: contract.GrantResponses, target: request.Model.grantTarget(), body: body, endpoint: "/v1/messages",
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: request.MaxTokens,
 			InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
+		needs: requestNeeds{parameters: carriedParameters(request.MaxTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP, TopK: request.TopK,
+			StopSequences: request.StopSequences}, len(request.Tools), choice, nil, reasoning)},
 	})
 	if failure != nil {
 		refuse(failure)
@@ -84,14 +95,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		choice := request.ToolChoice.choice
 		envelope.ToolChoice = &choice
 	}
-	if request.OutputConfig != nil && request.OutputConfig.Effort != nil {
-		envelope.Reasoning = &contract.ReasoningParameters{Effort: *request.OutputConfig.Effort}
-	}
+	envelope.Reasoning = reasoning
 	if stream {
 		s.messagesStream(r.Context(), w, admitted, &envelope)
 		return
 	}
 	folded := newCollected()
+	folded.keepReasoning = reasoning != nil && !reasoning.Excluded()
 	result := s.execute(r.Context(), admitted, &envelope, folded.fold)
 	if result.Failure != nil || result.Report == nil {
 		refuse(failureOf(result, requestID))
@@ -108,6 +118,31 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// messagesReasoning is the contract's reasoning control a request asks for:
+// `output_config.effort` is the effort, `thinking: {type: enabled,
+// budget_tokens}` the token budget and `thinking: {type: adaptive}` the opt-in
+// with the route's own sizing. An effort and a budget are alternatives, as in
+// the contract, and are refused together rather than one being dropped.
+func messagesReasoning(requestID contract.RequestID, request messagesRequest) (*contract.ReasoningParameters, *contract.PublicError) {
+	var reasoning *contract.ReasoningParameters
+	if request.OutputConfig != nil && request.OutputConfig.Effort != nil {
+		reasoning = &contract.ReasoningParameters{Effort: request.OutputConfig.Effort}
+	}
+	if request.Thinking == nil || !request.Thinking.enabled {
+		return reasoning, nil
+	}
+	if reasoning == nil {
+		reasoning = &contract.ReasoningParameters{}
+	}
+	if request.Thinking.budget != nil {
+		if reasoning.Effort != nil {
+			return nil, invalid(requestID, "thinking.budget_tokens", "a thinking budget and output_config.effort are alternatives; send one")
+		}
+		reasoning.MaxTokens = request.Thinking.budget
+	}
+	return reasoning, nil
+}
+
 // messageID is the id of the message: the request id in Anthropic's spelling.
 func messageID(requestID contract.RequestID) string {
 	return "msg_" + strings.TrimPrefix(string(requestID), "req_")
@@ -117,6 +152,18 @@ func messageID(requestID contract.RequestID) string {
 // refusal's words, then each tool call.
 func messagesContent(requestID contract.RequestID, folded *collected) ([]messagesOutputBlock, *contract.PublicError) {
 	content := []messagesOutputBlock{}
+	if folded.keepReasoning {
+		for _, part := range folded.reasoningParts() {
+			thinking, signature := "", ""
+			if part.Text != nil {
+				thinking = *part.Text
+			}
+			if part.Opaque != nil {
+				signature = *part.Opaque
+			}
+			content = append(content, messagesOutputBlock{Type: "thinking", Thinking: &thinking, Signature: &signature})
+		}
+	}
 	for _, text := range []string{folded.text.String(), folded.refusal.String()} {
 		if text != "" {
 			content = append(content, messagesOutputBlock{Type: "text", Text: &text})
@@ -387,7 +434,15 @@ func translateMessages(requestID contract.RequestID, request messagesRequest) ([
 				messages = append(messages, result)
 				paths = append(paths, resultPaths)
 			case "thinking", "redacted_thinking":
-				return nil, nil, invalid(requestID, path, block.Type+" blocks are not supported: Kaana never returns reasoning, so there is none to send back")
+				if role != contract.RoleAssistant {
+					return nil, nil, invalid(requestID, path, "a "+block.Type+" block is part of an assistant message")
+				}
+				part, failure := reasoningPart(requestID, block, path)
+				if failure != nil {
+					return nil, nil, failure
+				}
+				current.Content = append(current.Content, part)
+				currentPaths = append(currentPaths, path)
 			default:
 				return nil, nil, invalid(requestID, path, "this content block type is not supported; text, image, tool_use and tool_result are")
 			}
@@ -395,6 +450,33 @@ func translateMessages(requestID contract.RequestID, request messagesRequest) ([
 		flush()
 	}
 	return messages, paths, nil
+}
+
+// reasoningPart is a thinking or redacted_thinking block as the contract's
+// reasoning part: the signature (or the redacted data) is the opaque token,
+// returned exactly as this endpoint issued it.
+func reasoningPart(requestID contract.RequestID, block messagesBlock, path string) (contract.ContentPart, *contract.PublicError) {
+	part := contract.ContentPart{Type: contract.ContentPartReasoning}
+	if block.Type == "redacted_thinking" {
+		if block.Data == nil || *block.Data == "" || !onlyMembers(block, "data") {
+			return part, invalid(requestID, path, "a redacted_thinking block is {type: redacted_thinking, data}")
+		}
+		part.Opaque = block.Data
+		return part, nil
+	}
+	if block.Thinking == nil || block.Signature == nil || !onlyMembers(block, "thinking", "signature") {
+		return part, invalid(requestID, path, "a thinking block is {type: thinking, thinking, signature}")
+	}
+	if *block.Thinking != "" {
+		part.Text = block.Thinking
+	}
+	if *block.Signature != "" {
+		part.Opaque = block.Signature
+	}
+	if part.Text == nil && part.Opaque == nil {
+		return part, invalid(requestID, path, "a thinking block carries thinking text or a signature")
+	}
+	return part, nil
 }
 
 func textPart(text string) contract.ContentPart {
@@ -407,6 +489,7 @@ func onlyMembers(block messagesBlock, allowed ...string) bool {
 	present := map[string]bool{
 		"text": block.Text != nil, "source": block.Source != nil, "id": block.ID != nil, "name": block.Name != nil,
 		"input": len(block.Input) > 0, "tool_use_id": block.ToolUseID != nil, "content": block.Content != nil, "is_error": block.IsError != nil,
+		"thinking": block.Thinking != nil, "signature": block.Signature != nil, "data": block.Data != nil,
 	}
 	for _, name := range allowed {
 		delete(present, name)
@@ -539,9 +622,11 @@ func (s *Server) messagesStream(ctx context.Context, w http.ResponseWriter, admi
 	requestID := admitted.requestID
 	var writer *sse.Writer
 	folded := newCollected()
+	showReasoning := envelope.Reasoning != nil && !envelope.Reasoning.Excluded()
 	var model string
 	var next int
 	textOpen := false
+	thinkingOpen := false
 	tools := make(map[string]*pendingTool)
 	var order []*pendingTool
 	write := func(name string, payload map[string]any) error {
@@ -562,7 +647,44 @@ func (s *Server) messagesStream(ctx context.Context, w http.ResponseWriter, admi
 		textOpen = false
 		return write("content_block_stop", map[string]any{"index": next - 1})
 	}
+	closeThinking := func() error {
+		if !thinkingOpen {
+			return nil
+		}
+		thinkingOpen = false
+		return write("content_block_stop", map[string]any{"index": next - 1})
+	}
+	// thinking streams one reasoning block: its words as thinking_delta, then
+	// its continuation token as the signature_delta that closes it. A block the
+	// route could not seal ends without one.
+	thinking := func(e *contract.StreamDeltaEvent) error {
+		if err := closeText(); err != nil {
+			return err
+		}
+		if !thinkingOpen {
+			thinkingOpen = true
+			next++
+			if err := write("content_block_start", map[string]any{"index": next - 1, "content_block": map[string]any{"type": "thinking", "thinking": "", "signature": ""}}); err != nil {
+				return err
+			}
+		}
+		if e.Text != "" {
+			if err := write("content_block_delta", map[string]any{"index": next - 1, "delta": map[string]any{"type": "thinking_delta", "thinking": e.Text}}); err != nil {
+				return err
+			}
+		}
+		if e.Opaque == nil {
+			return nil
+		}
+		if err := write("content_block_delta", map[string]any{"index": next - 1, "delta": map[string]any{"type": "signature_delta", "signature": *e.Opaque}}); err != nil {
+			return err
+		}
+		return closeThinking()
+	}
 	text := func(words string) error {
+		if err := closeThinking(); err != nil {
+			return err
+		}
 		if !textOpen {
 			textOpen = true
 			next++
@@ -577,6 +699,9 @@ func (s *Server) messagesStream(ctx context.Context, w http.ResponseWriter, admi
 			return nil
 		}
 		call.emitted = true
+		if err := closeThinking(); err != nil {
+			return err
+		}
 		if err := closeText(); err != nil {
 			return err
 		}
@@ -611,6 +736,9 @@ func (s *Server) messagesStream(ctx context.Context, w http.ResponseWriter, admi
 			if e.Channel == contract.ChannelOutputText || e.Channel == contract.ChannelRefusal {
 				return text(e.Text)
 			}
+			if e.Channel == contract.ChannelReasoning && showReasoning {
+				return thinking(e)
+			}
 		case *contract.StreamToolCallEvent:
 			call, known := tools[e.ToolCallID]
 			if !known {
@@ -643,6 +771,9 @@ func (s *Server) messagesStream(ctx context.Context, w http.ResponseWriter, admi
 		if err := emitTool(call); err != nil {
 			return
 		}
+	}
+	if err := closeThinking(); err != nil {
+		return
 	}
 	if err := closeText(); err != nil {
 		return

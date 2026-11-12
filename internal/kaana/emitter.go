@@ -63,6 +63,10 @@ type emitter struct {
 	estimate   *usageEstimate
 	// toolAudit judges the tool calls of the attempt being served.
 	toolAudit *toolCallAudit
+	// reasoning is the request's reasoning control: nil means the caller did not
+	// opt in to reasoning continuation, and Exclude means it asked for no
+	// reasoning at all. Both are applied here, once, for every provider.
+	reasoning *contract.ReasoningParameters
 }
 
 func newEmitter(sink Sink, request *contract.Request, generationID *contract.GenerationID, admittedAt time.Time) *emitter {
@@ -73,6 +77,7 @@ func newEmitter(sink Sink, request *contract.Request, generationID *contract.Gen
 		admittedAt:   admittedAt,
 		estimate:     newUsageEstimate(request),
 		toolAudit:    newToolCallAudit(request.Tools),
+		reasoning:    request.Reasoning,
 	}
 }
 
@@ -226,6 +231,13 @@ func (e *emitter) Delta(outputIndex int, channel contract.DeltaChannel, text str
 		// An empty delta delivers nothing, so it does not commit the request.
 		return e.sendOrHold(event)
 	}
+	if channel == contract.ChannelReasoning && e.reasoning.Excluded() {
+		// The model reasoned, and the caller asked not to be shown it. It is
+		// still counted: the provider billed for it, and an estimate that
+		// skipped it would under-report a request that really cost it.
+		e.estimate.addDelta(channel, text)
+		return nil
+	}
 	e.markOutput()
 	if err := e.commit(); err != nil {
 		return err
@@ -236,6 +248,34 @@ func (e *emitter) Delta(outputIndex int, channel contract.DeltaChannel, text str
 		e.estimate.addDelta(channel, text)
 	}
 	return err
+}
+
+// ReasoningBlock implements provider.Emitter. The token is the model's
+// reasoning and is never logged or estimated: only the provider's own reported
+// reasoning tokens are metered.
+func (e *emitter) ReasoningBlock(outputIndex int, opaque string) error {
+	if err := e.requireStarted(contract.EventDelta); err != nil {
+		return err
+	}
+	if outputIndex < 0 {
+		return fmt.Errorf("kaana: output index %d is negative", outputIndex)
+	}
+	if opaque == "" || e.reasoning == nil || e.reasoning.Excluded() {
+		return nil
+	}
+	e.markOutput()
+	if err := e.commit(); err != nil {
+		return err
+	}
+	return e.send(&contract.StreamDeltaEvent{
+		SchemaVersion: contract.SchemaVersion,
+		Type:          contract.EventDelta,
+		RequestID:     e.requestID,
+		Seq:           e.next(),
+		OutputIndex:   outputIndex,
+		Channel:       contract.ChannelReasoning,
+		Opaque:        &opaque,
+	})
 }
 
 // ToolCall implements provider.Emitter.

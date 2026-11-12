@@ -40,11 +40,19 @@ preflight.
 | `tools[].input_schema`, `tool_choice` `auto` / `any` / `none` / `tool` | tool definitions; `any` is `required` |
 | `max_tokens` (required), `temperature`, `top_p`, `top_k`, `stop_sequences` | the same parameters |
 | `output_config.effort` `low` / `medium` / `high` | `reasoning.effort` |
+| `thinking: {type: "enabled", budget_tokens}` | `reasoning.maxTokens`; beside `output_config.effort` it is refused (they are alternatives); a route that cannot take a budget refuses it naming `reasoning.maxTokens` |
+| `thinking: {type: "adaptive"}` | `reasoning: {}`: reasoning is returned, sized by the route |
+| `thinking` and `redacted_thinking` blocks on an assistant message | a `reasoning` part; the block's `signature` (or `data`) is the opaque token, returned unmodified |
 | `thinking: {type: "disabled"}`, `metadata.user_id` | accepted; `user_id` is neither forwarded nor stored |
 | `stream: true` | SSE: `message_start`, `ping`, `content_block_start` / `_delta` / `_stop`, `message_delta`, `message_stop`; a failure after the first frame is one `event: error` frame and no `message_stop` |
 
 The answer has `id` (`msg_` + the request id), `type`, `role`, `model` (the
-revision that served it), `content` (`text` and `tool_use` blocks),
+revision that served it), `content` (`thinking`, `text` and `tool_use` blocks; a
+`thinking` block appears only when the request asked for reasoning (`thinking`
+enabled or adaptive, or `output_config.effort`), comes first, and carries
+`signature` = the continuation token, so a stock Anthropic SDK continues a tool
+turn by returning what it received; `redacted_thinking` is accepted back and
+never produced),
 `stop_reason` and `usage`. `stop_reason` maps the measured finish reason:
 `stop` is `end_turn`, `length` is `max_tokens`, `tool_calls` is `tool_use`,
 `refusal` and `content_filter` are `refusal`. `stop_sequence` is never produced:
@@ -87,10 +95,9 @@ The schema is strict, so a parameter Kaana does not implement is refused with
   `input_tokens` and report less than the request cost. A key named
   `cache_control` inside a tool's own `input_schema` or `input` is the caller's
   data and is not read.
-- **`thinking` other than `disabled`**, and `thinking` / `redacted_thinking`
-  blocks in a message. The contract's reasoning control is an effort, not a
-  token budget, and reasoning is never returned, so there is none to send back.
-  Ask with `output_config.effort`.
+- **`thinking.display`** and every other `thinking` member not named above.
+  (Reasoning was refused here until contract set 8.6.0; see
+  [contract.md](contract.md#contract-set-860-reasoning-continuity-adr-0009-decision-2).)
 - Server tools (`web_search`, `bash`, `text_editor`, ...), `disable_parallel_tool_use`,
   `document` blocks, an image `url` source (nothing fetches an image URL),
   `mcp_servers`, `container`, `service_tier`, `output_config.format` and every

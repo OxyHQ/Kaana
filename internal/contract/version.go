@@ -56,7 +56,10 @@ package contract
 // 8.5.0 adds the optional `provider` routing preference and the prompt-cache
 // key to POST /v1/chat/completions and POST /v1/responses (Kaana ADR 0008);
 // the signed grant and envelope are unchanged.
-const ContractVersion = "8.5.0"
+// 8.6.0 adds reasoning continuity (Kaana ADR 0009 decision 2): the `reasoning`
+// content part, `reasoning.maxTokens` and `reasoning.exclude`, and the delta's
+// `opaque` token (8.4.0 and 8.5.0 are released separately).
+const ContractVersion = "8.6.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

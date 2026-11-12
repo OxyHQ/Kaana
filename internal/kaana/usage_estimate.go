@@ -68,6 +68,10 @@ func newUsageEstimate(request *contract.Request) *usageEstimate {
 					if part.Text != nil {
 						estimate.input.add(*part.Text)
 					}
+				case contract.ContentPartReasoning:
+					// A returned reasoning block is the model's own earlier
+					// output and an opaque token: nothing here tokenizes it, and
+					// only what a provider reports is metered for it.
 				case contract.ContentPartImage, contract.ContentPartAudio:
 					// Providers meter decoded media, not its URL or inline base64
 					// transport. Without decoded dimensions or duration there is
