@@ -161,7 +161,10 @@ export const realtimeTranslationSchema = z
  * A function tool a session may call: the chat tool without `strict`, which no
  * realtime provider's session schema has (contract set 5.0.0).
  */
-export const realtimeToolDefinitionSchema = toolDefinitionSchema.omit({ strict: true });
+export const realtimeToolDefinitionSchema = toolDefinitionSchema.omit({
+  strict: true,
+  cacheBreakpoint: true,
+});
 
 /**
  * A session's full configuration, as signed at open and as echoed back by

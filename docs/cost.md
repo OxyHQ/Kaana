@@ -171,8 +171,12 @@ provider's `input_tokens` already excludes both cache counts). Anthropic charges
 1.25x the input rate for a 5-minute write and 2x for a 1-hour one, so the unit
 is the default 5-minute write only. When the provider breaks a write down by TTL
 (`cache_creation.ephemeral_1h_input_tokens`), the 1-hour tokens stay in
-`input_tokens`, where every write was metered before the unit existed; the
-public API refuses `cache_control` altogether, `ttl: "1h"` included.
+`input_tokens`, where every write was metered before the unit existed. A write
+only happens when a request asked for one: `/v1/messages` forwards a
+`cache_control` marker (the contract's `cacheBreakpoint`, 8.8.0) only for a
+5-minute marker on a route that prices the unit, and ignores `ttl: "1h"`, so a
+1-hour write is never provoked
+([anthropic-messages.md](anthropic-messages.md#cache_control-honoured-where-it-can-be-priced-ignored-elsewhere)).
 
 Whether the unit may leave Kaana is decided once, in the executor, from the
 price list the request was granted against. `publicapi` tells the executor, per
@@ -185,6 +189,10 @@ so:
 
 - priced: the unit is kept on the customer's stream, in the settlement report
   and in the operator cost record;
+- the breakpoint that provokes a write follows the same test: the executor
+  sends it to a route only when that route's line prices the unit
+  (`kaana.withheldCacheBreakpoints`), so the folding below is a safety net for a
+  write the provider made on its own and not a way to meter a requested one;
 - anything else (the line unpriced, an older price version, a line admitted at
   two versions, a context that says nothing): `kaana.FoldCacheWrite` adds the
   quantity to `input_tokens` on all three, which is byte-for-byte what was

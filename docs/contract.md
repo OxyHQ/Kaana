@@ -12,6 +12,35 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.8.0: prompt-cache breakpoint
+
+MINOR, `@kaana.ai/contracts` 8.8.0. Additive: an optional boolean
+`cacheBreakpoint` on a `text`, `image` or `file` content part (so on a system or
+developer message's parts) and on a tool definition (not a realtime tool).
+Everything 8.7.0 parses still parses. It asks a provider that can express it to
+cache the prompt up to and including that part, system message or tool, and means
+Anthropic's `cache_control: {type: "ephemeral"}` with the default 5-minute
+lifetime and nothing else: there is no lifetime member because the one
+cache-write unit prices only that write. It is a hint:
+
+- a route that cannot express it ignores it and still succeeds (every adapter
+  but Anthropic's);
+- the Anthropic adapter sends at most four (`contract.MaxCacheBreakpoints`), the
+  earliest in prompt order: tools, system and developer messages (hoisted, so
+  ahead of the conversation), then the conversation; a system, developer or tool
+  message is one block and takes one slot however many parts are marked
+  (`contract.LimitCacheBreakpoints`);
+- the executor sends it only to a route whose granted price version prices
+  `cache_write_input_tokens` (`kaana.withheldCacheBreakpoints`), per route, so an
+  unpriced fallback never provokes a write it could not settle, whatever endpoint
+  carried the marker. `/v1/messages` decides the same before it answers, so its
+  `Kaana-Ignored-Parameters` header is exact
+  ([anthropic-messages.md](anthropic-messages.md#cache_control-honoured-where-it-can-be-priced-ignored-elsewhere)).
+
+The member is on the shared part and tool shapes, so `/v1/chat/completions` and
+`/v1/responses` also accept it under the same rules; they carry no header for a
+marker withheld from an unpriced route.
+
 ## Contract set 8.6.0: reasoning continuity (ADR 0009, decision 2)
 
 MINOR, `@kaana.ai/contracts` 8.6.0. Additive; everything 8.5.0 parses still
@@ -103,7 +132,7 @@ the endpoint is served as the `responses` operation, so the signed grant and
 envelope are unchanged. All four are `notApplicable` to the Go descriptor test
 (Go decodes the request by hand and the wire-fixture gate parses every body it
 writes with these schemas). What is supported and what is refused, and why
-`cache_control` is accepted and ignored, is in [anthropic-messages.md](anthropic-messages.md).
+`cache_control` is accepted and forwarded or ignored, is in [anthropic-messages.md](anthropic-messages.md).
 
 ## Contract set 8.2.0: image input (ADR 0007)
 

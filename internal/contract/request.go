@@ -63,6 +63,11 @@ type ContentPart struct {
 	// Opaque is a reasoning part's continuation token. Customer data: it is
 	// never logged, persisted or parsed outside internal/reasoningblock.
 	Opaque *string `json:"opaque,omitempty"`
+	// CacheBreakpoint asks a provider that can express it to cache the prompt
+	// up to and including this part: Anthropic's ephemeral 5-minute
+	// cache_control and nothing else. A hint a route may ignore; the executor
+	// sends it only where the granted price version prices the cache write.
+	CacheBreakpoint *bool `json:"cacheBreakpoint,omitempty"`
 }
 
 // ToolCall is a tool call an assistant made.
@@ -153,6 +158,9 @@ type ToolDefinition struct {
 	Description *string        `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters"`
 	Strict      *bool          `json:"strict,omitempty"`
+	// CacheBreakpoint is ContentPart.CacheBreakpoint for the tool list: cache
+	// the prompt up to and including this tool.
+	CacheBreakpoint *bool `json:"cacheBreakpoint,omitempty"`
 }
 
 func (t ToolDefinition) toolName() string { return t.Name }

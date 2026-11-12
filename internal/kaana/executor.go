@@ -376,7 +376,8 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			break
 		}
 
-		call, err := translate(adapter, request, route)
+		cacheWritePriced := cacheWritePricedFrom(ctx) != nil && cacheWritePricedFrom(ctx)(route.ModelReference)
+		call, err := translate(adapter, withheldCacheBreakpoints(request, cacheWritePriced), route)
 		if err != nil {
 			// A refusal to translate is about the REQUEST, and it is terminal.
 			// Trying another deployment would make what a request means depend
@@ -443,7 +444,6 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		abandoned = nil
 
 		emit.serving(route.Provider, route.DeploymentID)
-		cacheWritePriced := cacheWritePricedFrom(ctx) != nil && cacheWritePricedFrom(ctx)(route.ModelReference)
 		emit.cacheWritePriced = cacheWritePriced
 		providerBilledCustomer := route.CustomerProviderCredential != nil
 		attemptStartedAt, attemptClock := e.now(), time.Now()

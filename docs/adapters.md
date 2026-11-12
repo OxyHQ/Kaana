@@ -205,6 +205,17 @@ decide whether the unit may leave Kaana; the executor folds it back into
 `input_tokens` unless the grant prices it ([cost.md](cost.md#cache-write-tokens)),
 so an adapter that measures a write only reports it.
 
+**Prompt-cache breakpoints (contract 8.8.0).** The Anthropic adapter sends a
+contract `cacheBreakpoint` as `cache_control: {"type":"ephemeral"}` on the
+tool, system block, content block or `tool_result` block that carried it, and on
+nothing else, never with a `ttl`. It calls `contract.LimitCacheBreakpoints` with
+the provider's limit of four first, so a fifth is dropped (the earliest in prompt
+order win) and the request still succeeds; a marker on an empty text block, which
+the provider rejects, is dropped the same way. Every other adapter ignores the
+member: it cannot express it and must not fail on it, which the conformance suite
+covers by sending no marker and the executor by withholding it from unpriced
+routes.
+
 **Protocol invariants.** The adapter preserves text, tool calls, reasoning, stop
 reasons and usage through Kaana's normalized stream. It handles streamed and
 non-streamed responses, never invents `temperature`, and treats Anthropic's
@@ -384,6 +395,11 @@ changes, and the distinction matters:
 - **Refuse in `Translate` what the provider cannot express**, with a
   non-retryable code and the field named. Silently dropping a parameter changes
   what the model does while reporting success.
+- **A hint is the exception, and it never fails a request.** The contract's
+  `cacheBreakpoint` changes what is cached, not what the model answers, so an
+  adapter that cannot express it ignores it, and one that can (Anthropic's) sends
+  at most the provider's limit and drops the rest. Anything that would change the
+  answer is still refused.
 - **An adapter classifies its own failures, and stops there.** What that
   classification means for the KEY is `provider.Walk`'s, once, for every adapter
   — an adapter that reimplemented the rotation rules would be free to

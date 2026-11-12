@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.11.0
+
+Depend on contracts 8.8.0: the client states contract set 8.8.0 (the optional
+`cacheBreakpoint` on content parts and tool definitions). The SDK adds no method.
+
 ## 3.10.0
 
 Depend on contracts 8.7.0: the client states contract set 8.7.0 (the Messages

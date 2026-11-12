@@ -38,9 +38,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		refuse(failure)
 		return
 	}
-	body, ignored := stripIgnored(body)
-	if len(ignored) > 0 {
-		w.Header().Set(HeaderIgnoredParameters, strings.Join(ignored, ", "))
+	body, ignored, markers := stripIgnored(body)
+	// Until the route is known no marker is promised: name them all, and say
+	// exactly which were forwarded once admission has decided.
+	if header := ignoredHeader(ignored, len(markers) > 0); header != "" {
+		w.Header().Set(HeaderIgnoredParameters, header)
 	}
 	var request messagesRequest
 	if failure := decodeRequest(body, requestID, &request); failure != nil {
@@ -84,6 +86,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.catalogue.announceLifecycle(w.Header(), &request.Model)
+	// A cache_control marker becomes a breakpoint only where every route this
+	// request may use prices the cache write (see forwardsCacheMarkers); on any
+	// other it is ignored exactly as before and the header says so.
+	forwarded := len(markers) > 0 && s.forwardsCacheMarkers(admitted)
+	notForwarded := len(markers)
 	envelope := admitted.request(contract.ModalityText, contract.APIFormatResponses, contract.Input{Format: contract.InputMessages, Messages: messages})
 	envelope.Stream, envelope.MaxOutputTokens = stream, request.MaxTokens
 	envelope.Sampling = contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP, TopK: request.TopK, StopSequences: request.StopSequences}
@@ -96,6 +103,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		envelope.ToolChoice = &choice
 	}
 	envelope.Reasoning = reasoning
+	if forwarded {
+		notForwarded = applyCacheMarkers(markers, messages, paths, envelope.Tools)
+		// Anthropic takes four breakpoints; the earliest in prompt order are
+		// kept and the rest are ignored, named like any other ignored marker.
+		limited, dropped := contract.LimitCacheBreakpoints(&envelope, contract.MaxCacheBreakpoints)
+		envelope, notForwarded = *limited, notForwarded+dropped
+	}
+	if header := ignoredHeader(ignored, notForwarded > 0); header != "" {
+		w.Header().Set(HeaderIgnoredParameters, header)
+	} else {
+		w.Header().Del(HeaderIgnoredParameters)
+	}
 	if stream {
 		s.messagesStream(r.Context(), w, admitted, &envelope)
 		return
@@ -194,6 +213,10 @@ func messagesContent(requestID contract.RequestID, folded *collected) ([]message
 // them on every request: refusing them made the endpoint unusable by its main
 // client. They are removed before the strict decode, and the answer names every
 // one that was present in Kaana-Ignored-Parameters so nothing is left to inference.
+//
+// `cache_control` is the one that is sometimes honoured (see cacheMarker), so it
+// is not in stripIgnored's names: ignoredHeader adds it for the markers that were
+// not forwarded.
 const (
 	ignoredCacheControl      = "cache_control"
 	ignoredContextManagement = "context_management"
@@ -201,22 +224,75 @@ const (
 	ignoredToolDeferLoading  = "tools.defer_loading"
 )
 
+// cacheMarker is one `cache_control` the request carried: where it was, in the
+// caller's own paths ("tools[0]", "system[1]", "messages[2].content[0]"), and
+// whether the contract can carry it. Only `{type: "ephemeral"}` with no `ttl`
+// (or `"5m"`) can: it is the default 5-minute write the cache-write unit prices,
+// and a 1-hour write could not be priced. The request-level marker (path "")
+// asks for automatic placement, which has no place in the contract.
+type cacheMarker struct {
+	path    string
+	carries bool
+}
+
+// carriableCacheControl reports whether a `cache_control` object is the
+// ephemeral 5-minute marker and nothing else Kaana would be guessing about.
+func carriableCacheControl(raw json.RawMessage) bool {
+	object, ok := objectOf(raw)
+	if !ok || len(object) == 0 {
+		return false
+	}
+	var kind string
+	if err := json.Unmarshal(object["type"], &kind); err != nil || kind != "ephemeral" {
+		return false
+	}
+	for key, value := range object {
+		switch key {
+		case "type":
+		case "ttl":
+			var ttl string
+			if err := json.Unmarshal(value, &ttl); err != nil || ttl != "5m" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // stripIgnored removes the accepted-and-ignored members from a request body and
-// returns the body and the names that were present, in a fixed order.
+// returns the body, the names (other than cache_control) that were present, in a
+// fixed order, and every `cache_control` marker found.
 //
 // `cache_control` is removed wherever the dialect puts it: the request,
 // `system`, a tool, a content block and a tool result's blocks. It is not read
 // inside a tool's `input` or `input_schema`, where a key of that name is the
-// caller's own data. Because Kaana forwards no cache hint, no cache write
-// happens and the usage it reports stays exactly what the request cost; honouring
-// it needs a request-side contract field that does not exist yet (issue #269).
-// That includes `ttl: "1h"`, which the single cache-write unit could not price.
-func stripIgnored(body []byte) ([]byte, []string) {
+// caller's own data.
+func stripIgnored(body []byte) ([]byte, []string, []cacheMarker) {
 	root, ok := objectOf(body)
 	if !ok {
-		return body, nil
+		return body, nil, nil
 	}
 	found := map[string]bool{}
+	var markers []cacheMarker
+	changed := false
+	// take removes cache_control from one object, recording where it was.
+	take := func(raw json.RawMessage, path string) json.RawMessage {
+		object, ok := objectOf(raw)
+		if !ok {
+			return raw
+		}
+		marker, present := object["cache_control"]
+		if !present {
+			return raw
+		}
+		delete(object, "cache_control")
+		markers = append(markers, cacheMarker{path: path, carries: carriableCacheControl(marker)})
+		changed = true
+		out, _ := json.Marshal(object)
+		return out
+	}
 	drop := func(raw json.RawMessage, key, name string) json.RawMessage {
 		object, ok := objectOf(raw)
 		if !ok {
@@ -227,22 +303,22 @@ func stripIgnored(body []byte) ([]byte, []string) {
 		}
 		delete(object, key)
 		found[name] = true
+		changed = true
 		out, _ := json.Marshal(object)
 		return out
 	}
-	marker := func(raw json.RawMessage) json.RawMessage { return drop(raw, "cache_control", ignoredCacheControl) }
-	each := func(raw json.RawMessage, visit func(json.RawMessage) json.RawMessage) json.RawMessage {
+	each := func(raw json.RawMessage, prefix string, visit func(json.RawMessage, string) json.RawMessage) json.RawMessage {
 		items := arrayOf(raw)
 		if items == nil {
 			return raw
 		}
 		for index := range items {
-			items[index] = visit(items[index])
+			items[index] = visit(items[index], fmt.Sprintf("%s[%d]", prefix, index))
 		}
 		out, _ := json.Marshal(items)
 		return out
 	}
-	withNested := func(raw json.RawMessage, key string, visit func(json.RawMessage) json.RawMessage) json.RawMessage {
+	withNested := func(raw json.RawMessage, path, key string, visit func(json.RawMessage, string) json.RawMessage) json.RawMessage {
 		object, ok := objectOf(raw)
 		if !ok {
 			return raw
@@ -251,50 +327,120 @@ func stripIgnored(body []byte) ([]byte, []string) {
 		if !present || arrayOf(nested) == nil {
 			return raw
 		}
-		object[key] = each(nested, visit)
+		object[key] = each(nested, path+"."+key, visit)
 		out, _ := json.Marshal(object)
 		return out
 	}
-	block := func(raw json.RawMessage) json.RawMessage { return withNested(marker(raw), "content", marker) }
-	tool := func(raw json.RawMessage) json.RawMessage {
-		return drop(marker(raw), "defer_loading", ignoredToolDeferLoading)
+	block := func(raw json.RawMessage, path string) json.RawMessage {
+		return withNested(take(raw, path), path, "content", take)
+	}
+	tool := func(raw json.RawMessage, path string) json.RawMessage {
+		return drop(take(raw, path), "defer_loading", ignoredToolDeferLoading)
 	}
 	if _, present := root["cache_control"]; present {
 		delete(root, "cache_control")
-		found[ignoredCacheControl] = true
+		markers = append(markers, cacheMarker{})
+		changed = true
 	}
 	if _, present := root["context_management"]; present {
 		delete(root, "context_management")
 		found[ignoredContextManagement] = true
+		changed = true
 	}
 	if thinking, present := root["thinking"]; present {
 		root["thinking"] = drop(thinking, "display", ignoredThinkingDisplay)
 	}
 	if system, present := root["system"]; present {
-		root["system"] = each(system, marker)
+		root["system"] = each(system, "system", take)
 	}
 	if tools, present := root["tools"]; present {
-		root["tools"] = each(tools, tool)
+		root["tools"] = each(tools, "tools", tool)
 	}
 	if messages, present := root["messages"]; present {
-		root["messages"] = each(messages, func(raw json.RawMessage) json.RawMessage {
-			return withNested(raw, "content", block)
+		root["messages"] = each(messages, "messages", func(raw json.RawMessage, path string) json.RawMessage {
+			return withNested(raw, path, "content", block)
 		})
 	}
 	var names []string
-	for _, name := range []string{ignoredCacheControl, ignoredContextManagement, ignoredThinkingDisplay, ignoredToolDeferLoading} {
+	for _, name := range []string{ignoredContextManagement, ignoredThinkingDisplay, ignoredToolDeferLoading} {
 		if found[name] {
 			names = append(names, name)
 		}
 	}
-	if len(names) == 0 {
-		return body, nil
+	if !changed {
+		return body, nil, nil
 	}
 	out, err := json.Marshal(root)
 	if err != nil {
-		return body, nil
+		return body, nil, nil
 	}
-	return out, names
+	return out, names, markers
+}
+
+// ignoredHeader is the Kaana-Ignored-Parameters value: cache_control first, when
+// a marker was not forwarded, then the other names in their fixed order.
+func ignoredHeader(names []string, cacheControlIgnored bool) string {
+	if cacheControlIgnored {
+		names = append([]string{ignoredCacheControl}, names...)
+	}
+	return strings.Join(names, ", ")
+}
+
+// applyCacheMarkers puts the forwardable markers on the translated parts and
+// tools and returns how many markers could not be carried (a ttl of 1h, a
+// marker on a block the contract has no breakpoint for, the request-level one).
+// paths is translateMessages' record of where each part came from. A marker on a
+// tool_result block is the breakpoint of the result's last part: the provider
+// caches up to and including the block.
+func applyCacheMarkers(markers []cacheMarker, messages []contract.Message, paths [][]string, tools []contract.ToolDefinition) int {
+	yes := true
+	notCarried := 0
+	toolIndex := make(map[string]int, len(tools))
+	for index := range tools {
+		toolIndex[fmt.Sprintf("tools[%d]", index)] = index
+	}
+	for _, marker := range markers {
+		if !marker.carries {
+			notCarried++
+			continue
+		}
+		if index, ok := toolIndex[marker.path]; ok {
+			tools[index].CacheBreakpoint = &yes
+			continue
+		}
+		if !markPart(messages, paths, marker.path) {
+			notCarried++
+		}
+	}
+	return notCarried
+}
+
+// markPart sets the breakpoint on the part translated from path, or on the last
+// part of the tool message a tool_result block at path became.
+func markPart(messages []contract.Message, paths [][]string, path string) bool {
+	yes := true
+	for messageIndex := range messages {
+		for partIndex, from := range paths[messageIndex] {
+			part := &messages[messageIndex].Content[partIndex]
+			switch {
+			case from == path:
+			case messages[messageIndex].Role == contract.RoleTool && strings.HasPrefix(from, path+".content") &&
+				partIndex == len(messages[messageIndex].Content)-1:
+				// The last part of the result a tool_result block at path became.
+			default:
+				continue
+			}
+			if part.Type != contract.ContentPartText && part.Type != contract.ContentPartImage {
+				return false
+			}
+			if part.Type == contract.ContentPartText && (part.Text == nil || *part.Text == "") {
+				return false
+			}
+			part.CacheBreakpoint = &yes
+			return true
+		}
+	}
+	return false
 }
 
 func objectOf(raw []byte) (map[string]json.RawMessage, bool) {

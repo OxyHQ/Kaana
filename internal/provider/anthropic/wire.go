@@ -71,8 +71,25 @@ type redactedThinkingBlockParam struct {
 // systemBlock carries the system prompt, which this protocol hoists out of the
 // message list entirely rather than carrying as a message with a role.
 type systemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+// cacheControl is the provider's prompt-cache breakpoint: `{"type":"ephemeral"}`
+// and nothing else. There is deliberately no `ttl` member, so the default
+// 5-minute lifetime is the only one this adapter can ask for, which is the one
+// the contract's cache-write unit prices.
+type cacheControl struct {
 	Type string `json:"type"`
-	Text string `json:"text"`
+}
+
+// ephemeral is the breakpoint a contract cacheBreakpoint becomes, or nil.
+func ephemeral(marked bool) *cacheControl {
+	if !marked {
+		return nil
+	}
+	return &cacheControl{Type: "ephemeral"}
 }
 
 type messageParam struct {
@@ -81,13 +98,15 @@ type messageParam struct {
 }
 
 type textBlockParam struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type imageBlockParam struct {
-	Type   string      `json:"type"`
-	Source imageSource `json:"source"`
+	Type         string        `json:"type"`
+	Source       imageSource   `json:"source"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 // imageSource is a union on `type`: `base64` carries the bytes, `url` carries a
@@ -103,6 +122,8 @@ type documentBlockParam struct {
 	Type   string         `json:"type"`
 	Source documentSource `json:"source"`
 	Title  *string        `json:"title,omitempty"`
+
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type documentSource struct {
@@ -129,12 +150,16 @@ type toolResultBlockParam struct {
 	Type      string `json:"type"`
 	ToolUseID string `json:"tool_use_id"`
 	Content   []any  `json:"content"`
+
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type toolParam struct {
 	Name        string         `json:"name"`
 	Description *string        `json:"description,omitempty"`
 	InputSchema map[string]any `json:"input_schema"`
+
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 // toolChoiceParam is `{"type":"auto"|"any"|"none"|"tool", "name": …}`. The

@@ -34,6 +34,23 @@ export const inferenceContentSourceSchema = z.discriminatedUnion('kind', [
 ]);
 
 /**
+ * A prompt-cache breakpoint (contract set 8.8.0): the prompt up to and including
+ * the part, system message or tool that carries it is to be cached by a provider
+ * that can express it. `true` is Anthropic's `cache_control: {type: "ephemeral"}`
+ * with the default 5-minute lifetime and nothing else: there is no lifetime
+ * field, because the one cache-write unit cannot price a longer one.
+ *
+ * It is a hint with no effect on the answer. A route that cannot express it
+ * ignores it and still succeeds; Kaana's executor sends it only to a route whose
+ * granted price version prices `cache_write_input_tokens`, so a cache write is
+ * never provoked that the customer is not charged for at its own rate. A provider
+ * that allows fewer breakpoints than are marked receives the earliest ones in
+ * prompt order (tools, then system, then messages). `false` is the same as absent.
+ * Only a part whose type a provider caches (`text`, `image`, `file`) carries it.
+ */
+const cacheBreakpointSchema = z.boolean().optional();
+
+/**
  * One part of a message's content. A message is always a list of parts.
  *
  * ## `refusal` and `reasoning` are members, and neither is ever answer text
@@ -76,13 +93,20 @@ export const inferenceContentSourceSchema = z.discriminatedUnion('kind', [
  * the continuation is lost, the conversation is not.
  */
 export const inferenceContentPartSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), text: z.string() }).strict(),
+  z
+    .object({
+      type: z.literal('text'),
+      text: z.string(),
+      cacheBreakpoint: cacheBreakpointSchema,
+    })
+    .strict(),
   z
     .object({
       type: z.literal('image'),
       source: inferenceContentSourceSchema,
       /** Provider-independent hint; providers that ignore it are unaffected. */
       detail: z.enum(['auto', 'low', 'high']).optional(),
+      cacheBreakpoint: cacheBreakpointSchema,
     })
     .strict(),
   z.object({ type: z.literal('audio'), source: inferenceContentSourceSchema }).strict(),
@@ -91,6 +115,7 @@ export const inferenceContentPartSchema = z.discriminatedUnion('type', [
       type: z.literal('file'),
       source: inferenceContentSourceSchema,
       filename: z.string().check(maxUtf16Length(255)).optional(),
+      cacheBreakpoint: cacheBreakpointSchema,
     })
     .strict(),
   /**
@@ -352,6 +377,8 @@ export const toolDefinitionSchema = z
     parameters: z.record(z.string(), z.unknown()),
     /** Ask the provider to enforce the schema, where it supports enforcement. */
     strict: z.boolean().optional(),
+    /** A prompt-cache breakpoint after this tool ({@link cacheBreakpointSchema}). */
+    cacheBreakpoint: cacheBreakpointSchema,
   })
   .strict();
 
