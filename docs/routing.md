@@ -212,6 +212,36 @@ When every deployment of a model is out of rotation the request is refused with
 earliest breaker will admit its next trial** rather than a number chosen to look
 reasonable.
 
+## What a deployment recently did
+
+The breaker says whether a deployment is in rotation and the health score blends
+its history into one number; neither says how it behaved over the last few
+minutes. `internal/deploymentstats` keeps that, in memory, per deployment, and
+`GET /internal/v1/health` reports it as `recent` beside each deployment's
+breaker state: one window each for 5 minutes, 30 minutes and 1 day.
+
+Each window has attempt, success and throttle counts; `uptime`; and percentiles
+(p50, p75, p90, p99) of time to first output in milliseconds and of output
+tokens per second.
+
+- **What is counted is what the breaker blames.** An attempt counts when
+  `provider.DeploymentAttributable` says the deployment could have answered
+  differently. A cancellation, a customer's own credential failing and a failure
+  every deployment would share are not recorded, for the reason the breaker
+  ignores them.
+- **Uptime is up minutes over observed minutes.** A minute is observed when it
+  has at least 10 attempts and up when at least 80 % of them succeeded. A quiet
+  deployment has no uptime rather than a perfect one.
+- **Throughput excludes the wait for the first output**: output tokens over the
+  time after first output, so a slow start does not read as a slow generator.
+  It is absent when either figure is unknown.
+- **It is process-local.** A restart starts empty and a reader sees zero attempts,
+  which is not health. Counts and durations only: no prompt, completion, key,
+  caller or provider text.
+
+It changes no routing. It is the measurement an ordering decision would read,
+and the order is still the one Oxy signs.
+
 ## Rules a reviewer applies
 
 - **A `RouteSet` is one exact model reference.** Its endpoints are the only
@@ -261,3 +291,6 @@ reasonable.
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
 [adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
+- **`deploymentstats` records only what the breaker would blame.** Feed it through
+  `recordDeploymentStats` and nothing else, so the two never disagree about whose
+  fault an attempt was, and never add a field that carries request content.

@@ -23,6 +23,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/credentialvalidation"
+	"github.com/OxyHQ/Kaana/internal/deploymentstats"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/httpapi"
 	"github.com/OxyHQ/Kaana/internal/inventory"
@@ -262,6 +263,7 @@ func run(logger *slog.Logger) error {
 		MaxCooldown:      durationFromEnv("KAANA_BREAKER_MAX_COOLDOWN", 0),
 		SuccessesToClose: intFromEnv("KAANA_BREAKER_SUCCESSES_TO_CLOSE", 0),
 	}, nil)
+	deploymentStats := deploymentstats.NewRegistry(nil)
 	probeTimeout, err := strictPositiveDurationFromEnv("KAANA_CREDENTIAL_VALIDATION_PROBE_TIMEOUT", 20*time.Second)
 	if err != nil {
 		return err
@@ -279,6 +281,7 @@ func run(logger *slog.Logger) error {
 		Inventory:           inventoryStore,
 		Providers:           registry,
 		Rotation:            rotationRegistry,
+		Stats:               deploymentStats,
 		Costs:               costs,
 		CostRecorder:        costRecorder,
 		CustomerCredentials: customerCredentialResolver,
@@ -329,6 +332,7 @@ func run(logger *slog.Logger) error {
 		Registry:            registry,
 		Inventory:           inventoryStore,
 		Rotation:            rotationRegistry,
+		Stats:               deploymentStats,
 		Logger:              logger,
 		MaxEnvelopeBytes:    int64FromEnv("KAANA_MAX_ENVELOPE_BYTES", httpapi.DefaultMaxEnvelopeBytes),
 	})
@@ -395,7 +399,7 @@ func run(logger *slog.Logger) error {
 	if public.settler != nil {
 		go public.settler.Run(ctx)
 	}
-	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, registry, logger,
+	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, deploymentStats, registry, logger,
 		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))
 	go reloadCredentialPools(ctx, credentialStore, providerConfigs, registry, logger,
 		durationFromEnv("KAANA_CREDENTIAL_RELOAD_INTERVAL", time.Minute), providerClient)
@@ -523,6 +527,7 @@ func reloadSnapshots(
 	ctx context.Context,
 	store *inventory.Store,
 	rotationRegistry *rotation.Registry,
+	deploymentStats *deploymentstats.Registry,
 	adapters *provider.Registry,
 	logger *slog.Logger,
 	every time.Duration,
@@ -554,7 +559,9 @@ func reloadSnapshots(
 			// under an unchanged snapshot. This line is the only thing that
 			// says so.
 			warnAboutUnroutableDeployments(logger, current, adapters)
-			rotationRegistry.Retain(deploymentIDs(current))
+			known := deploymentIDs(current)
+			rotationRegistry.Retain(known)
+			deploymentStats.Retain(known)
 		}
 	}
 }

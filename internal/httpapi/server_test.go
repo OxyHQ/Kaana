@@ -21,6 +21,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/deploymentstats"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/httpapi"
 	"github.com/OxyHQ/Kaana/internal/inventory"
@@ -276,10 +277,12 @@ func newHarnessWithCommercial(t *testing.T, adapter *stubAdapter, deployments []
 		t.Fatalf("registering the adapter: %v", err)
 	}
 	rotationRegistry := rotation.NewRegistry(rotation.Policy{}, nil)
+	deploymentStats := deploymentstats.NewRegistry(nil)
 	executor, err := kaana.NewExecutor(kaana.Config{
 		Inventory: store,
 		Providers: registry,
 		Rotation:  rotationRegistry,
+		Stats:     deploymentStats,
 		Costs:     testRateCards(t),
 	})
 	if err != nil {
@@ -300,6 +303,7 @@ func newHarnessWithCommercial(t *testing.T, adapter *stubAdapter, deployments []
 		Registry:            registry,
 		Inventory:           store,
 		Rotation:            rotationRegistry,
+		Stats:               deploymentStats,
 		Logger:              logger,
 		DeclaredCatalogue:   json.RawMessage(declaredCatalogueFixture),
 		Commercial:          table,
@@ -982,6 +986,87 @@ func TestTheHealthSurfaceProjectsRotationAndConfiguration(t *testing.T) {
 	if projected.Deployments[0].State != string(rotation.StateClosed) {
 		t.Errorf("an untouched deployment is projected as %q", projected.Deployments[0].State)
 	}
+}
+
+// recentWindows reads the health surface and returns the stub deployment's
+// 5-minute window, or fails the test.
+func recentFiveMinutes(t *testing.T, harness *harness) (attempts, succeeded int, hasTTFT bool) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, harness.server.URL+"/internal/v1/health", readerOf(nil))
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	harness.sign(request, nil)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("requesting health: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var projected struct {
+		Deployments []struct {
+			Recent []struct {
+				Seconds             int             `json:"seconds"`
+				Attempts            int             `json:"attempts"`
+				Succeeded           int             `json:"succeeded"`
+				TimeToFirstOutputMs json.RawMessage `json:"timeToFirstOutputMs"`
+			} `json:"recent"`
+		} `json:"deployments"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&projected); err != nil {
+		t.Fatalf("decoding health: %v", err)
+	}
+	if len(projected.Deployments) != 1 || len(projected.Deployments[0].Recent) != 3 {
+		t.Fatalf("health must project three windows for the one deployment: %+v", projected.Deployments)
+	}
+	window := projected.Deployments[0].Recent[0]
+	if window.Seconds != 300 {
+		t.Fatalf("the first window spans %d seconds, want 300", window.Seconds)
+	}
+	return window.Attempts, window.Succeeded, len(window.TimeToFirstOutputMs) > 0
+}
+
+// TestTheHealthSurfaceReportsWhatADeploymentRecentlyDid: the breaker state says
+// whether a deployment is in rotation, not how it has been behaving. A served
+// request must show as an attempt that succeeded, a failure the deployment
+// could have answered differently as one that did not, and a customer's
+// cancellation as neither.
+func TestTheHealthSurfaceReportsWhatADeploymentRecentlyDid(t *testing.T) {
+	t.Run("a served request is a succeeded attempt", func(t *testing.T) {
+		harness := newHarness(t, &stubAdapter{chunks: 2})
+		if attempts, _, _ := recentFiveMinutes(t, harness); attempts != 0 {
+			t.Fatalf("control: an untouched deployment already has %d attempts", attempts)
+		}
+		response := harness.post(t, context.Background(), envelope(t, nil), true)
+		_ = readFrames(t, response.Body)
+		_ = response.Body.Close()
+		attempts, succeeded, _ := recentFiveMinutes(t, harness)
+		if attempts != 1 || succeeded != 1 {
+			t.Fatalf("attempts/succeeded = %d/%d, want 1/1", attempts, succeeded)
+		}
+	})
+	t.Run("an attributable failure is an attempt that did not succeed", func(t *testing.T) {
+		harness := newHarness(t, &stubAdapter{fail: provider.ErrUpstream{
+			Code: contract.CodeProviderError, Category: contract.UpstreamServerError, Detail: "upstream error",
+		}})
+		response := harness.post(t, context.Background(), envelope(t, nil), true)
+		_ = readFrames(t, response.Body)
+		_ = response.Body.Close()
+		attempts, succeeded, _ := recentFiveMinutes(t, harness)
+		if attempts < 1 || succeeded != 0 {
+			t.Fatalf("attempts/succeeded = %d/%d, want at least one attempt and none succeeded", attempts, succeeded)
+		}
+	})
+	t.Run("a failure every deployment would share is not counted", func(t *testing.T) {
+		harness := newHarness(t, &stubAdapter{fail: provider.ErrUpstream{
+			Code: contract.CodeInvalidRequest, Category: contract.UpstreamInvalidReq, Detail: "the provider cannot express this",
+		}})
+		response := harness.post(t, context.Background(), envelope(t, nil), true)
+		_ = readFrames(t, response.Body)
+		_ = response.Body.Close()
+		if attempts, _, _ := recentFiveMinutes(t, harness); attempts != 0 {
+			t.Fatalf("a request-shaped refusal was counted against the deployment: %d attempts", attempts)
+		}
+	})
 }
 
 // TestClientDisconnectCancelsExecution is the first half of the cancellation
