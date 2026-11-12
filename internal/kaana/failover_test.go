@@ -1080,3 +1080,38 @@ func credentialBillingRefused(slug contract.ProviderSlug) error {
 	return provider.ErrUpstream{Code: contract.CodeProviderBillingRefused, Category: contract.UpstreamQuota, Detail: "credit balance is too low",
 		Passthrough: &contract.ProviderErrorPassthrough{Provider: slug}}
 }
+
+// TestAServedAttemptFeedsTheDeploymentsFirstOutputReading: the time to first
+// output the executor already measures reaches the rotation registry, which is
+// what orders routes of the same funding tier (ADR 0008, decision 3); a failed
+// attempt feeds nothing.
+func TestAServedAttemptFeedsTheDeploymentsFirstOutputReading(t *testing.T) {
+	primary := failingAdapter("stub", customerFault("stub"), nil)
+	secondary := succeedingAdapter("backup", 1)
+	rotationRegistry := rotation.NewRegistry(rotation.Policy{}, nil)
+
+	executor := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, secondary},
+		rotation:    rotationRegistry,
+	}.build(t)
+	_, result := runOn(executor, authorizedRequest())
+	if result.Failure == nil {
+		t.Fatalf("the request was expected to be refused by the first deployment, got %v", result.Failure)
+	}
+	if _, known := rotationRegistry.FirstOutput("dep_a"); known {
+		t.Error("a request the deployment refused left a first-output reading")
+	}
+
+	served := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{succeedingAdapter("stub", 1), succeedingAdapter("backup", 1)},
+		rotation:    rotationRegistry,
+	}.build(t)
+	if _, result := runOn(served, authorizedRequest()); result.Failure != nil {
+		t.Fatalf("the request failed: %v", result.Failure)
+	}
+	if reading, known := rotationRegistry.FirstOutput("dep_a"); !known || reading <= 0 {
+		t.Errorf("a served attempt left no first-output reading (%v, %v)", reading, known)
+	}
+}

@@ -42,6 +42,20 @@ moves the cross-provider order into Kaana too (ADR 0001). What an exact-model
 request and a power-level request promise the caller is in the
 [Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md).
 
+## Public grant lane order
+
+The signed lane above is never reordered. On the public `kaana.ai/v1` lane
+Oxy signs a grant, not a route list, and Kaana resolves it into one
+(`publicapi.resolveGrant`). Per step it drops deployments the grant's provider
+and region limits refuse, whose key pool has no key inside the funding ceiling,
+or whose published `acceptedParameters` refuse a control the request carries
+(unless none accepts it, which keeps the attempt's precise refusal), then
+orders by cheapest key tier, the grant's line order, recent time to first
+output in coarse bands, and inventory position. The latency reading is
+`rotation.Registry.FirstOutput`, a 5-minute moving average per deployment fed
+only by served attempts; unobserved ranks first, and it never excludes a route
+or touches a breaker ([ADR 0008](adr/0008-provider-selection-lessons.md)).
+
 ## Authorized failover
 
 Oxy sends `authorizedRoutes` in preference order after applying the customer's

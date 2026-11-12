@@ -100,7 +100,7 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 	if failure != nil {
 		return nil, failure
 	}
-	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), ask.needs, s.now())
+	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.latency, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), ask.needs, s.now())
 	if failure != nil {
 		s.releaseUnserved(ctx, grant)
 		return nil, failure

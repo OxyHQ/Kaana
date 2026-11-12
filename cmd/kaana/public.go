@@ -20,6 +20,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/providercost"
 	"github.com/OxyHQ/Kaana/internal/publicapi"
 	"github.com/OxyHQ/Kaana/internal/realtime"
+	"github.com/OxyHQ/Kaana/internal/rotation"
 )
 
 // publicAPIDependencies is what the public API is built from.
@@ -29,6 +30,7 @@ type publicAPIDependencies struct {
 	executor  *kaana.Executor
 	inventory *inventory.Store
 	registry  *provider.Registry
+	rotation  *rotation.Registry
 	sessions  *realtime.Manager
 	store     *credentialstore.Postgres
 	keys      map[string]ed25519.PublicKey
@@ -136,7 +138,7 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 	server, err := publicapi.New(publicapi.Config{
 		Catalogue: catalogue, Costs: deps.costs,
 		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
-		Funding: publicapi.RegistryFunding{Registry: deps.registry}, Kinds: deps.registry, AllowedOrigins: origins,
+		Funding: publicapi.RegistryFunding{Registry: deps.registry}, Latency: deps.rotation, Kinds: deps.registry, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})
 	if err != nil {

@@ -90,8 +90,9 @@ type Registry struct {
 	policy Policy
 	now    func() time.Time
 
-	mu       sync.Mutex
-	breakers map[contract.DeploymentID]*breaker
+	mu           sync.Mutex
+	breakers     map[contract.DeploymentID]*breaker
+	firstOutputs map[contract.DeploymentID]*firstOutput
 }
 
 // NewRegistry builds a registry. A zero-valued field in policy takes its
