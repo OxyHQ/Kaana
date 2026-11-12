@@ -124,6 +124,20 @@ function validateDeclaredCatalogue() {
       );
     }
   }
+  // Control: the schema (contracts 8.4.0) refuses an unreported key that is true,
+  // so the `unreported` arrays in the file are checked against the booleans.
+  const reported = declared.models.find((model) => model.capabilities.tools);
+  if (reported !== undefined) {
+    const control = {
+      ...declared,
+      models: [{ ...reported, capabilities: { ...reported.capabilities, unreported: ['tools'] } }],
+    };
+    if (schema.safeParse(control).success) {
+      problems.push(
+        'ACCEPTED an unreported capability that is true; declaredCatalogueSchema does not enforce the 8.4.0 rule',
+      );
+    }
+  }
   process.stdout.write(
     `validated configs/public-catalogue.json: ${declared.models.length} declared models\n`,
   );

@@ -131,13 +131,17 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 			}
 			delete(fields, "imageInput")
 		}
+		internalCapabilities, err := withholdUnreported(fields)
+		if err != nil {
+			return nil, fmt.Errorf("publicapi: public catalogue models[%d].capabilities: %w", index, err)
+		}
 		if raw, present := fields["powerClass"]; present {
 			if err := json.Unmarshal(raw, &model.powerClass); err != nil || !slices.Contains(powerClasses, model.powerClass) {
 				return nil, fmt.Errorf("publicapi: public catalogue models[%d].powerClass is not a power class", index)
 			}
 		}
 		catalogue.models[line] = model
-		declared = append(declared, declaredEntry{line: line, audience: model.audience, imageInput: imageInput, fields: fields})
+		declared = append(declared, declaredEntry{line: line, audience: model.audience, imageInput: imageInput, capabilities: internalCapabilities, fields: fields})
 	}
 	document := make([]map[string]json.RawMessage, 0, len(declared))
 	for _, entry := range declared {
@@ -152,6 +156,9 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 		whole["audience"] = audience
 		if entry.imageInput != nil {
 			whole["imageInput"] = entry.imageInput
+		}
+		if entry.capabilities != nil {
+			whole["capabilities"] = entry.capabilities
 		}
 		document = append(document, whole)
 	}
@@ -172,7 +179,35 @@ type declaredEntry struct {
 	// imageInput is internal (contract set 8.2.0): carried to Oxy on the
 	// declared document, never rendered on GET /v1/models.
 	imageInput json.RawMessage
-	fields     map[string]json.RawMessage
+	// capabilities is the whole capabilities object when it lists `unreported`
+	// (contract set 8.4.0), which Oxy reads on the declared document and a
+	// public reader on an older contract refuses (its capabilities object is
+	// strict): GET /v1/models renders the object without it. Nil when the model
+	// lists none.
+	capabilities json.RawMessage
+	fields       map[string]json.RawMessage
+}
+
+// withholdUnreported removes `unreported` from the capabilities of a declared
+// model's public fields and returns the original object, or nil when it carries
+// none. The readers that parse GET /v1/models run contracts 4.4.0 and later and
+// the packages/sdk compatibility test requires that they keep parsing it.
+func withholdUnreported(fields map[string]json.RawMessage) (json.RawMessage, error) {
+	original := fields["capabilities"]
+	var capabilities map[string]json.RawMessage
+	if err := json.Unmarshal(original, &capabilities); err != nil {
+		return nil, err
+	}
+	if _, present := capabilities["unreported"]; !present {
+		return nil, nil
+	}
+	delete(capabilities, "unreported")
+	public, err := json.Marshal(capabilities)
+	if err != nil {
+		return nil, err
+	}
+	fields["capabilities"] = public
+	return original, nil
 }
 
 // validateImageInput holds declaredImageInputSchema: exactly a positive

@@ -112,3 +112,106 @@ func TestTheDeclaredCatalogueRefusesFieldsThatDescribeARoute(t *testing.T) {
 		t.Errorf("the unmodified model was refused: %v", err)
 	}
 }
+
+// The five capability booleans whose `false` was never evidence, in the order
+// the contract lists them (UNREPORTED_CAPABILITY_KEYS, contracts 8.4.0).
+var unreportableCapabilities = []string{"tools", "parallelToolCalls", "structuredOutput", "jsonMode", "promptCaching"}
+
+// TestTheDeclaredCatalogueSaysWhichCapabilitiesItDoesNotKnow holds the
+// evidence rule for the five unreportable booleans (docs/operating.md, "The
+// declared catalogue"): a `false` is "not recorded" and is listed in
+// `capabilities.unreported` unless testdata/capability_evidence.json cites a
+// source that the capability is absent; a `true` must be in that file, with its
+// source, so a new unevidenced true cannot be added unnoticed. A listed key is
+// false, listed once, in the contract's order.
+func TestTheDeclaredCatalogueSaysWhichCapabilitiesItDoesNotKnow(t *testing.T) {
+	raw, err := os.ReadFile(catalogueFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Models []struct {
+			ModelID      string                     `json:"modelId"`
+			Capabilities map[string]json.RawMessage `json:"capabilities"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRaw, err := os.ReadFile("testdata/capability_evidence.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		// Evidence[model][key] is the source of a true value: a URL, or
+		// "migration-2026-10-15" for a value grandfathered from Oxy's export.
+		Evidence map[string]map[string]string `json:"evidence"`
+		// Absent[model][key] is a source stating the capability is absent, which
+		// is the only thing that lets a false stay unlisted.
+		Absent map[string]map[string]string `json:"absent"`
+	}
+	if err := json.Unmarshal(evidenceRaw, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	position := map[string]int{}
+	for index, key := range unreportableCapabilities {
+		position[key] = index
+	}
+	seen := map[string]bool{}
+	for _, model := range document.Models {
+		seen[model.ModelID] = true
+		var listed []string
+		if encoded, ok := model.Capabilities["unreported"]; ok {
+			if err := json.Unmarshal(encoded, &listed); err != nil {
+				t.Errorf("%s: unreported does not decode: %v", model.ModelID, err)
+				continue
+			}
+			if len(listed) == 0 {
+				t.Errorf("%s: an empty unreported list is omitted, not written", model.ModelID)
+			}
+		}
+		inList := map[string]bool{}
+		last := -1
+		for _, key := range listed {
+			at, known := position[key]
+			if !known {
+				t.Errorf("%s: unreported lists %q, which is not one of the five", model.ModelID, key)
+				continue
+			}
+			if inList[key] {
+				t.Errorf("%s: unreported lists %s twice", model.ModelID, key)
+			}
+			if at <= last {
+				t.Errorf("%s: unreported is not in the contract's order: %v", model.ModelID, listed)
+			}
+			inList[key], last = true, at
+			if string(model.Capabilities[key]) != "false" {
+				t.Errorf("%s: %s is listed as unreported but is %s", model.ModelID, key, model.Capabilities[key])
+			}
+		}
+		for _, key := range unreportableCapabilities {
+			switch string(model.Capabilities[key]) {
+			case "true":
+				if evidence.Evidence[model.ModelID][key] == "" {
+					t.Errorf("%s: %s is true with no source in testdata/capability_evidence.json", model.ModelID, key)
+				}
+			case "false":
+				if !inList[key] && evidence.Absent[model.ModelID][key] == "" {
+					t.Errorf("%s: %s is false, not listed as unreported and has no source that it is absent", model.ModelID, key)
+				}
+				if inList[key] && evidence.Absent[model.ModelID][key] != "" {
+					t.Errorf("%s: %s cites a source that it is absent but is still listed as unreported", model.ModelID, key)
+				}
+			default:
+				t.Errorf("%s: %s is %s, not a boolean", model.ModelID, key, model.Capabilities[key])
+			}
+		}
+	}
+	for _, sources := range []map[string]map[string]string{evidence.Evidence, evidence.Absent} {
+		for modelID := range sources {
+			if !seen[modelID] {
+				t.Errorf("testdata/capability_evidence.json names %s, which the catalogue does not declare", modelID)
+			}
+		}
+	}
+}

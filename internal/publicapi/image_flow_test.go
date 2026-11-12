@@ -223,3 +223,40 @@ func TestTheCheckedInImageBoundsParse(t *testing.T) {
 		}
 	}
 }
+
+// `capabilities.unreported` reaches Oxy on the declared document and never the
+// public catalogue: a reader on a contract before 8.4.0 parses capabilities
+// strictly and would refuse the whole list.
+func TestUnreportedCapabilitiesAreInternal(t *testing.T) {
+	var file struct {
+		SchemaVersion int              `json:"schemaVersion"`
+		Models        []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal([]byte(declaredCatalogue), &file); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range file.Models {
+		if model["modelId"] == "stub/model" {
+			model["capabilities"].(map[string]any)["unreported"] = []any{"parallelToolCalls", "promptCaching"}
+		}
+	}
+	raw, err := json.Marshal(map[string]any{"schemaVersion": 1, "models": file.Models})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogue, err := publicapi.ParsePublicCatalogue(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(catalogue.Document()), `"unreported":["parallelToolCalls","promptCaching"]`) {
+		t.Errorf("the declared document lacks unreported: %s", catalogue.Document())
+	}
+	h := newHarness(t, harnessOptions{catalogue: catalogue})
+	listed := h.get("/v1/models", validKey)
+	if listed.StatusCode != http.StatusOK || !strings.Contains(string(listed.Body), `"modelId":"stub/model"`) {
+		t.Fatalf("%d %s", listed.StatusCode, listed.Body)
+	}
+	if strings.Contains(string(listed.Body), "unreported") {
+		t.Errorf("GET /v1/models serves unreported: %s", listed.Body)
+	}
+}
