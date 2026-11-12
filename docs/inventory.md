@@ -202,11 +202,19 @@ decision 5):
   endpoints no longer count towards the parameters, tool-choice values,
   quantizations or upstreams the route is said to reach. This holds whatever the
   account setting.
-- A model whose endpoints are ALL Safety Retention (most Gemini models today)
-  has nothing plain to fall back to. It is kept, not withdrawn, and its
-  zero-retention statement holds only while the OpenRouter account Kaana uses is
-  set to ZDR only: an operator check, outside this repository, to make before any
-  rollout that touches OpenRouter routes.
+- A model whose endpoints are ALL Safety Retention (nine declared Gemini lines
+  on 2026-11-12: `google/gemini-2.5-pro-preview`, `-3-flash-preview`,
+  `-3.1-flash-lite`, `-3.1-pro-preview`, `-3.5-flash`, `-3.5-flash-lite`,
+  `-3.6-flash`, `-3.7-flash`, `-3.8-flash`) declares it in the catalogue: its
+  `dataPolicy` is `retainsPayloads: true`, `retentionDays: 90`,
+  `zeroDataRetentionAvailable: false`, so Oxy's grant policy can keep a customer
+  who requires zero retention off it. Re-check this when OpenRouter's list moves
+  (`safety_retention` on every endpoint of the model). Such a model has nothing
+  plain to fall back to, so it is kept, not withdrawn. While the OpenRouter
+  account Kaana uses is set to ZDR only, OpenRouter answers it with no endpoint
+  and it cannot be served; otherwise it is served with Safety Retention. That
+  account setting is an operator check outside this repository, to make before
+  any rollout that touches OpenRouter routes.
 
 `acceptedParameters` names caller controls by the contract request path a
 caller sets and a refusal names (`provider.RequestParameter`), sorted, from a
