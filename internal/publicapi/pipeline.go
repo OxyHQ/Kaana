@@ -26,6 +26,9 @@ type authorization struct {
 	// onBehalfOf is a delegated user the body names (OpenAI's `user`);
 	// X-Oxy-User-Id, when present, must agree with it.
 	onBehalfOf *contract.UserID
+	// needs are the caller controls the request carries. They stay in Kaana:
+	// they steer route choice (resolveGrant) and are never sent to Oxy.
+	needs []provider.RequestParameter
 }
 
 // admission is a request Oxy granted and Kaana resolved: everything the
@@ -97,7 +100,7 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 	if failure != nil {
 		return nil, failure
 	}
-	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), s.now())
+	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), ask.needs, s.now())
 	if failure != nil {
 		s.releaseUnserved(ctx, grant)
 		return nil, failure

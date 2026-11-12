@@ -27,6 +27,12 @@ it controls none of the kernels, engine version, hardware or load.
 
 ## What Kaana does not promise
 
+- **The same route twice.** On the public grant lane, routes inside one funding
+  tier are ordered by recent measured time to first output, so two identical
+  requests can be served by different deployments
+  ([ADR 0008](adr/0008-provider-selection-lessons.md)). The signed
+  `authorizedRoutes` lane is never reordered.
+
 - Bitwise or token-identical output across calls, routes, keys, days or
   provider engine versions. A provider may change an engine without notice.
 - That sticky routing reduces variance: the cause is load-driven batch size.

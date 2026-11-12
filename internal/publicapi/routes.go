@@ -49,10 +49,27 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // paid inside that deployment, ADR 0001), so the request never moves to another
 // provider of the same line within the step.
 //
+// A request's `needs` (the controls it carries, see carriedParameters) drop a
+// deployment whose published accepted-parameter set refuses one; a deployment
+// with no such statement is kept, as absence is "nobody said".
+//
 // Kaana never adds a model line Oxy did not admit and never widens a limit.
 // What it cannot verify from its inventory (zero data retention, training,
 // licences) is the policy Oxy applied when it computed admittedModelLines.
-func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, serves func(provider.Route) bool, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
+	if len(needs) > 0 {
+		// Prefer routes whose published accepted-parameter set takes every
+		// control the request carries (ADR 0008). When none does, resolve as
+		// before: the attempt then refuses with the exact parameter named, which
+		// is a better answer than "no route".
+		if resolved, failure := resolveGrantFor(grant, snapshot, funding, serves, needs, at); failure == nil {
+			return resolved, nil
+		}
+	}
+	return resolveGrantFor(grant, snapshot, funding, serves, nil, at)
+}
+
+func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, serves func(provider.Route) bool, needs []provider.RequestParameter, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
 	for stepIndex, step := range grant.Steps {
@@ -81,6 +98,9 @@ func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding 
 			}
 			for position, route := range set.Candidates() {
 				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) {
+					continue
+				}
+				if _, refused := route.UnacceptedParameter(needs...); refused {
 					continue
 				}
 				if _, taken := resolved.steps[route.DeploymentID]; taken {
@@ -202,4 +222,39 @@ func admitsRoute(limits contract.GrantStepLimits, route provider.Route) bool {
 		}
 	}
 	return true
+}
+
+// carriedParameters is the set of caller controls a text request carries, in
+// the accepted-parameter vocabulary, as the upstream wire would send them: a
+// `text` response format sends nothing, `auto` tool choice is every provider's
+// default, and a tool choice is a value only when it is none, required or a
+// named function (openaicompat.wireToolChoiceValue reads the same way).
+func carriedParameters(maxOutput *int, sampling contract.SamplingParameters, tools int, choice *contract.ToolChoice, format *contract.ResponseFormat, reasoning bool) []provider.RequestParameter {
+	var carried []provider.RequestParameter
+	add := func(present bool, parameter provider.RequestParameter) {
+		if present {
+			carried = append(carried, parameter)
+		}
+	}
+	add(maxOutput != nil, provider.ParameterMaxOutputTokens)
+	add(reasoning, provider.ParameterReasoningEffort)
+	add(format != nil && format.Type != contract.ResponseFormatText, provider.ParameterResponseFormat)
+	add(sampling.FrequencyPenalty != nil, provider.ParameterFrequencyPenalty)
+	add(sampling.PresencePenalty != nil, provider.ParameterPresencePenalty)
+	add(sampling.Seed != nil, provider.ParameterSeed)
+	add(len(sampling.StopSequences) > 0, provider.ParameterStopSequences)
+	add(sampling.Temperature != nil, provider.ParameterTemperature)
+	add(sampling.TopP != nil, provider.ParameterTopP)
+	add(tools > 0, provider.ParameterTools)
+	if choice != nil {
+		switch {
+		case choice.Function != nil:
+			carried = append(carried, provider.ParameterToolChoiceFunction)
+		case choice.Mode != nil && *choice.Mode == contract.ToolChoiceNone:
+			carried = append(carried, provider.ParameterToolChoiceNone)
+		case choice.Mode != nil && *choice.Mode == contract.ToolChoiceRequired:
+			carried = append(carried, provider.ParameterToolChoiceRequired)
+		}
+	}
+	return carried
 }

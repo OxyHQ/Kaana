@@ -189,6 +189,14 @@ below). A failed or malformed read of that list fails OpenRouter's discovery
 for the cycle, exactly as a failed `/models` read does
 (`provider-onboarding.md`, "OpenRouter").
 
+The list names zero-retention endpoints, and OpenRouter's `zdr: true` also
+admits its "Safety Retention" endpoints (prompts kept only to detect abuse; for
+Google models through Vertex since 2026-10-18) unless the account or guardrail
+is set to ZDR only. Kaana's zero-retention statement therefore holds only while
+the OpenRouter account Kaana uses is set to ZDR only: check it as part of any
+rollout that touches OpenRouter routes
+([ADR 0008](adr/0008-provider-selection-lessons.md)).
+
 `acceptedParameters` names caller controls by the contract request path a
 caller sets and a refusal names (`provider.RequestParameter`), sorted, from a
 closed vocabulary: `maxOutputTokens` (`max_tokens` or `max_completion_tokens`
