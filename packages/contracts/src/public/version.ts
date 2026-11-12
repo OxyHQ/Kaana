@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.3.0';
+export const INFERENCE_CONTRACT_VERSION = '8.4.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -203,6 +203,13 @@ export const INFERENCE_CONTRACT_VERSION = '8.3.0';
  * `anthropicMessageSchema`, `anthropicStreamEventSchema`,
  * `anthropicErrorSchema`). Nothing in 8.2.0 changes, and the signed grant and
  * envelope are untouched: the endpoint is served as the `responses` operation.
+ *
+ * Contract set 8.4.0 is additive: the usage unit `cache_write_input_tokens`
+ * (input tokens written to a prompt cache, a sibling under the partition rule,
+ * default TTL only) and the optional `capabilities.unreported` (the boolean
+ * capabilities whose `false` is not evidence). Nothing in 8.3.0 changes and
+ * nothing emits either yet: a consumer on 8.3.0 refuses a usage report carrying
+ * the unit and a catalogue carrying the field, so Oxy reads them first.
  */
 
 /** The public API's one origin and version. */

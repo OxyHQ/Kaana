@@ -1,5 +1,22 @@
 # Changelog
 
+## 8.4.0
+
+Two additive declarations; nothing emits either yet, and everything 8.3.0 parses
+still parses. A consumer on 8.3.0 refuses a usage report carrying the unit and a
+catalogue carrying the field, so Oxy reads them before Kaana publishes them.
+
+- Usage unit `cache_write_input_tokens`: input tokens written to a prompt cache
+  on this request, the first-request premium (Anthropic's 5-minute write is
+  1.25x input). A sibling under the partition rule, never inside `input_tokens`
+  or `cached_input_tokens`. One unit, the provider's default TTL only.
+  Appended last in `USAGE_UNITS`.
+- `capabilities.unreported` (optional): the boolean capabilities
+  (`tools`, `parallelToolCalls`, `structuredOutput`, `jsonMode`,
+  `promptCaching`) whose `false` is not evidence, because nobody recorded an
+  answer. Unique; a listed key must be `false`. Absent means undeclared. The
+  five booleans stay required.
+
 ## 8.3.0
 
 Anthropic-Messages-compatible `POST /v1/messages`. Additive: everything 8.2.0

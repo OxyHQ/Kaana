@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.3.0",
+    "version": "8.4.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -4615,6 +4615,19 @@
           },
           "realtime": {
             "$ref": "#/components/schemas/ModelRealtimeCapabilities"
+          },
+          "unreported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "tools",
+                "parallelToolCalls",
+                "structuredOutput",
+                "jsonMode",
+                "promptCaching"
+              ]
+            }
           }
         },
         "required": [
@@ -8066,7 +8079,8 @@
           "cached_audio_input_tokens",
           "audio_output_tokens",
           "session_milliseconds",
-          "input_transcription_milliseconds"
+          "input_transcription_milliseconds",
+          "cache_write_input_tokens"
         ]
       },
       "Voice": {

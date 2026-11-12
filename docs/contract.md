@@ -12,6 +12,22 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.4.0: cache-write unit and unreported capabilities
+
+MINOR, `@kaana.ai/contracts` 8.4.0. Additive and declared only: nothing emits
+either, and `configs/public-catalogue.json` is unchanged. A consumer on 8.3.0
+refuses what is new, so Oxy adopts it first.
+
+- Usage unit `cache_write_input_tokens`: input tokens written to a prompt cache
+  on this request (the premium on the first request). A sibling under the
+  partition rule; one unit, the provider's default TTL only (a longer TTL is not
+  supported). See [architecture](architecture.md) finding 5.
+- `capabilities.unreported`: the boolean capabilities whose `false` means "not
+  recorded", not "known absent". The five booleans stay required because
+  deployed readers parse them; a key listed here must be `false`; absent means
+  undeclared, like `apiFormats`. `modelCapabilitiesSchema` is `notApplicable` in
+  the Go descriptor test, so no Go struct changes.
+
 ## Contract set 8.3.0: Anthropic Messages (`POST /v1/messages`)
 
 MINOR, `@kaana.ai/contracts` 8.3.0. Additive; everything 8.2.0 parses still
