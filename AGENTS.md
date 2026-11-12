@@ -30,9 +30,10 @@ bun run lint:fix                                 # apply Biome fixes
   frontmatter. The Oxy website publishes everything under the `docsPath` in `docs.config.json`
   (`docs/public/`), so they describe `https://kaana.ai/v1` for callers, never internals, and
   nothing internal goes in that folder. Everything else under `docs/` is for reviewers.
-- Each topic doc ends with "Rules a reviewer applies"; read it before touching that area.
-  - schema, boundary: [architecture](docs/architecture.md), [identity-and-routing](docs/identity-and-routing.md)
-  - envelope, descriptor, catalogue: [contract](docs/contract.md), [operating](docs/operating.md)
+- Most topic docs end with "Rules a reviewer applies" (the others are records, reference
+  or single-provider notes); read it before touching that area.
+  - schema, boundary: [architecture](docs/architecture.md) ([findings log](docs/architecture-findings.md)), [identity-and-routing](docs/identity-and-routing.md)
+  - envelope, descriptor, catalogue: [contract](docs/contract.md) ([history](docs/contract-history.md)), [operating](docs/operating.md)
   - executor, breakers, retries: [routing](docs/routing.md)
   - publisher, withholding: [inventory](docs/inventory.md)
   - provider keys, BYOK: [key-pools](docs/key-pools.md), [customer-provider-credentials](docs/customer-provider-credentials.md)

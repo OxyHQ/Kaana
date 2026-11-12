@@ -138,10 +138,10 @@ topic document ends with the rules a reviewer applies; `AGENTS.md` is the index.
 
 | Topic | Documents |
 |---|---|
-| Shape of the system | [lanes](docs/lanes.md), [architecture](docs/architecture.md), [identity-and-routing](docs/identity-and-routing.md), [inference-rules](docs/inference-rules.md), [rules](docs/rules.md) |
+| Shape of the system | [lanes](docs/lanes.md), [architecture](docs/architecture.md), [findings log](docs/architecture-findings.md), [identity-and-routing](docs/identity-and-routing.md), [inference-rules](docs/inference-rules.md), [rules](docs/rules.md) |
 | Routing and execution | [routing](docs/routing.md), [key-pools](docs/key-pools.md), [determinism](docs/determinism.md) |
 | Inventory and publication | [inventory](docs/inventory.md), [operating](docs/operating.md) |
-| Contract and API | [contract](docs/contract.md), [anthropic-messages](docs/anthropic-messages.md), [json-repair](docs/json-repair.md), [decisions](docs/decisions.md) |
+| Contract and API | [contract](docs/contract.md), [contract history](docs/contract-history.md), [anthropic-messages](docs/anthropic-messages.md), [json-repair](docs/json-repair.md), [decisions](docs/decisions.md) |
 | Providers | [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md), [openai-audio](docs/openai-audio.md), [elevenlabs](docs/elevenlabs.md), [deepgram](docs/deepgram.md), [realtime](docs/realtime.md) |
 | Keys and money | [customer-provider-credentials](docs/customer-provider-credentials.md), [cost](docs/cost.md), [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md) |
 | Decisions | [docs/adr/](docs/adr/) |

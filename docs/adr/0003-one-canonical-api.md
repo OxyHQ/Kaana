@@ -3,6 +3,30 @@
 > **Status note (2026-11-12).** This ADR is in Spanish. Its rule, one canonical API and no provider variant reaching the client, is current; see [lanes.md](../lanes.md) and [anthropic-messages.md](../anthropic-messages.md) for how the public surface is served.
 
 
+## English summary
+
+*A reading aid; the Spanish text below is the record. Written 2026-11-12.*
+
+**Kaana has one API, its own.** A client speaks only "Kaana"; Kaana resolves the differences between
+xAI, OpenAI, Groq, Anthropic and the rest internally. No client has provider-specific code or
+decisions. Contract set 6.0.0:
+
+1. The catalogue publishes only product capabilities (modalities, realtime, languages, voices,
+   formats, prices, limits), never a provider's wire quirks.
+2. The per-dialect tables are internal and drive translation, emulation and refusal.
+3. Kaana accepts everything its contract offers and translates or emulates it (`toolChoice`,
+   output modalities, turn detection, languages, transcription prompts).
+4. Only what is impossible is refused, before the grant, without naming a provider: `invalid_request`
+   with the contract's `param`, not a new error code.
+5. What no provider serves and cannot be emulated leaves the contract.
+6. Events are normalised: exactly one final input `transcript.done` per item, and a complete response
+   lifecycle.
+7. Usage and cost are in units, with a published `pricePerMinute` per voice model.
+8. Transcription and speech follow the same single contract.
+9. `@kaana.ai/sdk/testing` implements the canonical contract, not a dialect.
+
+Consequence: adding a provider is Kaana's work alone.
+
 - Status: accepted (decisión del dueño, 2026-10-16)
 - Date: 2026-10-16
 - Decided by: el dueño de Oxy («Kaana es un proveedor de inferencia con su
