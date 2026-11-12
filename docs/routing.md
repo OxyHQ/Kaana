@@ -239,6 +239,13 @@ tokens per second.
   which is not health. Counts and durations only: no prompt, completion, key,
   caller or provider text.
 
+- **Tool-call errors are counted per attempt.** A served attempt that completed a
+  tool call is in the denominator; it is an error when any call named a tool the
+  request did not declare, had no name, or carried arguments that are not JSON
+  (`toolCallAttempts`, `toolCallErrors`). The audit judges shape, not the tool's
+  schema, never judges a call the stream cut short (the caller's `max_tokens` is
+  not the deployment's fault), and keeps a verdict, not the arguments.
+
 It changes no routing. It is the measurement an ordering decision would read,
 and the order is still the one Oxy signs.
 

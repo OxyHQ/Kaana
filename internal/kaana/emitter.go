@@ -60,6 +60,8 @@ type emitter struct {
 	// the number exists to expose.
 	admittedAt time.Time
 	estimate   *usageEstimate
+	// toolAudit judges the tool calls of the attempt being served.
+	toolAudit *toolCallAudit
 }
 
 func newEmitter(sink Sink, request *contract.Request, generationID *contract.GenerationID, admittedAt time.Time) *emitter {
@@ -69,6 +71,7 @@ func newEmitter(sink Sink, request *contract.Request, generationID *contract.Gen
 		generationID: generationID,
 		admittedAt:   admittedAt,
 		estimate:     newUsageEstimate(request),
+		toolAudit:    newToolCallAudit(request.Tools),
 	}
 }
 
@@ -79,6 +82,7 @@ func (e *emitter) serving(slug contract.ProviderSlug, deployment contract.Deploy
 	e.provider = slug
 	e.deployment = deployment
 	e.attemptOutputAt = time.Time{}
+	e.toolAudit.reset()
 	e.attemptStarted = false
 	e.pendingStart = nil
 	e.pending = nil
@@ -261,6 +265,7 @@ func (e *emitter) ToolCall(call provider.ToolCallDelta) error {
 	err := e.send(event)
 	if err == nil {
 		e.estimate.addToolCall(call.Name, call.ArgumentsDelta)
+		e.toolAudit.observe(call.ID, call.Name, call.ArgumentsDelta, call.Complete)
 	}
 	return err
 }

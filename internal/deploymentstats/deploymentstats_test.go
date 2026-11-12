@@ -194,3 +194,15 @@ func TestNilRegistryIsInert(t *testing.T) {
 		t.Fatalf("nil registry projected %v", got)
 	}
 }
+
+func TestToolCallErrorsAreCountedPerAttemptNotPerCall(t *testing.T) {
+	r := NewRegistry(newClock().now)
+	r.Record(dep, Attempt{Outcome: Succeeded, ToolCalls: 3})                          // clean
+	r.Record(dep, Attempt{Outcome: Succeeded, ToolCalls: 4, MalformedToolCall: true}) // one bad attempt
+	r.Record(dep, Attempt{Outcome: Succeeded})                                        // no tools: not in the denominator
+	r.Record(dep, Attempt{Outcome: Failed, ToolCalls: 1, MalformedToolCall: true})    // failed attempts are not judged
+	w := window(t, r, 5*time.Minute)
+	if w.ToolCallAttempts != 2 || w.ToolCallErrors != 1 {
+		t.Fatalf("tool call attempts/errors = %d/%d, want 2/1", w.ToolCallAttempts, w.ToolCallErrors)
+	}
+}

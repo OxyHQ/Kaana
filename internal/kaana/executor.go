@@ -482,7 +482,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			funding:   attemptFunding(platformCredentials, route, outcome.KeyID),
 		}
 
-		e.recordDeploymentStats(route.DeploymentID, telemetry, outcome.Units, streamErr, last.cancelled)
+		e.recordDeploymentStats(route.DeploymentID, telemetry, outcome.Units, emit.toolAudit, streamErr, last.cancelled)
 		switch {
 		case streamErr == nil:
 			permit.Succeeded()
@@ -740,6 +740,7 @@ func (e *Executor) recordDeploymentStats(
 	id contract.DeploymentID,
 	telemetry providercost.AttemptTelemetry,
 	units []contract.UsageQuantity,
+	tools *toolCallAudit,
 	streamErr error,
 	cancelled bool,
 ) {
@@ -750,6 +751,8 @@ func (e *Executor) recordDeploymentStats(
 		Outcome:           deploymentstats.Succeeded,
 		TimeToFirstOutput: telemetry.TimeToFirstOutput,
 		Latency:           telemetry.Latency,
+		ToolCalls:         tools.completed,
+		MalformedToolCall: tools.malformed > 0,
 	}
 	for _, unit := range units {
 		if unit.Unit == contract.UnitOutputTokens {

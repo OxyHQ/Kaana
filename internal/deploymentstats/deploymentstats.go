@@ -74,6 +74,11 @@ type Attempt struct {
 	Latency time.Duration
 	// OutputTokens is what the attempt generated, zero when unknown.
 	OutputTokens int
+	// ToolCalls is how many tool calls the attempt completed, and
+	// MalformedToolCall whether any of them named a tool the request did not
+	// declare, had no name, or carried arguments that are not JSON.
+	ToolCalls         int
+	MalformedToolCall bool
 }
 
 type minuteBucket struct {
@@ -81,6 +86,9 @@ type minuteBucket struct {
 	attempts  int
 	succeeded int
 	throttled int
+	// toolAttempts are attempts that completed at least one tool call, and
+	// toolMalformed those among them with at least one malformed call.
+	toolAttempts, toolMalformed int
 }
 
 type sample struct {
@@ -138,6 +146,12 @@ func (r *Registry) Record(id contract.DeploymentID, attempt Attempt) {
 	case Throttled:
 		bucket.throttled++
 	}
+	if attempt.Outcome == Succeeded && attempt.ToolCalls > 0 {
+		bucket.toolAttempts++
+		if attempt.MalformedToolCall {
+			bucket.toolMalformed++
+		}
+	}
 
 	if attempt.Outcome != Succeeded || attempt.TimeToFirstOutput <= 0 {
 		return
@@ -179,6 +193,12 @@ type Window struct {
 	Attempts  int `json:"attempts"`
 	Succeeded int `json:"succeeded"`
 	Throttled int `json:"throttled"`
+	// ToolCallAttempts counts served attempts that completed at least one tool
+	// call, and ToolCallErrors those where a call was malformed. The error rate
+	// is the second over the first, as a share of attempts and not of calls, so
+	// one model that emits ten broken calls in a turn is not ten failures.
+	ToolCallAttempts int `json:"toolCallAttempts,omitempty"`
+	ToolCallErrors   int `json:"toolCallErrors,omitempty"`
 	// Uptime is up minutes over observed minutes; absent when no minute had
 	// MinMinuteAttempts attempts.
 	Uptime *float64 `json:"uptime,omitempty"`
@@ -251,6 +271,8 @@ func (s *series) window(at time.Time, span time.Duration) Window {
 		window.Attempts += bucket.attempts
 		window.Succeeded += bucket.succeeded
 		window.Throttled += bucket.throttled
+		window.ToolCallAttempts += bucket.toolAttempts
+		window.ToolCallErrors += bucket.toolMalformed
 		if bucket.attempts >= MinMinuteAttempts {
 			observed++
 			if float64(bucket.succeeded)/float64(bucket.attempts) >= UpRatio {
