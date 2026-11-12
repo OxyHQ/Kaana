@@ -126,7 +126,7 @@ const toolSchema = z
   .object({
     type: z.literal('custom').optional(),
     name: nonEmpty(128),
-    description: z.string().check(maxUtf16Length(2000)).optional(),
+    description: z.string().check(maxUtf16Length(32768)).optional(),
     input_schema: z.record(z.string(), z.unknown()),
     strict: z.boolean().optional(),
   })

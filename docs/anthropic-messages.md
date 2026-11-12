@@ -95,9 +95,10 @@ The schema is strict, so a parameter Kaana does not implement is refused with
   `document` blocks, an image `url` source (nothing fetches an image URL),
   `mcp_servers`, `container`, `service_tier`, `output_config.format` and every
   other member the schema does not name.
-- A tool `description` over 2,000 characters, which is the signed contract's
-  bound (`toolDefinitionSchema`). Widening it is a contract change, not a
-  property of this endpoint.
+- A tool `description` over 32,768 characters (`toolDefinitionSchema`). The bound
+  was 2,000 and was raised for this endpoint because Claude Code's built-in tool
+  descriptions are far longer; the widening is backwards compatible (everything
+  accepted before is still accepted).
 
 `is_error` on a `tool_result` is accepted and not forwarded: the contract's tool
 message has no error flag, so the result's content is what the model reads.

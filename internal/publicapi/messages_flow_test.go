@@ -366,6 +366,27 @@ func TestMessagesRefuseWhatTheContractCannotCarry(t *testing.T) {
 	}
 }
 
+// Claude Code's built-in tool descriptions run to many thousands of characters,
+// so a long description is carried whole; the bound still exists, and a
+// description past it is refused naming the parameter.
+func TestMessagesCarryALongToolDescriptionAndRefusePastTheBound(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	long := strings.Repeat("d", 12000)
+	tool := map[string]any{"name": "lookup", "description": long, "input_schema": map[string]any{"type": "object"}}
+	if response := h.post("/v1/messages", validKey, messagesBody(map[string]any{"tools": []any{tool}})); response.StatusCode != http.StatusOK {
+		t.Fatalf("a 12,000-character description = %d %s", response.StatusCode, response.Body)
+	}
+	tools := h.adapter.lastCall().Tools
+	if len(tools) != 1 || tools[0].Description == nil || len(*tools[0].Description) != 12000 {
+		t.Fatalf("the provider saw %+v, want the whole description", tools)
+	}
+	tool["description"] = strings.Repeat("d", 32769)
+	failure := anthropicRefusal(t, h.post("/v1/messages", validKey, messagesBody(map[string]any{"tools": []any{tool}})), http.StatusBadRequest, "invalid_request_error")
+	if !strings.HasPrefix(failure.Error.Message, "tools[0].description: ") {
+		t.Errorf("message = %q", failure.Error.Message)
+	}
+}
+
 // An inline image is carried and counted; a refusal names the caller's own
 // location, even after a tool result moved the part to another message.
 func TestMessagesCarryInlineImages(t *testing.T) {

@@ -18,6 +18,9 @@ endpoint is served as the `responses` operation).
 - `stop_reason` is `end_turn`, `max_tokens`, `tool_use` or `refusal`;
   `stop_sequence` is never produced. `usage` carries `cache_read_input_tokens`
   only when the route measured it.
+- A tool `description` may now be up to 32,768 characters (was 2,000) in
+  `toolDefinitionSchema` and the Messages tool, because Claude Code's built-in
+  tool descriptions exceed 2,000. Everything accepted before is still accepted.
 
 ## 8.2.0
 

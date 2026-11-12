@@ -1729,7 +1729,7 @@
                 },
                 "description": {
                   "type": "string",
-                  "maxLength": 2000
+                  "maxLength": 32768
                 },
                 "input_schema": {
                   "type": "object",
@@ -6966,7 +6966,7 @@
           },
           "description": {
             "type": "string",
-            "maxLength": 2000
+            "maxLength": 32768
           },
           "parameters": {
             "type": "object",
@@ -7861,7 +7861,7 @@
           },
           "description": {
             "type": "string",
-            "maxLength": 2000
+            "maxLength": 32768
           },
           "parameters": {
             "type": "object",

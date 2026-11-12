@@ -253,8 +253,8 @@ func validateMessages(requestID contract.RequestID, request messagesRequest) *co
 			return invalid(requestID, param+".name", "a tool name is 1 to 128 characters")
 		case tool.InputSchema == nil:
 			return invalid(requestID, param+".input_schema", "a tool declares its input_schema")
-		case tool.Description != nil && utf16Length(*tool.Description) > 2000:
-			return invalid(requestID, param+".description", "a tool description is at most 2000 characters")
+		case tool.Description != nil && utf16Length(*tool.Description) > 32768:
+			return invalid(requestID, param+".description", "a tool description is at most 32768 characters")
 		}
 		if _, duplicate := names[tool.Name]; duplicate {
 			return invalid(requestID, "tools", "tool names must be unique within one request")
