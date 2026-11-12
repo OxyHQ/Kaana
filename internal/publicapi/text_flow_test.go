@@ -398,8 +398,21 @@ func TestReconciliationReadsTheOutboxSigned(t *testing.T) {
 		t.Fatalf("page = %d %s", page.StatusCode, page.Body)
 	}
 	rest := server("cursor="+decoded.NextCursor, true)
-	if !strings.Contains(string(rest.Body), `"grantId":"grt_3"`) {
-		t.Errorf("rest = %s", rest.Body)
+	var remainder struct {
+		Data []contract.Settlement `json:"data"`
+	}
+	if rest.StatusCode != http.StatusOK || json.Unmarshal(rest.Body, &remainder) != nil {
+		t.Fatalf("rest = %d %s", rest.StatusCode, rest.Body)
+	}
+	// Settlements are enqueued as each request finishes, so which grant lands
+	// last is not fixed; what is fixed is that the two pages together hold
+	// every grant exactly once.
+	seen := map[string]int{}
+	for _, settlement := range append(decoded.Data, remainder.Data...) {
+		seen[string(settlement.GrantID)]++
+	}
+	if len(seen) != 3 || seen["grt_1"] != 1 || seen["grt_2"] != 1 || seen["grt_3"] != 1 {
+		t.Errorf("the pages hold %v; want grt_1, grt_2 and grt_3 once each", seen)
 	}
 	if unsigned := server("cursor=0", false); unsigned.StatusCode != http.StatusUnauthorized {
 		t.Errorf("an unsigned read = %d", unsigned.StatusCode)
