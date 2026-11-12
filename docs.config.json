@@ -6,6 +6,6 @@
   "category": "service",
   "versions": ["main"],
   "defaultVersion": "main",
-  "docsPath": "docs/",
+  "docsPath": "docs/public/",
   "description": "One API for many AI providers and models: chat, responses, Anthropic Messages, embeddings, speech, transcription, images and realtime."
 }
