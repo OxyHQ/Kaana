@@ -1,5 +1,22 @@
 # Changelog
 
+## 8.10.0
+
+Price controls in the `provider` routing preference (Kaana ADR 0008). Additive:
+everything 8.9.0 parses still parses, and the signed grant and envelope are
+unchanged.
+
+- `provider.max_price`: `{ prompt?, completion? }`, USD per million tokens, at
+  least one. It is checked against the DECLARED LIST PRICE of a model line (the
+  price Oxy rates the grant at), so it decides which line may serve the request:
+  a line over it, or one whose price is not stated, is not used, and a request it
+  leaves with no line is refused.
+- `provider.sort`: `"price"` joins `"latency"` and `"throughput"`. It tries the
+  model line with the lowest declared list price first (input plus output per
+  million tokens); every route of one line costs the customer the same, so it
+  does not reorder routes within a line.
+- No response carries an amount.
+
 ## 8.9.0
 
 Opt-in JSON repair (Kaana ADR 0009 decision 5). Additive: everything 8.8.0

@@ -43,8 +43,10 @@ func TestTheProviderPreferenceIsAcceptedNarrowsAndNeverWidens(t *testing.T) {
 	}
 
 	for name, provider := range map[string]map[string]any{
-		"sorting by price":          {"sort": "price"},
-		"a price ceiling":           {"max_price": map[string]any{"prompt": 1}},
+		"an empty price ceiling":    {"max_price": map[string]any{}},
+		"a negative price ceiling":  {"max_price": map[string]any{"prompt": -1}},
+		"a made up price member":    {"max_price": map[string]any{"image": 1}},
+		"sorting by a made up word": {"sort": "cheapest"},
 		"a data policy":             {"zdr": true},
 		"a percentile object":       {"preferred_max_latency": map[string]any{"p90": 3}},
 		"a made up quantization":    {"quantizations": []string{"fp3"}},

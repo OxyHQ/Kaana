@@ -46,7 +46,11 @@ Which product feature takes which path is kept in one place,
 - **Kaana measures units and never prices them.** Accounts, application
   credentials, balances and billing stay in Oxy. Kaana owns live execution
   facts: provider-key health, raw quota responses and measured usage
-  ([cost.md](cost.md)).
+  ([cost.md](cost.md)). "Prices" means charging: Kaana never bills a customer and
+  no amount reaches an inference response. It does carry the declared list price
+  of each model line, which Oxy rates grants at, and a caller's `provider.max_price`
+  and `sort: "price"` read it to choose among the lines a grant admitted
+  ([ADR 0008](adr/0008-provider-selection-lessons.md)).
 - **Provider credentials live only in Kaana's encrypted PostgreSQL store**
   (KMS ciphertext). Never in product databases, environment variables, task
   definitions or bundles. An Oxy application key identifies a product (Alia,

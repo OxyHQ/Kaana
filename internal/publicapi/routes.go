@@ -1,6 +1,7 @@
 package publicapi
 
 import (
+	"math/big"
 	"slices"
 	"sort"
 	"time"
@@ -87,12 +88,23 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 			providerRank int
 			slow         bool
 			sortBand     int
+			priceKey     *big.Rat
 			affine       bool
 			band         int
 			position     int
 		}
 		var candidates []candidate
 		for lineIndex, admitted := range step.Limits.AdmittedModelLines {
+			var price linePrice
+			if needs.prices != nil && (needs.prefs.hasCeiling() || needs.prefs.sortsByPrice()) {
+				price = needs.prices.LinePrice(admitted.ModelLine, admitted.PriceVersionID)
+			}
+			if !needs.prefs.within(price) {
+				// A line over the caller's ceiling, or one whose price the
+				// catalogue does not state, is not used: the preference only
+				// narrows what the grant admitted.
+				continue
+			}
 			reference := contract.ModelReference(admitted.ModelLine)
 			if step.Target.Kind == contract.GrantTargetModel {
 				if admitted.ModelLine != *step.Target.ModelLine {
@@ -135,6 +147,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 					providerRank: needs.prefs.providerRank(route.Provider),
 					slow:         needs.prefs.slow(performance, route.DeploymentID),
 					sortBand:     needs.prefs.sortBand(performance, route.DeploymentID),
+					priceKey:     price.blended(),
 					affine:       needs.affine != "" && route.DeploymentID == needs.affine,
 					band:         latencyBand(performance, route.DeploymentID),
 				})
@@ -143,6 +156,11 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 		sort.SliceStable(candidates, func(a, b int) bool {
 			if candidates[a].rank != candidates[b].rank {
 				return candidates[a].rank < candidates[b].rank
+			}
+			if needs.prefs.sortsByPrice() {
+				if byPrice := comparePrice(candidates[a].priceKey, candidates[b].priceKey); byPrice != 0 {
+					return byPrice < 0
+				}
 			}
 			if candidates[a].line != candidates[b].line {
 				return candidates[a].line < candidates[b].line
@@ -339,6 +357,9 @@ type requestNeeds struct {
 	// that last served its prompt_cache_key; both only narrow or reorder.
 	prefs  *providerPreferences
 	affine contract.DeploymentID
+	// prices reads a model line's declared list price for `provider.max_price`
+	// and `provider.sort: "price"`; nil states no price.
+	prices LinePricer
 	// inputTokens is the content-free estimate Oxy sized the hold from; zero
 	// when the request has none.
 	inputTokens     int
@@ -353,7 +374,7 @@ func (n requestNeeds) any() bool {
 // controls and size no longer steer route choice, but the caller's hard
 // preferences stay, and `require_parameters` keeps the controls it checks.
 func (n requestNeeds) hardOnly() requestNeeds {
-	kept := requestNeeds{prefs: n.prefs, affine: n.affine}
+	kept := requestNeeds{prefs: n.prefs, affine: n.affine, prices: n.prices}
 	if n.prefs != nil && n.prefs.RequireParameters != nil && *n.prefs.RequireParameters {
 		kept.parameters = n.parameters
 	}
@@ -414,4 +435,18 @@ func keepOneProvider(routes []contract.AuthorizedRoute, prefs *providerPreferenc
 		}
 	}
 	return kept
+}
+
+// comparePrice orders two lines by blended list price, cheaper first; a line
+// whose price is not stated ranks after every priced one.
+func comparePrice(a, b *big.Rat) int {
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil:
+		return 1
+	case b == nil:
+		return -1
+	}
+	return a.Cmp(b)
 }

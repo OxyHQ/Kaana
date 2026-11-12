@@ -761,3 +761,42 @@ func (s *Server) forwardsCacheMarkers(a *admission) bool {
 	}
 	return true
 }
+
+// LinePrice implements LinePricer: the declared list price of a line at the
+// price version a grant admitted, in USD per million tokens. A line the file
+// does not declare, one without pricing, one declared at another price version
+// or in another currency states nothing, so its price is unknown.
+func (c *PublicCatalogue) LinePrice(line contract.ModelID, priceVersionID string) linePrice {
+	if c == nil {
+		return linePrice{}
+	}
+	model, declared := c.models[line]
+	if !declared {
+		return linePrice{}
+	}
+	raw, present := model.fields["pricing"]
+	if !present {
+		return linePrice{}
+	}
+	var pricing struct {
+		PriceVersionID string                `json:"priceVersionId"`
+		Currency       contract.CurrencyCode `json:"currency"`
+		UnitPrices     []declaredUnitPrice   `json:"unitPrices"`
+	}
+	if err := json.Unmarshal(raw, &pricing); err != nil || pricing.PriceVersionID == "" || pricing.PriceVersionID != priceVersionID || pricing.Currency != "USD" {
+		return linePrice{}
+	}
+	perMillion := func(unit contract.UsageUnit) *big.Rat {
+		index := slices.IndexFunc(pricing.UnitPrices, func(price declaredUnitPrice) bool { return price.Unit == unit })
+		if index < 0 {
+			return nil
+		}
+		price := pricing.UnitPrices[index]
+		amount, ok := new(big.Rat).SetString(price.Amount)
+		if !ok || price.Per <= 0 {
+			return nil
+		}
+		return amount.Mul(amount, big.NewRat(1_000_000, price.Per))
+	}
+	return linePrice{Input: perMillion(contract.UnitInputTokens), Output: perMillion(contract.UnitOutputTokens)}
+}

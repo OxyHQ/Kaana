@@ -9,11 +9,17 @@
  * rather than widened.
  *
  * The names are OpenRouter's, so a client written for OpenRouter's `provider`
- * object works, and only the controls Kaana can honour are accepted:
- * `sort: "price"`, `max_price`, `zdr`, `data_collection`, `preferred_*` with a
- * percentile object, and `enforce_distillable_text` are refused by `.strict()`
- * rather than silently ignored. `max_price` and the data policy stay Oxy's:
- * Kaana never prices, and Oxy applies data policy when it computes the grant.
+ * object works, and only the controls Kaana can honour are accepted: `zdr`,
+ * `data_collection`, `preferred_*` with a percentile object and
+ * `enforce_distillable_text` are refused by `.strict()` rather than silently
+ * ignored, because the data policy is Oxy's and is applied when it computes the
+ * grant.
+ *
+ * `max_price` and `sort: "price"` read the DECLARED LIST PRICE of a model line,
+ * the price Oxy rates the grant at, in USD per million tokens. They are about
+ * which model line serves the request, because every route of one line costs
+ * the customer the same: they never expose an amount, and a line whose price
+ * the catalogue does not state is neither within a ceiling nor cheap.
  *
  * Provider names here are Kaana provider slugs as a caller sees them in the
  * catalogue. A response never names one.
@@ -63,8 +69,26 @@ export const providerPreferencesSchema = z
     require_parameters: z.boolean().optional(),
     /** Keep only routes published at one of these quantizations; `unknown` admits unstated ones. */
     quantizations: z.array(providerQuantizationSchema).min(1).max(12).optional(),
-    /** Prefer the route with the lowest recent latency or the highest recent throughput. */
-    sort: z.enum(['latency', 'throughput']).optional(),
+    /**
+     * Prefer the model line with the lowest declared list price, or the route
+     * with the lowest recent latency or the highest recent throughput.
+     */
+    sort: z.enum(['price', 'latency', 'throughput']).optional(),
+    /**
+     * A ceiling on the declared list price of the model line, in USD per million
+     * tokens. A line over it, or one whose price is not stated, is not used; the
+     * request is refused rather than served above it.
+     */
+    max_price: z
+      .object({
+        prompt: z.number().positive().max(1_000_000).optional(),
+        completion: z.number().positive().max(1_000_000).optional(),
+      })
+      .strict()
+      .refine((ceiling) => ceiling.prompt !== undefined || ceiling.completion !== undefined, {
+        message: 'max_price names prompt, completion or both',
+      })
+      .optional(),
     /** Seconds. A route slower than this recently is tried later, never excluded (p50). */
     preferred_max_latency: z.number().positive().max(600).optional(),
     /** Output tokens per second. A route slower than this recently is tried later, never excluded (p50). */

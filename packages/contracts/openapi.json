@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.9.0",
+    "version": "8.10.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -5506,9 +5506,26 @@
           "sort": {
             "type": "string",
             "enum": [
+              "price",
               "latency",
               "throughput"
             ]
+          },
+          "max_price": {
+            "type": "object",
+            "properties": {
+              "prompt": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1000000
+              },
+              "completion": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1000000
+              }
+            },
+            "additionalProperties": false
           },
           "preferred_max_latency": {
             "type": "number",

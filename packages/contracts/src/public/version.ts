@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.9.0';
+export const INFERENCE_CONTRACT_VERSION = '8.10.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -232,6 +232,12 @@ export const INFERENCE_CONTRACT_VERSION = '8.9.0';
  * request member only: the signed grant and envelope are unchanged, and a
  * response carries no new body member, so every older reader parses what 8.9.0
  * serves.
+ *
+ * Contract set 8.10.0 is additive: `max_price` and `sort: "price"` in the
+ * `provider` routing preference (`providerPreferencesSchema`, Kaana ADR 0008).
+ * Both read the declared list price of a model line, in USD per million tokens.
+ * Public request members only: the signed grant and envelope are unchanged and
+ * no response carries an amount.
  */
 
 /** The public API's one origin and version. */

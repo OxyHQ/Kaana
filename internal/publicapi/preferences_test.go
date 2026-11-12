@@ -2,6 +2,8 @@ package publicapi
 
 import (
 	"encoding/json"
+	"math/big"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -224,13 +226,16 @@ func TestAffinityTableIsScopedBoundedAndExpires(t *testing.T) {
 
 func TestProviderPreferencesValidation(t *testing.T) {
 	for name, document := range map[string]string{
-		"an empty only":          `{"only":[]}`,
-		"a slug with a capital":  `{"order":["Alpha"]}`,
-		"seventeen providers":    `{"ignore":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q"]}`,
-		"a made up quantization": `{"quantizations":["fp3"]}`,
-		"sorting by price":       `{"sort":"price"}`,
-		"a negative latency":     `{"preferred_max_latency":-1}`,
-		"a zero throughput":      `{"preferred_min_throughput":0}`,
+		"an empty only":             `{"only":[]}`,
+		"a slug with a capital":     `{"order":["Alpha"]}`,
+		"seventeen providers":       `{"ignore":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q"]}`,
+		"a made up quantization":    `{"quantizations":["fp3"]}`,
+		"sorting by a made up word": `{"sort":"cheapest"}`,
+		"an empty ceiling":          `{"max_price":{}}`,
+		"a negative ceiling":        `{"max_price":{"prompt":-1}}`,
+		"a huge ceiling":            `{"max_price":{"completion":2000000}}`,
+		"a negative latency":        `{"preferred_max_latency":-1}`,
+		"a zero throughput":         `{"preferred_min_throughput":0}`,
 	} {
 		var decoded providerPreferences
 		if err := json.Unmarshal([]byte(document), &decoded); err != nil {
@@ -242,5 +247,148 @@ func TestProviderPreferencesValidation(t *testing.T) {
 	}
 	if failure := (*providerPreferences)(nil).validate("req"); failure != nil {
 		t.Errorf("no preference was refused: %v", failure)
+	}
+}
+
+type fixedPrices map[contract.ModelID]linePrice
+
+func (f fixedPrices) LinePrice(line contract.ModelID, _ string) linePrice { return f[line] }
+
+func rat(value string) *big.Rat {
+	r, _ := new(big.Rat).SetString(value)
+	return r
+}
+
+// priceLines serves four model lines, one deployment each, in the order the
+// grant admits them: pricey, cheap, mid and one the catalogue does not price.
+func priceLines(t *testing.T) *inventory.Inventory {
+	t.Helper()
+	deployment := func(id, line string) map[string]any {
+		return map[string]any{
+			"deploymentId": id, "provider": "alpha", "current": true,
+			"modelReference": line + "@observed-2026-11-12", "upstreamModelId": line,
+		}
+	}
+	document, err := json.Marshal(map[string]any{
+		"snapshotId": "snap_prices", "issuedAt": contract.NewTimestamp(time.Now()),
+		"deployments": []map[string]any{
+			deployment("dep_pricey", "acme/pricey"), deployment("dep_cheap", "acme/cheap"),
+			deployment("dep_mid", "acme/mid"), deployment("dep_unpriced", "acme/unpriced"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := inventory.Parse(document, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return current
+}
+
+func priceGrant() *contract.Grant {
+	level := contract.PowerXHigh
+	admitted := func(line string) contract.AdmittedModelLine {
+		return contract.AdmittedModelLine{ModelLine: contract.ModelID(line), PriceVersionID: "price"}
+	}
+	return &contract.Grant{
+		RequestID: "req_prices", Operation: contract.GrantChatCompletions,
+		Steps: []contract.GrantStep{{
+			Target: contract.GrantTarget{Kind: contract.GrantTargetLevel, Level: &level},
+			Limits: contract.GrantStepLimits{AdmittedModelLines: []contract.AdmittedModelLine{
+				admitted("acme/pricey"), admitted("acme/cheap"), admitted("acme/mid"), admitted("acme/unpriced")}},
+		}},
+	}
+}
+
+var declaredPrices = fixedPrices{
+	"acme/pricey": {Input: rat("15"), Output: rat("75")},
+	"acme/cheap":  {Input: rat("0.1"), Output: rat("0.4")},
+	"acme/mid":    {Input: rat("3"), Output: rat("15")},
+	// acme/unpriced states nothing.
+}
+
+func routedByPrice(t *testing.T, document string, prices LinePricer) ([]contract.DeploymentID, *contract.PublicError) {
+	t.Helper()
+	needs := requestNeeds{prices: prices}
+	if document != "" {
+		needs.prefs = prefs(t, document)
+	}
+	resolved, failure := resolveGrant(priceGrant(), priceLines(t), nil, nil, nil, needs, time.Now())
+	if failure != nil {
+		return nil, failure
+	}
+	var deployments []contract.DeploymentID
+	for _, route := range resolved.routes {
+		deployments = append(deployments, route.DeploymentID)
+	}
+	return deployments, nil
+}
+
+// TestPriceControlsReadTheDeclaredListPriceOfTheLine: max_price removes the lines
+// over a ceiling (and the ones whose price is not stated); sort price tries the
+// cheapest line first, with unpriced lines last; neither widens the grant.
+func TestPriceControlsReadTheDeclaredListPriceOfTheLine(t *testing.T) {
+	got, _ := routedByPrice(t, "", declaredPrices)
+	assertRoutes(t, "control: no preference keeps the grant's line order", got, "dep_pricey", "dep_cheap", "dep_mid", "dep_unpriced")
+
+	got, _ = routedByPrice(t, `{"sort":"price"}`, declaredPrices)
+	assertRoutes(t, "sort price", got, "dep_cheap", "dep_mid", "dep_pricey", "dep_unpriced")
+
+	got, _ = routedByPrice(t, `{"max_price":{"prompt":5}}`, declaredPrices)
+	assertRoutes(t, "a prompt ceiling drops the dearer line and the unpriced one", got, "dep_cheap", "dep_mid")
+
+	got, _ = routedByPrice(t, `{"max_price":{"prompt":5,"completion":10}}`, declaredPrices)
+	assertRoutes(t, "both components must hold", got, "dep_cheap")
+
+	got, _ = routedByPrice(t, `{"max_price":{"completion":20},"sort":"price"}`, declaredPrices)
+	assertRoutes(t, "a ceiling and a sort together", got, "dep_cheap", "dep_mid")
+
+	got, _ = routedByPrice(t, `{"max_price":{"prompt":3}}`, declaredPrices)
+	assertRoutes(t, "a ceiling equal to the price still admits it", got, "dep_cheap", "dep_mid")
+
+	if _, failure := routedByPrice(t, `{"max_price":{"prompt":0.001}}`, declaredPrices); failure == nil || failure.Code != "no_route_available" {
+		t.Errorf("a ceiling no admitted line meets was %v, want no_route_available", failure)
+	}
+	// Without a catalogue nothing states a price: a ceiling cannot be shown to
+	// hold, so it refuses rather than serving above it.
+	if _, failure := routedByPrice(t, `{"max_price":{"prompt":100}}`, nil); failure == nil {
+		t.Error("a ceiling was treated as met with no price stated")
+	}
+	got, _ = routedByPrice(t, `{"sort":"price"}`, nil)
+	assertRoutes(t, "sort price with no price stated keeps the grant's order", got, "dep_pricey", "dep_cheap", "dep_mid", "dep_unpriced")
+}
+
+// TestLinePriceReadsTheCheckedInCatalogue: the per-million figures come from the
+// declared unit prices at the price version the grant admitted, in USD; any
+// other version, an undeclared line or a line without pricing states nothing.
+func TestLinePriceReadsTheCheckedInCatalogue(t *testing.T) {
+	raw, err := os.ReadFile("../../configs/public-catalogue.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogue, err := ParsePublicCatalogue(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const line, version = "google/gemini-3.7-flash", "01a0d808-5bfb-77c3-9d20-7ded31f3a5c9"
+
+	price := catalogue.LinePrice(line, version)
+	if price.Input == nil || price.Input.Cmp(rat("0.75")) != 0 || price.Output == nil || price.Output.Cmp(rat("3.75")) != 0 {
+		t.Errorf("gemini-3.7-flash = %v / %v per million, want 0.75 / 3.75", price.Input, price.Output)
+	}
+	if blended := price.blended(); blended == nil || blended.Cmp(rat("4.5")) != 0 {
+		t.Errorf("blended = %v, want 4.5", blended)
+	}
+	for name, stated := range map[string]linePrice{
+		"another price version": catalogue.LinePrice(line, "another-version"),
+		"an undeclared line":    catalogue.LinePrice("acme/nope", version),
+	} {
+		if stated.Input != nil || stated.Output != nil {
+			t.Errorf("%s stated a price: %+v", name, stated)
+		}
+	}
+	if stated := (*PublicCatalogue)(nil).LinePrice(line, version); stated.Input != nil {
+		t.Error("a nil catalogue stated a price")
 	}
 }

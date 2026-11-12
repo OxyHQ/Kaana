@@ -2,6 +2,7 @@ package publicapi
 
 import (
 	"crypto/sha256"
+	"math/big"
 	"regexp"
 	"slices"
 	"sync"
@@ -29,6 +30,15 @@ type providerPreferences struct {
 	Sort                   *string  `json:"sort,omitempty"`
 	PreferredMaxLatency    *float64 `json:"preferred_max_latency,omitempty"`
 	PreferredMinThroughput *float64 `json:"preferred_min_throughput,omitempty"`
+	// MaxPrice is a ceiling on the declared list price of a model line, in USD
+	// per million tokens (see linePrice).
+	MaxPrice *maxPrice `json:"max_price,omitempty"`
+}
+
+// maxPrice is the caller's ceiling. A component left out is not checked.
+type maxPrice struct {
+	Prompt     *float64 `json:"prompt,omitempty"`
+	Completion *float64 `json:"completion,omitempty"`
 }
 
 var (
@@ -62,8 +72,18 @@ func (p *providerPreferences) validate(requestID contract.RequestID) *contract.P
 			return invalid(requestID, "provider.quantizations", "provider.quantizations holds "+word+", which is not a quantization")
 		}
 	}
-	if p.Sort != nil && *p.Sort != "latency" && *p.Sort != "throughput" {
-		return invalid(requestID, "provider.sort", "provider.sort is latency or throughput; Kaana does not sort by price")
+	if p.Sort != nil && *p.Sort != "price" && *p.Sort != "latency" && *p.Sort != "throughput" {
+		return invalid(requestID, "provider.sort", "provider.sort is price, latency or throughput")
+	}
+	if ceiling := p.MaxPrice; ceiling != nil {
+		if ceiling.Prompt == nil && ceiling.Completion == nil {
+			return invalid(requestID, "provider.max_price", "provider.max_price names prompt, completion or both")
+		}
+		for name, value := range map[string]*float64{"prompt": ceiling.Prompt, "completion": ceiling.Completion} {
+			if value != nil && (*value <= 0 || *value > 1_000_000) {
+				return invalid(requestID, "provider.max_price."+name, "provider.max_price."+name+" is a positive USD price per million tokens up to 1000000")
+			}
+		}
 	}
 	if p.PreferredMaxLatency != nil && (*p.PreferredMaxLatency <= 0 || *p.PreferredMaxLatency > 600) {
 		return invalid(requestID, "provider.preferred_max_latency", "provider.preferred_max_latency is a positive number of seconds up to 600")
@@ -248,4 +268,63 @@ func stringOrEmpty(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+// linePrice is the declared list price of one model line at the price version a
+// grant admitted, in USD per million tokens. A component the catalogue does not
+// state is nil: unknown is neither within a ceiling nor cheap.
+//
+// It is the price Oxy rates the grant at, so every route of the line costs the
+// customer the same. That is why the price preferences decide which LINE serves
+// a request and cannot reorder the routes within one.
+type linePrice struct {
+	Input  *big.Rat
+	Output *big.Rat
+}
+
+// LinePricer reads declared list prices; *PublicCatalogue is the one.
+type LinePricer interface {
+	LinePrice(line contract.ModelID, priceVersionID string) linePrice
+}
+
+// within reports whether the price is under every component the caller set. A
+// component the caller set that the catalogue does not state fails it.
+func (p *providerPreferences) within(price linePrice) bool {
+	if p == nil || p.MaxPrice == nil {
+		return true
+	}
+	under := func(ceiling *float64, price *big.Rat) bool {
+		if ceiling == nil {
+			return true
+		}
+		if price == nil {
+			return false
+		}
+		limit := new(big.Rat)
+		if limit.SetFloat64(*ceiling) == nil {
+			return false
+		}
+		return price.Cmp(limit) <= 0
+	}
+	return under(p.MaxPrice.Prompt, price.Input) && under(p.MaxPrice.Completion, price.Output)
+}
+
+// sortsByPrice reports `sort: "price"`.
+func (p *providerPreferences) sortsByPrice() bool {
+	return p != nil && p.Sort != nil && *p.Sort == "price"
+}
+
+// blended is the figure a line is ranked by under `sort: "price"`: its input
+// plus its output price per million tokens. nil when either is not stated, which
+// ranks after every priced line.
+func (price linePrice) blended() *big.Rat {
+	if price.Input == nil || price.Output == nil {
+		return nil
+	}
+	return new(big.Rat).Add(price.Input, price.Output)
+}
+
+// hasCeiling reports a `max_price` the caller set.
+func (p *providerPreferences) hasCeiling() bool {
+	return p != nil && p.MaxPrice != nil
 }

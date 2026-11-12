@@ -37,10 +37,14 @@ are not gaps.
    carries them (`provider.Route`), an input past the window or an output limit
    above the deployment's own skips it, and the estimate being rough means only
    a clear excess does.
-2. **`maxPricePerRequest` stays Oxy's.** OpenRouter's `max_price` blocks on
-   price, but Kaana never prices (`docs/cost.md`): Oxy applies the ceiling when
-   it computes `admittedModelLines` and sizes the hold, and Kaana relays it.
-   Enforcing it here would need a price Kaana is forbidden to hold.
+2. **`maxPricePerRequest` stays Oxy's; the caller's `max_price` is Kaana's.**
+   The grant's `maxPricePerRequest` is applied by Oxy when it computes
+   `admittedModelLines` and sizes the hold, and Kaana relays it. A caller's own
+   ceiling (decision 6) is a different control and Kaana can apply it, because
+   the declared catalogue already carries the list price of every line it
+   serves (`docs/operating.md`). "Kaana never prices" means it never charges or
+   bills a customer and no amount reaches a response; reading the list price Oxy
+   rates a grant at, to choose among admitted lines, is not that.
 3. **Measured performance breaks ties, never excludes.** Within one funding tier
    and one model line, the grant lane orders by recent per-deployment time to
    first output over a rolling window, then inventory position. This is what
@@ -73,7 +77,7 @@ are not gaps.
    optional `provider` object on chat completions and responses, in
    OpenRouter's names so a client written for OpenRouter works: `order`, `only`,
    `ignore`, `allow_fallbacks`, `require_parameters`, `quantizations`, `sort`
-   (`latency` or `throughput`), `preferred_max_latency` and
+   (`price`, `latency` or `throughput`), `max_price`, `preferred_max_latency` and
    `preferred_min_throughput` (seconds and tokens per second at p50). Plus
    `prompt_cache_key` / `promptCacheKey`, which makes decision 4 possible without
    Oxy: it is an opaque caller string, scoped by account and credential and
@@ -88,9 +92,19 @@ are not gaps.
      floors (a route under a floor is tried later, never removed), then `sort`,
      then cache affinity, then Kaana's latency tie-break. `allow_fallbacks:
      false` keeps one provider (the listed ones when `order` is set).
-   - Refused, not ignored (`.strict()`): `sort: "price"`, `max_price`, `zdr`,
-     `data_collection`, percentile objects and `enforce_distillable_text`.
-     Kaana never prices, and the data policy is Oxy's.
+   - `max_price` (`prompt` and `completion`, USD per million tokens) and
+     `sort: "price"` read the DECLARED LIST PRICE of a model line at the price
+     version the grant admitted (`PublicCatalogue.LinePrice`). That is the price
+     Oxy rates the grant at, so every route of one line costs the customer the
+     same: the controls decide which LINE serves, and cannot reorder routes
+     within a line. A line over the ceiling, one priced at another version or in
+     another currency, or one the catalogue does not price, is not used under
+     `max_price`, and a request left with no line is `no_route_available`.
+     `sort: "price"` tries the line with the lowest input plus output price
+     first, funding tier still ahead of it, and unpriced lines last. No amount
+     reaches a response.
+   - Refused, not ignored (`.strict()`): `zdr`, `data_collection`, percentile
+     objects and `enforce_distillable_text`. The data policy is Oxy's.
    - Provider names are Kaana provider slugs. They name what a caller asks for;
      no response, record or stream names one. This supersedes the earlier rule
      that no public shape names a provider, for these two requests only.

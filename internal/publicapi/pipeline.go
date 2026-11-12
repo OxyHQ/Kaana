@@ -114,6 +114,9 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 			needs.affine = deployment
 		}
 	}
+	if s.catalogue != nil {
+		needs.prices = s.catalogue
+	}
 	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.latency, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), needs, s.now())
 	if failure != nil {
 		s.releaseUnserved(ctx, grant)
