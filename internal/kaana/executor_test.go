@@ -14,6 +14,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/customerlimit"
+	"github.com/OxyHQ/Kaana/internal/deploymentstats"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
@@ -176,6 +177,7 @@ type harness struct {
 	deployments         string
 	adapters            []provider.Adapter
 	rotation            *rotation.Registry
+	stats               *deploymentstats.Registry
 	costs               *providercost.Cards
 	costRecorder        *providercost.Recorder
 	customerCredentials kaana.CustomerCredentialResolver
@@ -264,6 +266,7 @@ func (h harness) build(t *testing.T) *kaana.Executor {
 		Inventory:           store,
 		Providers:           registry,
 		Rotation:            rotationRegistry,
+		Stats:               h.stats,
 		Costs:               h.costs,
 		CostRecorder:        h.costRecorder,
 		CustomerCredentials: h.customerCredentials,
