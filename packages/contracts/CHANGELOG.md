@@ -1,5 +1,22 @@
 # Changelog
 
+## 8.5.0
+
+OpenRouter-style routing preference and prompt-cache key (Kaana ADR 0008).
+Additive: everything 8.4.0 parses still parses, and the signed grant and
+envelope are unchanged.
+
+- `providerPreferencesSchema`: the optional `provider` object on
+  `POST /v1/chat/completions` and `POST /v1/responses`. `order`, `only`,
+  `ignore`, `allow_fallbacks`, `require_parameters`, `quantizations`,
+  `sort` (`latency` or `throughput`), `preferred_max_latency` and
+  `preferred_min_throughput`. It can only narrow what the grant already admits.
+  `sort: "price"`, `max_price`, `zdr`, `data_collection` and percentile objects
+  are refused, not dropped: pricing and data policy stay Oxy's.
+- `prompt_cache_key` (chat completions) and `promptCacheKey` (responses): an
+  opaque string that keeps requests sharing a prefix on one deployment while it
+  is admitted and its cache is warm.
+
 ## 8.4.0
 
 Two additive declarations; nothing emits either yet, and everything 8.3.0 parses

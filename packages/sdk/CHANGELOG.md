@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.0
+
+Depend on contracts 8.5.0: the client states contract set 8.5.0 and its request
+types gain the optional `provider` routing preference and the prompt-cache key.
+
 ## 3.7.0
 
 Depend on contracts 8.4.0: the client states contract set 8.4.0, which declares

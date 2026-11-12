@@ -498,6 +498,9 @@ var notApplicable = map[string]string{
 	"anthropicMessagesRequestSchema": "public api: POST /v1/messages request; its union-typed members are decoded by hand",
 	"anthropicStreamEventSchema":     "public api: POST /v1/messages stream frames",
 	"chargedGenerationRecordSchema":  "public api (phase 3): GET /v1/generations record",
+	"promptCacheKeySchema":           "public api: the prompt_cache_key / promptCacheKey request field; internal/publicapi decodes it and keeps it in Kaana (ADR 0008)",
+	"providerPreferencesSchema":      "public api: the `provider` request preference; internal/publicapi decodes it and only narrows the grant's routes, so it never reaches the signed envelope (ADR 0008)",
+	"providerQuantizationSchema":     "public api: a quantization word inside the `provider` request preference (ADR 0008)",
 	"chatCompletionChunkSchema":      "public api (phase 3): POST /v1/chat/completions stream chunk",
 	"chatCompletionErrorSchema":      "public api (phase 3): POST /v1/chat/completions error body",
 	"chatCompletionMessageSchema":    "public api (phase 3): POST /v1/chat/completions message",
@@ -530,7 +533,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 61
+const expectedNotApplicableCount = 64
 
 type enumBinding struct {
 	goType  reflect.Type

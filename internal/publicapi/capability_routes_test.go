@@ -137,13 +137,15 @@ func (f fixedLatency) FirstOutput(id contract.DeploymentID) (time.Duration, bool
 	return d, ok
 }
 
+func (fixedLatency) Throughput(contract.DeploymentID) (float64, bool) { return 0, false }
+
 type tierByDeployment map[contract.DeploymentID]int
 
 func (f tierByDeployment) CheapestTier(route provider.Route, _ provider.FundingTier) (int, bool) {
 	return f[route.DeploymentID], true
 }
 
-func routedWithLatency(t *testing.T, funding FundingRanker, latency LatencyReader) []contract.DeploymentID {
+func routedWithLatency(t *testing.T, funding FundingRanker, latency PerformanceReader) []contract.DeploymentID {
 	t.Helper()
 	line := capabilityLine(t, `["tools"]`, `["tools"]`)
 	resolved, failure := resolveGrant(capabilityGrant(), line, funding, latency, nil, requestNeeds{}, time.Now())

@@ -2,9 +2,10 @@
  * `POST /v1/chat/completions` — the OpenAI-compatible surface.
  *
  * It speaks the flat OpenAI request and response shapes so an unmodified OpenAI
- * SDK works against `baseURL: 'https://kaana.ai/v1'` with an `oxy_sk_…` key, and
- * it gains NO Kaana-specific request field: a capability with no OpenAI
- * representation lives on `/v1/responses`. `.strict()` everywhere: a stock SDK
+ * SDK works against `baseURL: 'https://kaana.ai/v1'` with an `oxy_sk_…` key. Its
+ * one extension is `provider`, the OpenRouter-style routing preference (ADR
+ * 0008); every other capability with no OpenAI representation lives on
+ * `/v1/responses`. `.strict()` everywhere: a stock SDK
  * sending a parameter Kaana does not implement is told so rather than having it
  * silently dropped.
  *
@@ -19,6 +20,7 @@ import { maxUtf16Length, minUtf16Length } from '../stringBounds.js';
 import { reasoningEffortSchema } from './catalogue.js';
 import { publicErrorCodeSchema } from './errors.js';
 import { inferenceContentPartSchema } from './messages.js';
+import { promptCacheKeySchema, providerPreferencesSchema } from './providerPreferences.js';
 import { modelTargetSchema } from './responses.js';
 
 /** `stop` in the OpenAI dialect: one sequence or a list of them. */
@@ -148,6 +150,10 @@ export const chatCompletionsRequestSchema = z
      * only. `X-Oxy-User-Id` wins when both are present.
      */
     user: z.string().check(minUtf16Length(1)).check(maxUtf16Length(64)).optional(),
+    /** Routing preferences that can only narrow what the grant admits (ADR 0008). */
+    provider: providerPreferencesSchema.optional(),
+    /** OpenAI's field: keeps requests sharing a prompt prefix on one deployment. */
+    prompt_cache_key: promptCacheKeySchema.optional(),
   })
   .strict()
   .superRefine((request, ctx) => {

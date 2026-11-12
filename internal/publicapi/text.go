@@ -250,6 +250,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, failure)
 		return
 	}
+	if failure := validateRouting(requestID, request.Provider, request.PromptCacheKey, "promptCacheKey"); failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
 	images, failure := imageInput(requestID, request.Input.messages, "input")
 	if failure != nil {
 		writeError(w, requestID, failure)
@@ -262,7 +266,8 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		labels: request.Labels, clientRequestID: request.ClientRequestID,
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: request.MaxOutputTokens,
 			InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
-		needs: requestNeeds{inputTokens: estimate, maxOutputTokens: request.MaxOutputTokens,
+		cacheKey: stringOrEmpty(request.PromptCacheKey),
+		needs: requestNeeds{inputTokens: estimate, maxOutputTokens: request.MaxOutputTokens, prefs: request.Provider,
 			parameters: carriedParameters(request.MaxOutputTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP,
 				FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences},
 				len(request.Tools), request.ToolChoice, request.ResponseFormat, request.Reasoning != nil)},
@@ -377,6 +382,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		refuse(failure)
 		return
 	}
+	if failure := validateRouting(requestID, request.Provider, request.PromptCacheKey, "prompt_cache_key"); failure != nil {
+		refuse(failure)
+		return
+	}
 	images, failure := imageInput(requestID, messages, "messages")
 	if failure != nil {
 		refuse(failure)
@@ -392,7 +401,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		operation: contract.GrantChatCompletions, target: request.Model.grantTarget(), body: body, endpoint: "/v1/chat/completions",
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: maxTokens, InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
 	}
-	ask.needs = requestNeeds{inputTokens: estimate, maxOutputTokens: maxTokens, parameters: chatParameters(request, maxTokens)}
+	ask.needs = requestNeeds{inputTokens: estimate, maxOutputTokens: maxTokens, parameters: chatParameters(request, maxTokens), prefs: request.Provider}
+	ask.cacheKey = stringOrEmpty(request.PromptCacheKey)
 	if request.User != nil {
 		user := contract.UserID(*request.User)
 		ask.onBehalfOf = &user

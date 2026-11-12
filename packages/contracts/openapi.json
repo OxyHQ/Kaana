@@ -3118,6 +3118,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderPreferences"
+          },
+          "prompt_cache_key": {
+            "$ref": "#/components/schemas/PromptCacheKey"
           }
         },
         "required": [
@@ -5113,6 +5119,98 @@
           "unitPrices"
         ],
         "additionalProperties": false
+      },
+      "PromptCacheKey": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "ProviderPreferences": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            }
+          },
+          "only": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            }
+          },
+          "ignore": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$"
+            }
+          },
+          "allow_fallbacks": {
+            "type": "boolean"
+          },
+          "require_parameters": {
+            "type": "boolean"
+          },
+          "quantizations": {
+            "minItems": 1,
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderQuantization"
+            }
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "latency",
+              "throughput"
+            ]
+          },
+          "preferred_max_latency": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 600
+          },
+          "preferred_min_throughput": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100000
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProviderQuantization": {
+        "type": "string",
+        "enum": [
+          "int4",
+          "int8",
+          "fp4",
+          "mxfp4",
+          "nvfp4",
+          "fp6",
+          "fp8",
+          "mxfp8",
+          "fp16",
+          "bf16",
+          "fp32",
+          "unknown"
+        ]
       },
       "PublicErrorCode": {
         "type": "string",
@@ -7612,6 +7710,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderPreferences"
+          },
+          "promptCacheKey": {
+            "$ref": "#/components/schemas/PromptCacheKey"
           }
         },
         "required": [

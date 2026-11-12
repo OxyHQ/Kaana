@@ -125,6 +125,8 @@ func TestDiscoveryKeepsWhatOpenRouterPublishesAboutEachModel(t *testing.T) {
 	allEfforts := contract.ReasoningEfforts()
 	tools := true
 	name := "OpenAI: gpt-oss-120b"
+	// The two zero-retention endpoints are published at fp4 (Nebius) and
+	// `unknown` (Groq): the levels a caller's provider.quantizations filters on.
 	// The union of both zero-retention endpoints: frequency_penalty only on
 	// Nebius, seed/stop/tools only on Groq, and every tool-choice value Groq's
 	// `supports_tool_choice` marks supported.
@@ -145,6 +147,7 @@ func TestDiscoveryKeepsWhatOpenRouterPublishesAboutEachModel(t *testing.T) {
 		SupportsTools:      &tools,
 		ReasoningEfforts:   &allEfforts,
 		AcceptedParameters: &accepted,
+		Quantizations:      []string{"fp4", "unknown"},
 	}
 	if oss.ListPrice == nil || oss.ListPrice.Currency != "USD" || oss.ListPrice.Input != "0.072" || oss.ListPrice.Output != "0.28" {
 		t.Errorf("list price = %+v, want USD 0.072 / 0.28 per million", oss.ListPrice)

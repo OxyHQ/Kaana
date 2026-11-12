@@ -58,29 +58,38 @@ func (p *plan) stepOf(deployment contract.DeploymentID) *int {
 // Kaana never adds a model line Oxy did not admit and never widens a limit.
 // What it cannot verify from its inventory (zero data retention, training,
 // licences) is the policy Oxy applied when it computed admittedModelLines.
-func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, performance PerformanceReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
 	if needs.any() {
 		// Prefer routes whose published accepted-parameter set takes every
-		// control the request carries (ADR 0008). When none does, resolve as
-		// before: the attempt then refuses with the exact parameter named, which
-		// is a better answer than "no route".
-		if resolved, failure := resolveGrantFor(grant, snapshot, funding, latency, serves, needs, at); failure == nil {
+		// control the request carries and whose window it fits (ADR 0008). When
+		// none does, resolve as before: the attempt then refuses with the exact
+		// parameter named, which is a better answer than "no route". The
+		// caller's hard preferences (`only`, `ignore`, `quantizations`,
+		// `require_parameters`) apply in both passes.
+		if resolved, failure := resolveGrantFor(grant, snapshot, funding, performance, serves, needs, at); failure == nil {
 			return resolved, nil
 		}
 	}
-	return resolveGrantFor(grant, snapshot, funding, latency, serves, requestNeeds{}, at)
+	return resolveGrantFor(grant, snapshot, funding, performance, serves, needs.hardOnly(), at)
 }
 
-func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, latency LatencyReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
+func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, performance PerformanceReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
 	for stepIndex, step := range grant.Steps {
 		type candidate struct {
-			route    provider.Route
-			rank     int
-			line     int
-			band     int
-			position int
+			route provider.Route
+			rank  int
+			line  int
+			// providerRank, slow, sortBand and affine are the caller's own
+			// preferences (provider.order, preferred_*, provider.sort and
+			// prompt_cache_key); band is Kaana's recent-latency tie-break.
+			providerRank int
+			slow         bool
+			sortBand     int
+			affine       bool
+			band         int
+			position     int
 		}
 		var candidates []candidate
 		for lineIndex, admitted := range step.Limits.AdmittedModelLines {
@@ -103,7 +112,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) {
 					continue
 				}
-				if needs.refusedBy(route) {
+				if needs.refusedBy(route) || needs.prefs.excludes(route, needs.parameters) {
 					continue
 				}
 				if _, taken := resolved.steps[route.DeploymentID]; taken {
@@ -121,7 +130,14 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 					}
 					rank = cheapest
 				}
-				candidates = append(candidates, candidate{route: route, rank: rank, line: lineIndex, band: latencyBand(latency, route.DeploymentID), position: position})
+				candidates = append(candidates, candidate{
+					route: route, rank: rank, line: lineIndex, position: position,
+					providerRank: needs.prefs.providerRank(route.Provider),
+					slow:         needs.prefs.slow(performance, route.DeploymentID),
+					sortBand:     needs.prefs.sortBand(performance, route.DeploymentID),
+					affine:       needs.affine != "" && route.DeploymentID == needs.affine,
+					band:         latencyBand(performance, route.DeploymentID),
+				})
 			}
 		}
 		sort.SliceStable(candidates, func(a, b int) bool {
@@ -130,6 +146,18 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 			}
 			if candidates[a].line != candidates[b].line {
 				return candidates[a].line < candidates[b].line
+			}
+			if candidates[a].providerRank != candidates[b].providerRank {
+				return candidates[a].providerRank < candidates[b].providerRank
+			}
+			if candidates[a].slow != candidates[b].slow {
+				return !candidates[a].slow
+			}
+			if candidates[a].sortBand != candidates[b].sortBand {
+				return candidates[a].sortBand < candidates[b].sortBand
+			}
+			if candidates[a].affine != candidates[b].affine {
+				return candidates[a].affine
 			}
 			if candidates[a].band != candidates[b].band {
 				return candidates[a].band < candidates[b].band
@@ -172,6 +200,9 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 			resolved.routes = append(resolved.routes, authorized)
 			resolved.steps[route.DeploymentID] = stepIndex
 		}
+	}
+	if needs.prefs.keepsOneProvider() {
+		resolved.routes = keepOneProvider(resolved.routes, needs.prefs)
 	}
 	if len(resolved.routes) == 0 {
 		return nil, contract.NewPublicError(grant.RequestID, "no_route_available", contract.PublicMessage("no_route_available"))
@@ -281,11 +312,11 @@ const latencyBandFloor = 100 * time.Millisecond
 // and a cold deployment must get traffic to be measured at all. It only orders
 // routes that are equal on funding and line, never excludes one, and is the
 // "latency and health signals" ADR 0001 decision 3 already named (ADR 0008).
-func latencyBand(latency LatencyReader, deployment contract.DeploymentID) int {
-	if latency == nil {
+func latencyBand(performance PerformanceReader, deployment contract.DeploymentID) int {
+	if performance == nil {
 		return 0
 	}
-	observed, ok := latency.FirstOutput(deployment)
+	observed, ok := performance.FirstOutput(deployment)
 	if !ok {
 		return 0
 	}
@@ -301,6 +332,10 @@ func latencyBand(latency LatencyReader, deployment contract.DeploymentID) int {
 // Kaana and is never sent to Oxy.
 type requestNeeds struct {
 	parameters []provider.RequestParameter
+	// prefs are the caller's `provider` preferences, and affine the deployment
+	// that last served its prompt_cache_key; both only narrow or reorder.
+	prefs  *providerPreferences
+	affine contract.DeploymentID
 	// inputTokens is the content-free estimate Oxy sized the hold from; zero
 	// when the request has none.
 	inputTokens     int
@@ -309,6 +344,17 @@ type requestNeeds struct {
 
 func (n requestNeeds) any() bool {
 	return len(n.parameters) > 0 || n.inputTokens > 0 || n.maxOutputTokens != nil
+}
+
+// hardOnly is the needs with the soft preferences dropped: the request's
+// controls and size no longer steer route choice, but the caller's hard
+// preferences stay, and `require_parameters` keeps the controls it checks.
+func (n requestNeeds) hardOnly() requestNeeds {
+	kept := requestNeeds{prefs: n.prefs, affine: n.affine}
+	if n.prefs != nil && n.prefs.RequireParameters != nil && *n.prefs.RequireParameters {
+		kept.parameters = n.parameters
+	}
+	return kept
 }
 
 // refusedBy reports whether the route's published statements say it cannot
@@ -323,4 +369,46 @@ func (n requestNeeds) refusedBy(route provider.Route) bool {
 		return true
 	}
 	return route.MaxOutputTokens != nil && n.maxOutputTokens != nil && *n.maxOutputTokens > *route.MaxOutputTokens
+}
+
+// throughputBandFloor is the output rate at or above which every deployment is
+// in the first throughput band; each 1.5x slower is the next band.
+const throughputBandFloor = 100.0
+
+// sortBand is the band `provider.sort` ranks a route by: the recent latency
+// band for `latency`, the recent throughput band for `throughput`, and 0 for
+// no sort. An unobserved deployment is in band 0, ahead of observed ones, for
+// the reason latencyBand gives.
+func (p *providerPreferences) sortBand(performance PerformanceReader, id contract.DeploymentID) int {
+	if p == nil || p.Sort == nil || performance == nil {
+		return 0
+	}
+	if *p.Sort == "latency" {
+		return latencyBand(performance, id)
+	}
+	observed, ok := performance.Throughput(id)
+	if !ok {
+		return 0
+	}
+	band := 1
+	for floor := throughputBandFloor; observed < floor && band < 64; floor /= latencyBandRatio {
+		band++
+	}
+	return band
+}
+
+// keepOneProvider applies `allow_fallbacks: false`: with `order`, the routes of
+// the listed providers (in their ranked order); without it, the single
+// best-ranked route. The request is never moved to another provider.
+func keepOneProvider(routes []contract.AuthorizedRoute, prefs *providerPreferences) []contract.AuthorizedRoute {
+	if len(prefs.Order) == 0 {
+		return routes[:min(len(routes), 1)]
+	}
+	kept := routes[:0:0]
+	for _, route := range routes {
+		if slices.Contains(prefs.Order, string(route.Provider)) {
+			kept = append(kept, route)
+		}
+	}
+	return kept
 }

@@ -12,6 +12,16 @@ signed principal and carries no `inferenceScopes` (envelopes) or `scopes`
 means the historical external format. Reader-first rollout and the invariants
 are in [ADR 0004](adr/0004-first-party-service-authority.md).
 
+## Contract set 8.5.0: provider preferences and prompt-cache key (ADR 0008)
+
+MINOR, `@kaana.ai/contracts` 8.5.0. Additive; everything 8.4.0 parses still
+parses. `providerPreferencesSchema` is the optional `provider` object on chat
+completions and responses (`order`, `only`, `ignore`, `allow_fallbacks`,
+`require_parameters`, `quantizations`, `sort`, `preferred_max_latency`,
+`preferred_min_throughput`), plus `prompt_cache_key` / `promptCacheKey`. It
+narrows what Oxy's grant admitted and never widens it; the signed grant and
+envelope are unchanged. A request names providers, a response never does.
+
 ## Contract set 8.4.0: cache-write unit and unreported capabilities
 
 MINOR, `@kaana.ai/contracts` 8.4.0. Additive and declared only: nothing emits
@@ -166,8 +176,11 @@ entry points:
   `provider_billing_refused` and `deployment_unavailable`), the catalogue with
   prices, power classes and per-model audio capabilities (voices, languages,
   formats, `speed` range, maximum characters), power levels, transcription,
-  realtime and generation records. No public shape names a provider, a key or a
-  deployment; `publicSurface.test.ts` walks every one to hold that.
+  realtime and generation records. No public shape a caller READS names a
+  provider, a key or a deployment; `publicSurface.test.ts` walks every one to
+  hold that. The one exception is input: the chat completions and responses
+  requests carry the `provider` routing preference, which names the providers a
+  caller wants (ADR 0008), and the test allows exactly those two requests.
 - **`@kaana.ai/contracts/internal`** is what Oxy and Kaana exchange: the grant
   and its authorization request, the settlement, the canonical input hash, the
   operational catalogue, customer-credential control, and the signed v1–v4
@@ -305,8 +318,10 @@ bun install --frozen-lockfile && (cd tools/contract && bun run generate)
   regenerate, read the descriptor diff, then make the Go side agree — in that
   order — and bump `INFERENCE_CONTRACT_VERSION` and the package version by the
   rule in `src/public/version.ts`.
-- **Nothing that names a provider, key or deployment enters the package
-  root.** It goes under `/internal`; `publicSurface.test.ts` refuses it.
+- **Nothing a caller reads that names a provider, key or deployment enters the
+  package root.** It goes under `/internal`; `publicSurface.test.ts` refuses it.
+  A caller naming a provider it wants, in the `provider` preference of the two
+  text requests, is input and the one allowed case.
 - **Do not decode ordinary inbound envelopes strictly.** Adding an optional field is
   additive under the contract, so `DisallowUnknownFields` would turn every
   additive Oxy change into an outage here. What *is* refused is an unimplemented

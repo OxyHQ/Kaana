@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.4.0';
+export const INFERENCE_CONTRACT_VERSION = '8.5.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -210,6 +210,12 @@ export const INFERENCE_CONTRACT_VERSION = '8.4.0';
  * capabilities whose `false` is not evidence). Nothing in 8.3.0 changes and
  * nothing emits either yet: a consumer on 8.3.0 refuses a usage report carrying
  * the unit and a catalogue carrying the field, so Oxy reads them first.
+ *
+ * Contract set 8.5.0 is additive: the optional `provider` routing preference
+ * (`providerPreferencesSchema`) and the prompt-cache key (`prompt_cache_key`,
+ * `promptCacheKey`) on `POST /v1/chat/completions` and `POST /v1/responses`
+ * (Kaana ADR 0008). The preference only narrows what the grant admits. Nothing
+ * in 8.4.0 changes and the signed grant and envelope are untouched.
  */
 
 /** The public API's one origin and version. */

@@ -93,6 +93,7 @@ type Registry struct {
 	mu           sync.Mutex
 	breakers     map[contract.DeploymentID]*breaker
 	firstOutputs map[contract.DeploymentID]*firstOutput
+	throughputs  map[contract.DeploymentID]*throughput
 }
 
 // NewRegistry builds a registry. A zero-valued field in policy takes its
