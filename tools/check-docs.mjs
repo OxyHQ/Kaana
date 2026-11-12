@@ -11,9 +11,10 @@
  * 2. Every `docs/*.md` must be linked from AGENTS.md or README.md, so a new
  *    document is found by the index an agent reads first.
  *
- * A third check covers the public pages: every `docs/*.mdx` is what the Oxy
- * website publishes, and it drops a page whose frontmatter lacks `title`,
- * `description` or `order`, so each must carry all three.
+ * A third check covers the public pages. The Oxy website publishes EVERY `.md`
+ * and `.mdx` under the `docsPath` of `docs.config.json`, so that path is
+ * `docs/public/` and nothing else may be published by accident; each page there
+ * needs `title`, `description` and `order` frontmatter.
  *
  * Absolute URLs are not fetched; this gate needs no network.
  */
@@ -96,17 +97,18 @@ for (const name of readdirSync(join(root, 'docs'))) {
   }
 }
 
-for (const name of readdirSync(join(root, 'docs'))) {
+const publicDir = join(root, 'docs', 'public');
+for (const name of readdirSync(publicDir)) {
   if (!name.endsWith('.mdx')) continue;
-  const text = readFileSync(join(root, 'docs', name), 'utf8');
+  const text = readFileSync(join(publicDir, name), 'utf8');
   const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(text);
   if (!frontmatter) {
-    problems.push(`docs/${name} has no frontmatter`);
+    problems.push(`docs/public/${name} has no frontmatter`);
     continue;
   }
   for (const key of ['title', 'description', 'order']) {
     if (!new RegExp(`^${key}:`, 'm').test(frontmatter[1])) {
-      problems.push(`docs/${name} frontmatter lacks ${key}`);
+      problems.push(`docs/public/${name} frontmatter lacks ${key}`);
     }
   }
 }
