@@ -6,7 +6,7 @@ native `openai_audio` protocol:
 - synchronous file transcription, `POST /v1/audio/transcriptions`
   (`audio_transcriptions`);
 - audio chat, `POST /v1/chat/completions` answered aloud (`chat_completions`
-  with the contract's `audioOutput`, contract set 3.2.0).
+  with the contract's `audioOutput`, since contract set 3.2.0).
 
 Not speech synthesis, and not Realtime or Live sessions.
 

@@ -12,7 +12,7 @@ exact-route grant, no canonical input hash. What a decisions request may cost
 and where it may run are the grant's, as for every other operation.
 
 Contract: `@kaana.ai/contracts` 7.0.0, contract set 7.0.0
-(`public/decisions.ts`). `@kaana.ai/sdk` 3.2.0's `decisions.create` refuses an
+(`public/decisions.ts`). `@kaana.ai/sdk`'s `decisions.create` (since 3.2.0) refuses an
 answer that does not match the request it sent (`decisionAnswersMatch`, and the
 pinned model when one was named) with `KaanaProtocolError`.
 

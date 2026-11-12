@@ -1,5 +1,9 @@
 # First-party Go producer cutover
 
+> **Historical record.** This describes one rollout as it was on the date in its title. It is not a rule and is not kept current; the live source of truth is named below.
+>
+> Whether the rollout it describes completed is not recorded here; check the deployed task and the SDK release notes before relying on it.
+
 Source-only change dated 2026-10-23. No deployment or production database change
 is implied. SDK transport and compatible inference readers are separate releases.
 

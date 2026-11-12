@@ -1,5 +1,8 @@
 # Groq token capacity refusal, 2026-09-13
 
+> **Historical record.** This describes one rollout as it was on the date in its title. It is not a rule and is not kept current; the live source of truth is named below.
+
+
 Alia reference `chatcmpl-ab7ad115-e273-4bdb-899a-13dd28cd7a74` failed on
 2026-09-12 at 23:29:45 UTC. Oxy/Kaana request
 `5a5fccb0-71cb-4556-8b1c-cf26ce1f7237` ended on Groq with

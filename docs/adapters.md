@@ -1,6 +1,6 @@
 # Provider adapters
 
-The `provider.Adapter` interface, the two protocol adapters, and the conformance suite every adapter must pass.
+The `provider.Adapter` interface, the adapters, and the conformance suite every adapter must pass.
 
 ## The provider adapter interface
 
@@ -9,7 +9,7 @@ type Adapter interface {
 	Provider() contract.ProviderSlug
 	APIFormats() []contract.APIFormat
 	Translate(request *contract.Request, route Route) (*Call, error)
-	Stream(ctx context.Context, call *Call, out Emitter) (Outcome, error)
+	Stream(ctx context.Context, call *Call, out Emitter, credentials *KeyPool) (Outcome, error)
 	Health(ctx context.Context) Health
 }
 ```
@@ -369,7 +369,7 @@ changes, and the distinction matters:
 |---|---|
 | Units partition the request (`StreamedUsage`) | **General.** It is the contract's own rule, and it caught the double-charge on the *first* adapter when that adapter's subtraction was removed — the suite had no check that would have. |
 | A failure arriving mid-stream, after a 200 | **General.** Both protocols can do it; neither adapter handled it before, and `openaicompat` was reporting a truncated answer as a completed one. |
-| A refused platform credential (`provider_credential_invalid`) | **General**, and newly expressible: the code landed in `@oxy.so/contracts@0.28.0` while this branch was open. Both adapters were reporting it as retryable. |
+| A refused platform credential (`provider_credential_invalid`) | **General**, and newly expressible: the code landed in the contract (then `@oxy.so/contracts@0.28.0`) while that change was open. Both adapters were reporting it as retryable. |
 | A list of refusals rather than one | **The suite was OpenAI-shaped.** One slot fit because the first adapter had exactly one refusal class. |
 | `maxOutputTokens` populated in the fixture | **The suite was OpenAI-shaped**, in the sense that a minimal fixture only passes for a provider that requires nothing the contract makes optional. Populating optional fields is this repository's own rule anyway. |
 | "an exhausted quota on the *same status*" | **Was OpenAI-specific prose.** The invariant is that an adapter tells a throttle from an exhausted account; that they share a status is one provider's habit. Wording only. |
@@ -466,10 +466,9 @@ input ceiling. Those units survive downstream cancellation/failure; byte counts
 are never treated as tokens. No audio is retained in usage or provider-cost logs.
 
 Primary wire specification: https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
-A real Spanish probe on 2026-09-13 returned a decodable MP3. Full production
-rollout is pending published contract 1.2.0, a reviewed catalogue binding and
-an exact-artifact product canary; the local descriptor currently reflects that
-candidate, while the registry dependency pin is deliberately still unchanged.
+A real Spanish probe on 2026-09-13 returned a decodable MP3. Production
+rollout of xAI speech needs a reviewed catalogue binding and an exact-artifact
+product canary; check the inventory for what is live.
 
 ## xAI speech-to-text
 

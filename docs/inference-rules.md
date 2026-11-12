@@ -6,9 +6,12 @@ for building an AI feature is [Oxy's inference README](https://github.com/OxyHQ/
 (exact model, power level, app default, who owns what, request examples, errors).
 
 ```text
-one-shot feature   app -> Oxy inference edge -> Kaana -> provider
-conversation/agent app -> Alia -> Oxy inference edge -> Kaana -> provider
+one-shot feature   app -> Kaana (https://kaana.ai/v1, Oxy grants it) -> provider
+conversation/agent app -> Alia -> Kaana -> provider
+first-party service Oxy edge -> Kaana (signed /internal/v1 lane) -> provider
 ```
+
+The two ways in, and who decides what on each, are in [lanes.md](lanes.md).
 
 Which product feature takes which path is kept in one place,
 [Oxy's request-routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/request-routing.md).
@@ -24,33 +27,39 @@ Which product feature takes which path is kept in one place,
 - **Apps and Alia never call a provider.** No provider adapter, key pool, route
   executor, retry loop, failover list or model substitution in an app or in
   Alia. Kaana retries the same route on transient failures and fails over along
-  the routes Oxy signed, before the first output ([routing.md](routing.md)). A
-  second copy of that logic in a caller is a bug.
+  the routes Oxy authorized (a signed list, or a grant Kaana resolves), before the
+  first output ([routing.md](routing.md)). A second copy of that logic in a caller
+  is a bug.
 - **Say "power level" to users; "routing profile" is the technical term.** An
   exact model is `publisher/model[@revision]` and is never substituted. A power
   level is a slug with no `/` (`auto`, `instant`, `medium`, `high`, `xhigh`,
   `pro`, `ultra`). Alia shows levels, never model names.
 - **Kaana is not the agent runtime.** Conversations, tools, memory, approvals
   and agents belong to Alia ([identity-and-routing.md](identity-and-routing.md#kaana-is-not-alia)).
-- **Oxy decides who may spend and exactly where a request may run.** It
-  authenticates the app, applies the app's policy (default target, allowed
-  levels), reserves and settles spend, and signs an ordered list of opaque
-  `deploymentId`s. Display names, database order or a "first row" never select a
-  route ([identity-and-routing.md](identity-and-routing.md#exact-deployment-identity-and-order)).
-- **Oxy owns economic route priority:** free allowance, then discounted
-  pay-as-you-go, then promotional credit, then standard paid. This is reviewed
-  data on an exact deployment, never a provider-name allow-list. Stale,
-  exhausted or `unknown` evidence makes that class ineligible. The full ordering
-  is [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)
-  (see also "Funding class" there).
-- **Kaana measures units and never prices them.** Accounts, application
-  credentials, balances and billing stay in Oxy. Kaana owns live execution
-  facts: provider-key health, raw quota responses and measured usage
-  ([cost.md](cost.md)). "Prices" means charging: Kaana never bills a customer and
-  no amount reaches an inference response. It does carry the declared list price
-  of each model line, which Oxy rates grants at, and a caller's `provider.max_price`
-  and `sort: "price"` read it to choose among the lines a grant admitted
-  ([ADR 0008](adr/0008-provider-selection-lessons.md)).
+- **Oxy decides who may spend and what a request may run on.** It authenticates
+  the caller, applies the app's policy (default target, allowed levels, model
+  lines, provider and region limits), reserves and settles spend, and signs either
+  an ordered list of opaque `deploymentId`s (signed lane) or a grant whose steps
+  Kaana resolves into routes (public lane). Display names, database order or a
+  "first row" never select a route
+  ([identity-and-routing.md](identity-and-routing.md#exact-deployment-identity-and-order)).
+- **Route priority has two owners.** On the signed lane Oxy owns it: free
+  allowance, then discounted pay-as-you-go, then promotional credit, then standard
+  paid, as reviewed data on an exact deployment, never a provider-name allow-list
+  ([Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)).
+  On the public lane Kaana orders inside the grant by the funding tier of the keys
+  it holds, then the grant's line order, then the caller's preferences
+  ([lanes.md](lanes.md)). Stale, exhausted or `unknown` evidence makes a route
+  ineligible on both.
+- **Kaana measures exact units and puts no amount in an inference response.**
+  Accounts, application credentials, balances and billing are Oxy's today. Kaana
+  owns live execution facts: provider-key health, raw quota responses and measured
+  usage ([cost.md](cost.md)), and the declared list price of each model line, which
+  Oxy rates grants at and a caller's `provider.max_price` and `sort: "price"` read
+  ([ADR 0008](adr/0008-provider-selection-lessons.md)). The owner has decided that
+  Kaana will sell and invoice, with Oxy keeping identity; until
+  [ADR 0010](adr/0010-kaana-sells-and-invoices.md) is accepted and its first phase
+  ships, that is a proposal and production works as stated here.
 - **Provider credentials live only in Kaana's encrypted PostgreSQL store**
   (KMS ciphertext). Never in product databases, environment variables, task
   definitions or bundles. An Oxy application key identifies a product (Alia,

@@ -266,7 +266,7 @@ consumer on 4.0.0 refuses what is new.
   upload's duration").
 
 The signed-envelope lane (`/internal/v1/realtime`) keeps refusing input
-transcription: its consumer settles with `@oxy.so/contracts`, which has no
+transcription: its consumer settles against a closed unit set that has no
 unit for it (`docs/realtime.md`).
 
 ## Contract set 4.0.0: `@kaana.ai/contracts` (ADR 0002, phase 1)
@@ -314,30 +314,21 @@ The UTC timestamp check also retains the prior minute/second/fractional
 precision grammar explicitly; Zod's newer default requires seconds. Generated
 OpenAPI may use the equivalent JSON Schema type array for nullable strings.
 
-## Funding tiers, contract set 3.8.0 (`@oxy.so/contracts` 4.12.0)
+## Funding tiers, contract set 3.8.0
 
-Contract set 3.8.0 adds `inferenceFundingTierSchema` (`free`, `credit`,
-`paid`), an authorized route's optional `maxFundingTier` and the usage
-report's optional `fundingTier` (Oxy ADR 0038, ADR 0001). It is pinned from
-the published `@oxy.so/contracts` 4.12.0 and `descriptor.json` was regenerated
-from that installed package with `OXY_CONTRACTS_LOCAL_SOURCE` unset; the only
-change from the earlier local-build descriptor was the removed `source`
-provenance.
+Contract set 3.8.0 (then `@oxy.so/contracts` 4.12.0) added
+`inferenceFundingTierSchema` (`free`, `credit`, `paid`), an authorized route's
+optional `maxFundingTier` and the usage report's optional `fundingTier` (Oxy
+ADR 0038, ADR 0001). It moved into `@kaana.ai/contracts` 4.0.0 unchanged.
 
-## Decisions foundation on published 4.7.0
+## Decisions foundation
 
-This branch consumes Oxy contract set **3.5.0** / envelope 2 from the published
-`@oxy.so/contracts` **4.7.0**, pinned exactly in `tools/contract/package.json`
-and locked from the public npm registry (`bun.lock` integrity
-`sha512-/VS0Evw+YQ78B/JyoLCKHrFs/A5rY3E5+s8CvNP7QMfW4isT/VhPqIv+8lNVkJHzAJzOSrS5HHoOrM/DVx78qA==`).
-`descriptor.json` was regenerated, not edited, from that installed package with
-`OXY_CONTRACTS_LOCAL_SOURCE` unset, so it carries no `source` field. The only
-change from the earlier local-build descriptor was the removed `source`
-provenance (and its generated `$comment`); package 4.7.0, contract set 3.5.0
-and every shape were already identical. `generate.mjs` still refuses a local
-build unless `OXY_CONTRACTS_LOCAL_SOURCE=<owner/repo>@<commit>` records its
-origin, and never labels one published. See [decisions.md](decisions.md).
-Publishing the contract enables nothing: no production Jev route is enabled.
+Typed decisions (contract set 3.5.0, envelope 2) came from the Oxy contract
+package and moved here with the rest in 4.0.0. The contract is now authored in
+this repository: `descriptor.json` and `openapi.json` are generated from
+`packages/contracts` and CI fails on any diff. `generate.mjs` refuses a build from
+an unrecorded source. See [decisions.md](decisions.md). Publishing the contract
+enables nothing: no production route is enabled by a version bump.
 The historical rollout notes below predate this foundation.
 
 ## The contract is not re-invented here

@@ -18,8 +18,9 @@ import (
 // can never add a provider, region, funding tier or price the grant did not.
 //
 // Only the controls Kaana can honour are decoded; decodeRequest refuses every
-// other member (`max_price`, `zdr`, `data_collection`, `sort: "price"`),
-// because pricing and data policy are Oxy's and Kaana never prices.
+// other member (`zdr`, `data_collection`, percentile objects), because the data
+// policy is Oxy's and is applied when it computes the grant. `max_price` and
+// `sort: "price"` read the declared list price of a model line (ADR 0008).
 type providerPreferences struct {
 	Order                  []string `json:"order,omitempty"`
 	Only                   []string `json:"only,omitempty"`

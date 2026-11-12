@@ -21,17 +21,22 @@ wrong, not the boundary. The rules a reviewer applies are at the end of this
 document; `AGENTS.md` is the one-line index to them.
 
 
-## The Oxy-facing surface
+## The surfaces
+
+Kaana has two ways in, the public lane (`https://kaana.ai/v1`) and the signed lane
+(`/internal/v1/*`). Who decides what on each is in [lanes.md](lanes.md); this
+section describes the signed lane's HTTP surface.
 
 Provider keys, what providers charge for them and which key serves are
 Kaana's ([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)):
 exact opaque key identity, stated funding (free, credits, paid), upstream
 verdict, evidence source, observation time and recovery lease. Kaana walks a
 deployment's key pool cheapest first and never beyond the funding ceiling Oxy
-authorized. Oxy owns the customer side — accounts, API keys, credits, quotas,
-prices charged, policy limits — and, in phase 1, still the cross-provider order
-of deployments; phase 2 moves that order into Kaana. Kaana does not infer
-funding from a credential or turn its technical state table into a wallet.
+authorized. Oxy owns the customer side: accounts, API keys, credits, quotas,
+the price a customer is charged and policy limits. [ADR 0010](adr/0010-kaana-sells-and-invoices.md)
+proposes moving the selling and invoicing to Kaana; until it is accepted and its
+first phase ships, that is still Oxy's. Kaana does not infer funding from a
+credential or turn its technical state table into a wallet.
 
 ```
 POST /internal/v1/inference    signed envelope in, normalized event stream out
@@ -110,6 +115,10 @@ absent, and the code refuses rather than pretending.
 
 
 ## Contract findings and remaining decisions
+
+These findings are a dated log. Package names and versions are as published when
+each was written: `@oxy.so/contracts` became `@kaana.ai/contracts` at 4.0.0
+([contract.md](contract.md)).
 
 These surfaced while implementing against the contract. Resolved findings stay
 recorded because the generated descriptor and execution tests now gate the
@@ -198,7 +207,7 @@ answer; unresolved ones remain decisions rather than guessed behaviour.
    `modelDeploymentSchema` cannot express what a provider calls a model, so that
    mapping lives in Kaana's inventory. The same descriptor also carries
    `availabilityScope`, `commercialPermission` and `priceVersionId` — Oxy
-   commercial decisions under ADR 0006 — so the shape currently has two owners
+   commercial decisions under Oxy ADR 0006 — so the shape currently has two owners
    and no stated direction of exchange.
 9. **The exact authorized route resolves an unpinned target before execution.**
    The contract says Oxy chooses the current revision, and each signed
@@ -325,7 +334,7 @@ contract fits one provider's shape and not another's.
 ## Rules a reviewer applies
 
 The ownership split is the paragraph at the top of this document ([ADR
-0005][adr0005], [ADR 0006][adr0006]). Kaana owns request normalization,
+0005][adr0005], [Oxy ADR 0006][adr0006]). Kaana owns request normalization,
 provider adapters, routing *execution*, streaming, cancellation, model
 deployments, provider health and circuit breakers, technical metering, upstream
 provider cost, and encrypted custody of every upstream provider secret,
@@ -345,9 +354,12 @@ a customer console.
   reintroduces the replication lag that makes revocation unsafe. The one
   exception is refusing an envelope that carries no `inference:invoke` — that is
   a malformed instruction from the edge, not a customer decision.
-- **Kaana measures units and never prices them.** There is no money type in
-  `internal/contract`, and adding one is the moment a second ledger starts
-  (`cost.md`).
+- **Kaana measures units and puts no amount in an inference response.** The usage
+  report has units and no money. `Money` exists in the contract only as a value
+  Kaana relays (a grant's ceiling, a receipt) and in the catalogue's list prices.
+  What a customer is charged is Oxy's today; [ADR 0010](adr/0010-kaana-sells-and-invoices.md)
+  proposes that Kaana does it, which is the moment a second ledger would start
+  and why it is decided in an ADR and not slipped into a change (`cost.md`).
 - **If a change would put an Oxy-owned concept here, the change is wrong, not
   the boundary.** A schema review is a boundary review.
 

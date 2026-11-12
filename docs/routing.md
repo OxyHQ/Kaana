@@ -28,18 +28,23 @@ impossible.
 
 Kaana owns provider keys, provider costs and routing; Oxy owns customers and
 their limits ([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
-In phase 1 that splits like this: Oxy still selects and orders the
-DEPLOYMENTS after applying customer policy, and may bound a route by a funding
-tier (`maxFundingTier`, which Kaana never walks past) (profile priority, BYOK preference,
-funding class, score, exact `deploymentId` — stated once, in
-[Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)),
-and Kaana chooses the KEY inside each deployment: its provider's pool,
-cheapest stated funding first (`key-pools.md`). If any otherwise eligible route
-has incomplete identity, price or score evidence, Oxy refuses the whole set
-before reserving spend and before calling Kaana. Kaana receives no score or
-`optimiseFor` value and does not second-guess the deployment order. Phase 2
-moves the cross-provider order into Kaana too (ADR 0001). What an exact-model
-request and a power-level request promise the caller is in the
+Which side orders the routes depends on the lane ([lanes.md](lanes.md)):
+
+- On the **signed lane** Oxy selects and orders the deployments after applying
+  customer policy (profile priority, BYOK preference, funding class, score, exact
+  `deploymentId`: stated once, in
+  [Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification))
+  and may bound a route by a funding tier (`maxFundingTier`, which Kaana never
+  walks past). If any otherwise eligible route has incomplete identity, price or
+  score evidence, Oxy refuses the whole set before reserving spend and before
+  calling Kaana. Kaana receives no score or `optimiseFor` value and does not
+  second-guess the deployment order.
+- On the **public lane** Oxy signs a grant and Kaana resolves it into routes
+  (next section).
+- On both, Kaana chooses the KEY inside each deployment: its provider's pool,
+  cheapest stated funding first (`key-pools.md`).
+
+What an exact-model request and a power-level request promise the caller is in the
 [Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md).
 
 ## Public grant lane order
