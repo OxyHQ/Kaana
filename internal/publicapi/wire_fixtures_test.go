@@ -75,6 +75,32 @@ func TestWritePublicWireFixtures(t *testing.T) {
 	}
 	add("chatCompletionErrorSchema", "refused", h.post("/v1/chat/completions", revokedKey, chat).Body)
 
+	// Anthropic Messages, whole, with a tool call, streamed (text, a tool call,
+	// a failure after output) and refused.
+	anthropic := map[string]any{"model": "stub/model", "max_tokens": 64, "system": "Be brief.", "messages": []any{map[string]any{"role": "user", "content": "Hola"}},
+		"tools": []any{map[string]any{"name": "lookup", "input_schema": map[string]any{"type": "object"}}}}
+	wholeMessage := h.post("/v1/messages", validKey, anthropic)
+	add("anthropicMessageSchema", "with-tool-use", wholeMessage.Body)
+	leak("anthropicMessageSchema", "deployment-leak", wholeMessage.Body, "deploymentId", "dep_stub_b")
+	anthropic["stream"] = true
+	for index, frame := range readSSE(t, h.post("/v1/messages", validKey, anthropic)) {
+		add("anthropicStreamEventSchema", fmt.Sprintf("tool-frame-%02d-%s", index, frame.event), frame.data)
+	}
+	delete(anthropic, "tools")
+	for index, frame := range readSSE(t, h.post("/v1/messages", validKey, anthropic)) {
+		add("anthropicStreamEventSchema", fmt.Sprintf("text-frame-%02d-%s", index, frame.event), frame.data)
+	}
+	h.adapter.failAfter = 2
+	frames = readSSE(t, h.post("/v1/messages", validKey, anthropic))
+	add("anthropicStreamEventSchema", "error-after-output", frames[len(frames)-1].data)
+	h.adapter.failAfter = 0
+	refusedMessage := h.post("/v1/messages", revokedKey, anthropic)
+	add("anthropicErrorSchema", "refused", refusedMessage.Body)
+	leak("anthropicErrorSchema", "provider-leak", refusedMessage.Body, "providerError", map[string]any{"provider": "stub"})
+	delete(anthropic, "stream")
+	anthropic["cache_control"] = map[string]any{"type": "ephemeral"}
+	add("anthropicErrorSchema", "cache-control-refused", h.post("/v1/messages", validKey, anthropic).Body)
+
 	// Speech frames, transcription, errors.
 	for index, frame := range readSSE(t, h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel", "stream": true, "stream_format": "sse"})) {
 		add("speechStreamEventSchema", fmt.Sprintf("frame-%02d", index), frame.data)
@@ -117,7 +143,7 @@ func TestWritePublicWireFixtures(t *testing.T) {
 	leaked, _ := json.Marshal(event)
 	invalid = append(invalid, fixture{Schema: "realtimePublicServerEventSchema", Case: "error-with-provider", Value: leaked})
 
-	if len(valid) < 30 || len(invalid) != 4 {
+	if len(valid) < 30 || len(invalid) != 6 {
 		t.Fatalf("captured %d shapes and %d controls; the gate needs both", len(valid), len(invalid))
 	}
 	root := os.Getenv("KAANA_CONTRACT_FIXTURE_DIR")

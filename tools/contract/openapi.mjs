@@ -206,6 +206,18 @@ const paths = {
     },
     { error: 'chatCompletionErrorSchema' },
   ),
+  '/messages': post(
+    'Generate a message (Anthropic-Messages-compatible). Send the key as `x-api-key` or `Authorization: Bearer`.',
+    json('anthropicMessagesRequestSchema'),
+    {
+      ...json('anthropicMessageSchema'),
+      ...sse(
+        'anthropicStreamEventSchema',
+        'With `stream: true`: `event: <type>` frames; a failure is an `error` frame.',
+      ),
+    },
+    { error: 'anthropicErrorSchema' },
+  ),
   '/embeddings': post(
     'Embed text (OpenAI-compatible).',
     json('embeddingsRequestSchema'),

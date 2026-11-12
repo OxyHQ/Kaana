@@ -1,5 +1,24 @@
 # Changelog
 
+## 8.3.0
+
+Anthropic-Messages-compatible `POST /v1/messages`. Additive: everything 8.2.0
+parses still parses, and the signed grant and envelope are unchanged (the
+endpoint is served as the `responses` operation).
+
+- `anthropicMessagesRequestSchema`, `anthropicMessageSchema`,
+  `anthropicStreamEventSchema` and `anthropicErrorSchema`: an unmodified
+  Anthropic SDK or Claude Code works with `ANTHROPIC_BASE_URL=https://kaana.ai`
+  and an `oxy_sk_` key sent as `x-api-key` or `Authorization: Bearer`.
+- Strict, and a parameter Kaana does not implement is refused, not dropped:
+  `cache_control` (there is no usage unit for a cache write, so honouring it
+  would under-report cost), `thinking` other than `disabled` (ask reasoning
+  with `output_config.effort`), server tools, image `url` sources and every
+  member the schema does not name.
+- `stop_reason` is `end_turn`, `max_tokens`, `tool_use` or `refusal`;
+  `stop_sequence` is never produced. `usage` carries `cache_read_input_tokens`
+  only when the route measured it.
+
 ## 8.2.0
 
 Image input (Kaana ADR 0007). Additive.

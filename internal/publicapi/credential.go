@@ -31,8 +31,13 @@ type credential struct {
 	digest [32]byte
 }
 
-// bearerFrom reads the credential from Authorization, or, for a WebSocket
-// whose runtime cannot set headers, from the kaana.bearer. subprotocol.
+// HeaderAPIKey is where an Anthropic SDK sends its key. Authorization wins
+// when both are present, so a client that sends both is read as it always was.
+const HeaderAPIKey = "X-Api-Key"
+
+// bearerFrom reads the credential from Authorization, from X-Api-Key (the
+// Anthropic SDKs' spelling) or, for a WebSocket whose runtime cannot set
+// headers, from the kaana.bearer. subprotocol.
 func bearerFrom(r *http.Request) (credential, bool) {
 	if header := r.Header.Get("Authorization"); header != "" {
 		scheme, value, found := strings.Cut(header, " ")
@@ -40,6 +45,9 @@ func bearerFrom(r *http.Request) (credential, bool) {
 			return credential{}, false
 		}
 		return newCredential(strings.TrimSpace(value))
+	}
+	if key := r.Header.Get(HeaderAPIKey); key != "" {
+		return newCredential(strings.TrimSpace(key))
 	}
 	for _, protocol := range offeredSubprotocols(r) {
 		if encoded, found := strings.CutPrefix(protocol, realtimeBearerPrefix); found {

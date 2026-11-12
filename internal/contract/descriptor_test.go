@@ -493,29 +493,33 @@ var notApplicable = map[string]string{
 	// in contract set 4.0.0 and served by internal/publicapi in ADR 0002 phase
 	// 3; until then no Kaana code exchanges these shapes. Each leaves this list
 	// by being implemented there.
-	"chargedGenerationRecordSchema": "public api (phase 3): GET /v1/generations record",
-	"chatCompletionChunkSchema":     "public api (phase 3): POST /v1/chat/completions stream chunk",
-	"chatCompletionErrorSchema":     "public api (phase 3): POST /v1/chat/completions error body",
-	"chatCompletionMessageSchema":   "public api (phase 3): POST /v1/chat/completions message",
-	"chatCompletionSchema":          "public api (phase 3): POST /v1/chat/completions response",
-	"chatCompletionUsageSchema":     "public api (phase 3): POST /v1/chat/completions usage",
-	"chatCompletionsRequestSchema":  "public api (phase 3): POST /v1/chat/completions request",
-	"embeddingsRequestSchema":       "public api (phase 3): POST /v1/embeddings request",
-	"embeddingsResponseSchema":      "public api (phase 3): POST /v1/embeddings response",
-	"generationRecordSchema":        "public api (phase 3): GET /v1/generations record",
-	"imageGenerationsRequestSchema": "public api (phase 3): POST /v1/images/generations request",
-	"imageGenerationsSchema":        "public api (phase 3): POST /v1/images/generations response",
-	"meteredGenerationRecordSchema": "public api (phase 3): GET /v1/generations record",
-	"modelAudioCapabilitiesSchema":  "public api (phase 3): voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
-	"modelListSchema":               "public api (phase 3): GET /v1/models",
-	"modelSchema":                   "public api (phase 3): GET /v1/models entry",
-	"modelTargetSchema":             "public api (phase 3): a model reference or a power level",
-	"powerLevelEntrySchema":         "public api (phase 3): GET /v1/power-levels entry",
-	"powerLevelListSchema":          "public api (phase 3): GET /v1/power-levels",
-	"responseSchema":                "public api (phase 3): POST /v1/responses response",
-	"responseStreamEventSchema":     "public api (phase 3): POST /v1/responses stream",
-	"responsesRequestSchema":        "public api (phase 3): POST /v1/responses request",
-	"voiceSchema":                   "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
+	"anthropicErrorSchema":           "public api: POST /v1/messages error body and stream error frame",
+	"anthropicMessageSchema":         "public api: POST /v1/messages response",
+	"anthropicMessagesRequestSchema": "public api: POST /v1/messages request; its union-typed members are decoded by hand",
+	"anthropicStreamEventSchema":     "public api: POST /v1/messages stream frames",
+	"chargedGenerationRecordSchema":  "public api (phase 3): GET /v1/generations record",
+	"chatCompletionChunkSchema":      "public api (phase 3): POST /v1/chat/completions stream chunk",
+	"chatCompletionErrorSchema":      "public api (phase 3): POST /v1/chat/completions error body",
+	"chatCompletionMessageSchema":    "public api (phase 3): POST /v1/chat/completions message",
+	"chatCompletionSchema":           "public api (phase 3): POST /v1/chat/completions response",
+	"chatCompletionUsageSchema":      "public api (phase 3): POST /v1/chat/completions usage",
+	"chatCompletionsRequestSchema":   "public api (phase 3): POST /v1/chat/completions request",
+	"embeddingsRequestSchema":        "public api (phase 3): POST /v1/embeddings request",
+	"embeddingsResponseSchema":       "public api (phase 3): POST /v1/embeddings response",
+	"generationRecordSchema":         "public api (phase 3): GET /v1/generations record",
+	"imageGenerationsRequestSchema":  "public api (phase 3): POST /v1/images/generations request",
+	"imageGenerationsSchema":         "public api (phase 3): POST /v1/images/generations response",
+	"meteredGenerationRecordSchema":  "public api (phase 3): GET /v1/generations record",
+	"modelAudioCapabilitiesSchema":   "public api (phase 3): voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
+	"modelListSchema":                "public api (phase 3): GET /v1/models",
+	"modelSchema":                    "public api (phase 3): GET /v1/models entry",
+	"modelTargetSchema":              "public api (phase 3): a model reference or a power level",
+	"powerLevelEntrySchema":          "public api (phase 3): GET /v1/power-levels entry",
+	"powerLevelListSchema":           "public api (phase 3): GET /v1/power-levels",
+	"responseSchema":                 "public api (phase 3): POST /v1/responses response",
+	"responseStreamEventSchema":      "public api (phase 3): POST /v1/responses stream",
+	"responsesRequestSchema":         "public api (phase 3): POST /v1/responses request",
+	"voiceSchema":                    "public api (phase 3): one voice; inventory.VoiceObservation for a realtime model today",
 
 	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
 	// authorizations and settlements endpoints in phase 2 and Kaana calls them
@@ -526,7 +530,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 57
+const expectedNotApplicableCount = 61
 
 type enumBinding struct {
 	goType  reflect.Type
