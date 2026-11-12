@@ -901,6 +901,14 @@ over image defaults. The file is loaded at start whether or not
   primary source in the commit, and run `make check`. A model with no price is
   allowed (BYOK-only), never one with a guessed field: if a required field has
   no primary evidence the model is not declared.
+- **To deprecate a model:** set `deprecation` to `deprecated` with `announcedAt`,
+  `sunsetAt` and, when there is one, `replacementModelReference`. Every
+  `POST /v1/responses` and `POST /v1/chat/completions` that names that model
+  then answers with `Deprecation: @<announcedAt>` (RFC 9745), `Sunset: <sunsetAt>`
+  (RFC 8594) and `Link: </v1/models/<replacement>>; rel="successor-version"`
+  (`publicapi/lifecycle.go`). Kaana never routes to the replacement for the
+  caller; a retired model is still refused by the grant. A power level or an
+  active model adds no header.
 - **Image input (ADR 0007):** a line that takes images states
   `imageInput.maxInputTokensPerImage`, the most input tokens its provider bills
   for one image the contract admits, at any `detail`, from the publisher's own
