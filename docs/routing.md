@@ -92,7 +92,8 @@ one place that knows it. "Delivered" means output: a non-empty delta, a tool
 call, audio, or `done`. An adapter's `Start` — which every adapter calls as soon
 as the upstream answers 200 — is **held** by the emitter, together with any
 usage or empty delta behind it, and written only when the attempt delivers its
-first output (or completes with none). A provider that answers 200 and then
+first output (or completes with none, which for a text request is a failure; see
+"An empty answer is a failure"). A provider that answers 200 and then
 reports a failure inside the stream, before any content, has delivered nothing:
 its held start is discarded unwritten and the request can still be retried or
 moved. The customer sees `start` exactly once, first (after any
@@ -175,6 +176,40 @@ request *means* depend on which route happened to be healthy), a content filter,
 a cancellation, and any failure no adapter classified. One function decides,
 `provider.AttributableCategory`, and the circuit breakers read the same one, so
 the two can never drift apart.
+
+## An empty answer is a failure
+
+A provider that is warming up, or whose reasoning consumed the whole budget, can
+answer 200, stream a start and complete with nothing in it. Serving that would
+hand the customer a blank answer and bill it, so the executor
+(`producedNoOutput`, right after the adapter returns, not in each adapter)
+turns the attempt into a `provider_error` with category `server_error`. Every
+step after that is the ordinary transient path: the breaker counts a failure,
+the same route is retried, then the next route, the held start is discarded, the
+cost row is `failed`, and the deployment's stats count it as failed. If it is
+the last attempt the customer receives that retryable `provider_error`.
+
+It applies only when ALL hold: the request is `responses` or `chat_completions`
+(never embeddings, decisions, speech, transcription, images, rerank, batches or
+realtime); the adapter returned no error; nothing was delivered (no text,
+reasoning, refusal, tool call or audio); the attempt reported no `output_tokens`
+and no `reasoning_tokens` above zero; and the finish reason is empty or `stop`.
+`length`, `tool_calls`, `content_filter`, `refusal` and `cancelled` explain an
+empty body, so they are served as before; a reasoning-only answer that hit
+`max_tokens` has reasoning tokens and finish `length` and never trips it.
+
+**Customer billing.** An empty failure is reported to the customer as `failed`
+with NO units, even though the provider measured input tokens: reporting them
+would make `outcomeFor` return `partial`, which is billable, for an answer the
+customer never received. The operator cost row (`providercost`) keeps the real
+units, because the provider will invoice for them. Other failures keep their
+existing rule (units measured means `partial`).
+
+**Known risk.** A legitimate empty answer, such as an immediate stop sequence,
+is indistinguishable from a warm-up and will blame the deployment (and be
+retried, then fail). The guard is that any reported output or reasoning tokens
+above zero exempt the attempt; a provider that reports an explicit zero is
+treated as having produced nothing. That residual case is accepted.
 
 ## Circuit breakers and health scoring
 
@@ -294,6 +329,11 @@ complete, so a streamed answer carries none (the log line still has them).
 - **A route switch is announced at the attempt that replaces the failed one**,
   never at the moment of failure: the replacement's breaker may refuse it, and a
   switch nobody made must not reach a receipt.
+- **A text attempt that completes with no output is a provider failure, not a
+  served answer** (`producedNoOutput`, "An empty answer is a failure"). Keep the
+  check in the executor, keep embeddings, decisions, audio and every finish
+  reason that explains emptiness out of it, and never put the empty attempt's
+  units in the customer's report.
 - **A request moves — retried on its route or switched to the next — only while
   nothing has been delivered.** The emitter holds an attempt's `start` until its
   first output and is the one place that knows whether the stream committed; a

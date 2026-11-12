@@ -568,40 +568,206 @@ func TestARetryNeverBypassesTheBreaker(t *testing.T) {
 /*  Deferred start                                                            */
 /* -------------------------------------------------------------------------- */
 
-// TestAnAnswerWithNoOutputStillStartsOnce: with the start event held until
-// output, an attempt that completes with none still writes start, its held
-// usage and empty delta, then done — in order, once.
-func TestAnAnswerWithNoOutputStillStartsOnce(t *testing.T) {
-	adapter := &scriptedAdapter{stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+// emptyAnswer is an attempt that got a 200, started, reported what it measured
+// and completed without a single output token: a provider that is still
+// warming up, or reasoning that consumed the whole budget.
+func emptyAnswer(units []contract.UsageQuantity, finish contract.FinishReason) func(context.Context, *provider.Call, provider.Emitter) (provider.Outcome, error) {
+	return func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
 		if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
 			return provider.Outcome{}, err
 		}
 		if err := out.Delta(0, contract.ChannelOutputText, ""); err != nil {
 			return provider.Outcome{}, err
 		}
-		units := []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}}
 		if err := out.Usage(units, contract.UsageProviderReported); err != nil {
 			return provider.Outcome{}, err
 		}
-		return provider.Outcome{Units: units, UsageSource: contract.UsageProviderReported, FinishReason: contract.FinishStop}, nil
+		return provider.Outcome{Units: units, UsageSource: contract.UsageProviderReported, FinishReason: finish}, nil
+	}
+}
+
+var emptyUnits = []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}, {Unit: contract.UnitInputTokens, Quantity: 11}}
+
+// emptyThenServes completes empty for its first `empties` attempts and serves after.
+func emptyThenServes(slug contract.ProviderSlug, empties int) *scriptedAdapter {
+	var (
+		mutex sync.Mutex
+		seen  int
+	)
+	empty := emptyAnswer(emptyUnits, contract.FinishStop)
+	serve := succeedingAdapter(slug, 5).stream
+	return &scriptedAdapter{slug: slug, stream: func(ctx context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+		mutex.Lock()
+		seen++
+		attempt := seen
+		mutex.Unlock()
+		if attempt <= empties {
+			return empty(ctx, call, out)
+		}
+		return serve(ctx, call, out)
 	}}
+}
+
+// TestAnAnswerWithNoOutputIsRetriedOnItsRouteThenServed: a completed attempt
+// with no output is a provider failure, so the same route is tried again and
+// the customer sees one start, the second attempt's answer and no failure.
+func TestAnAnswerWithNoOutputIsRetriedOnItsRouteThenServed(t *testing.T) {
+	adapter := emptyThenServes("stub", 1)
 
 	events, result := execute(t, adapter, baseRequest())
 
 	if result.Failure != nil || result.Report == nil || result.Report.Outcome != contract.OutcomeCompleted {
 		t.Fatalf("failure=%+v report=%+v", result.Failure, result.Report)
 	}
-	want := []contract.StreamEventType{contract.EventStart, contract.EventDelta, contract.EventUsage, contract.EventDone}
-	if len(events) != len(want) {
-		t.Fatalf("%d events, want %v", len(events), want)
+	if adapter.attempts() != 2 {
+		t.Fatalf("attempts = %d, want the empty one and its retry", adapter.attempts())
 	}
-	for index, event := range events {
-		if event.EventType() != want[index] || event.Sequence() != index {
-			t.Errorf("event %d is %s seq %d, want %s seq %d", index, event.EventType(), event.Sequence(), want[index], index)
+	assertOneStartFirstAndMonotonic(t, events)
+	if len(eventsOfType(events, contract.EventRouteSwitch)) != 0 || result.Report.RouteSwitches != 0 {
+		t.Error("a same-route retry announced a route switch")
+	}
+	for _, event := range eventsOfType(events, contract.EventUsage) {
+		if usage := event.(*contract.StreamUsageEvent); len(usage.Units) == len(emptyUnits) {
+			t.Errorf("the customer received the empty attempt's usage: %+v", usage)
 		}
 	}
-	if !result.UpstreamCost.Attempts[0].Served {
-		t.Error("an empty answer that completed is not marked served")
+	rows := result.UpstreamCost.Attempts
+	if len(rows) != 2 || rows[0].Served || !rows[1].Served || rows[0].Telemetry.Outcome != providercost.AttemptFailed {
+		t.Fatalf("cost rows = %+v", rows)
+	}
+	if len(rows[0].Units) != len(emptyUnits) {
+		t.Errorf("the empty attempt lost the units the provider measured: %+v", rows[0].Units)
+	}
+}
+
+// TestAnAnswerWithNoOutputFailsOverToTheBackup: the primary keeps answering
+// empty, spends its retries, and the request moves with one switch and one start.
+func TestAnAnswerWithNoOutputFailsOverToTheBackup(t *testing.T) {
+	primary := &scriptedAdapter{slug: "stub", stream: emptyAnswer(emptyUnits, contract.FinishStop)}
+	backup := succeedingAdapter("backup", 4)
+
+	events, result := harness{
+		deployments: twoDeploymentsOfOneRevision,
+		adapters:    []provider.Adapter{primary, backup},
+	}.run(t, authorizedRequest())
+
+	if result.Failure != nil {
+		t.Fatalf("the request failed: %+v", result.Failure)
+	}
+	if want := 1 + fastRetries.MaxRetriesPerRoute; primary.attempts() != want || backup.attempts() != 1 {
+		t.Fatalf("attempts primary=%d backup=%d, want %d and 1", primary.attempts(), backup.attempts(), want)
+	}
+	assertOneStartFirstAndMonotonic(t, events)
+	if len(eventsOfType(events, contract.EventRouteSwitch)) != 1 || result.Report.RouteSwitches != 1 || result.Report.DeploymentID != "dep_b" {
+		t.Errorf("report = %+v", result.Report)
+	}
+	if start := eventsOfType(events, contract.EventStart)[0].(*contract.StreamStartEvent); start.ServingProvider != "backup" {
+		t.Errorf("start names %q, not the route that served", start.ServingProvider)
+	}
+}
+
+// TestAnAnswerWithNoOutputOnTheLastRouteIsAnAttributableFailure: with nowhere
+// left to go the customer gets a retryable provider_error, no start event, an
+// outcome of failed with nothing billable, and the breaker has counted it. The
+// operator cost row keeps the units the provider measured.
+func TestAnAnswerWithNoOutputOnTheLastRouteIsAnAttributableFailure(t *testing.T) {
+	adapter := &scriptedAdapter{slug: "stub", stream: emptyAnswer(emptyUnits, contract.FinishStop)}
+	breakers := rotation.NewRegistry(rotation.Policy{FailuresToOpen: 3, Cooldown: time.Hour}, nil)
+
+	events, result := harness{
+		deployments: oneDeployment, adapters: []provider.Adapter{adapter}, rotation: breakers,
+	}.run(t, baseRequest())
+
+	if result.Failure == nil || result.Failure.Code != contract.CodeProviderError || !result.Failure.Retryable {
+		t.Fatalf("failure = %+v", result.Failure)
+	}
+	if result.Failure.UpstreamCategory == nil || *result.Failure.UpstreamCategory != contract.UpstreamServerError {
+		t.Errorf("upstream category = %v", result.Failure.UpstreamCategory)
+	}
+	if len(eventsOfType(events, contract.EventStart)) != 0 || len(events) != 1 || events[0].EventType() != contract.EventError {
+		t.Errorf("the customer saw %d events; want only the error", len(events))
+	}
+	report := result.Report
+	if report == nil || report.Outcome != contract.OutcomeFailed || len(report.Units) != 0 {
+		t.Fatalf("the customer report is billable for an empty failure: %+v", report)
+	}
+	rows := result.UpstreamCost.Attempts
+	if len(rows) != 1+fastRetries.MaxRetriesPerRoute {
+		t.Fatalf("%d cost rows", len(rows))
+	}
+	for _, row := range rows {
+		if row.Served || row.Telemetry.Outcome != providercost.AttemptFailed || len(row.Units) != len(emptyUnits) {
+			t.Errorf("row = %+v", row)
+		}
+	}
+	if health := breakers.Project([]contract.DeploymentID{"dep_test"})[0]; health.ConsecutiveFailures != 3 || health.State != rotation.StateOpen {
+		t.Errorf("the breaker did not count the empty answers: %+v", health)
+	}
+}
+
+// TestAnAnswerThatExplainsItsEmptinessIsServed holds every control that must
+// NOT trip the rule: what was produced is a tool call, reasoning, a refusal,
+// reported output or reasoning tokens, or the answer ended for a reason that
+// explains an empty body. Each runs once, on one attempt.
+func TestAnAnswerThatExplainsItsEmptinessIsServed(t *testing.T) {
+	unit := func(kind contract.UsageUnit, quantity int) []contract.UsageQuantity {
+		return []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}, {Unit: kind, Quantity: quantity}}
+	}
+	type run func(out provider.Emitter, call *provider.Call) (provider.Outcome, error)
+	reported := func(units []contract.UsageQuantity, finish contract.FinishReason) provider.Outcome {
+		return provider.Outcome{Units: units, UsageSource: contract.UsageProviderReported, FinishReason: finish}
+	}
+	startThen := func(units []contract.UsageQuantity, finish contract.FinishReason, emit func(provider.Emitter) error) run {
+		return func(out provider.Emitter, call *provider.Call) (provider.Outcome, error) {
+			if err := out.Start(call.Route.ModelReference, time.Now()); err != nil {
+				return provider.Outcome{}, err
+			}
+			if emit != nil {
+				if err := emit(out); err != nil {
+					return provider.Outcome{}, err
+				}
+			}
+			return reported(units, finish), nil
+		}
+	}
+	cases := []struct {
+		name   string
+		run    run
+		finish contract.FinishReason
+	}{
+		{"a tool call with no text", startThen(emptyUnits, contract.FinishStop, func(out provider.Emitter) error {
+			return out.ToolCall(provider.ToolCallDelta{ID: "call_1", Name: "lookup", ArgumentsDelta: "{}", Complete: true})
+		}), contract.FinishStop},
+		{"reasoning text only", startThen(emptyUnits, contract.FinishStop, func(out provider.Emitter) error {
+			return out.Delta(0, contract.ChannelReasoning, "thinking")
+		}), contract.FinishStop},
+		{"a refusal", startThen(emptyUnits, contract.FinishStop, func(out provider.Emitter) error {
+			return out.Delta(0, contract.ChannelRefusal, "no")
+		}), contract.FinishStop},
+		{"output tokens reported without text", startThen(unit(contract.UnitOutputTokens, 7), contract.FinishStop, nil), contract.FinishStop},
+		{"reasoning tokens reported without text", startThen(unit(contract.UnitReasoningTokens, 512), contract.FinishLength, nil), contract.FinishLength},
+		{"finish length", startThen(emptyUnits, contract.FinishLength, nil), contract.FinishLength},
+		{"finish tool_calls", startThen(emptyUnits, contract.FinishToolCalls, nil), contract.FinishToolCalls},
+		{"finish content_filter", startThen(emptyUnits, contract.FinishContentFilter, nil), contract.FinishContentFilter},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			adapter := &scriptedAdapter{slug: "stub", stream: func(_ context.Context, call *provider.Call, out provider.Emitter) (provider.Outcome, error) {
+				return c.run(out, call)
+			}}
+
+			events, result := execute(t, adapter, baseRequest())
+
+			if result.Failure != nil || result.Report == nil || result.Report.Outcome != contract.OutcomeCompleted {
+				t.Fatalf("failure=%+v report=%+v", result.Failure, result.Report)
+			}
+			if adapter.attempts() != 1 {
+				t.Errorf("attempts = %d, want 1", adapter.attempts())
+			}
+			if done := events[len(events)-1].(*contract.StreamDoneEvent); done.FinishReason != c.finish {
+				t.Errorf("finish = %s, want %s", done.FinishReason, c.finish)
+			}
+		})
 	}
 }
 
