@@ -206,7 +206,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/embeddings", s.timed(s.handleEmbeddings))
 	mux.HandleFunc("POST /v1/audio/speech", s.timed(s.handleSpeech))
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.timed(s.handleTranscriptions))
-	mux.HandleFunc("POST /v1/images/generations", s.handleImages)
+	mux.HandleFunc("POST /v1/images/generations", s.timed(s.handleImages))
 	mux.HandleFunc("POST /v1/decisions", s.timed(s.handleDecisions))
 	mux.HandleFunc("GET /v1/generations/{id}", s.handleGeneration)
 	mux.HandleFunc("GET /v1/generations", s.handleGenerationByKey)
