@@ -265,6 +265,17 @@ grant lane orders by is `rotation.Registry.FirstOutput` (ADR 0008, decision 3),
 which this record does not feed and does not read; the signed `authorizedRoutes`
 lane is never reordered.
 
+## Where the caller's time went
+
+A non-streamed `POST /v1/responses` or `POST /v1/chat/completions` answer carries
+a `Server-Timing` header (W3C): `grant` (the authorization round trip to Oxy),
+`upstream` (the summed provider exchanges) and `retry` (backoff waited), in
+milliseconds. It is built from the same `internal/requesttiming` recording as the
+operator's "public request timing" log line, so the two cannot disagree. It names
+no provider, route or key, and a phase that was not measured is left out rather
+than reported as zero. A stream has already sent its headers when these phases
+complete, so a streamed answer carries none (the log line still has them).
+
 ## Rules a reviewer applies
 
 - **A `RouteSet` is one exact model reference.** Its endpoints are the only

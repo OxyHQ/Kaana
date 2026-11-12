@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/OxyHQ/Kaana/internal/publicapi"
 )
 
 // timingLines returns every "public request timing" line the harness logged.
@@ -88,5 +90,35 @@ func TestARefusedRequestLogsTheGrantRoundTripOnly(t *testing.T) {
 	}
 	if lines[0]["outcome"] == "completed" || lines[0]["outcome"] == "" || lines[0]["grantId"] != "" || lines[0]["executeMs"] != float64(0) {
 		t.Errorf("refused line = %v", lines[0])
+	}
+}
+
+// A non-streamed answer says where the caller's time went in the standard
+// Server-Timing header: durations only, no provider, route or key. The control
+// is an endpoint that never reached Oxy, which carries none, so the header
+// measures the request and is not stamped on every response.
+func TestANonStreamedAnswerCarriesServerTiming(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	for _, path := range []string{"/v1/responses", "/v1/chat/completions"} {
+		body := responsesBody(nil)
+		if path == "/v1/chat/completions" {
+			body = map[string]any{"model": textModel, "messages": []any{map[string]any{"role": "user", "content": "Hola"}}}
+		}
+		response := h.post(path, validKey, body)
+		if readAll(t, response); response.StatusCode != http.StatusOK {
+			t.Fatalf("%s = %d", path, response.StatusCode)
+		}
+		timing := response.Header.Get(publicapi.HeaderServerTiming)
+		if !strings.HasPrefix(timing, "grant;dur=") {
+			t.Errorf("%s Server-Timing = %q, want the grant round trip first", path, timing)
+		}
+		for _, word := range []string{"stub", "dep_", "openrouter", "anthropic"} {
+			if strings.Contains(strings.ToLower(timing), word) {
+				t.Errorf("%s Server-Timing %q names %q", path, timing, word)
+			}
+		}
+	}
+	if models := h.get("/v1/models", validKey); models.Header.Get(publicapi.HeaderServerTiming) != "" {
+		t.Errorf("a catalogue read carries Server-Timing %q", models.Header.Get(publicapi.HeaderServerTiming))
 	}
 }
