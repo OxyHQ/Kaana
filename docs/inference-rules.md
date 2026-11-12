@@ -52,9 +52,12 @@ Which product feature takes which path is kept in one place,
   definitions or bundles. An Oxy application key identifies a product (Alia,
   Mention, Homiio); it is not an upstream provider key
   ([key-pools.md](key-pools.md)).
-- **Each deployment runs on one exact key.** Kaana binds a deployment to its
-  exact `(provider, keyId)`, or to its provider's only key, and never picks among
-  several ([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
+- **A deployment executes on its provider's key pool, or on one pinned key.**
+  Kaana owns every provider key and walks the pool cheapest stated funding first
+  (free, credits, paid, unstated) within the funding ceiling Oxy signed; an
+  operator pin to an exact `(provider, keyId)` is final and never falls back to
+  the pool ([key-pools](key-pools.md),
+  [ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
   The production cutover to this runtime is recorded in
   [schema-0013-cutover-2026-09-24.md](schema-0013-cutover-2026-09-24.md).
 - **Kaana is PostgreSQL-only.** MongoDB is neither a fallback nor a migration
