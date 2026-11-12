@@ -11,6 +11,10 @@
  * 2. Every `docs/*.md` must be linked from AGENTS.md or README.md, so a new
  *    document is found by the index an agent reads first.
  *
+ * A third check covers the public pages: every `docs/*.mdx` is what the Oxy
+ * website publishes, and it drops a page whose frontmatter lacks `title`,
+ * `description` or `order`, so each must carry all three.
+ *
  * Absolute URLs are not fetched; this gate needs no network.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -89,6 +93,21 @@ for (const name of readdirSync(join(root, 'docs'))) {
   const path = join(root, 'docs', name);
   if (name.endsWith('.md') && !linked.has(path)) {
     problems.push(`docs/${name} is not linked from AGENTS.md or README.md`);
+  }
+}
+
+for (const name of readdirSync(join(root, 'docs'))) {
+  if (!name.endsWith('.mdx')) continue;
+  const text = readFileSync(join(root, 'docs', name), 'utf8');
+  const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  if (!frontmatter) {
+    problems.push(`docs/${name} has no frontmatter`);
+    continue;
+  }
+  for (const key of ['title', 'description', 'order']) {
+    if (!new RegExp(`^${key}:`, 'm').test(frontmatter[1])) {
+      problems.push(`docs/${name} frontmatter lacks ${key}`);
+    }
   }
 }
 

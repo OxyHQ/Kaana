@@ -1,0 +1,57 @@
+---
+title: Authentication
+description: API keys, the headers Kaana reads, idempotency and request ids.
+order: 2
+---
+
+# Authentication
+
+Every request carries an API key from [Oxy Console](https://console.oxy.so). A key
+starts with `oxy_sk_`. Applications, keys, limits and budgets are managed there;
+Kaana has no console and issues no keys.
+
+## Sending the key
+
+```text
+Authorization: Bearer oxy_sk_...
+```
+
+Kaana also reads `X-Api-Key` when there is no `Authorization` header. This is what
+Anthropic's SDK and Claude Code send on `/v1/messages`. If you are an Oxy app
+signed in as a user, the credential can be that user's session token instead of a
+key.
+
+Kaana never interprets the key itself: Oxy authenticates it and decides what the
+request may do. A key that is missing, wrong or revoked answers
+`authentication_failed` (401); a key that lacks the scope for an operation
+answers `insufficient_scope` (403).
+
+## Idempotency
+
+Send an `Idempotency-Key` header (1 to 255 characters, one line) on a request you
+might resend. The same key means the same request: Kaana does not run it twice.
+Reusing a key with a different body is an `idempotency_conflict` (409). To read
+the result of a request you sent with a key, call
+`GET /v1/generations?idempotency_key=...`.
+
+## On behalf of a user
+
+An Oxy service calling for one of its users may send `X-Oxy-User-Id`. It is
+honoured only with a service token, and it must agree with the OpenAI-style `user`
+field when both are present.
+
+## Response headers
+
+| Header | Meaning |
+| --- | --- |
+| `Kaana-Request-Id` | The id of this request. Quote it when you ask for help. |
+| `Kaana-Contract-Version` | The contract set the server speaks. |
+| `Server-Timing` | Where the time went, on endpoints that report it. |
+| `Retry-After` | On a `429` or `503`, how long to wait. |
+| `Deprecation`, `Sunset`, `Link` | On an answer that names a deprecated model: when it stops working and what replaces it. |
+
+## Rate limits
+
+A rate limit applies to each key. A request over it answers `rate_limited` (429)
+with `retryAfterMs` in the body and `Retry-After` in the headers. Wait that long,
+once, then retry; do not hammer.

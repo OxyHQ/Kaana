@@ -1,0 +1,49 @@
+---
+title: Kaana
+description: One API for many AI providers and models, at https://kaana.ai/v1.
+order: 0
+---
+
+# Kaana
+
+Kaana is Oxy's inference API. You send one request to `https://kaana.ai/v1` and
+Kaana runs it on an upstream provider, with failover and retries handled for you.
+You name a model, or you name a power level and let Kaana pick the model.
+
+```text
+your app  ->  https://kaana.ai/v1  ->  a provider that serves the model
+```
+
+## What you can call
+
+| Endpoint | Use |
+| --- | --- |
+| `POST /v1/responses` | Kaana's own request shape: text, tools, reasoning, structured output |
+| `POST /v1/chat/completions` | OpenAI-compatible chat |
+| `POST /v1/messages` | Anthropic Messages-compatible, for Claude Code and Anthropic SDKs |
+| `POST /v1/embeddings` | Text embeddings |
+| `POST /v1/audio/speech` | Text to speech |
+| `POST /v1/audio/transcriptions` | Speech to text |
+| `POST /v1/images/generations` | Image generation |
+| `POST /v1/decisions` | Typed decisions: answer fixed questions about a state |
+| `GET /v1/realtime` | Realtime voice sessions over WebSocket |
+| `GET /v1/models`, `GET /v1/power-levels` | What you may call |
+| `GET /v1/generations/{id}` | The record of a finished request |
+
+## Where to start
+
+- [Quickstart](/developers/docs/kaana/quickstart): your first request in a minute.
+- [Authentication](/developers/docs/kaana/authentication): API keys and headers.
+- [Models and power levels](/developers/docs/kaana/models): how to choose what runs your request.
+- [Provider preferences](/developers/docs/kaana/provider-preferences): steer which provider serves a request.
+- [Errors](/developers/docs/kaana/errors): every error code and whether to retry.
+
+## What Kaana promises
+
+- A request for an exact model revision is served on exactly that revision or
+  refused. It is never quietly answered by a different model.
+- Kaana retries and fails over for you, only before any output reaches you.
+- Responses and errors never name the provider, key or deployment that served you.
+
+Applications, API keys, limits, budgets, usage and billing are managed in
+[Oxy Console](https://console.oxy.so). Kaana issues no keys of its own.

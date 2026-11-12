@@ -26,6 +26,9 @@ bun run lint:fix                                 # apply Biome fixes
   (names, the one canonical origin, who may call a provider, key custody). Other repos
   link to it.
 - [docs/rules.md](docs/rules.md): secrets, customer data, tests and working rules.
+- Public developer docs are `docs/*.mdx` with `title`, `description` and `order` frontmatter,
+  published by the Oxy website through `docs.config.json`; they describe `https://kaana.ai/v1`
+  for callers, never internals. Everything else under `docs/` is `.md` for reviewers.
 - Each topic doc ends with "Rules a reviewer applies"; read it before touching that area.
   - schema, boundary: [architecture](docs/architecture.md), [identity-and-routing](docs/identity-and-routing.md)
   - envelope, descriptor, catalogue: [contract](docs/contract.md), [operating](docs/operating.md)

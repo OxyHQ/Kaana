@@ -1,0 +1,75 @@
+---
+title: Errors
+description: The error body, every public error code, its HTTP status and whether to retry.
+order: 5
+---
+
+# Errors
+
+A request that fails before any output answers with an HTTP status and this body:
+
+```json
+{
+  "schemaVersion": 1,
+  "code": "rate_limited",
+  "message": "too many requests",
+  "retryable": true,
+  "requestId": "req_...",
+  "retryAfterMs": 2000
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `code` | One of the codes below. |
+| `message` | A human-readable explanation. |
+| `retryable` | Whether an identical retry can succeed. |
+| `requestId` | Quote it when you ask for help. Also in `Kaana-Request-Id`. |
+| `retryAfterMs` | How long to wait first. Present only when `retryable` is true. |
+| `param` | The request field at fault, for `invalid_request`. |
+| `upstreamCategory` | The kind of upstream failure, when one was reached. It never names the provider. |
+
+## Streaming
+
+Once the first byte of a stream has been sent, the HTTP status is already `200`.
+A failure after that arrives as the stream's terminal `error` event, with the same
+body. The Messages endpoint uses Anthropic's error shape instead
+([Messages API](/developers/docs/kaana/messages-api)).
+
+## Codes
+
+| Code | HTTP | Retry | Meaning |
+| --- | --- | --- | --- |
+| `invalid_request` | 400 | No | The request is malformed; `param` names the field. |
+| `authentication_failed` | 401 | No | The key is missing, wrong or revoked. |
+| `permission_denied` | 403 | No | The key is valid but not allowed this. |
+| `insufficient_scope` | 403 | No | The key lacks the scope for this operation. |
+| `model_not_found` | 404 | No | No such model, or you may not use it. |
+| `unsupported_modality` | 400 | No | The model does not take this kind of input or output. |
+| `context_length_exceeded` | 400 | No | The input is longer than the model accepts. |
+| `request_too_large` | 413 | No | The request body is over the size limit. |
+| `output_limit_exceeded` | 400 | No | `max_tokens` is above what the model can produce. |
+| `idempotency_conflict` | 409 | No | The `Idempotency-Key` was used with a different request. |
+| `insufficient_balance` | 402 | No | The account has no balance for this request. |
+| `spending_limit_exceeded` | 402 | No | A spending limit of the account or application was reached. |
+| `quota_exceeded` | 429 | No | A quota was reached. |
+| `byok_credential_invalid` | 400 | No | Your own provider key was refused by the provider. |
+| `policy_violation` | 403 | No | Your account policy forbids this request. |
+| `commercial_permission_denied` | 403 | No | This model may not be served to you commercially. |
+| `no_route_available` | 503 | No | Nothing your account admits can serve this request, or your preferences left nothing. |
+| `upstream_content_filtered` | 400 | No | The provider filtered the request or the answer. |
+| `cancelled` | 499 | No | The request was cancelled, usually because you disconnected. |
+| `rate_limited` | 429 | Yes | Too many requests; wait `retryAfterMs`. |
+| `provider_error` | 502 | Yes | The provider failed; no more detail is given. |
+| `provider_timeout` | 504 | Yes | The provider took too long. |
+| `provider_overloaded` | 503 | Yes | The provider is overloaded. |
+| `service_unavailable` | 503 | Yes | Kaana cannot serve the request right now. |
+| `internal_error` | 500 | Yes | Something failed inside Kaana. |
+
+## What to do
+
+- **Retry only when `retryable` is true**, once Kaana has already retried and failed
+  over for you, wait `retryAfterMs`, and reuse the same `Idempotency-Key`.
+- **Do not retry** a code marked No: an identical request will fail the same way.
+- Errors never say which provider, key or deployment failed. Accounts, keys and
+  balances are managed in [Oxy Console](https://console.oxy.so).

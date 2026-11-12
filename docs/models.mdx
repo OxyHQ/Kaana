@@ -1,0 +1,51 @@
+---
+title: Models and power levels
+description: Exact models, power levels, what each guarantees and how to list them.
+order: 3
+---
+
+# Models and power levels
+
+The `model` field takes one of two things.
+
+## An exact model
+
+`publisher/model` or `publisher/model@revision`, for example
+`anthropic/claude-opus-5` or `openai/gpt-5`. Kaana serves it on that model or
+refuses. It never answers with a different model.
+
+- Without `@revision`, the request resolves to the current revision and the
+  answer tells you which one served it.
+- With `@revision`, you get exactly that revision.
+- If a provider fails mid-way, Kaana moves to another provider of the **same**
+  model, only before any output reaches you, and says so. It never switches model
+  silently.
+
+An OpenAI or Anthropic vendor name such as `gpt-4o` is not a Kaana model
+reference and is refused as unknown.
+
+## A power level
+
+A level has no slash: `auto`, `instant`, `medium`, `high`, `xhigh`, `pro` or
+`ultra`. It means "any suitable model of this class". Kaana chooses the model, so
+two requests with the same level can be answered by different models. Use a level
+when you care about speed and quality more than which model answers, and an exact
+model when you need that model.
+
+## What you may call
+
+```bash
+curl https://kaana.ai/v1/models -H "Authorization: Bearer $KAANA_API_KEY"
+curl https://kaana.ai/v1/power-levels -H "Authorization: Bearer $KAANA_API_KEY"
+```
+
+`GET /v1/models` lists the models your key may use, with their capabilities
+(modalities, tools, reasoning, context window), data policy and list price. It
+also shows which revisions are available. `GET /v1/models/publisher/model` returns
+one.
+
+## Deprecated models
+
+When a model is on its way out, answers that name it carry `Deprecation`,
+`Sunset` and `Link: rel="successor-version"` headers. Kaana never routes to the
+successor for you; it only points to it.
