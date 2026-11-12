@@ -1014,11 +1014,20 @@ The image contains six static binaries:
 - `/usr/local/bin/kaana-credentials` is for one-shot administration;
 - `/usr/local/bin/kaana-probe` polls `127.0.0.1:8080/livez`; it is the canary's
   sidecar, because the image has no shell;
-- `/usr/local/bin/kaana-credential-control` accepts signed customer-BYOK
+- `/usr/local/bin/kaana-credential-control` (**not deployed**, see below) accepts signed customer-BYOK
   create/rotate/revoke mutations under an encrypt-only task role.
 - `/usr/local/bin/kaana-platform-credential-control` accepts signed platform
   pool imports and rotations under a separate encrypt-only task role. Its
   public signing keys and signature domain are distinct from customer BYOK.
+
+**What actually runs in production** (read from ECS on 2026-11-12): the `kaana` service
+(two tasks) and the `kaana-publisher` service (one task). The services
+`kaana-credential-control` and `kaana-platform-credential-control` **do not exist**:
+`deploy-aws.yml` skips a service that is not `ACTIVE`, with a warning, so the workflow succeeds
+without rolling them. Customer BYOK mutations and the signed platform-key import therefore have
+no live endpoint; platform keys are administered with the one-shot `kaana-credentials` tasks
+(`credential-admin.yml`). Treat any statement here about those two tasks as describing source,
+not production, until their infrastructure exists in oxy-infra.
 
 `kaana-platform-credential-import` (an operator-host client) and `kaana-eval` (a
 latency benchmark through the public API, run by `kaana-eval.yml`) are built from
