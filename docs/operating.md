@@ -907,8 +907,9 @@ run artifact, but **only after an operator opts in**: it is skipped unless the
 repository variable `KAANA_EVAL_ENABLED` is `true`, and it needs the secret
 `KAANA_EVAL_API_KEY` (a credential for a dedicated, budgeted account) and
 `KAANA_EVAL_MODELS`. Spend is bounded by models x `KAANA_EVAL_RUNS` (default 5,
-at most 50) x `KAANA_EVAL_MAX_TOKENS` (default 128, at most 1024). It feeds no
-telemetry and reorders nothing.
+at most 50) x `KAANA_EVAL_MAX_TOKENS` (default 128, at most 1024). The run's own page shows a table (one row per model, a failure count that is
+never averaged away) in its job summary, which is where a person reads it. It
+feeds no telemetry and reorders nothing.
 
 
 ## The declared catalogue

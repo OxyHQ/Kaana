@@ -65,6 +65,26 @@ jobs:
           # shellcheck disable=SC2086  # MODELS is a space-separated list on purpose
           go run ./cmd/kaana-eval -runs "${runs}" -max-tokens "${tokens}" ${MODELS} | tee kaana-eval.jsonl
 
+      # The run's own page is where a person reads the result: one table row per
+      # model (milliseconds, tokens per second), written from the JSON lines. A
+      # failure count above zero is shown, never averaged away.
+      - name: Summarize
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -s kaana-eval.jsonl ] || exit 0
+          {
+            echo "### kaana-eval"
+            echo
+            echo "| model | runs | failures | TTFT p50 | TTFT p95 | total p50 | total p95 | tokens | tokens/s |"
+            echo "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+            jq -r '"| \(.model) | \(.runs) | \(.failures) | \(.ttftP50Ms|round) | \(.ttftP95Ms|round) | \(.totalP50Ms|round) | \(.totalP95Ms|round) | \(.outputTokensMedian) | \(.tokensPerSecondMedian|round) |"' kaana-eval.jsonl
+            if jq -e 'select(.firstError)' kaana-eval.jsonl >/dev/null; then
+              echo
+              jq -r 'select(.firstError) | "- `\(.model)`: first error: \(.firstError)"' kaana-eval.jsonl
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: kaana-eval
