@@ -53,7 +53,10 @@ package contract
 // shapes only; the signed grant and envelope are unchanged);
 // 8.4.0 adds the usage unit cache_write_input_tokens and the optional
 // capabilities.unreported (declared; nothing emits either yet).
-const ContractVersion = "8.4.0"
+// 8.5.0 adds the optional `provider` routing preference and the prompt-cache
+// key to POST /v1/chat/completions and POST /v1/responses (Kaana ADR 0008);
+// the signed grant and envelope are unchanged.
+const ContractVersion = "8.5.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

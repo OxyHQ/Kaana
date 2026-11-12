@@ -22,6 +22,7 @@ import {
 } from './messages.js';
 import { usageQuantitySchema } from './money.js';
 import { routingPolicyReferenceSchema } from './policy.js';
+import { promptCacheKeySchema, providerPreferencesSchema } from './providerPreferences.js';
 import { inferenceFinishReasonSchema } from './streamEvents.js';
 
 /**
@@ -71,6 +72,10 @@ export const responsesRequestSchema = z
     labels: requestLabelsSchema.optional(),
     /** The caller's own correlation id, echoed on the response. */
     clientRequestId: z.string().check(minUtf16Length(1)).check(maxUtf16Length(128)).optional(),
+    /** Routing preferences that can only narrow what the grant admits (ADR 0008). */
+    provider: providerPreferencesSchema.optional(),
+    /** Keeps requests sharing a prompt prefix on one deployment while its cache is warm. */
+    promptCacheKey: promptCacheKeySchema.optional(),
   })
   .strict()
   .superRefine((request, ctx) => {

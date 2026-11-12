@@ -102,6 +102,10 @@ type responsesRequest struct {
 	Reasoning        *contract.ReasoningParameters `json:"reasoning,omitempty"`
 	Labels           contract.RequestLabels        `json:"labels,omitempty"`
 	ClientRequestID  *string                       `json:"clientRequestId,omitempty"`
+	// Provider and PromptCacheKey are the routing preference and the cache key
+	// (ADR 0008); see chatRequest.
+	Provider       *providerPreferences `json:"provider,omitempty"`
+	PromptCacheKey *string              `json:"promptCacheKey,omitempty"`
 }
 
 // response is responseSchema.
@@ -244,6 +248,11 @@ type chatRequest struct {
 	Modalities          []string                  `json:"modalities,omitempty"`
 	Audio               *chatAudio                `json:"audio,omitempty"`
 	User                *string                   `json:"user,omitempty"`
+	// Provider and PromptCacheKey are the routing preference and the cache key
+	// (ADR 0008). They steer which admitted route is tried first or at all and
+	// never reach the signed envelope or Oxy.
+	Provider       *providerPreferences `json:"provider,omitempty"`
+	PromptCacheKey *string              `json:"prompt_cache_key,omitempty"`
 }
 
 type chatUsage struct {

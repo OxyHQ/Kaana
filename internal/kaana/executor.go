@@ -496,6 +496,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		case streamErr == nil:
 			permit.Succeeded()
 			permit.ObserveFirstOutput(telemetry.TimeToFirstOutput)
+			permit.ObserveThroughput(outputTokensPerSecond(outcome.Units, telemetry))
 		case last.cancelled:
 			// The customer withdrew. Nothing about this deployment failed, and
 			// re-running the request elsewhere would serve output nobody is
@@ -1471,4 +1472,27 @@ func (e *Executor) credentialsForRoute(
 		return failure()
 	}
 	return pool, nil
+}
+
+// minThroughputTokens and minThroughputWindow bound the reading: a handful of
+// tokens over a few milliseconds says nothing about a deployment's speed.
+const (
+	minThroughputTokens = 16
+	minThroughputWindow = 100 * time.Millisecond
+)
+
+// outputTokensPerSecond is the rate at which a served attempt produced output
+// after its first output, 0 when the attempt is too small to say.
+func outputTokensPerSecond(units []contract.UsageQuantity, telemetry providercost.AttemptTelemetry) float64 {
+	var tokens int64
+	for _, unit := range units {
+		if unit.Unit == contract.UnitOutputTokens {
+			tokens += int64(unit.Quantity)
+		}
+	}
+	window := telemetry.Latency - telemetry.TimeToFirstOutput
+	if tokens < minThroughputTokens || telemetry.TimeToFirstOutput <= 0 || window < minThroughputWindow {
+		return 0
+	}
+	return float64(tokens) / window.Seconds()
 }

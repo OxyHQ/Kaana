@@ -103,6 +103,10 @@ type Route struct {
 	// anything sent upstream.
 	ContextTokens   *int
 	MaxOutputTokens *int
+	// Quantizations are the quantization levels the deployment's upstream is
+	// published at (inventory `observed`), sorted. Empty is UNKNOWN. A caller's
+	// `provider.quantizations` filters on it; nothing is ever sent from it.
+	Quantizations []string
 	// CustomerProviderCredential is the exact non-secret binding Oxy signed for
 	// this route. Nil means the provider call uses Kaana's platform pool.
 	CustomerProviderCredential *contract.CustomerProviderCredential

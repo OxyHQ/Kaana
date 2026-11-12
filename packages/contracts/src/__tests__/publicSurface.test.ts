@@ -64,13 +64,31 @@ describe('the public surface names no provider, operator, key or deployment', ()
     'authorizedRoutes',
   ];
 
+  // A caller may NAME the providers it wants on these two requests (the
+  // `provider` routing preference, ADR 0008). That is input: no record, response
+  // or stream the caller reads ever names one, and every other forbidden name
+  // stays forbidden here too.
+  const requestsThatMayNameProviders = new Set([
+    'chatCompletionsRequestSchema',
+    'responsesRequestSchema',
+  ]);
+
   it.each(publicSchemas.map(([name, schema]) => [name, schema] as const))(
     '%s carries none of them',
-    (_name, schema) => {
+    (name, schema) => {
       const names = fieldNames(schema);
-      expect(forbidden.filter((field) => names.has(field))).toEqual([]);
+      const allowed = requestsThatMayNameProviders.has(name) ? new Set(['provider']) : new Set();
+      expect(forbidden.filter((field) => names.has(field) && !allowed.has(field))).toEqual([]);
     },
   );
+
+  it('only the two requests that take a routing preference carry `provider` (positive control)', () => {
+    const carrying = publicSchemas
+      .filter(([, schema]) => fieldNames(schema).has('provider'))
+      .map(([name]) => name)
+      .sort();
+    expect(carrying).toEqual([...requestsThatMayNameProviders].sort());
+  });
 
   it('the walk itself finds a provider where there is one (positive control)', () => {
     expect(fieldNames(internalContract.normalizedUsageReportSchema).has('servingProvider')).toBe(

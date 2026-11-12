@@ -68,3 +68,50 @@ func (r *Registry) FirstOutput(id contract.DeploymentID) (time.Duration, bool) {
 	}
 	return entry.average, true
 }
+
+// ObserveThroughput records the output tokens per second a deployment sustained
+// after its first output. Like ObserveFirstOutput it only orders and demotes
+// routes (`provider.sort`, `preferred_min_throughput`): it never excludes one
+// and never touches the breaker. A non-positive reading is ignored.
+func (p *Permit) ObserveThroughput(tokensPerSecond float64) {
+	if p == nil || tokensPerSecond <= 0 {
+		return
+	}
+	p.registry.observeThroughput(p.id, tokensPerSecond)
+}
+
+type throughput struct {
+	average float64
+	at      time.Time
+}
+
+func (r *Registry) observeThroughput(id contract.DeploymentID, tokensPerSecond float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.throughputs == nil {
+		r.throughputs = make(map[contract.DeploymentID]*throughput)
+	}
+	now := r.now()
+	entry := r.throughputs[id]
+	if entry == nil || now.Sub(entry.at) > FirstOutputWindow {
+		r.throughputs[id] = &throughput{average: tokensPerSecond, at: now}
+		return
+	}
+	entry.average = firstOutputWeight*tokensPerSecond + (1-firstOutputWeight)*entry.average
+	entry.at = now
+}
+
+// Throughput is the deployment's recent typical output tokens per second. ok is
+// false when nothing was observed within FirstOutputWindow.
+func (r *Registry) Throughput(id contract.DeploymentID) (float64, bool) {
+	if r == nil {
+		return 0, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.throughputs[id]
+	if entry == nil || r.now().Sub(entry.at) > FirstOutputWindow {
+		return 0, false
+	}
+	return entry.average, true
+}

@@ -51,8 +51,12 @@ and region limits refuse, whose key pool has no key inside the funding ceiling,
 or whose published `acceptedParameters` refuse a control the request carries,
 or whose observed context window or output limit it clearly exceeds (unless none
 fits, which keeps the attempt's precise refusal), then
-orders by cheapest key tier, the grant's line order, recent time to first
-output in coarse bands, and inventory position. The latency reading is
+orders by cheapest key tier, the grant's line order, the caller's
+`provider.order`, its `preferred_*` floors and `provider.sort`, the deployment
+that last served its `prompt_cache_key`, recent time to first output in coarse
+bands, and inventory position. A caller's `provider.only`, `ignore`,
+`quantizations` and `require_parameters` remove routes and `allow_fallbacks:
+false` keeps one provider; none can add a route the grant did not admit. The latency reading is
 `rotation.Registry.FirstOutput`, a 5-minute moving average per deployment fed
 only by served attempts; unobserved ranks first, and it never excludes a route
 or touches a breaker ([ADR 0008](adr/0008-provider-selection-lessons.md)).

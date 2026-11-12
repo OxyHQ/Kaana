@@ -29,7 +29,8 @@ it controls none of the kernels, engine version, hardware or load.
 
 - **The same route twice.** On the public grant lane, routes inside one funding
   tier are ordered by recent measured time to first output, so two identical
-  requests can be served by different deployments
+  requests can be served by different deployments, and a caller's `provider`
+  preference and `prompt_cache_key` steer which
   ([ADR 0008](adr/0008-provider-selection-lessons.md)). The signed
   `authorizedRoutes` lane is never reordered.
 

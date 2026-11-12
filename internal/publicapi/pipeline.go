@@ -29,6 +29,8 @@ type authorization struct {
 	// needs are the caller controls the request carries. They stay in Kaana:
 	// they steer route choice (resolveGrant) and are never sent to Oxy.
 	needs requestNeeds
+	// cacheKey is the caller's opaque prompt_cache_key; empty when none.
+	cacheKey string
 }
 
 // admission is a request Oxy granted and Kaana resolved: everything the
@@ -41,6 +43,9 @@ type admission struct {
 	labels     contract.RequestLabels
 	clientID   *string
 	endpoint   string
+	// affinity is the scoped hash of the request's prompt_cache_key, nil when it
+	// sent none; the deployment that serves is remembered under it.
+	affinity *[32]byte
 }
 
 // bodyDigest is the hash a grant binds: SHA-256 of the exact request bytes.
@@ -100,14 +105,23 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 	if failure != nil {
 		return nil, failure
 	}
-	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.latency, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), ask.needs, s.now())
+	needs := ask.needs
+	var affinity *[32]byte
+	if ask.cacheKey != "" {
+		key := affinityKey(grant, ask.cacheKey)
+		affinity = &key
+		if deployment, ok := s.affinity.get(key, s.now()); ok {
+			needs.affine = deployment
+		}
+	}
+	resolved, failure := resolveGrant(grant, s.inventory.Current(), s.funding, s.latency, s.servesOperation(grant.Operation, ask.facts.RealtimeSessionKind), needs, s.now())
 	if failure != nil {
 		s.releaseUnserved(ctx, grant)
 		return nil, failure
 	}
 	return &admission{
 		requestID: requestID, receivedAt: receivedAt, grant: grant, plan: resolved,
-		labels: ask.labels, clientID: ask.clientRequestID, endpoint: ask.endpoint,
+		labels: ask.labels, clientID: ask.clientRequestID, endpoint: ask.endpoint, affinity: affinity,
 	}, nil
 }
 
@@ -147,6 +161,14 @@ func (s *Server) execute(ctx context.Context, a *admission, request *contract.Re
 	traceFrom(ctx).executed(time.Since(executing), result.Failure)
 	if result.Failure != nil {
 		s.logFailure(a, result)
+	} else if a.affinity != nil {
+		// Keep the next request with this cache key on the deployment that
+		// served this one while its prompt cache is warm.
+		for _, attempt := range result.UpstreamCost.Attempts {
+			if attempt.Served {
+				s.affinity.set(*a.affinity, attempt.DeploymentID, s.now())
+			}
+		}
 	}
 	// The settlement is written beside the response, not before it: the
 	// customer's last frame does not wait on Kaana's database, and Drain

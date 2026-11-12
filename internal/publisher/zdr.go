@@ -69,6 +69,10 @@ type zeroRetentionModel struct {
 	// zero-retention endpoints: the part of each endpoint's `tag` before any
 	// `/` (`deepinfra/us` is `deepinfra`), the spelling `provider.order` takes.
 	upstreams map[string]bool
+	// quantizations are the quantization levels the endpoints are published at
+	// (`quantization`), the vocabulary the public `provider.quantizations`
+	// filter speaks.
+	quantizations map[string]bool
 }
 
 // supportsToolChoiceValues maps OpenRouter's per-endpoint
@@ -111,8 +115,9 @@ type zeroRetentionListResponse struct {
 }
 
 type zeroRetentionEndpoint struct {
-	ModelID string `json:"model_id"`
-	Tag     string `json:"tag"`
+	ModelID      string `json:"model_id"`
+	Tag          string `json:"tag"`
+	Quantization string `json:"quantization"`
 }
 
 // readZeroRetentionEndpoints fetches and indexes OpenRouter's zero-retention
@@ -168,11 +173,19 @@ func readZeroRetentionEndpoints(ctx context.Context, client *http.Client, target
 		}
 		model := models[id]
 		if model == nil {
-			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}, upstreams: map[string]bool{}}
+			model = &zeroRetentionModel{parameters: map[string]bool{}, complete: true, toolChoiceValues: map[provider.RequestParameter]bool{}, upstreams: map[string]bool{}, quantizations: map[string]bool{}}
 			models[id] = model
 		}
 		if upstream, _, _ := strings.Cut(strings.TrimSpace(entry.Tag), "/"); upstream != "" {
 			model.upstreams[upstream] = true
+		}
+		if word := strings.TrimSpace(entry.Quantization); word != "" {
+			if !inventory.ValidQuantization(word) {
+				// A word outside the vocabulary is "unknown", never a guess at
+				// a level. An absent field says nothing and records nothing.
+				word = "unknown"
+			}
+			model.quantizations[word] = true
 		}
 		var fields map[string]json.RawMessage
 		_ = json.Unmarshal(raw, &fields)
@@ -226,6 +239,14 @@ func restrictToZeroRetention(models []DiscoveredModel, zeroRetention map[string]
 			observed.SupportsTools = nil
 			observed.ReasoningEfforts = nil
 			observed.AcceptedParameters = nil
+		}
+		levels := make([]string, 0, len(reachable.quantizations))
+		for level := range reachable.quantizations {
+			levels = append(levels, level)
+		}
+		slices.Sort(levels)
+		if len(levels) > 0 {
+			observed.Quantizations = levels
 		}
 		if encoded, err := json.Marshal(observed); err == nil && string(encoded) == "{}" {
 			observed = nil

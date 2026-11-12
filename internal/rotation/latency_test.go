@@ -56,3 +56,30 @@ func TestObservingLatencyNeverMovesTheBreakerOrTheScore(t *testing.T) {
 		t.Error("a nil registry reported an observation")
 	}
 }
+
+func TestThroughputIsAMovingAverageThatExpiresAndIgnoresNonsense(t *testing.T) {
+	clock := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	registry := NewRegistry(Policy{}, func() time.Time { return clock })
+	permit, _ := registry.Admit("dep")
+
+	permit.ObserveThroughput(0)
+	permit.ObserveThroughput(-5)
+	if _, known := registry.Throughput("dep"); known {
+		t.Fatal("a non-positive reading was kept")
+	}
+	permit.ObserveThroughput(100)
+	permit.ObserveThroughput(200)
+	if got, known := registry.Throughput("dep"); !known || got != 130 {
+		t.Fatalf("100 then 200 at weight 0.3 is 130, got %v (%v)", got, known)
+	}
+	clock = clock.Add(FirstOutputWindow + time.Second)
+	if _, known := registry.Throughput("dep"); known {
+		t.Error("an old throughput reading was still evidence")
+	}
+	var none *Permit
+	none.ObserveThroughput(10)
+	var absent *Registry
+	if _, known := absent.Throughput("dep"); known {
+		t.Error("a nil registry reported a reading")
+	}
+}

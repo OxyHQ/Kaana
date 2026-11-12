@@ -25,6 +25,7 @@ export * from './public/images.js';
 export * from './public/messages.js';
 export * from './public/money.js';
 export * from './public/policy.js';
+export * from './public/providerPreferences.js';
 export * from './public/realtime.js';
 export * from './public/responses.js';
 export * from './public/streamEvents.js';

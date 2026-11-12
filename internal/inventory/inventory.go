@@ -122,6 +122,11 @@ type Observed struct {
 	// refuses a control the route is known not to accept rather than spend a
 	// request the upstream will reject; it can refuse, never add or default.
 	AcceptedParameters *[]provider.RequestParameter `json:"acceptedParameters,omitempty"`
+	// Quantizations are the quantization levels the provider's endpoints for
+	// this model are published at (OpenRouter publishes one per endpoint),
+	// sorted, from OpenRouter's vocabulary. Absent is UNKNOWN. It reaches a route
+	// only so a caller's `provider.quantizations` can filter on it.
+	Quantizations []string `json:"quantizations,omitempty"`
 	// ListPrice is the provider's own published catalogue price. It is an
 	// observation of a public catalogue, not Kaana's cost and not a customer
 	// price; its type is providercost's, the only package that holds an amount.
@@ -201,6 +206,19 @@ func (o Observed) Validate() error {
 	if o.AcceptedParameters != nil {
 		if err := provider.ValidateParameterSet(*o.AcceptedParameters); err != nil {
 			return fmt.Errorf("acceptedParameters: %w", err)
+		}
+	}
+	if o.Quantizations != nil {
+		if len(o.Quantizations) == 0 {
+			return fmt.Errorf("quantizations must be omitted rather than empty")
+		}
+		for index, word := range o.Quantizations {
+			if !ValidQuantization(word) {
+				return fmt.Errorf("quantizations[%d] %q is not a quantization", index, word)
+			}
+			if index > 0 && o.Quantizations[index-1] >= word {
+				return fmt.Errorf("quantizations must be sorted and name each level once (at %q)", word)
+			}
 		}
 	}
 	if o.ListPrice != nil {
@@ -315,6 +333,7 @@ func (s RouteSet) Candidates() []provider.Route {
 			AcceptedParameters: acceptedParametersOf(endpoint.Observed),
 			ContextTokens:      windowOf(endpoint.Observed, func(o *Observed) *int { return o.ContextTokens }),
 			MaxOutputTokens:    windowOf(endpoint.Observed, func(o *Observed) *int { return o.MaxOutputTokens }),
+			Quantizations:      quantizationsOf(endpoint.Observed),
 		})
 	}
 	return routes
@@ -875,4 +894,27 @@ func (i *Inventory) Providers() []contract.ProviderSlug {
 	}
 	sort.Slice(slugs, func(a, b int) bool { return slugs[a] < slugs[b] })
 	return slugs
+}
+
+// quantizationWords is OpenRouter's quantization vocabulary, the one the public
+// `provider.quantizations` filter speaks.
+var quantizationWords = []string{"int4", "int8", "fp4", "mxfp4", "nvfp4", "fp6", "fp8", "mxfp8", "fp16", "bf16", "fp32", "unknown"}
+
+// ValidQuantization reports whether a word is in the quantization vocabulary.
+func ValidQuantization(word string) bool {
+	for _, known := range quantizationWords {
+		if known == word {
+			return true
+		}
+	}
+	return false
+}
+
+// quantizationsOf copies a deployment's quantization levels so a route cannot
+// alias the inventory's slice. Nil stays nil: unknown is not any level.
+func quantizationsOf(observed *Observed) []string {
+	if observed == nil || len(observed.Quantizations) == 0 {
+		return nil
+	}
+	return append([]string(nil), observed.Quantizations...)
 }
