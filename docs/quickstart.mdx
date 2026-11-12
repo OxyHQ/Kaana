@@ -1,0 +1,79 @@
+---
+title: Quickstart
+description: Make your first Kaana request with curl, the SDK, the OpenAI SDK or Claude Code.
+order: 1
+---
+
+# Quickstart
+
+You need an API key (`oxy_sk_...`) from [Oxy Console](https://console.oxy.so).
+Keep it on a server; never ship it in a browser or mobile app.
+
+## curl
+
+```bash
+curl https://kaana.ai/v1/responses \
+  -H "Authorization: Bearer $KAANA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "auto", "input": "Say hello in Spanish."}'
+```
+
+`model` is a model reference such as `anthropic/claude-opus-5` or a power
+level such as `auto`, `instant`, `medium`, `high`, `xhigh`, `pro` or `ultra`. See
+[Models and power levels](/developers/docs/kaana/models).
+
+## TypeScript SDK
+
+```bash
+npm install @kaana.ai/sdk
+```
+
+```ts
+import { Kaana } from '@kaana.ai/sdk';
+
+const kaana = new Kaana({ credential: process.env.KAANA_API_KEY! });
+
+const response = await kaana.responses.create({ model: 'auto', input: 'Hola' });
+
+// Streaming
+const stream = kaana.responses.stream({ model: 'high', input: 'Tell me a story' });
+for await (const event of stream) {
+  if (event.type === 'delta') process.stdout.write(event.text);
+}
+```
+
+The SDK validates every response, retries only when it is safe to, and reports
+failures as typed errors. It runs in Node 20+, browsers and React Native.
+
+## OpenAI SDK
+
+Chat completions is compatible with the OpenAI SDK. Point it at Kaana:
+
+```ts
+import OpenAI from 'openai';
+
+const client = new OpenAI({ baseURL: 'https://kaana.ai/v1', apiKey: process.env.KAANA_API_KEY });
+const reply = await client.chat.completions.create({
+  model: 'instant',
+  messages: [{ role: 'user', content: 'Hola' }],
+});
+```
+
+An OpenAI vendor model name such as `gpt-4o` is not mapped to anything: use a
+Kaana model reference or a power level.
+
+## Claude Code and the Anthropic SDK
+
+```bash
+export ANTHROPIC_BASE_URL=https://kaana.ai
+export ANTHROPIC_API_KEY=oxy_sk_...
+```
+
+See [Messages API](/developers/docs/kaana/messages-api).
+
+## Do not add your own retry loop
+
+Kaana already retries and fails over on the server, bounded and only before any
+output is delivered. A second retry layer in your app multiplies load exactly
+when a provider is slow. Set a timeout you can live with, and if you must resend
+a request, reuse the same `Idempotency-Key`.

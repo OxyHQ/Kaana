@@ -1,0 +1,44 @@
+---
+title: JSON repair
+description: Ask Kaana to repair nearly valid JSON from a model, deterministically and only when you opt in.
+order: 7
+---
+
+# JSON repair
+
+A model asked for `json_object` or `json_schema` sometimes answers with a markdown
+fence, prose around the value, a trailing comma or a missing closer. On
+`POST /v1/responses` you can ask Kaana to repair that without a retry.
+
+```json
+{
+  "model": "high",
+  "input": "Return the order as JSON.",
+  "responseFormat": { "type": "json_object", "repair": true }
+}
+```
+
+`repair` also works on a `json_schema` format. It is off by default, and a request
+without it is exactly what it was.
+
+## What is repaired
+
+Only when the answer ended normally, in a non-streaming response. In order, Kaana
+tries to: trim whitespace, strip one markdown fence, extract the first balanced
+object or array from surrounding prose, remove trailing commas, and close an
+unterminated string and unclosed brackets. Text that already parses is returned
+byte for byte, and text that cannot be made valid is returned untouched. Nothing is
+reordered, requoted or invented.
+
+## What is not
+
+- An answer cut by `maxOutputTokens`, filtered or refused is never touched.
+- It is refused with `stream: true`, because repair needs the whole answer.
+- It does not check your `schema`. A repaired answer is valid JSON, not necessarily
+  a valid instance of your schema.
+- It is not available on chat completions or on `/v1/messages`.
+
+## Knowing it happened
+
+A repaired answer carries the response header `Kaana-Repaired: true`. It is a
+header and never a body field, so older clients read the answer unchanged.

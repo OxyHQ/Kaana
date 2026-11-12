@@ -1,0 +1,53 @@
+---
+title: Messages API
+description: Use Claude Code and Anthropic SDKs against Kaana with POST /v1/messages.
+order: 6
+---
+
+# Messages API
+
+`POST https://kaana.ai/v1/messages` speaks the Anthropic Messages dialect, so an
+unmodified Anthropic SDK or Claude Code works.
+
+```bash
+export ANTHROPIC_BASE_URL=https://kaana.ai
+export ANTHROPIC_API_KEY=oxy_sk_...      # sent as x-api-key
+# or ANTHROPIC_AUTH_TOKEN=oxy_sk_...     # sent as Authorization: Bearer
+```
+
+`model` is a Kaana model reference or a power level, exactly as on chat
+completions. An Anthropic model name is not mapped.
+
+## Supported
+
+- `system` (a string or text blocks) and `messages` with `text`, `image`
+  (base64: PNG, JPEG, WebP or GIF), `tool_use` and `tool_result` blocks.
+- `tools` with `input_schema`, and `tool_choice` of `auto`, `any`, `none` or `tool`.
+- `max_tokens` (required), `temperature`, `top_p`, `top_k` and `stop_sequences`.
+- Reasoning: `output_config.effort` of `low`, `medium` or `high`, and `thinking`
+  enabled with a budget or adaptive. Thinking blocks carry a `signature`; return an
+  assistant turn exactly as received to continue a tool turn.
+- `stream: true` with the usual server-sent events.
+
+## Prompt caching
+
+A `cache_control` marker is accepted. It is forwarded to the provider only when
+every route that could serve the request prices the cache write, at most four are
+forwarded, and the 5-minute default is the only lifetime. Anything not forwarded is
+ignored and listed in the `Kaana-Ignored-Parameters` response header, so you are
+never left to guess. A cache write appears as `cache_creation_input_tokens` in
+`usage`.
+
+## Answers and errors
+
+The answer has the usual `id`, `model` (the revision that served it), `content`,
+`stop_reason` and `usage`. `stop_reason` is `end_turn`, `max_tokens`, `tool_use` or
+`refusal`; `stop_sequence` is never produced. `usage` is measured, never estimated.
+
+Errors use Anthropic's shape, with the HTTP status of the matching
+[Kaana code](/developers/docs/kaana/errors). A parameter Kaana does not implement
+is refused by name, not dropped. That includes server tools such as web search,
+`document` blocks, image URL sources and `service_tier`.
+
+`POST /v1/messages/count_tokens` is not served: counting tokens honestly needs the
+serving model's own tokenizer.

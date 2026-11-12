@@ -1,0 +1,79 @@
+---
+title: Provider preferences
+description: The provider object on chat completions and responses, in OpenRouter's names, and what it can and cannot do.
+order: 4
+---
+
+# Provider preferences
+
+`POST /v1/responses` and `POST /v1/chat/completions` accept an optional `provider`
+object that steers which provider serves a request. The names follow OpenRouter's,
+so a client written for OpenRouter works.
+
+```json
+{
+  "model": "openai/gpt-oss-120b",
+  "input": "Hola",
+  "provider": {
+    "only": ["groq", "cerebras"],
+    "sort": "latency",
+    "max_price": { "prompt": 1, "completion": 3 }
+  }
+}
+```
+
+## The one rule
+
+A preference can only **narrow** what your account is already allowed to use. It
+filters or reorders; it never adds a provider, region, price or data policy your
+account does not admit. A request the preference leaves with nowhere to run
+answers `no_route_available` (503), not a wider choice.
+
+## Fields
+
+| Field | Effect |
+| --- | --- |
+| `order` | Provider names to try first, in this order. Others follow unless `allow_fallbacks` is false. |
+| `only` | Only these providers may serve the request. |
+| `ignore` | These providers never serve the request. |
+| `allow_fallbacks` | `false` keeps one provider: the first of `order` that is allowed, or the best ranked. The request is never moved to another. |
+| `require_parameters` | `true` keeps only routes that accept every parameter in the request. |
+| `quantizations` | Keep only routes published at one of these levels, for example `fp8` or `bf16`. `fp4` covers `mxfp4` and `nvfp4`; `fp8` covers `mxfp8`; `unknown` admits routes that state none. |
+| `sort` | `price`, `latency` or `throughput`. |
+| `max_price` | A ceiling in USD per million tokens, with `prompt`, `completion` or both. |
+| `preferred_max_latency` | Seconds. A route slower than this recently is tried later, never removed. |
+| `preferred_min_throughput` | Output tokens per second. A route slower than this recently is tried later, never removed. |
+
+Provider names are Kaana's provider slugs, lowercase, such as `anthropic`, `groq`,
+`cerebras` or `openrouter`. The catalogue does not say which provider serves a
+model, and an upstream behind another provider is not a name you can use. A name
+that serves none of the routes your account admits simply leaves no route.
+
+## How the order is decided
+
+Kaana keeps your account's own rules first (the funding tier, then the model order
+your policy sets). Your preferences come next: `order`, then the `preferred_*`
+floors, then `sort`, then keeping a conversation on the provider that served it
+(see below), then Kaana's own recent latency, then a stable default.
+
+## Price controls
+
+`max_price` and `sort: "price"` read the **list price of the model**, which is what
+you are charged. Every provider of one model costs you the same, so these decide
+which model line serves the request, not which provider. That matters for power
+levels and for fallbacks across models. A model whose price is not stated is
+neither under a ceiling nor cheap. No amount is ever returned in a response.
+
+## Keeping a conversation on one provider
+
+Send `prompt_cache_key` on chat completions, or `promptCacheKey` on responses, with
+any string you choose, the same for requests that share a prompt prefix. For ten
+minutes Kaana prefers the provider that last served that key, so its prompt cache
+stays warm. The key is yours alone, is hashed together with your account, and is
+never stored with a prompt.
+
+## Refused, not ignored
+
+`zdr`, `data_collection`, `enforce_distillable_text` and percentile objects such as
+`{ "p90": 3 }` in the `preferred_*` fields are refused with `invalid_request`. Your
+data policy is set on your account, not per request.

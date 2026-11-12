@@ -1,0 +1,11 @@
+{
+  "package": "kaana",
+  "displayName": "Kaana",
+  "shortName": "kaana",
+  "repo": "https://github.com/OxyHQ/Kaana",
+  "category": "service",
+  "versions": ["main"],
+  "defaultVersion": "main",
+  "docsPath": "docs/",
+  "description": "One API for many AI providers and models: chat, responses, Anthropic Messages, embeddings, speech, transcription, images and realtime."
+}

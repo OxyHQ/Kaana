@@ -1,0 +1,35 @@
+---
+title: Determinism
+description: What Kaana promises about getting the same answer twice, and what it does not.
+order: 8
+---
+
+# Determinism
+
+## Why `temperature: 0` and `seed` are not a guarantee
+
+A model run is repeatable on fixed hardware. The answer still varies because many
+kernels pick their arithmetic order from the batch size, and the batch size depends
+on the provider's load at that moment. Kaana runs on third-party providers, so it
+controls none of the kernels, engine version, hardware or load.
+
+## What Kaana promises
+
+- **The exact model revision.** A request for `publisher/model@revision` is served
+  on exactly that revision, never substituted. A switch to another provider of the
+  same model is announced, never silent.
+- **Provenance.** Every answer names the model that produced it.
+- **No false claim.** `seed` is forwarded only where the provider documents it and
+  refused where it cannot be expressed. Neither `seed` nor `temperature: 0` is
+  described as reproducible.
+
+## What Kaana does not promise
+
+- **The same route twice.** Which provider serves a request can depend on recent
+  speed, your [provider preferences](/developers/docs/kaana/provider-preferences)
+  and your prompt cache key, so two identical requests can be served by different
+  providers.
+- **Identical output** across calls, providers, days or engine versions. A provider
+  may change an engine without notice.
+- That keeping a conversation on one provider reduces variance. The cause is
+  load-driven batching, not the provider.
