@@ -29,7 +29,11 @@ export const kaanaIdentityRequestSchema = z
   })
   .strict();
 
-export const kaanaIdentityLaneSchema = z.enum(['machine_credential', 'service_token']);
+export const kaanaIdentityLaneSchema = z.enum([
+  'machine_credential',
+  'service_token',
+  'product_session',
+]);
 export const kaanaIdentityApplicationClassSchema = z.enum([
   'first_party',
   'third_party',
@@ -42,7 +46,6 @@ const principalFields = {
   applicationId: oxyApplicationIdSchema,
   credentialId: oxyCredentialIdSchema,
   environment: inferenceEnvironmentSchema,
-  // Product sessions require their own identity-only verifier before enrollment.
   lane: kaanaIdentityLaneSchema,
   applicationClass: kaanaIdentityApplicationClassSchema,
   applicationIsInternal: z.boolean(),
@@ -58,8 +61,36 @@ export const kaanaIdentityPrincipalSchema = z
         scopes: z.array(inferenceScopeSchema),
       })
       .strict(),
+    z
+      .object({
+        authority: z.literal('session'),
+        lane: kaanaIdentityLaneSchema,
+        applicationId: oxyApplicationIdSchema,
+        credentialId: oxyCredentialIdSchema,
+        environment: inferenceEnvironmentSchema,
+        applicationClass: kaanaIdentityApplicationClassSchema,
+        applicationIsInternal: z.boolean(),
+        /** Application ownership is not a payer decision or a session privilege. */
+        applicationOwnerAccountId: oxyAccountIdSchema,
+        verifiedRequester: z
+          .object({
+            subjectAccountId: oxyAccountIdSchema,
+            principalUserId: delegatedUserIdSchema,
+          })
+          .strict(),
+        /** A public client id attributes an app; it does not authenticate that app. */
+        applicationBinding: z.enum(['session', 'platform', 'public_client_id']),
+      })
+      .strict(),
   ])
   .superRefine((principal, ctx) => {
+    if ((principal.authority === 'session') !== (principal.lane === 'product_session')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lane'],
+        message: 'Session authority requires the product session lane exclusively',
+      });
+    }
     if (principal.authority === 'first_party' && principal.lane !== 'service_token') {
       ctx.addIssue({
         code: 'custom',
@@ -79,11 +110,21 @@ export const kaanaIdentityAssertionSchema = z
     issuedAt: inferenceTimestampSchema,
     expiresAt: inferenceTimestampSchema,
     principal: kaanaIdentityPrincipalSchema,
-    /** Attribution only, with the same meaning as onBehalfOfUserId. */
+    /** Attribution only for workloads/keys; verified subjectAccountId for sessions. */
     userId: delegatedUserIdSchema.optional(),
   })
   .strict()
   .superRefine((assertion, ctx) => {
+    if (
+      assertion.principal.authority === 'session' &&
+      String(assertion.userId) !== String(assertion.principal.verifiedRequester.subjectAccountId)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['userId'],
+        message: 'Session userId must be the verified subject account',
+      });
+    }
     const duration = Date.parse(assertion.expiresAt) - Date.parse(assertion.issuedAt);
     if (!(duration > 0 && duration <= IDENTITY_VALIDITY_WINDOW_MS)) {
       ctx.addIssue({

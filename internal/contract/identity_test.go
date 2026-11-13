@@ -7,7 +7,7 @@ import (
 )
 
 func TestIdentityContract(t *testing.T) {
-	value := IdentityAssertion{SchemaVersion: 1, Kind: "identity", Audience: "kaana.ai", RequestID: "req_identity", RequestSHA256: strings.Repeat("a", 64), IssuedAt: "2026-11-13T12:00:00Z", ExpiresAt: "2026-11-13T12:01:00Z", Principal: IdentityPrincipal{OwnerAccountID: "owner", ApplicationID: "app", CredentialID: "workload", Environment: EnvironmentProduction, Lane: IdentityLaneService, Authority: AuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}}
+	value := IdentityAssertion{SchemaVersion: 1, Kind: "identity", Audience: "kaana.ai", RequestID: "req_identity", RequestSHA256: strings.Repeat("a", 64), IssuedAt: "2026-11-13T12:00:00Z", ExpiresAt: "2026-11-13T12:01:00Z", Principal: IdentityPrincipal{OwnerAccountID: identityTestPointer(AccountID("owner")), ApplicationID: "app", CredentialID: "workload", Environment: EnvironmentProduction, Lane: IdentityLaneService, Authority: IdentityAuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}}
 	raw, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestIdentityContract(t *testing.T) {
 			t.Fatalf("accepted mutation %s", oldnew[1])
 		}
 	}
-	value.Principal.Authority = AuthorityExternal
+	value.Principal.Authority = IdentityAuthorityExternal
 	value.Principal.Lane = IdentityLaneMachine
 	raw, err = json.Marshal(value)
 	if err != nil {
@@ -58,3 +58,53 @@ func TestIdentityContract(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSessionIdentitySeparatesApplicationAndPerson(t *testing.T) {
+	user := UserID("person-account")
+	value := IdentityAssertion{SchemaVersion: 1, Kind: "identity", Audience: "kaana.ai", RequestID: "req-session", RequestSHA256: strings.Repeat("a", 64), IssuedAt: "2026-11-13T12:00:00Z", ExpiresAt: "2026-11-13T12:01:00Z", UserID: &user, Principal: IdentityPrincipal{Authority: IdentityAuthoritySession, Lane: IdentityLaneSession, ApplicationID: "application", CredentialID: "session-credential", Environment: EnvironmentProduction, ApplicationClass: "first_party", ApplicationIsInternal: true, ApplicationOwnerAccountID: identityTestPointer(AccountID("application-owner")), VerifiedRequester: &IdentityVerifiedRequester{SubjectAccountID: "person-account", PrincipalUserID: "person-user"}, ApplicationBinding: identityTestPointer(IdentityApplicationBinding("public_client_id"))}}
+	for _, binding := range identityApplicationBindingValues {
+		value.Principal.ApplicationBinding = identityTestPointer(binding)
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecodeIdentityAssertion(raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	value.Principal.ApplicationBinding = identityTestPointer(IdentityApplicationBinding("public_client_id"))
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range [][2]string{
+		{`"applicationOwnerAccountId":"application-owner",`, ``},
+		{`"applicationOwnerAccountId":"application-owner"`, `"applicationOwnerAccountId":null`},
+		{`"applicationOwnerAccountId":"application-owner"`, `"applicationOwnerAccountId":"` + strings.Repeat("a", 65) + `"`},
+		{`"applicationBinding":"public_client_id"`, `"applicationBinding":null`},
+		{`"applicationBinding":"public_client_id"`, `"applicationBinding":"trusted"`},
+		{`"applicationBinding":"public_client_id"`, `"applicationBinding":"public_client_id","scopes":[]`},
+		{`"applicationBinding":"public_client_id"`, `"applicationBinding":"public_client_id","ownerAccountId":"owner"`},
+		{`"principalUserId":"person-user"`, `"principalUserId":null`},
+		{`"principalUserId":"person-user"`, `"principalUserId":"person-user","billingAccountId":"payer"`},
+		{`"lane":"product_session"`, `"lane":"service_token"`},
+		{`"userId":"person-account"`, `"userId":"application-owner"`},
+		{`"userId":"person-account"`, `"userId":"person-user"`},
+		{`"userId":"person-account"`, `"userId":null`},
+	} {
+		changed := strings.Replace(string(raw), mutation[0], mutation[1], 1)
+		if changed == string(raw) {
+			t.Fatalf("mutation did not apply: %s", mutation[0])
+		}
+		if _, err := DecodeIdentityAssertion([]byte(changed)); err == nil {
+			t.Fatalf("accepted session mutation: %s", mutation[0])
+		}
+	}
+	value.UserID = nil
+	raw, _ = json.Marshal(value)
+	if _, err := DecodeIdentityAssertion(raw); err == nil {
+		t.Fatal("session omitted verified subject attribution")
+	}
+}
+
+func identityTestPointer[T any](v T) *T { return &v }

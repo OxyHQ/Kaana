@@ -76,7 +76,8 @@ package contract
 // 8.12.0 adds the signed envelope's optional `image` member (text-to-image
 // controls); the public request and response shapes are unchanged.
 // 8.13.0 adds identity-only assertions; existing economic grants are unchanged.
-const ContractVersion = "8.13.0"
+// 8.14.0 adds verified sessions without assigning economic authority.
+const ContractVersion = "8.14.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

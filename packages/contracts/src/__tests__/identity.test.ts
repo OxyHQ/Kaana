@@ -96,3 +96,90 @@ describe('identity is independent of economic authorization', () => {
     }
   });
 });
+
+const sessionPrincipal = {
+  authority: 'session',
+  lane: 'product_session',
+  applicationId: 'application',
+  credentialId: 'session-credential',
+  environment: 'production',
+  applicationClass: 'first_party',
+  applicationIsInternal: true,
+  applicationOwnerAccountId: 'application-owner',
+  verifiedRequester: { subjectAccountId: 'person-account', principalUserId: 'person-user' },
+  applicationBinding: 'public_client_id',
+};
+
+describe('session identity is distinct from application authority', () => {
+  it('states the verified requester separately for every application binding', () => {
+    for (const applicationBinding of ['session', 'platform', 'public_client_id']) {
+      const value = {
+        ...assertion,
+        userId: 'person-account',
+        principal: { ...sessionPrincipal, applicationBinding },
+      };
+      expect(kaanaIdentityAssertionSchema.safeParse(value).success).toBe(true);
+    }
+  });
+  it('rejects missing, null or cross-authority session facts', () => {
+    for (const field of [
+      'applicationOwnerAccountId',
+      'verifiedRequester',
+      'applicationBinding',
+      'applicationIsInternal',
+    ]) {
+      const missing: Record<string, unknown> = { ...sessionPrincipal };
+      delete missing[field];
+      for (const principal of [missing, { ...sessionPrincipal, [field]: null }]) {
+        expect(
+          kaanaIdentityAssertionSchema.safeParse({
+            ...assertion,
+            userId: 'person-account',
+            principal,
+          }).success,
+        ).toBe(false);
+      }
+    }
+    for (const mutation of [
+      { ownerAccountId: 'application-owner' },
+      { scopes: [] },
+      { lane: 'service_token' },
+      { applicationBinding: 'trusted' },
+      { verifiedRequester: { subjectAccountId: 'person-account' } },
+      {
+        verifiedRequester: {
+          subjectAccountId: 'person-account',
+          principalUserId: 'person-user',
+          billingAccountId: 'payer',
+        },
+      },
+      { applicationOwnerAccountId: 'a'.repeat(65) },
+    ]) {
+      expect(
+        kaanaIdentityAssertionSchema.safeParse({
+          ...assertion,
+          userId: 'person-account',
+          principal: { ...sessionPrincipal, ...mutation },
+        }).success,
+      ).toBe(false);
+    }
+    for (const userId of [undefined, 'application-owner', 'person-user']) {
+      expect(
+        kaanaIdentityAssertionSchema.safeParse({
+          ...assertion,
+          userId,
+          principal: sessionPrincipal,
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      kaanaIdentityAssertionSchema.safeParse({
+        ...assertion,
+        principal: {
+          ...assertion.principal,
+          verifiedRequester: sessionPrincipal.verifiedRequester,
+        },
+      }).success,
+    ).toBe(false);
+  });
+});

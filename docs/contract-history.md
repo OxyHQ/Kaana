@@ -5,6 +5,19 @@
 > in [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md); this file also carries
 > sets 3.8.0 to 7.0.0, which that changelog never recorded, and the longer reasoning behind each set.
 
+## Contract set 8.14.0: verified product session identity
+
+MINOR, `@kaana.ai/contracts` 8.14.0. Adds a distinct `session` identity
+variant on the `product_session` lane. `verifiedRequester` separates the person's
+subject account and session user from `applicationOwnerAccountId`.
+`applicationBinding` states whether the app came from a session binding, platform
+proof, or public client id; a public client id is attribution, not app authority.
+The assertion's `userId` is the verified subject account. Requested attribution
+must be absent or equal to that subject. No payer, scopes, spending permission,
+price, route or balance is inferred from a session. Existing workload and external
+credential wire shapes remain unchanged. The Go identity model represents the
+variant-specific fields explicitly; economic authority types are unchanged.
+
 ## Contract set 8.13.0: identity assertions without economic authority
 
 MINOR, `@kaana.ai/contracts` 8.13.0. Adds `kaanaIdentityRequestSchema`,

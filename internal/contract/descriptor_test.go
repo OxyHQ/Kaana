@@ -1179,6 +1179,8 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 // registered here and compared member for member exactly the same way.
 var inlineEnumBindings = []enumBinding{
 	bindEnum(meteredTariffStatusValues),
+	bindEnum(identityAuthorityValues),
+	bindEnum(identityApplicationBindingValues),
 	bindEnum(serviceAuthorityValues),
 	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),
