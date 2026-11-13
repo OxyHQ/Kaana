@@ -27,6 +27,7 @@ var (
 // Empty configuration and Enabled=false admit nothing. Deployment permissions
 // are mandatory: an empty slice never means every deployment.
 type Policy struct {
+	PriceBook             []RoutePrice                      `json:"priceBook,omitempty"`
 	EconomicTreatment     EconomicTreatment                 `json:"economicTreatment"`
 	CredentialIDs         []contract.CredentialID           `json:"credentialIds"`
 	ID                    string                            `json:"id"`
@@ -67,6 +68,9 @@ func (p Policy) Selects(i contract.IdentityPrincipal) bool {
 }
 
 func (p Policy) validate() error {
+	if err := p.validatePriceBook(); err != nil {
+		return err
+	}
 	if !p.EconomicTreatment.valid() {
 		return errors.New("nativeadmission: explicit economic treatment required")
 	}
@@ -269,7 +273,7 @@ func (s RouteScope) Allows(id contract.DeploymentID, model contract.ModelReferen
 
 // admitsExecution binds the operation-specific lease to the active policy.
 func (p Policy) admitsExecution(operation contract.GrantOperation, plan Plan) bool {
-	if plan.Operation != operation || plan.EconomicTreatment != p.EconomicTreatment {
+	if !p.admitsPriceBook(plan) || plan.Operation != operation || plan.EconomicTreatment != p.EconomicTreatment {
 		return false
 	}
 	if operation != contract.GrantRealtimeSession {

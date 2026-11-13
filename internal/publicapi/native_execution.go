@@ -37,7 +37,7 @@ func (s *Server) executeNative(ctx context.Context, a *admission, request *contr
 		return sink(event)
 	}
 	started := time.Now()
-	result := s.executor.Execute(kaana.WithCacheWritePriced(kaana.DeferCostRecording(ctx), s.cacheWritePricedSteps(a.steps())), request, held)
+	result := s.executor.Execute(kaana.WithCacheWritePriced(kaana.DeferCostRecording(ctx), s.cacheWritePricedAdmission(a)), request, held)
 	traceFrom(ctx).executed(time.Since(started), result.Failure)
 	report := result.Report
 	var persistErr error

@@ -153,10 +153,7 @@ func meteredRecord(a Admission, r contract.UsageReport) (contract.MeteredGenerat
 	units := append([]contract.UsageQuantity{}, r.Units...)
 	record := contract.MeteredGenerationRecord{SchemaVersion: 1, Kind: "metered_usage", RequestID: a.RequestID, GenerationID: r.GenerationID, ApplicationID: a.Principal.ApplicationID, CredentialID: a.Principal.CredentialID, DelegatedUserID: a.UserID, Environment: a.Principal.Environment, Outcome: r.Outcome, UsageSource: r.UsageSource, Units: units, Model: r.ResolvedModelReference, SettledAt: r.CompletedAt, MeteredUsageID: a.ID, Tariff: contract.MeteredTariff{Status: "unpriced"}, CustomerCharge: contract.MeteredCustomerCharge{Status: "not_charged"}}
 	reason := "model_not_priced"
-	for _, price := range a.Plan.Prices {
-		if price.ModelLine != r.ResolvedModelReference.ModelID() {
-			continue
-		}
+	if price, priceErr := a.Plan.PriceForReport(r); priceErr == nil {
 		version := price.PriceVersionID
 		record.Tariff.PriceVersionID = &version
 		amount, err := RateUnits(price, r.Units)
@@ -248,13 +245,12 @@ func validateChargePrice(a Admission, r contract.UsageReport, metered contract.M
 	if err != nil || actual.Cmp(wanted) != 0 {
 		return ErrConflict
 	}
-	for _, price := range a.Plan.Prices {
-		if price.ModelLine == r.ResolvedModelReference.ModelID() {
-			if charge.PriceSnapshot.PriceVersionID != price.PriceVersionID || charge.PriceSnapshot.Currency != price.Currency || !sameJSON(charge.PriceSnapshot.UnitPrices, price.UnitPrices) {
-				return ErrConflict
-			}
-			return nil
-		}
+	price, err := a.Plan.PriceForReport(r)
+	if err != nil {
+		return err
 	}
-	return ErrUnpriced
+	if charge.PriceSnapshot.PriceVersionID != price.PriceVersionID || charge.PriceSnapshot.Currency != price.Currency || !sameJSON(charge.PriceSnapshot.UnitPrices, price.UnitPrices) {
+		return ErrConflict
+	}
+	return nil
 }

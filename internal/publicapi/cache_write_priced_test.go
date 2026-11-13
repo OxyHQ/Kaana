@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 const cacheWriteCatalogue = `{"schemaVersion":1,"models":[
@@ -47,7 +48,7 @@ func TestTheCacheWriteIsPricedOnlyAtTheAdmittedPriceVersionThatCarriesIt(t *test
 			contract.AdmittedModelLine{ModelLine: "anthropic/priced", PriceVersionID: "pv-old"}), "anthropic/priced@2026-01-01", false},
 	}
 	for _, tc := range cases {
-		if got := server.cacheWritePriced(tc.grant)(tc.model); got != tc.want {
+		if got := server.cacheWritePriced(tc.grant)(provider.Route{ModelReference: tc.model}); got != tc.want {
 			t.Errorf("%s: priced = %v, want %v", tc.name, got, tc.want)
 		}
 	}

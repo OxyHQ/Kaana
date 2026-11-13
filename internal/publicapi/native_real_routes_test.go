@@ -2,7 +2,7 @@ package publicapi
 
 import (
 	"encoding/json"
-	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -39,7 +39,7 @@ func TestReviewedNativeExactRoutesUseRealAdapterDialects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policies, err := nativeadmission.LoadPolicyFile("../../configs/native-admission/alia-kaana-v1.json", "682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2")
+	policies, err := nativeadmission.LoadPolicyFile("../../configs/native-admission/alia-kaana-v2.json", "eb3385f238ff5639771542b0caeb6cb7474347d59f205400351e6f9c2adcf490")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,29 +91,21 @@ func TestReviewedNativeExactRoutesUseRealAdapterDialects(t *testing.T) {
 					t.Fatal(err)
 				}
 				planned, err := planner.Plan(principal, request)
-				// These reviewed routes are declared but have no customer tariff
-				// in the current catalogue. The legacy grant's requirePriceSnapshot
-				// also excludes them; adapter support must not invent a price.
-				unpriced := map[contract.ModelID]bool{"openai/gpt-oss-120b": true, "anthropic/claude-haiku-4.5": true, "anthropic/claude-sonnet-5": true}
-				if unpriced[permission.ModelReference.ModelID()] {
-					if len(models) != 1 || models[0].Price.PriceVersionID != "" || !errors.Is(err, nativeadmission.ErrNoRoute) {
-						t.Fatal("unpriced real route acquired economic authority")
-					}
-					return
-				}
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !planned.StepRoutes[0].Allows(route.DeploymentID, route.ModelReference, route.Provider, false) || !planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters) {
+				if !slices.ContainsFunc(planned.StepRoutes, func(scope nativeadmission.RouteScope) bool {
+					return scope.Allows(route.DeploymentID, route.ModelReference, route.Provider, false)
+				}) || !planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters) {
 					t.Fatal("reviewed route lost permission or capability evidence")
 				}
-				needs := requestNeeds{prices: catalogue}
+				needs := requestNeeds{prices: nativeLinePrices(planned.Prices)}
 				if group != 2 {
 					needs.maxOutputTokens = &planned.OutputTokens
 					needs.inputTokens = planned.InputTokens
 					needs.parameters = []provider.RequestParameter{provider.ParameterTools, provider.ParameterResponseFormat, provider.ParameterMaxOutputTokens}
 				}
-				authorization := routeAuthorization{requestID: "native-real-route", steps: planned.Steps, permits: func(step int, r provider.Route) bool {
+				authorization := routeAuthorization{requestID: "native-real-route", steps: planned.Steps, groups: planned.StepGroups, permits: func(step int, r provider.Route) bool {
 					return nativeOperationServed(registry, registry, r, request.Operation, nil) && planned.StepRoutes[step].Allows(r.DeploymentID, r.ModelReference, r.Provider, false) && planned.AllowsParameters(r.ModelReference.ModelID(), r.AcceptedParameters)
 				}}
 				resolved, failure := resolveAuthorizedFor(authorization, current, nil, nil, nil, needs, time.Now())

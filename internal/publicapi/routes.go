@@ -79,6 +79,7 @@ func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding 
 type routeAuthorization struct {
 	requestID          contract.RequestID
 	steps              []contract.GrantStep
+	groups             []int
 	customerCredential *contract.CustomerProviderCredential
 	permits            func(int, provider.Route) bool
 }
@@ -90,11 +91,18 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 func resolveAuthorizedFor(authorization routeAuthorization, snapshot *inventory.Inventory, funding FundingRanker, performance PerformanceReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
-	for stepIndex, step := range authorization.steps {
+	for groupStart := 0; groupStart < len(authorization.steps); {
+		groupEnd := groupStart + 1
+		if len(authorization.groups) == len(authorization.steps) {
+			for groupEnd < len(authorization.steps) && authorization.groups[groupEnd] == authorization.groups[groupStart] {
+				groupEnd++
+			}
+		}
 		type candidate struct {
-			route provider.Route
-			rank  int
-			line  int
+			route     provider.Route
+			stepIndex int
+			rank      int
+			line      int
 			// providerRank, slow, sortBand and affine are the caller's own
 			// preferences (provider.order, preferred_*, provider.sort and
 			// prompt_cache_key); band is Kaana's recent-latency tie-break.
@@ -107,63 +115,72 @@ func resolveAuthorizedFor(authorization routeAuthorization, snapshot *inventory.
 			position     int
 		}
 		var candidates []candidate
-		for lineIndex, admitted := range step.Limits.AdmittedModelLines {
-			var price linePrice
-			if needs.prices != nil && (needs.prefs.hasCeiling() || needs.prefs.sortsByPrice()) {
-				price = needs.prices.LinePrice(admitted.ModelLine, admitted.PriceVersionID)
-			}
-			if !needs.prefs.within(price) {
-				// A line over the caller's ceiling, or one whose price the
-				// catalogue does not state, is not used: the preference only
-				// narrows what the grant admitted.
-				continue
-			}
-			reference := contract.ModelReference(admitted.ModelLine)
-			if step.Target.Kind == contract.GrantTargetModel {
-				if admitted.ModelLine != *step.Target.ModelLine {
+		lineOrder := map[contract.ModelID]int{}
+		for stepIndex := groupStart; stepIndex < groupEnd; stepIndex++ {
+			step := authorization.steps[stepIndex]
+			for _, admitted := range step.Limits.AdmittedModelLines {
+				lineIndex, exists := lineOrder[admitted.ModelLine]
+				if !exists {
+					lineIndex = len(lineOrder)
+					lineOrder[admitted.ModelLine] = lineIndex
+				}
+				var price linePrice
+				if needs.prices != nil && (needs.prefs.hasCeiling() || needs.prefs.sortsByPrice()) {
+					price = needs.prices.LinePrice(admitted.ModelLine, admitted.PriceVersionID)
+				}
+				if !needs.prefs.within(price) {
+					// A line over the caller's ceiling, or one whose price the
+					// catalogue does not state, is not used: the preference only
+					// narrows what the grant admitted.
 					continue
 				}
-				reference = step.Target.Reference()
-			}
-			if pinned, seen := revisionOf[admitted.ModelLine]; seen {
-				// One execution never switches a line's revision silently.
-				reference = pinned
-			}
-			set, err := snapshot.Resolve(reference, at)
-			if err != nil {
-				continue
-			}
-			for position, route := range set.Candidates() {
-				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) || (authorization.permits != nil && !authorization.permits(stepIndex, route)) {
-					continue
-				}
-				if needs.refusedBy(route) || needs.prefs.excludes(route, needs.parameters) {
-					continue
-				}
-				if _, taken := resolved.steps[route.DeploymentID]; taken {
-					continue
-				}
-				ceiling := provider.FundingTierNone
-				if step.Limits.MaxFundingTier != nil {
-					ceiling = provider.FundingTier(*step.Limits.MaxFundingTier)
-				}
-				rank := fundingRankUnknown
-				if authorization.customerCredential == nil && funding != nil {
-					cheapest, admissible := funding.CheapestTier(route, ceiling)
-					if !admissible {
+				reference := contract.ModelReference(admitted.ModelLine)
+				if step.Target.Kind == contract.GrantTargetModel {
+					if admitted.ModelLine != *step.Target.ModelLine {
 						continue
 					}
-					rank = cheapest
+					reference = step.Target.Reference()
 				}
-				candidates = append(candidates, candidate{
-					route: route, rank: rank, line: lineIndex, position: position,
-					providerRank: needs.prefs.providerRank(route.Provider),
-					slow:         needs.prefs.slow(performance, route.DeploymentID),
-					sortBand:     needs.prefs.sortBand(performance, route.DeploymentID),
-					priceKey:     price.blended(),
-					affine:       needs.affine != "" && route.DeploymentID == needs.affine,
-					band:         latencyBand(performance, route.DeploymentID),
-				})
+				if pinned, seen := revisionOf[admitted.ModelLine]; seen {
+					// One execution never switches a line's revision silently.
+					reference = pinned
+				}
+				set, err := snapshot.Resolve(reference, at)
+				if err != nil {
+					continue
+				}
+				for position, route := range set.Candidates() {
+					if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) || (authorization.permits != nil && !authorization.permits(stepIndex, route)) {
+						continue
+					}
+					if needs.refusedBy(route) || needs.prefs.excludes(route, needs.parameters) {
+						continue
+					}
+					if _, taken := resolved.steps[route.DeploymentID]; taken {
+						continue
+					}
+					ceiling := provider.FundingTierNone
+					if step.Limits.MaxFundingTier != nil {
+						ceiling = provider.FundingTier(*step.Limits.MaxFundingTier)
+					}
+					rank := fundingRankUnknown
+					if authorization.customerCredential == nil && funding != nil {
+						cheapest, admissible := funding.CheapestTier(route, ceiling)
+						if !admissible {
+							continue
+						}
+						rank = cheapest
+					}
+					candidates = append(candidates, candidate{
+						route: route, stepIndex: stepIndex, rank: rank, line: lineIndex, position: position,
+						providerRank: needs.prefs.providerRank(route.Provider),
+						slow:         needs.prefs.slow(performance, route.DeploymentID),
+						sortBand:     needs.prefs.sortBand(performance, route.DeploymentID),
+						priceKey:     price.blended(),
+						affine:       needs.affine != "" && route.DeploymentID == needs.affine,
+						band:         latencyBand(performance, route.DeploymentID),
+					})
+				}
 			}
 		}
 		sort.SliceStable(candidates, func(a, b int) bool {
@@ -201,6 +218,11 @@ func resolveAuthorizedFor(authorization routeAuthorization, snapshot *inventory.
 		servedInStep := make(map[contract.ModelID]bool)
 		for _, chosen := range candidates {
 			route := chosen.route
+			stepIndex := chosen.stepIndex
+			step := authorization.steps[stepIndex]
+			if _, taken := resolved.steps[route.DeploymentID]; taken {
+				continue
+			}
 			line := route.ModelReference.ModelID()
 			if pinned, seen := revisionOf[line]; seen && pinned != route.ModelReference {
 				continue
@@ -231,6 +253,7 @@ func resolveAuthorizedFor(authorization routeAuthorization, snapshot *inventory.
 			resolved.routes = append(resolved.routes, authorized)
 			resolved.steps[route.DeploymentID] = stepIndex
 		}
+		groupStart = groupEnd
 	}
 	if needs.prefs.keepsOneProvider() {
 		resolved.routes = keepOneProvider(resolved.routes, needs.prefs)

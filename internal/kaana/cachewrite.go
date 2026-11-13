@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // The cache-write unit is emitted only where it is billable.
@@ -21,7 +22,7 @@ import (
 
 // CacheWritePriced reports whether the price list the request is granted
 // against, for a model reference, carries a price for cache_write_input_tokens.
-type CacheWritePriced func(contract.ModelReference) bool
+type CacheWritePriced func(provider.Route) bool
 
 type cacheWritePricedKey struct{}
 

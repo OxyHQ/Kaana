@@ -1,0 +1,601 @@
+{
+  "schemaVersion": 1,
+  "policies": [
+    {
+      "economicTreatment": "internal_metered",
+      "credentialIds": [
+        "wl_d50a0056191d0448024900b4"
+      ],
+      "id": "alia-kaana-native",
+      "version": 2,
+      "enabled": true,
+      "ownerAccountId": "01a0369b-1222-712f-8df6-f8ffeb78ccc2",
+      "applicationId": "6a2f851751b784a86fd0e934",
+      "environment": "production",
+      "lane": "service_token",
+      "authority": "first_party",
+      "applicationClass": "internal",
+      "applicationIsInternal": true,
+      "audience": "platform_internal",
+      "allowedLevels": [
+        "auto",
+        "instant",
+        "medium",
+        "high",
+        "xhigh",
+        "pro",
+        "ultra"
+      ],
+      "allowedModels": [
+        "anthropic/claude-haiku-4.5",
+        "anthropic/claude-sonnet-5",
+        "deepseek/deepseek-v4-flash-0731",
+        "openai/gpt-5.4-nano",
+        "openai/gpt-oss-120b",
+        "x-ai/text-to-speech"
+      ],
+      "routes": {
+        "mode": "exact",
+        "requirePromotionalCredit": false,
+        "deployments": [
+          {
+            "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "cerebras"
+          },
+          {
+            "deploymentId": "dep_groq_openai_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "groq"
+          },
+          {
+            "deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          {
+            "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_09_01",
+            "modelReference": "deepseek/deepseek-v4-flash-0731@observed-2026-09-01",
+            "provider": "openrouter"
+          }
+        ]
+      },
+      "imageInput": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.15",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "exact",
+          "requirePromotionalCredit": false,
+          "deployments": [
+            {
+              "deploymentId": "dep_openrouter_openai_gpt_5_4_nano_observed_2026_09_01",
+              "modelReference": "openai/gpt-5.4-nano@observed-2026-09-01",
+              "provider": "openrouter"
+            },
+            {
+              "deploymentId": "dep_openrouter_anthropic_claude_haiku_4_5_observed_2026_09_01",
+              "modelReference": "anthropic/claude-haiku-4.5@observed-2026-09-01",
+              "provider": "openrouter"
+            },
+            {
+              "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_observed_2026_09_01",
+              "modelReference": "anthropic/claude-sonnet-5@observed-2026-09-01",
+              "provider": "openrouter"
+            }
+          ]
+        },
+        "maxImages": 16
+      },
+      "promotional": {
+        "levels": [
+          "pro",
+          "ultra"
+        ],
+        "fallbackLevel": "xhigh",
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "1.00",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true,
+          "maxFundingTier": "credit"
+        },
+        "routes": {
+          "mode": "eligible",
+          "requirePromotionalCredit": true
+        }
+      },
+      "speech": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.25",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "exact",
+          "requirePromotionalCredit": false,
+          "deployments": [
+            {
+              "deploymentId": "dep_xai_tts_observed_2026_09_24",
+              "modelReference": "x-ai/text-to-speech@observed-2026-09-24",
+              "provider": "xai"
+            }
+          ]
+        },
+        "maxInput": 15000,
+        "allowCatalogueModels": false
+      },
+      "transcription": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.05",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "eligible",
+          "requirePromotionalCredit": false
+        },
+        "maxInput": 300000,
+        "allowCatalogueModels": true
+      },
+      "realtime": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.25",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "eligible",
+          "requirePromotionalCredit": false
+        },
+        "maxInput": 126976,
+        "allowCatalogueModels": true,
+        "sessionKinds": [
+          "conversation",
+          "transcription"
+        ],
+        "maxSessionDuration": 1800000000000,
+        "maxSessionResponses": 500
+      },
+      "limits": {
+        "providerAllowlist": [],
+        "providerDenylist": [],
+        "allowedRegions": [],
+        "deniedRegions": [],
+        "requireZeroDataRetention": false,
+        "prohibitTrainingOnCustomerData": false,
+        "allowedLicenseIds": [],
+        "requireCommercialUseRights": false,
+        "maxPricePerRequest": {
+          "amount": "0.05",
+          "currency": "USD"
+        },
+        "admittedModelLines": [],
+        "sameModelFailover": true
+      },
+      "maxInputTokens": 126976,
+      "maxOutputTokens": 8192,
+      "defaultOutputTokens": 8192,
+      "maxTools": 128,
+      "maxConcurrent": 32,
+      "maxPerUtcDay": 5000,
+      "executionTimeout": 900000000000,
+      "priceBook": [
+        {
+          "route": {
+            "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "cerebras"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "0ca5c087-7b47-59e3-baac-40362d4a7edb",
+            "unitPrices": [
+              {
+                "amount": "0.350000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "0.350000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "0.750000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "0.750000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "openai/gpt-oss-120b"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a083c2-a8f1-72dd-9276-c053c1cae762",
+          "sourceEvidenceRef": "https://api.cerebras.ai/public/v1/models"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_groq_openai_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "groq"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "e4549ae4-9e24-5295-a567-aa22310efbfe",
+            "unitPrices": [
+              {
+                "amount": "0.075000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "0.150000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "0.600000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "0.600000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "openai/gpt-oss-120b"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a083c2-a955-704e-ab8e-88fb25cbd44f",
+          "sourceEvidenceRef": "https://console.groq.com/docs/model/openai/gpt-oss-120b"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "92d1d58f-fde1-51d8-8394-a1b89e6070d1",
+            "unitPrices": [
+              {
+                "amount": "0.030000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "0.030000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "0.170000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "0.170000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "openai/gpt-oss-120b"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a096a6-6f15-74b2-aaf3-931763417c04",
+          "sourceEvidenceRef": "https://openrouter.ai/openai/gpt-oss-120b"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_09_01",
+            "modelReference": "deepseek/deepseek-v4-flash-0731@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "1be499c8-5353-5e5e-b6a9-3410e7d1f183",
+            "unitPrices": [
+              {
+                "amount": "0.043400000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "0.043400000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "0.300000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "0.300000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "deepseek/deepseek-v4-flash-0731"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a1bdac-2566-7941-aac9-8ba0a3411abd",
+          "sourceEvidenceRef": "kaana-list-price:snap_3e92a6f47db89d2a"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_openrouter_openai_gpt_5_4_nano_observed_2026_09_01",
+            "modelReference": "openai/gpt-5.4-nano@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "359449f3-1462-5f6c-90f8-744211483fac",
+            "unitPrices": [
+              {
+                "amount": "0.200000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "0.200000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "1.250000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "1.250000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "openai/gpt-5.4-nano"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a0d808-6458-73d4-8ecf-0d3ab58be0cd",
+          "sourceEvidenceRef": "kaana-list-price:snap_b8e5ed399abd489e"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_openrouter_anthropic_claude_haiku_4_5_observed_2026_09_01",
+            "modelReference": "anthropic/claude-haiku-4.5@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "03509d00-55fb-5a50-a6df-c651290dae3b",
+            "unitPrices": [
+              {
+                "amount": "1.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "1.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "5.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "5.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "anthropic/claude-haiku-4.5"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a0d808-57d2-77ac-8180-ab51a4b5c213",
+          "sourceEvidenceRef": "kaana-list-price:snap_b8e5ed399abd489e"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_observed_2026_09_01",
+            "modelReference": "anthropic/claude-sonnet-5@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "97ffc319-79b9-52ac-ab05-7b7c327a0f91",
+            "unitPrices": [
+              {
+                "amount": "2.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "cached_input_tokens"
+              },
+              {
+                "amount": "2.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "input_tokens"
+              },
+              {
+                "amount": "10.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "output_tokens"
+              },
+              {
+                "amount": "10.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "reasoning_tokens"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "anthropic/claude-sonnet-5"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a0d808-589f-7aca-8579-10d180cb7b16",
+          "sourceEvidenceRef": "kaana-list-price:snap_b8e5ed399abd489e"
+        },
+        {
+          "route": {
+            "deploymentId": "dep_xai_tts_observed_2026_09_24",
+            "modelReference": "x-ai/text-to-speech@observed-2026-09-24",
+            "provider": "xai"
+          },
+          "price": {
+            "currency": "USD",
+            "priceVersionId": "cdcaa9e7-2454-5cb0-970a-9d81b6d6ca21",
+            "unitPrices": [
+              {
+                "amount": "15.000000000000",
+                "currency": "USD",
+                "per": 1000000,
+                "unit": "characters"
+              },
+              {
+                "amount": "0.000000000000",
+                "currency": "USD",
+                "per": 1,
+                "unit": "requests"
+              }
+            ],
+            "modelLine": "x-ai/text-to-speech"
+          },
+          "sourceArtifactSha256": "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3",
+          "sourcePriceVersionId": "01a0d51c-de42-7c93-a1a9-1d2218b6ad43",
+          "sourceEvidenceRef": "https://docs.x.ai/developers/pricing"
+        }
+      ]
+    }
+  ]
+}

@@ -109,7 +109,7 @@ func TestReviewedReasoningOutputFitsDeclaredTariffAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policies, err := nativeadmission.LoadPolicyFile("../../configs/native-admission/alia-kaana-v1.json", "682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2")
+	policies, err := nativeadmission.LoadPolicyFile("../../configs/native-admission/alia-kaana-v2.json", "eb3385f238ff5639771542b0caeb6cb7474347d59f205400351e6f9c2adcf490")
 	if err != nil || len(policies) != 1 {
 		t.Fatal("reviewed policy file invalid")
 	}
@@ -126,7 +126,7 @@ func TestReviewedReasoningOutputFitsDeclaredTariffAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Quote.Amount != "0.007274496000" || plan.OutputTokens != 8192 || len(plan.Prices) != 1 || plan.Prices[0].ModelLine != line {
+	if plan.Quote.Amount != "0.007968358400" || plan.OutputTokens != 8192 || len(plan.Prices) != 1 || plan.Prices[0].ModelLine != line {
 		t.Fatalf("reviewed tariff/budget changed: %+v", plan.Quote)
 	}
 	if !plan.AllowsParameters(line, current.Catalogue()[0].AcceptedParameters) {

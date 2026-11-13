@@ -382,7 +382,7 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 			break
 		}
 
-		cacheWritePriced := cacheWritePricedFrom(ctx) != nil && cacheWritePricedFrom(ctx)(route.ModelReference)
+		cacheWritePriced := cacheWritePricedFrom(ctx) != nil && cacheWritePricedFrom(ctx)(route)
 		call, err := translate(adapter, withheldCacheBreakpoints(request, cacheWritePriced), route)
 		if err != nil {
 			// A refusal to translate is about the REQUEST, and it is terminal.
