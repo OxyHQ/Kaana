@@ -74,9 +74,19 @@ func roundedMoney(r *big.Rat) contract.Money {
 	return contract.Money{Amount: contract.ExactDecimal(amount), Currency: "USD"}
 }
 
-// RateUnits refuses unknown/duplicate units, even a zero quantity. Missing
-// prices never mean free. A price snapshot cannot be replaced at settlement.
+// RateUnits rounds the aggregate actual charge to 12 decimal places, half away
+// from zero, matching the previous ledger's PostgreSQL numeric round(sum(...)).
+// Only positive usage needs a tariff; zero quantities do not acquire a charge.
+// Invalid/duplicate usage remains refused. The price snapshot is immutable.
 func RateUnits(price ModelPrice, units []contract.UsageQuantity) (contract.Money, error) {
+	return rateUnits(price, units, false)
+}
+
+func quoteUnits(price ModelPrice, units []contract.UsageQuantity) (contract.Money, error) {
+	return rateUnits(price, units, true)
+}
+
+func rateUnits(price ModelPrice, units []contract.UsageQuantity, ceiling bool) (contract.Money, error) {
 	rates, err := unitRates(price)
 	if err != nil {
 		return contract.Money{}, err
@@ -84,14 +94,23 @@ func RateUnits(price ModelPrice, units []contract.UsageQuantity) (contract.Money
 	total := new(big.Rat)
 	seen := make(map[contract.UsageUnit]bool)
 	for _, u := range units {
-		rate, ok := rates[u.Unit]
-		if !ok || seen[u.Unit] || u.Quantity < 0 {
+		if !u.Unit.Valid() || seen[u.Unit] || u.Quantity < 0 {
 			return contract.Money{}, ErrUnpriced
 		}
 		seen[u.Unit] = true
+		if u.Quantity == 0 {
+			continue
+		}
+		rate, ok := rates[u.Unit]
+		if !ok {
+			return contract.Money{}, ErrUnpriced
+		}
 		total.Add(total, new(big.Rat).Mul(rate, new(big.Rat).SetInt64(int64(u.Quantity))))
 	}
-	return roundedMoney(total), nil
+	if ceiling {
+		return roundedMoney(total), nil
+	}
+	return contract.Money{Amount: contract.ExactDecimal(total.FloatString(12)), Currency: "USD"}, nil
 }
 
 func textQuote(price ModelPrice, input, output int) (contract.Money, error) {
@@ -176,7 +195,7 @@ func operationQuote(price ModelPrice, request Request) (quote, qualification con
 		}
 	}
 	if request.Operation == contract.GrantRealtimeSession {
-		qualification, err = RateUnits(price, units)
+		qualification, err = quoteUnits(price, units)
 		if err != nil {
 			return quote, qualification, err
 		}
@@ -188,12 +207,12 @@ func operationQuote(price ModelPrice, request Request) (quote, qualification con
 		if _, ok := rates[contract.UnitRequests]; ok {
 			units = append(units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: request.SessionMaxResponses})
 		}
-		quote, err = RateUnits(price, units)
+		quote, err = quoteUnits(price, units)
 		return quote, qualification, err
 	}
 	if _, ok := rates[contract.UnitRequests]; ok {
 		units = append(units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: 1})
 	}
-	quote, err = RateUnits(price, units)
+	quote, err = quoteUnits(price, units)
 	return quote, quote, err
 }
