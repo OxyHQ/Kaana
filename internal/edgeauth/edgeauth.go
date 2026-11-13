@@ -164,6 +164,11 @@ func NewGrantVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) 
 	return newVerifier(keys, maxSkew, grantDomainSeparator)
 }
 
+// NewIdentityVerifier accepts identity assertions, never economic grants.
+func NewIdentityVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, contract.IdentitySignatureDomain)
+}
+
 // NewSettlementReadVerifier builds the verifier for Oxy's reconciliation read
 // of the settlement outbox.
 func NewSettlementReadVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
