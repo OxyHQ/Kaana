@@ -90,6 +90,12 @@ type Options struct {
 	// Write receives each finished line without a trailing newline. Nil writes
 	// one line on stdout.
 	Write func(line string)
+	// Sample, when set, runs on the flush tick immediately before each interval
+	// is written, and records state that is read rather than observed (a
+	// gauge). It shares the publisher's one timer, so sampling adds no
+	// goroutine and no second period. It is not run at Stop: a sample taken
+	// while shutting down describes nothing. A panic in it is contained.
+	Sample func(Recorder)
 	// Now is the clock, for tests.
 	Now func() time.Time
 }
@@ -140,12 +146,22 @@ func (p *Publisher) loop() {
 	for {
 		select {
 		case <-ticker.C:
+			if p.options.Sample != nil {
+				p.sample()
+			}
 			p.Flush()
 		case <-p.stop:
 			p.Flush()
 			return
 		}
 	}
+}
+
+// sample runs the Sample hook. Metrics are best effort: a failing sampler costs
+// its own gauges for one interval and must not take the process down.
+func (p *Publisher) sample() {
+	defer func() { _ = recover() }()
+	p.options.Sample(p)
 }
 
 // Stop flushes the current interval and stops the timer.
@@ -216,9 +232,17 @@ func (p *Publisher) Flush() {
 	timestamp := p.options.Now().UnixMilli()
 	for _, key := range keys {
 		if line, ok := p.line(finished[key], timestamp); ok {
-			p.options.Write(line)
+			p.write(line)
 		}
 	}
+}
+
+// write hands one line to the sink. A failing sink loses that line, never the
+// process or the rest of the interval (the TypeScript publisher catches the
+// same way).
+func (p *Publisher) write(line string) {
+	defer func() { _ = recover() }()
+	p.options.Write(line)
 }
 
 func (p *Publisher) line(entry *series, timestamp int64) (string, bool) {
@@ -267,10 +291,13 @@ func cleanLabels(metric Metric, labels Labels) map[string]string {
 		if len(raw) > maxLabelValueLength {
 			raw = raw[:maxLabelValueLength]
 		}
+		// Truncation can cut a rune; drop the fragment before judging emptiness,
+		// so a value that is only a fragment reads "unknown" too.
+		raw = strings.ToValidUTF8(raw, "")
 		if raw == "" {
 			raw = "unknown"
 		}
-		clean[name] = strings.ToValidUTF8(raw, "")
+		clean[name] = raw
 	}
 	// A dimension named by the definition must be on every line, or CloudWatch
 	// drops the metric from it.

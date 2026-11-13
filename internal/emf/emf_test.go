@@ -170,3 +170,95 @@ func TestStopFlushesTheLastInterval(t *testing.T) {
 		t.Errorf("shutdown lost the last interval: %v", c.lines)
 	}
 }
+
+// The vector from @oxy.so/telemetry/metrics' own test: the same observations must
+// produce the same buckets, so the two publishers cannot drift apart.
+func TestItMatchesTheTypeScriptPublisherOnItsOwnTestVector(t *testing.T) {
+	p, c := newPublisher(t, 2)
+	latency := Metric{Name: "RequestLatency", Unit: "Milliseconds", Kind: Distribution, DimensionSets: [][]string{{"StatusClass"}, {"Caller"}}}
+	limited := Metric{Name: "RateLimited", Unit: "Count", Kind: Sum, DimensionSets: [][]string{{"Caller"}}}
+	labels := Labels{"Route": "/users/:id", "StatusClass": "2xx", "Caller": "anonymous"}
+	for _, ms := range []float64{10, 10, 200} {
+		p.Record(latency, ms, labels)
+	}
+	p.Record(limited, 1, Labels{"Caller": "service:app"})
+	p.Record(limited, 1, Labels{"Caller": "service:another"})
+	p.Flush()
+	if len(c.lines) != 3 {
+		t.Fatalf("lines = %d, want 3", len(c.lines))
+	}
+	var folded, distribution map[string]any
+	for _, line := range c.lines {
+		d := decode(t, line)
+		switch {
+		case d["RequestLatency"] != nil:
+			distribution = d
+		case d["Caller"] == "other":
+			folded = d
+		}
+	}
+	spec := distribution["_aws"].(map[string]any)["CloudWatchMetrics"].([]any)[0].(map[string]any)
+	if dims, _ := json.Marshal(spec["Dimensions"]); string(dims) != `[["Service"],["Service","StatusClass"],["Service","Caller"]]` {
+		t.Errorf("dimensions = %s", dims)
+	}
+	body, _ := json.Marshal(distribution["RequestLatency"])
+	if string(body) != `{"Count":3,"Counts":[2,1],"Max":200,"Min":10,"Sum":220,"Values":[9.91,204]}` {
+		t.Errorf("distribution = %s", body)
+	}
+	if folded == nil || folded["RateLimited"] != float64(1) {
+		t.Errorf("the third series did not fold into other: %v", c.lines)
+	}
+}
+
+func TestACutRuneNeverLeavesAnEmptyLabel(t *testing.T) {
+	p, c := newPublisher(t, 0)
+	m := Metric{Name: "N", Unit: "Count", Kind: Sum, DimensionSets: [][]string{{"Outcome"}}}
+	p.Record(m, 1, Labels{"Outcome": string([]byte{0xff, 0xfe})})
+	p.Flush()
+	if got := decode(t, c.lines[0])["Outcome"]; got != "unknown" {
+		t.Errorf("Outcome = %v, want unknown", got)
+	}
+}
+
+func TestTheSampleHookRunsOnTheFlushTickBeforeTheLineIsWritten(t *testing.T) {
+	c := &collector{}
+	gauge := Metric{Name: "Depth", Unit: "Count", Kind: Gauge}
+	p := New(Options{Namespace: "Oxy/Test", Service: "kaana", FlushEvery: 10 * time.Millisecond, Write: c.write,
+		Sample: func(out Recorder) { out.Record(gauge, 7, nil) }})
+	deadline := time.After(5 * time.Second)
+	for {
+		c.mu.Lock()
+		n := len(c.lines)
+		c.mu.Unlock()
+		if n > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("the tick never wrote a sampled line")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	p.Stop()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if got := decode(t, c.lines[0])["Depth"]; got != float64(7) {
+		t.Errorf("sampled gauge = %v", got)
+	}
+}
+
+func TestAPanickingSamplerOrSinkCostsOnlyThatInterval(t *testing.T) {
+	var calls int
+	var mu sync.Mutex
+	p := New(Options{Namespace: "Oxy/Test", Service: "kaana", FlushEvery: 10 * time.Millisecond,
+		Sample: func(Recorder) { mu.Lock(); calls++; mu.Unlock(); panic("sampler") },
+		Write:  func(string) { panic("sink") }})
+	p.Record(Metric{Name: "N", Unit: "Count", Kind: Sum}, 1, nil)
+	time.Sleep(60 * time.Millisecond)
+	p.Stop()
+	mu.Lock()
+	defer mu.Unlock()
+	if calls < 2 {
+		t.Errorf("the sampler ran %d times; a panic stopped the loop", calls)
+	}
+}
