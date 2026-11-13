@@ -74,11 +74,13 @@ const (
 	GrantImagesGenerations   GrantOperation = "images_generations"
 	GrantDecisions           GrantOperation = "decisions"
 	GrantRealtimeSession     GrantOperation = "realtime_session"
+	GrantRerank              GrantOperation = "rerank"
 )
 
 var grantOperationValues = []GrantOperation{
 	GrantResponses, GrantChatCompletions, GrantEmbeddings, GrantAudioSpeech,
 	GrantAudioTranscriptions, GrantImagesGenerations, GrantDecisions, GrantRealtimeSession,
+	GrantRerank,
 }
 
 // Valid reports whether the operation is one the contract names.

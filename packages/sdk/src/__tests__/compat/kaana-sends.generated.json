@@ -4,7 +4,7 @@
       "schemaVersion": 1,
       "kind": "inference",
       "credential": "oxy_sk_test_valid_synthetic",
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "operation": "realtime_session",
       "target": {
         "kind": "model",
@@ -18,14 +18,14 @@
       "bodySha256": "fd55a93145851fa079579c1bcbc73d6a5b387cd2eb688897fa82002a15f3d9a6",
       "client": {
         "endpoint": "/v1/realtime",
-        "receivedAt": "2026-11-12T06:15:35.957Z"
+        "receivedAt": "2026-11-13T04:40:21.718Z"
       }
     },
     {
       "schemaVersion": 1,
       "kind": "inference",
       "credential": "oxy_sk_test_valid_synthetic",
-      "requestId": "req_wnxffjwovclze7ljrah3nxxxze",
+      "requestId": "req_jtmhn66ozoukdbsd335hzz6xnu",
       "operation": "audio_transcriptions",
       "target": {
         "kind": "model",
@@ -39,14 +39,14 @@
       "bodySha256": "18e705916881d1abdef277b31ded42d41c1a883831c2afd2caca42b0884371c9",
       "client": {
         "endpoint": "/v1/audio/transcriptions",
-        "receivedAt": "2026-11-12T06:15:35.962Z"
+        "receivedAt": "2026-11-13T04:40:21.724Z"
       }
     },
     {
       "schemaVersion": 1,
       "kind": "catalogue.read",
       "credential": "oxy_sk_test_valid_synthetic",
-      "requestId": "req_iqcbg2npiwqgvztndkhxyczgbq"
+      "requestId": "req_ez7x7y6hufslszhjanmvoptpfm"
     }
   ],
   "catalogue": {
@@ -278,7 +278,7 @@
   "realtimeEvents": [
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 0,
       "type": "session.created",
       "model": "openai/gpt-realtime-2.1@observed-2026-09-30",
@@ -316,19 +316,19 @@
         "maxResponses": 1000
       },
       "resumeWindowMs": 30000,
-      "startedAt": "2026-11-12T06:15:35.960Z",
-      "expiresAt": "2026-11-12T06:17:35.960Z"
+      "startedAt": "2026-11-13T04:40:21.722Z",
+      "expiresAt": "2026-11-13T04:42:21.722Z"
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 1,
       "type": "input_audio.committed",
       "itemId": "item_user"
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 2,
       "type": "transcript.delta",
       "source": "input_audio",
@@ -338,7 +338,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 3,
       "type": "transcript.delta",
       "source": "input_audio",
@@ -348,7 +348,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 4,
       "type": "transcript.done",
       "source": "input_audio",
@@ -358,14 +358,14 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 5,
       "type": "response.created",
       "responseId": "resp_1"
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 6,
       "type": "transcript.delta",
       "source": "output_audio",
@@ -376,7 +376,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 7,
       "type": "text.delta",
       "responseId": "resp_1",
@@ -386,7 +386,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 8,
       "type": "output_audio.delta",
       "responseId": "resp_1",
@@ -397,7 +397,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 9,
       "type": "output_audio.done",
       "responseId": "resp_1",
@@ -406,7 +406,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 10,
       "type": "transcript.done",
       "source": "output_audio",
@@ -417,7 +417,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 11,
       "type": "response.done",
       "responseId": "resp_1",
@@ -453,7 +453,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 12,
       "commandId": "cmd_refused",
       "type": "command.accepted",
@@ -461,7 +461,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 13,
       "commandId": "cmd_refused",
       "type": "error",
@@ -471,13 +471,13 @@
         "code": "invalid_request",
         "message": "the request cannot be served as asked (item.content[0].type)",
         "retryable": false,
-        "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+        "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
         "param": "item.content[0].type"
       }
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 14,
       "commandId": "cmd_close",
       "type": "command.accepted",
@@ -485,7 +485,7 @@
     },
     {
       "schemaVersion": 1,
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "sequence": 15,
       "type": "session.closed",
       "reason": "client_closed",
@@ -520,21 +520,21 @@
         }
       ],
       "usageSource": "provider_reported",
-      "closedAt": "2026-11-12T06:15:35.961Z"
+      "closedAt": "2026-11-13T04:40:21.723Z"
     }
   ],
   "settlements": [
     {
       "schemaVersion": 1,
-      "settlementId": "stl_prq4hmrnhdqa4kbm5kend4gjeq",
+      "settlementId": "stl_f2ijvvvespamhzocqhonlrmwly",
       "grantId": "grt_1",
-      "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
+      "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
       "reservationId": "rsv_1",
       "servedStep": 0,
       "report": {
         "schemaVersion": 2,
-        "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
-        "generationId": "gen_7ljgjc6yqghfivuv6f6m6fz6a4",
+        "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
+        "generationId": "gen_rdrhefvbnumts3pc4qapy2y62y",
         "attribution": {
           "principal": {
             "billing": {
@@ -547,8 +547,8 @@
               "inference:invoke"
             ]
           },
-          "requestId": "req_kjoeixcfbclyw457mtpxu5lo6m",
-          "generationId": "gen_7ljgjc6yqghfivuv6f6m6fz6a4"
+          "requestId": "req_i7rj65x6fqrz353irx35kpeyki",
+          "generationId": "gen_rdrhefvbnumts3pc4qapy2y62y"
         },
         "outcome": "completed",
         "units": [
@@ -586,23 +586,23 @@
         "servingProvider": "openai-realtime",
         "deploymentId": "dep_realtime",
         "routeSwitches": 0,
-        "startedAt": "2026-11-12T06:15:35.958Z",
-        "completedAt": "2026-11-12T06:15:35.961Z",
-        "timeToFirstTokenMs": 2
+        "startedAt": "2026-11-13T04:40:21.720Z",
+        "completedAt": "2026-11-13T04:40:21.723Z",
+        "timeToFirstTokenMs": 1
       },
-      "createdAt": "2026-11-12T06:15:35.961Z"
+      "createdAt": "2026-11-13T04:40:21.724Z"
     },
     {
       "schemaVersion": 1,
-      "settlementId": "stl_qbgxekzji7x5hyk7ybp5sru7bi",
+      "settlementId": "stl_a6354yxkq27g5rel6csah5rhdu",
       "grantId": "grt_2",
-      "requestId": "req_wnxffjwovclze7ljrah3nxxxze",
+      "requestId": "req_jtmhn66ozoukdbsd335hzz6xnu",
       "reservationId": "rsv_2",
       "servedStep": 0,
       "report": {
         "schemaVersion": 2,
-        "requestId": "req_wnxffjwovclze7ljrah3nxxxze",
-        "generationId": "gen_egw6bfwafkksfvyln5p5rmjn74",
+        "requestId": "req_jtmhn66ozoukdbsd335hzz6xnu",
+        "generationId": "gen_ga67vxzizfu3vuoxmqljuzcnau",
         "attribution": {
           "principal": {
             "billing": {
@@ -615,8 +615,8 @@
               "inference:invoke"
             ]
           },
-          "requestId": "req_wnxffjwovclze7ljrah3nxxxze",
-          "generationId": "gen_egw6bfwafkksfvyln5p5rmjn74"
+          "requestId": "req_jtmhn66ozoukdbsd335hzz6xnu",
+          "generationId": "gen_ga67vxzizfu3vuoxmqljuzcnau"
         },
         "outcome": "completed",
         "units": [
@@ -630,16 +630,16 @@
         "servingProvider": "stub",
         "deploymentId": "dep_whisper",
         "routeSwitches": 0,
-        "startedAt": "2026-11-12T06:15:35.964Z",
-        "completedAt": "2026-11-12T06:15:35.964Z",
+        "startedAt": "2026-11-13T04:40:21.725Z",
+        "completedAt": "2026-11-13T04:40:21.725Z",
         "timeToFirstTokenMs": 0
       },
-      "createdAt": "2026-11-12T06:15:35.964Z"
+      "createdAt": "2026-11-13T04:40:21.726Z"
     }
   ],
   "transcription": {
     "schemaVersion": 1,
-    "requestId": "req_wnxffjwovclze7ljrah3nxxxze",
+    "requestId": "req_jtmhn66ozoukdbsd335hzz6xnu",
     "model": "stub/whisper@v1",
     "text": "hola mundo",
     "durationMs": 1500,

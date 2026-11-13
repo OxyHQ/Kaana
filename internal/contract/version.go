@@ -70,7 +70,10 @@ package contract
 // 8.10.0 adds `max_price` and `sort: "price"` to the `provider` routing
 // preference (Kaana ADR 0008); public only, the signed grant and envelope are
 // unchanged.
-const ContractVersion = "8.10.0"
+// 8.11.0 adds the grant operation `rerank` and the public POST /v1/rerank request
+// and response shapes; contract only, nothing in Kaana emits the operation or
+// serves the route yet.
+const ContractVersion = "8.11.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

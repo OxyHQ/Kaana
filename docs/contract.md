@@ -19,6 +19,21 @@ Every contract set, newest first, with the reasoning behind it, is in
 [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md). Add the new set to both
 when the version moves ([version.ts](../packages/contracts/src/public/version.ts) holds the rule).
 
+## Rerank: contract only, not yet served
+
+`POST /v1/rerank` is declared in contract set 8.11.0 and is **not yet served**:
+Kaana has no route, no adapter and no catalogue entry for it, still refuses rerank
+([architecture](architecture.md)), and emits no `rerank` grant operation (the
+operation is the last member of `grantOperationSchema`). Oxy supports it first.
+
+- Request (`rerankRequestSchema`, strict): `model` (`publisher/model[@revision]`),
+  `query` (non-empty), `documents` (1 to 1000 non-empty strings; strings only in
+  v1), optional `top_n` (integer, at least 1), `return_documents` and `user`.
+- Response (`rerankResponseSchema`, strict): `id`, `model`, `results` (`index`,
+  `relevance_score`, optional `document: { text }`; most relevant first) and
+  `usage` (`prompt_tokens`, `total_tokens`). It carries no amount.
+- No usage unit is added. The grant's `estimatedInputTokens` carries the hold.
+
 ## The contract is not re-invented here
 
 `@kaana.ai/contracts` (contract set 4.0.0) is the wire contract, and the Go types in

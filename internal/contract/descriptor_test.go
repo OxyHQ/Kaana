@@ -528,12 +528,14 @@ var notApplicable = map[string]string{
 	// The grant and the settlement (ADR 0002, decisions 3 and 4). Oxy builds the
 	// authorizations and settlements endpoints and Kaana calls them from
 	// internal/publicapi.
-	"receiptAccessSchema": "grant: Oxy owns the generation record; Kaana relays the receipt.read record verbatim and never reads an amount from it",
+	"rerankRequestSchema":  "public api: POST /v1/rerank request (contract only, not yet served)",
+	"rerankResponseSchema": "public api: POST /v1/rerank response (contract only, not yet served)",
+	"receiptAccessSchema":  "grant: Oxy owns the generation record; Kaana relays the receipt.read record verbatim and never reads an amount from it",
 }
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 65
+const expectedNotApplicableCount = 67
 
 type enumBinding struct {
 	goType  reflect.Type

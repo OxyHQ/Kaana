@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.14.0
+
+Depend on contracts 8.11.0: the `rerank` grant operation and the
+`POST /v1/rerank` request and response shapes are exported by the contracts
+package. The client has no `rerank` method: Kaana does not serve the route yet.
+
 ## 3.13.0
 
 Depend on contracts 8.10.0: the `provider` routing preference's request types
