@@ -1176,6 +1176,8 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 // through goEnums because they have no published name of their own, so they are
 // registered here and compared member for member exactly the same way.
 var inlineEnumBindings = []enumBinding{
+	bindEnum(identityAuthorityValues),
+	bindEnum(identityApplicationBindingValues),
 	bindEnum(serviceAuthorityValues),
 	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),

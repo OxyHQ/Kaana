@@ -36,6 +36,7 @@ type fixture struct {
 func TestWriteWireFixtures(t *testing.T) {
 	decisionsValid, decisionsInvalid := decisionWireFixtures(t)
 	authorityValid, authorityInvalid := authorityFixtures(t)
+	identityValid, identityInvalid := identityWireFixtures()
 	valid := append(validFixtures(t), credentialTextFixtures(false)...)
 	valid = append(valid, decisionsValid...)
 	valid = append(valid, realtimeValidFixtures(t)...)
@@ -44,6 +45,7 @@ func TestWriteWireFixtures(t *testing.T) {
 	commercialValid, commercialInvalid := commercialFixtures(t)
 	valid = append(valid, commercialValid...)
 	valid = append(valid, authorityValid...)
+	valid = append(valid, identityValid...)
 	invalid := append(invalidFixtures(), credentialTextFixtures(true)...)
 	invalid = append(invalid, decisionsInvalid...)
 	invalid = append(invalid, realtimeInvalidFixtures(t)...)
@@ -51,6 +53,7 @@ func TestWriteWireFixtures(t *testing.T) {
 	invalid = append(invalid, publicInvalidFixtures(t)...)
 	invalid = append(invalid, commercialInvalid...)
 	invalid = append(invalid, authorityInvalid...)
+	invalid = append(invalid, identityInvalid...)
 
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
@@ -72,11 +75,11 @@ func TestWriteWireFixtures(t *testing.T) {
 	// controls (reasoning on a user message, an effort beside a budget, an empty
 	// reasoning part, a zero budget). Contract set 8.12.0 adds 1 fixture (image
 	// parameters) and 1 control (image parameters on a text request).
-	if len(valid) != 117 {
-		t.Fatalf("expected 117 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 120 {
+		t.Fatalf("expected 120 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 48 {
-		t.Fatalf("expected 48 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 52 {
+		t.Fatalf("expected 52 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
