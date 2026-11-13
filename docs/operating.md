@@ -1037,6 +1037,36 @@ continues to serve the DNS workflow, its zone-scoped DNS Edit permission remains
 necessary too. The workflow names that one secret directly; it never enumerates
 the repository secret context.
 
+## Metrics
+
+Kaana publishes operational metrics the way every Oxy backend does
+(`@oxy.so/telemetry/metrics`): CloudWatch Embedded Metric Format lines on stdout
+(`internal/emf`), which CloudWatch Logs turns into metrics with no agent, sidecar
+or scraper. Namespace `Oxy/Kaana`, dimension `Service=kaana`. They are aggregated in
+memory and written once a minute, one line per metric and label set; the last interval
+is flushed on shutdown.
+
+| Metric | Kind | Dimensions | Alarm on |
+|---|---|---|---|
+| `PublicRequestLatency` | distribution, ms | `Operation`, `Outcome` (a public error code or `completed`) | rate of non-`completed` outcomes; p99 |
+| `GrantLatency` | distribution, ms | | p99: Oxy's authorization round trip |
+| `UpstreamLatency` | distribution, ms | | p99: time waiting on providers |
+| `RateLimited` | sum | | a sustained rate |
+| `SettlementWriteFailed` | sum | | **any**: the settlement is lost |
+| `SettlementWritten` | sum | | zero while traffic flows |
+| `SettlementDeliveryFailed` | sum | | a sustained rate: Oxy is refusing or unreachable |
+| `SettlementDelivered` | sum | | zero while `SettlementWritten` is not |
+
+Rules: every dimension is a closed vocabulary, because each distinct combination is a billed
+custom metric (Mention measured 405 of them from route and method). A request id, model,
+provider, credential or account is never a label. Past 2,000 series in one interval new
+series fold into `other`. Metrics are best effort and never block or fail a request.
+
+Not measured yet: the settlement outbox backlog and its oldest age (a gauge would need a
+database read, which is a new SECURITY DEFINER function and so a schema change), breaker
+state, and per-provider error rates. No alarms are configured by this repository; they
+belong in oxy-infra.
+
 ## Where a public request's time goes
 
 Every billable `/v1` request (responses, chat completions, embeddings, speech,

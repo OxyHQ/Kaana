@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/OxyHQ/Kaana/internal/emf"
 	"io"
 	"log/slog"
 	mathrand "math/rand/v2"
@@ -42,7 +43,9 @@ type SettlerConfig struct {
 	Signer *edgeauth.Signer
 	Client *http.Client
 	Logger *slog.Logger
-	Now    func() time.Time
+	// Metrics receives settlement counters; nil records nothing.
+	Metrics emf.Recorder
+	Now     func() time.Time
 	// Interval is how often the worker looks for due settlements when nothing
 	// nudges it. Zero takes 5 seconds.
 	Interval time.Duration
@@ -50,6 +53,7 @@ type SettlerConfig struct {
 
 // Settler writes settlements to the outbox and delivers them to Oxy.
 type Settler struct {
+	metrics  emf.Recorder
 	store    SettlementStore
 	url      string
 	oxy      OxyControl
@@ -98,7 +102,7 @@ func NewSettler(config SettlerConfig) (*Settler, error) {
 		interval = 5 * time.Second
 	}
 	return &Settler{
-		store: config.Store, url: config.Oxy.ControlURL(contract.OxyKaanaSettlementsEndpoint), oxy: config.Oxy,
+		metrics: config.Metrics, store: config.Store, url: config.Oxy.ControlURL(contract.OxyKaanaSettlementsEndpoint), oxy: config.Oxy,
 		signer: config.Signer, client: controlClient(config.Client),
 		logger: logger, now: now, interval: interval, nudge: make(chan struct{}, 1),
 		stop: make(chan struct{}), stopped: make(chan struct{}),
@@ -167,8 +171,10 @@ func (s *Settler) Settle(ctx context.Context, grant *contract.Grant, report cont
 	if err != nil {
 		s.logger.Error("a settlement could not be written to the outbox", "requestId", grant.RequestID, "grantId", grant.GrantID,
 			"errorType", "settlement_persistence", "error", err)
+		s.record(emf.SettlementWriteFailed, 1)
 		return err
 	}
+	s.record(emf.SettlementWritten, 1)
 	select {
 	case s.nudge <- struct{}{}:
 	default:
@@ -237,8 +243,10 @@ func (s *Settler) deliver(ctx context.Context, row credentialstore.ClaimedSettle
 			// duplicate, never a second charge.
 			s.logger.Error("a delivered settlement could not be marked", "settlementId", row.SettlementID, "error", err)
 		}
+		s.record(emf.SettlementDelivered, 1)
 		return
 	}
+	s.record(emf.SettlementDeliveryFailed, 1)
 	backoff := min(settlementMaxBackoff, time.Duration(1<<min(row.Attempts, 10))*time.Second)
 	backoff += time.Duration(mathrand.Int64N(int64(backoff/4) + 1))
 	if failure == "oxy_rejected" {
@@ -372,4 +380,10 @@ func (h ReconciliationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(page.Bytes())
+}
+
+func (s *Settler) record(metric emf.Metric, value float64) {
+	if s.metrics != nil {
+		s.metrics.Record(metric, value, nil)
+	}
 }
