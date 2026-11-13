@@ -41,9 +41,12 @@ type publicAPIDependencies struct {
 	// oxy is Kaana's access to Oxy's /internal/kaana/v1/*: the token for it
 	// (audience oxy-api:kaana-control; an oxy-api token is refused there with
 	// 401) and each route on the Oxy origin KAANA_OXY_API_BASE_URL names.
-	oxy    publicapi.OxyControl
-	logger *slog.Logger
-	getenv func(string) string
+	oxy publicapi.OxyControl
+	// oxyBase carries the grant and settlement calls to Oxy; it is the activity
+	// observer's transport when ecosystem activity is on, else nil (the default).
+	oxyBase http.RoundTripper
+	logger  *slog.Logger
+	getenv  func(string) string
 }
 
 // publicAPI is the public surface, when it is enabled.
@@ -107,14 +110,14 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		return publicAPI{}, err
 	}
 	authorizer, err := publicapi.NewOxyAuthorizer(publicapi.OxyAuthorizerConfig{
-		Oxy: deps.oxy, Grants: grants, Logger: deps.logger,
+		Oxy: deps.oxy, Grants: grants, Logger: deps.logger, Client: &http.Client{Transport: deps.oxyBase},
 		Timeout: durationFromEnv("KAANA_OXY_AUTHORIZATION_TIMEOUT", 10*time.Second),
 	})
 	if err != nil {
 		return publicAPI{}, err
 	}
 	settler, err := publicapi.NewSettler(publicapi.SettlerConfig{
-		Store: deps.store, Oxy: deps.oxy, Signer: signer, Logger: deps.logger, Metrics: deps.metrics,
+		Store: deps.store, Oxy: deps.oxy, Signer: signer, Logger: deps.logger, Client: &http.Client{Transport: deps.oxyBase}, Metrics: deps.metrics,
 	})
 	if err != nil {
 		return publicAPI{}, err
