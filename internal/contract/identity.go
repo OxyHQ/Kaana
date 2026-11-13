@@ -30,23 +30,44 @@ type IdentityLane string
 
 const IdentityLaneMachine IdentityLane = "machine_credential"
 const IdentityLaneService IdentityLane = "service_token"
+const IdentityLaneSession IdentityLane = "product_session"
 
-var identityLaneValues = []IdentityLane{IdentityLaneMachine, IdentityLaneService}
+type IdentityAuthority string
+
+const IdentityAuthoritySession IdentityAuthority = "session"
+const IdentityAuthorityFirstParty IdentityAuthority = "first_party"
+const IdentityAuthorityExternal IdentityAuthority = "external"
+
+var identityAuthorityValues = []IdentityAuthority{IdentityAuthorityFirstParty, IdentityAuthorityExternal, IdentityAuthoritySession}
+
+var identityLaneValues = []IdentityLane{IdentityLaneMachine, IdentityLaneService, IdentityLaneSession}
+
+type IdentityApplicationBinding string
+
+var identityApplicationBindingValues = []IdentityApplicationBinding{"session", "platform", "public_client_id"}
+
+type IdentityVerifiedRequester struct {
+	SubjectAccountID AccountID `json:"subjectAccountId"`
+	PrincipalUserID  UserID    `json:"principalUserId"`
+}
 
 type IdentityApplicationClass string
 
 var identityApplicationClassValues = []IdentityApplicationClass{"first_party", "third_party", "internal", "system"}
 
 type IdentityPrincipal struct {
-	OwnerAccountID        AccountID                `json:"ownerAccountId"`
-	ApplicationID         ApplicationID            `json:"applicationId"`
-	CredentialID          CredentialID             `json:"credentialId"`
-	Environment           Environment              `json:"environment"`
-	Lane                  IdentityLane             `json:"lane"`
-	Authority             ServiceAuthority         `json:"authority"`
-	ApplicationClass      IdentityApplicationClass `json:"applicationClass"`
-	ApplicationIsInternal bool                     `json:"applicationIsInternal"`
-	Scopes                []Scope                  `json:"scopes,omitempty"`
+	OwnerAccountID            *AccountID                  `json:"ownerAccountId,omitempty"`
+	ApplicationOwnerAccountID *AccountID                  `json:"applicationOwnerAccountId,omitempty"`
+	VerifiedRequester         *IdentityVerifiedRequester  `json:"verifiedRequester,omitempty"`
+	ApplicationBinding        *IdentityApplicationBinding `json:"applicationBinding,omitempty"`
+	ApplicationID             ApplicationID               `json:"applicationId"`
+	CredentialID              CredentialID                `json:"credentialId"`
+	Environment               Environment                 `json:"environment"`
+	Lane                      IdentityLane                `json:"lane"`
+	Authority                 IdentityAuthority           `json:"authority"`
+	ApplicationClass          IdentityApplicationClass    `json:"applicationClass"`
+	ApplicationIsInternal     bool                        `json:"applicationIsInternal"`
+	Scopes                    []Scope                     `json:"scopes,omitempty"`
 }
 
 func (p IdentityPrincipal) MarshalJSON() ([]byte, error) {
@@ -55,7 +76,7 @@ func (p IdentityPrincipal) MarshalJSON() ([]byte, error) {
 		wire
 		Scopes *[]Scope `json:"scopes,omitempty"`
 	}{wire: wire(p)}
-	if p.Authority == AuthorityExternal {
+	if p.Authority == IdentityAuthorityExternal {
 		scopes := p.Scopes
 		if scopes == nil {
 			scopes = []Scope{}
@@ -78,30 +99,52 @@ func (p *IdentityPrincipal) UnmarshalJSON(data []byte) error {
 	if value, ok := fields["applicationIsInternal"]; !ok || string(value) == "null" {
 		return errors.New("contract: applicationIsInternal must be stated")
 	}
-	if err := validateAuthorityWire(data, &v.Authority, "scopes"); err != nil {
-		return err
+	if v.Authority == IdentityAuthoritySession {
+		for _, name := range []string{"ownerAccountId", "scopes"} {
+			if _, present := fields[name]; present {
+				return errors.New("contract: session cannot carry workload authority")
+			}
+		}
+	} else {
+		for _, name := range []string{"applicationOwnerAccountId", "verifiedRequester", "applicationBinding"} {
+			if _, present := fields[name]; present {
+				return errors.New("contract: workload cannot carry session authority")
+			}
+		}
+		if err := validateAuthorityWire(data, (*ServiceAuthority)(&v.Authority), "scopes"); err != nil {
+			return err
+		}
 	}
 	*p = IdentityPrincipal(v)
 	return p.Validate()
 }
 
 func (p IdentityPrincipal) Validate() error {
-	if !identityID(string(p.OwnerAccountID), 64) || !identityID(string(p.ApplicationID), 64) || !identityID(string(p.CredentialID), 64) || !isMember(p.Environment, environmentValues) {
+	if !identityID(string(p.ApplicationID), 64) || !identityID(string(p.CredentialID), 64) || !isMember(p.Environment, environmentValues) {
 		return errors.New("contract: identity principal is incomplete")
-	}
-	if p.Lane != IdentityLaneService && p.Lane != IdentityLaneMachine {
-		return errors.New("contract: identity lane is unsupported")
 	}
 	if !slices.Contains(identityApplicationClassValues, p.ApplicationClass) {
 		return errors.New("contract: identity application class is unsupported")
 	}
-	if p.Authority != AuthorityFirstParty && p.Authority != AuthorityExternal {
+	if p.Authority == IdentityAuthoritySession {
+		if p.Lane != IdentityLaneSession || p.OwnerAccountID != nil || p.Scopes != nil || (p.ApplicationOwnerAccountID == nil || !identityID(string(*p.ApplicationOwnerAccountID), 64)) || p.VerifiedRequester == nil || !identityID(string(p.VerifiedRequester.SubjectAccountID), 64) || !identityID(string(p.VerifiedRequester.PrincipalUserID), 64) || (p.ApplicationBinding == nil || !slices.Contains(identityApplicationBindingValues, *p.ApplicationBinding)) {
+			return errors.New("contract: session identity is incomplete or mixes authorities")
+		}
+		return nil
+	}
+	if (p.OwnerAccountID == nil || !identityID(string(*p.OwnerAccountID), 64)) || p.ApplicationOwnerAccountID != nil || p.VerifiedRequester != nil || p.ApplicationBinding != nil {
+		return errors.New("contract: workload identity is incomplete or mixes authorities")
+	}
+	if p.Lane != IdentityLaneService && p.Lane != IdentityLaneMachine {
+		return errors.New("contract: identity lane is unsupported")
+	}
+	if p.Authority != IdentityAuthorityFirstParty && p.Authority != IdentityAuthorityExternal {
 		return errors.New("contract: identity authority is explicit")
 	}
-	if p.Authority == AuthorityFirstParty && p.Lane != IdentityLaneService {
+	if p.Authority == IdentityAuthorityFirstParty && p.Lane != IdentityLaneService {
 		return errors.New("contract: first-party identity requires a workload")
 	}
-	return validateAuthority(&p.Authority, p.Scopes)
+	return validateAuthority((*ServiceAuthority)(&p.Authority), p.Scopes)
 }
 
 type IdentityAssertion struct {
@@ -149,6 +192,9 @@ func (a IdentityAssertion) Validate() error {
 	}
 	if a.UserID != nil && !identityID(string(*a.UserID), 64) {
 		return errors.New("contract: identity attribution is invalid")
+	}
+	if a.Principal.Authority == IdentityAuthoritySession && (a.Principal.VerifiedRequester == nil || a.UserID == nil || string(*a.UserID) != string(a.Principal.VerifiedRequester.SubjectAccountID)) {
+		return errors.New("contract: session attribution must be the verified subject account")
 	}
 	return a.Principal.Validate()
 }
