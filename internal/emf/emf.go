@@ -68,7 +68,7 @@ type Recorder interface {
 const (
 	maxDistributionValues = 100
 	bucketBase            = 1.05
-	maxLabelValueLength   = 128
+	maxLabelValueLength   = 128 // UTF-16 code units, as in the TypeScript publisher
 	defaultMaxSeries      = 2000
 )
 
@@ -288,12 +288,9 @@ func cleanLabels(metric Metric, labels Labels) map[string]string {
 		if !labelName.MatchString(name) || name == "_aws" || name == "Service" || name == metric.Name {
 			continue
 		}
-		if len(raw) > maxLabelValueLength {
-			raw = raw[:maxLabelValueLength]
-		}
-		// Truncation can cut a rune; drop the fragment before judging emptiness,
-		// so a value that is only a fragment reads "unknown" too.
-		raw = strings.ToValidUTF8(raw, "")
+		// Invalid bytes cannot be encoded as JSON text; drop them before judging
+		// length and emptiness, so a value of only fragments reads "unknown" too.
+		raw = truncateUTF16(strings.ToValidUTF8(raw, ""), maxLabelValueLength)
 		if raw == "" {
 			raw = "unknown"
 		}
@@ -309,6 +306,27 @@ func cleanLabels(metric Metric, labels Labels) map[string]string {
 		}
 	}
 	return clean
+}
+
+// truncateUTF16 keeps the longest prefix of at most limit UTF-16 code units
+// that ends on a whole character. The TypeScript publisher measures a label
+// value in UTF-16 units (String.length), so Go counts the same way: counting
+// bytes would cut "é" or an emoji at half the length every other backend
+// keeps. Where the TypeScript slice would leave half a surrogate pair, which
+// JSON text cannot carry, this drops the whole character.
+func truncateUTF16(value string, limit int) string {
+	units := 0
+	for index, r := range value {
+		width := 1
+		if r > 0xFFFF {
+			width = 2
+		}
+		if units+width > limit {
+			return value[:index]
+		}
+		units += width
+	}
+	return value
 }
 
 func seriesKey(metric Metric, labels map[string]string) string {
