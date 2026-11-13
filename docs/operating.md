@@ -974,6 +974,56 @@ snapshot after a failed reload.
 distroless image cannot run a shell-based Docker/ECS health command, so the
 probe comes from outside the container.
 
+### Metrics
+
+`GET /internal/v1/metrics` is signed exactly like `/internal/v1/health`
+(`X-Oxy-Key-Id`, timestamp and signature over an empty body; an unsigned or
+badly signed request is refused `401` with no metric content). It answers
+Prometheus text exposition, `Content-Type: text/plain; version=0.0.4`, built at
+request time from the state the health route already reads. Nothing is recorded
+on the request path for it. There is no unsigned `/metrics`.
+
+Every family is a gauge (per-window counts are gauges because the window
+slides), formatted by `internal/metricsexport`: sorted, label values escaped,
+non-finite numbers omitted.
+
+- Process: `kaana_build_info{contract_version}`,
+  `kaana_inventory_snapshot_age_seconds`,
+  `kaana_inventory_snapshot_max_age_seconds`,
+  `kaana_inventory_serves_unpinned_references` (0 once past the staleness
+  horizon), `kaana_inventory_deployments`.
+- Per provider (`provider`): `kaana_provider_status{status}` one-hot over
+  `ok|degraded|unavailable|unconfigured`, and
+  `kaana_provider_credential_keys_declared|usable|out` (counts only, from the
+  same key-pool projection as health `providers`).
+- Per deployment (`deployment_id`, `provider`): `kaana_deployment_breaker_state`
+  (0 closed, 1 open, 2 half open), `kaana_deployment_health_score`,
+  `kaana_deployment_consecutive_failures`.
+- Per deployment and `window` (`5m|30m|1d`):
+  `kaana_deployment_window_attempts|succeeded|throttled|tool_call_attempts|tool_call_errors`,
+  `kaana_deployment_window_uptime_ratio`, and
+  `kaana_deployment_window_time_to_first_output_ms` and
+  `kaana_deployment_window_tokens_per_second` with `quantile`
+  `0.5|0.75|0.9|0.99`. A measurement the window has none of is omitted, not
+  zero.
+
+The label vocabulary is closed (`deployment_id`, `provider`, `window`,
+`quantile`, `status`, `contract_version`) and cardinality is bounded by the
+inventory snapshot. No prompt, completion, user address, key, key id, upstream
+URL or provider text can appear: the formatter has no field for them.
+
+Not exported: in-flight request count (nothing cheap counts it today).
+
+**How to scrape it, honestly.** A vanilla Prometheus scrape cannot reach this
+route, because it cannot produce an Oxy edge signature. A scraper must hold a
+key the verifier accepts, sign each request, and either feed Prometheus (a
+sidecar that exposes the unsigned text on a private interface, or remote-write)
+or forward it elsewhere. No such scraper exists in this repository, and this
+change adds no CloudWatch export and no infrastructure. The route is the data
+source only; until something holding the signing key polls it, the numbers are
+reachable only by hand-signed requests. It has not been exercised against a
+deployed Kaana.
+
 The Cloudflare DNS workflow never retires the legacy `api.kaana.ai` name by
 default. Retirement requires `action=apply`,
 `retire_legacy_api_dns=true`, the expected dedicated `alb_dns`, and
