@@ -358,12 +358,16 @@ func run(logger *slog.Logger) error {
 	})
 	defer metrics.Stop()
 	public, err := buildPublicAPI(publicAPIDependencies{
-		metrics:   metrics,
-		catalogue: declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, rotation: rotationRegistry, sessions: sessions,
+		commercial: deploymentCommercial,
+		metrics:    metrics,
+		catalogue:  declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, rotation: rotationRegistry, sessions: sessions,
 		store: credentialDatabase, keys: keys, oxy: validationReporter, logger: logger,
 	})
 	if err != nil {
 		return err
+	}
+	if public.closeNative != nil {
+		defer public.closeNative()
 	}
 
 	address := os.Getenv("KAANA_ADDR")
@@ -413,6 +417,7 @@ func run(logger *slog.Logger) error {
 
 	if public.settler != nil {
 		go public.settler.Run(ctx)
+		go func() { _ = public.server.RunNativeReconciliation(ctx) }()
 	}
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, deploymentStats, registry, logger,
 		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))

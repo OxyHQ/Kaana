@@ -37,6 +37,9 @@ func TestWriteWireFixtures(t *testing.T) {
 	decisionsValid, decisionsInvalid := decisionWireFixtures(t)
 	authorityValid, authorityInvalid := authorityFixtures(t)
 	identityValid, identityInvalid := identityWireFixtures()
+	meteredValid, meteredInvalid := meteredGenerationFixtures()
+	chargedValid, chargedInvalid := chargedGenerationFixtures()
+
 	valid := append(validFixtures(t), credentialTextFixtures(false)...)
 	valid = append(valid, decisionsValid...)
 	valid = append(valid, realtimeValidFixtures(t)...)
@@ -46,6 +49,9 @@ func TestWriteWireFixtures(t *testing.T) {
 	valid = append(valid, commercialValid...)
 	valid = append(valid, authorityValid...)
 	valid = append(valid, identityValid...)
+	valid = append(valid, meteredValid...)
+	valid = append(valid, chargedValid...)
+
 	invalid := append(invalidFixtures(), credentialTextFixtures(true)...)
 	invalid = append(invalid, decisionsInvalid...)
 	invalid = append(invalid, realtimeInvalidFixtures(t)...)
@@ -54,6 +60,8 @@ func TestWriteWireFixtures(t *testing.T) {
 	invalid = append(invalid, commercialInvalid...)
 	invalid = append(invalid, authorityInvalid...)
 	invalid = append(invalid, identityInvalid...)
+	invalid = append(invalid, meteredInvalid...)
+	invalid = append(invalid, chargedInvalid...)
 
 	// Floors, so "the validator found nothing wrong" cannot be what an empty
 	// directory looks like. They are exact rather than minimums for the same
@@ -75,11 +83,12 @@ func TestWriteWireFixtures(t *testing.T) {
 	// controls (reasoning on a user message, an effort beside a budget, an empty
 	// reasoning part, a zero budget). Contract set 8.12.0 adds 1 fixture (image
 	// parameters) and 1 control (image parameters on a text request).
-	if len(valid) != 121 {
-		t.Fatalf("expected 121 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 125 {
+		t.Fatalf("expected 125 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 53 {
-		t.Fatalf("expected 53 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 60 {
+		t.Fatalf("expected 60 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+
 	}
 
 	root := fixtureOutputRoot(t)
@@ -99,7 +108,7 @@ func fixtureOutputRoot(t *testing.T) string {
 	} else if !filepath.IsAbs(root) {
 		t.Fatalf("%s must be an absolute path, got %q", fixtureOutputEnv, root)
 	}
-	if err := os.Mkdir(root, 0o755); err != nil {
+	if err := os.Mkdir(root, 0o760); err != nil {
 		t.Fatalf("creating fresh fixture root %s: %v", root, err)
 	}
 	return root
@@ -107,7 +116,7 @@ func fixtureOutputRoot(t *testing.T) string {
 
 func writeFixtures(t *testing.T, dir string, fixtures []fixture) {
 	t.Helper()
-	if err := os.Mkdir(dir, 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o760); err != nil {
 		t.Fatalf("creating %s: %v", dir, err)
 	}
 	for index, item := range fixtures {

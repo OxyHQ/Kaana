@@ -11,18 +11,24 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // authorization is what one request asks Oxy to grant, in content-free terms.
 type authorization struct {
-	operation       contract.GrantOperation
-	target          *contract.GrantTarget
-	facts           contract.GrantRequestFacts
-	body            []byte
-	endpoint        string
-	labels          contract.RequestLabels
-	clientRequestID *string
+	nativeFormat        *contract.ResponseFormat
+	nativeReasoning     *contract.ReasoningParameters
+	nativeUnsupported   bool
+	sessionMaxDuration  time.Duration
+	sessionMaxResponses int
+	operation           contract.GrantOperation
+	target              *contract.GrantTarget
+	facts               contract.GrantRequestFacts
+	body                []byte
+	endpoint            string
+	labels              contract.RequestLabels
+	clientRequestID     *string
 	// onBehalfOf is a delegated user the body names (OpenAI's `user`);
 	// X-Oxy-User-Id, when present, must agree with it.
 	onBehalfOf *contract.UserID
@@ -36,13 +42,15 @@ type authorization struct {
 // admission is a request Oxy granted and Kaana resolved: everything the
 // execution and the settlement need, and nothing of the caller's credential.
 type admission struct {
-	requestID  contract.RequestID
-	receivedAt time.Time
-	grant      *contract.Grant
-	plan       *plan
-	labels     contract.RequestLabels
-	clientID   *string
-	endpoint   string
+	native         *nativeadmission.Admission
+	idempotencyKey *contract.IdempotencyKey
+	requestID      contract.RequestID
+	receivedAt     time.Time
+	grant          *contract.Grant
+	plan           *plan
+	labels         contract.RequestLabels
+	clientID       *string
+	endpoint       string
 	// affinity is the scoped hash of the request's prompt_cache_key, nil when it
 	// sent none; the deployment that serves is remembered under it.
 	affinity *[32]byte
@@ -80,6 +88,12 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 	key, ok := idempotencyKey(r)
 	if !ok {
 		return nil, invalid(requestID, HeaderIdempotencyKey, "Idempotency-Key is 1 to 255 characters on one line")
+	}
+	if s.native != nil {
+		native, selected, failure := s.admitNative(ctx, r, requestID, receivedAt, ask, bearer.value, user, key)
+		if selected || failure != nil {
+			return native, failure
+		}
 	}
 	request := contract.InferenceAuthorizationRequest{
 		SchemaVersion:    contract.AuthorizationSchemaVersion,
@@ -141,7 +155,7 @@ func (s *Server) releaseUnserved(_ context.Context, grant *contract.Grant) {
 func (a *admission) request(modality contract.Modality, format contract.APIFormat, input contract.Input) contract.Request {
 	return contract.Request{
 		SchemaVersion: contract.RequestEnvelopeVersion,
-		Attribution:   a.grant.Attribution(),
+		Attribution:   a.attribution(),
 		Target:        a.plan.target,
 		Modality:      modality,
 		Input:         input,
@@ -149,8 +163,8 @@ func (a *admission) request(modality contract.Modality, format contract.APIForma
 			APIFormat: format, Endpoint: a.endpoint, ClientRequestID: a.clientID,
 			ReceivedAt: contract.NewTimestamp(a.receivedAt), Labels: a.labels,
 		},
-		IdempotencyKey:   a.grant.IdempotencyKey,
-		RoutingPolicy:    a.grant.RoutingPolicy,
+		IdempotencyKey:   a.key(),
+		RoutingPolicy:    a.routingPolicy(),
 		AuthorizedRoutes: a.plan.routes,
 	}
 }
@@ -159,6 +173,9 @@ func (a *admission) request(modality contract.Modality, format contract.APIForma
 // outcome. The executor leaves the provider cost to the settlement, which
 // writes both in one transaction.
 func (s *Server) execute(ctx context.Context, a *admission, request *contract.Request, sink kaana.Sink) kaana.Result {
+	if a.native != nil {
+		return s.executeNative(ctx, a, request, sink)
+	}
 	executing := time.Now()
 	result := s.executor.Execute(kaana.WithCacheWritePriced(kaana.DeferCostRecording(ctx), s.cacheWritePriced(a.grant)), request, sink)
 	traceFrom(ctx).executed(time.Since(executing), result.Failure)
@@ -183,7 +200,7 @@ func (s *Server) execute(ctx context.Context, a *admission, request *contract.Re
 		// part of the request's timing line, but a slow outbox still matters.
 		settling := time.Now()
 		err := s.settle(context.WithoutCancel(ctx), a, result)
-		s.logger.Info("public request settlement", "requestId", a.requestID, "grantId", a.grant.GrantID,
+		s.logger.Info("public request settlement", "requestId", a.requestID, "admissionId", a.executionID(),
 			"written", err == nil, "settleMs", time.Since(settling).Milliseconds())
 	}()
 	return result
@@ -195,7 +212,7 @@ func (s *Server) execute(ctx context.Context, a *admission, request *contract.Re
 // message, which can carry upstream text.
 func (s *Server) logFailure(a *admission, result kaana.Result) {
 	attributes := []any{
-		"requestId", a.requestID, "grantId", a.grant.GrantID,
+		"requestId", a.requestID, "admissionId", a.executionID(),
 		"code", result.Failure.Code, "retryable", result.Failure.Retryable,
 		"upstreamAttempts", len(result.UpstreamCost.Attempts),
 	}
@@ -246,7 +263,7 @@ func (a *admission) unservedReport(failure *contract.Error, now time.Time) *cont
 		completed = started
 	}
 	return &contract.UsageReport{
-		SchemaVersion: contract.UsageReportSchemaVersion, RequestID: a.requestID, Attribution: a.grant.Attribution(),
+		SchemaVersion: contract.UsageReportSchemaVersion, RequestID: a.requestID, Attribution: a.attribution(),
 		Outcome: outcome, Units: []contract.UsageQuantity{}, UsageSource: contract.UsageEstimated,
 		ResolvedModelReference: first.ModelReference, ServingProvider: first.Provider, DeploymentID: first.DeploymentID,
 		StartedAt: started, CompletedAt: completed,

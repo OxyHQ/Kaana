@@ -4,21 +4,20 @@ How Kaana splits between this data plane and Oxy's control plane, and what is de
 
 ## The boundary, in one paragraph
 
-Kaana owns request normalization, provider adapters, routing **execution**,
-streaming, cancellation, model deployments, provider health and technical
-metering. Kaana never owns accounts, organizations, projects, members,
-applications, Oxy login/API credentials, provider-connection policy or
-metadata, balances, a billing ledger or a customer console. Upstream provider
-credentials are Kaana-owned secrets and live only as KMS ciphertext in
-PostgreSQL, whether Oxy or a BYOK customer pays the provider. Kaana stores Oxy identifiers
-as **immutable, opaque strings** and never as records it
-may create, edit or delete. Authorization, attribution, scope checks and spend
-reservation all happen **in Oxy, before a request reaches Kaana** — Kaana does
-not re-derive them, and an envelope that does not carry them is refused.
+Kaana owns inference normalization, catalogue and power levels, routing policy,
+provider execution, metering and, under the accepted
+[ADR 0010](adr/0010-kaana-sells-and-invoices.md), economic admission, accounting
+and invoicing. Oxy owns accounts, organizations, applications and credentials;
+Kaana treats their identifiers as opaque identity facts. Gemies owns product
+conversations, agents, memory, tools and approvals.
 
-If a change would put an Oxy-owned concept in this repository, the change is
-wrong, not the boundary. The rules a reviewer applies are at the end of this
-document; `AGENTS.md` is the one-line index to them.
+The financial migration is staged. Existing Oxy-signed requests and grants
+remain authoritative until their population's verified cutover. Kaana-native
+admission requires explicit enrollment and a durable policy/idempotency record;
+it cannot be enabled by interpreting an identity assertion as a spend grant.
+Provider credentials remain exclusively KMS ciphertext in Kaana's PostgreSQL
+store. Customer money and upstream provider cost are separate accounting
+boundaries, not reasons to copy Oxy's identity entities.
 
 
 ## The surfaces
@@ -31,11 +30,10 @@ Provider keys, what providers charge for them and which key serves are
 Kaana's ([ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)):
 exact opaque key identity, stated funding (free, credits, paid), upstream
 verdict, evidence source, observation time and recovery lease. Kaana walks a
-deployment's key pool cheapest first and never beyond the funding ceiling Oxy
-authorized. Oxy owns the customer side: accounts, API keys, credits, quotas,
-the price a customer is charged and policy limits. [ADR 0010](adr/0010-kaana-sells-and-invoices.md)
-proposes moving the selling and invoicing to Kaana; until it is accepted and its
-first phase ships, that is still Oxy's. Kaana does not infer funding from a
+deployment's key pool cheapest first and never beyond its admission's funding
+ceiling. Oxy retains identity and API-key authority. Kaana owns inference
+policy and customer economics; legacy Oxy-owned admissions keep their original
+financial authority until the staged migration in ADR 0010 completes. Kaana does not infer funding from a
 credential or turn its technical state table into a wallet.
 
 ```
@@ -135,36 +133,22 @@ history, not a rule; the rules are below.
 
 ## Rules a reviewer applies
 
-The ownership split is the paragraph at the top of this document ([ADR
-0005][adr0005], [Oxy ADR 0006][adr0006]). Kaana owns request normalization,
-provider adapters, routing *execution*, streaming, cancellation, model
-deployments, provider health and circuit breakers, technical metering, upstream
-provider cost, and encrypted custody of every upstream provider secret,
-including customer BYOK. Kaana must never own accounts, organizations,
-projects, members, applications, Oxy login/application credentials,
-provider-connection policy or metadata, customer balances, a billing ledger or
-a customer console.
+The ownership split above and ADR 0010 govern new work. Preserve original
+Oxy authority for legacy requests while Kaana-native admission is staged.
 
-- **An Oxy id is an immutable opaque string.** Kaana never parses it, joins it
-  against a local entity, or updates it. A table whose *primary* key is an Oxy id
-  is a copy of an Oxy entity and is forbidden. A column holding one, written once
-  at request time and never updated, is the intended shape.
-- **Kaana authorizes nothing about a customer.** Scope checks, account access,
-  provider-connection eligibility and spend reservation are resolved at the Oxy
-  edge; the envelope is an already-authorized instruction. Kaana enforces only
-  the exact active ciphertext handle and identity Oxy signed. Re-deriving policy
-  reintroduces the replication lag that makes revocation unsafe. The one
-  exception is refusing an envelope that carries no `inference:invoke` — that is
-  a malformed instruction from the edge, not a customer decision.
-- **Kaana measures units and puts no amount in an inference response.** The usage
-  report has units and no money. `Money` exists in the contract only as a value
-  Kaana relays (a grant's ceiling, a receipt) and in the catalogue's list prices.
-  What a customer is charged is Oxy's today; [ADR 0010](adr/0010-kaana-sells-and-invoices.md)
-  proposes that Kaana does it, which is the moment a second ledger would start
-  and why it is decided in an ADR and not slipped into a change (`cost.md`).
-- **If a change would put an Oxy-owned concept here, the change is wrong, not
-  the boundary.** A schema review is a boundary review.
-
-[epic]: https://github.com/OxyHQ/oxy/issues/972
-[adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md
-[adr0006]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0006-oxy-kaana-boundary.md
+- **An Oxy ID is an immutable opaque string.** Do not recreate Oxy identity
+  entities, parse their IDs or use them as local primary keys. Kaana-owned
+  financial records use local keys and carry authenticated Oxy references.
+- **Identity is not spend authority.** Native policy is reviewed and bound to
+  the exact verified principal. Public application attribution and session
+  identity cannot impersonate a workload or choose an application's payer.
+  Re-read identity through its owner; do not replicate credentials or invent
+  scopes.
+- **One admission has one financial authority.** Preserve signed legacy
+  constraints, immutable native policy/price snapshots and the cross-cutover
+  idempotency fence. Timeout and retry cannot change ledgers or execute twice.
+- **Separate customer money from technical usage and upstream cost.** Usage
+  reports remain units; provider costs are private operator accounting. Only
+  the canonical financial/receipt contract may expose customer amounts.
+- **Source is not rollout.** No native enrollment, schema application, balance
+  transfer or invoice delivery is established by this architecture document.

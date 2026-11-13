@@ -13,6 +13,10 @@ first-party service Oxy edge -> Kaana (signed /internal/v1 lane) -> provider
 
 The two ways in, and who decides what on each, are in [lanes.md](lanes.md).
 
+This is the accepted successor boundary (ADR 0010), not a claim that every
+caller or financial population has migrated. Existing Oxy economic grants
+remain the transitional authority until verified cutover.
+
 Which product feature takes which path is kept in one place,
 [Oxy's request-routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/request-routing.md).
 
@@ -35,31 +39,21 @@ Which product feature takes which path is kept in one place,
   level is a slug with no `/` (`auto`, `instant`, `medium`, `high`, `xhigh`,
   `pro`, `ultra`). Alia shows levels, never model names.
 - **Kaana is not the agent runtime.** Conversations, tools, memory, approvals
-  and agents belong to Alia ([identity-and-routing.md](identity-and-routing.md#kaana-is-not-alia)).
-- **Oxy decides who may spend and what a request may run on.** It authenticates
-  the caller, applies the app's policy (default target, allowed levels, model
-  lines, provider and region limits), reserves and settles spend, and signs either
-  an ordered list of opaque `deploymentId`s (signed lane) or a grant whose steps
-  Kaana resolves into routes (public lane). Display names, database order or a
-  "first row" never select a route
-  ([identity-and-routing.md](identity-and-routing.md#exact-deployment-identity-and-order)).
-- **Route priority has two owners.** On the signed lane Oxy owns it: free
-  allowance, then discounted pay-as-you-go, then promotional credit, then standard
-  paid, as reviewed data on an exact deployment, never a provider-name allow-list
-  ([Oxy's routing.md](https://github.com/OxyHQ/oxy/blob/main/docs/inference/routing.md#ranking-after-qualification)).
-  On the public lane Kaana orders inside the grant by the funding tier of the keys
-  it holds, then the grant's line order, then the caller's preferences
-  ([lanes.md](lanes.md)). Stale, exhausted or `unknown` evidence makes a route
-  ineligible on both.
-- **Kaana measures exact units and puts no amount in an inference response.**
-  Accounts, application credentials, balances and billing are Oxy's today. Kaana
-  owns live execution facts: provider-key health, raw quota responses and measured
-  usage ([cost.md](cost.md)), and the declared list price of each model line, which
-  Oxy rates grants at and a caller's `provider.max_price` and `sort: "price"` read
-  ([ADR 0008](adr/0008-provider-selection-lessons.md)). The owner has decided that
-  Kaana will sell and invoice, with Oxy keeping identity; until
-  [ADR 0010](adr/0010-kaana-sells-and-invoices.md) is accepted and its first phase
-  ships, that is a proposal and production works as stated here.
+  and agents belong to Gemies (including Alia) ([identity-and-routing.md](identity-and-routing.md#kaana-is-not-alia)).
+- **Kaana owns inference policy and spending; Oxy supplies identity.** The
+  owner accepted this boundary in [ADR 0010](adr/0010-kaana-sells-and-invoices.md).
+  A verified identity alone grants no inference or spending permission. Kaana
+  owns model eligibility, funding restrictions, capacity, prices, holds and
+  settlement for its enrolled population. Preserve reviewed terms through the
+  migration; product names and public client IDs never select an unbilled policy.
+- **Each admission keeps its authority.** Legacy Oxy grants retain their
+  signed routes and settle in Oxy. Kaana-native admissions persist their own
+  policy and price snapshot before execution. A retry or timeout cannot switch
+  ledgers; existing idempotency bindings must be fenced before cutover.
+- **Technical usage, provider cost and customer charge are different facts.**
+  Measured units are not an amount. Provider cost stays private to operator
+  accounting. Customer amounts belong only in the canonical financial/receipt
+  contract, rated at immutable prices; identity assertions contain none.
 - **Provider credentials live only in Kaana's encrypted PostgreSQL store**
   (KMS ciphertext). Never in product databases, environment variables, task
   definitions or bundles. An Oxy application key identifies a product (Alia,
@@ -67,7 +61,7 @@ Which product feature takes which path is kept in one place,
   ([key-pools.md](key-pools.md)).
 - **A deployment executes on its provider's key pool, or on one pinned key.**
   Kaana owns every provider key and walks the pool cheapest stated funding first
-  (free, credits, paid, unstated) within the funding ceiling Oxy signed; an
+  (free, credits, paid, unstated) within the admission's funding ceiling; an
   operator pin to an exact `(provider, keyId)` is final and never falls back to
   the pool ([key-pools](key-pools.md),
   [ADR 0001](adr/0001-kaana-owns-provider-keys-costs-and-routing.md)).
@@ -85,7 +79,7 @@ A merged change proves the contract and its gates, not that a task, migration,
 credential rekey or canary has run. A cutover is complete only when the runbook
 has read back the running artifact and configuration, and a real request has
 completed with the expected Oxy attribution and Kaana usage receipt. Until then,
-call it a candidate or a pending rollout. Documents mark each feature **live**
-(on `main`), **rolling out** or **proposed**; the table is in the developer
-guide. The request v2 candidate validation is
+call it a candidate or a pending rollout. A merge to `main` is source evidence;
+**live** requires production readback and acceptance. Report accepted design,
+implemented source and verified production separately. The request v2 candidate validation is
 [Oxy's kaana-request-v2-cutover runbook](https://github.com/OxyHQ/oxy/blob/main/docs/runbooks/kaana-request-v2-cutover.md).

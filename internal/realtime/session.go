@@ -76,9 +76,11 @@ type session struct {
 	// projected onto the public shapes, it sends no usage report frame, and
 	// its settlement goes to settlePublic (the outbox) instead. credential is
 	// the digest a resume must present.
-	public       bool
-	credential   [32]byte
-	settlePublic func(context.Context, kaana.SessionSettlement, *kaana.SessionOpening)
+	public            bool
+	credential        [32]byte
+	settlePublic      func(context.Context, kaana.SessionSettlement, *kaana.SessionOpening)
+	finalizePublic    func(context.Context, kaana.SessionSettlement, *kaana.SessionOpening) error
+	executionDeadline time.Time
 }
 
 func newSession(cancel context.CancelFunc, manager *Manager, request *contract.RealtimeSessionRequest) *session {
@@ -115,6 +117,11 @@ func (s *session) run(ctx context.Context, first *websocket.Conn) {
 		// units: input transcription is served on it.
 		openContext = kaana.SettledByGrant(ctx)
 	}
+	if !s.executionDeadline.IsZero() {
+		var stop context.CancelFunc
+		openContext, stop = context.WithDeadline(openContext, s.executionDeadline)
+		defer stop()
+	}
 	s.opening = s.manager.opener.OpenSession(openContext, s.request)
 	if !s.opening.Opened() {
 		reason := contract.RealtimeNoRouteAvailable
@@ -128,15 +135,19 @@ func (s *session) run(ctx context.Context, first *websocket.Conn) {
 
 	openedAt := s.manager.now()
 	limits := s.request.Limits
+	expiresAt := openedAt.Add(time.Duration(limits.MaxDurationMs) * time.Millisecond)
+	if !s.executionDeadline.IsZero() && s.executionDeadline.Before(expiresAt) {
+		expiresAt = s.executionDeadline
+	}
 	route := s.opening.Route
 	s.emit(ctx, &contract.RealtimeSessionCreatedEvent{
 		ResolvedModelReference: route.ModelReference, ServingProvider: route.Provider, DeploymentID: route.DeploymentID,
 		Kind: s.request.Kind, Config: s.request.Config, Limits: limits,
 		ResumeWindowMs: int(s.manager.resumeWindow.Milliseconds()),
 		StartedAt:      contract.NewTimestamp(openedAt),
-		ExpiresAt:      contract.NewTimestamp(openedAt.Add(time.Duration(limits.MaxDurationMs) * time.Millisecond)),
+		ExpiresAt:      contract.NewTimestamp(expiresAt),
 	}, nil)
-	s.expiry.Reset(time.Duration(limits.MaxDurationMs) * time.Millisecond)
+	s.expiry.Reset(max(time.Duration(0), expiresAt.Sub(s.manager.now())))
 	s.idle.Reset(time.Duration(limits.IdleTimeoutMs) * time.Millisecond)
 
 	for !s.closed {
@@ -522,7 +533,9 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 	} else {
 		closed.Units = []contract.UsageQuantity{}
 	}
-	s.emit(ctx, closed, nil)
+	if s.finalizePublic == nil {
+		s.emit(ctx, closed, nil)
+	}
 	if opened {
 		_ = s.opening.Upstream.Close()
 	}
@@ -544,7 +557,15 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 	}
 	settlement := s.manager.opener.SettleSession(settleContext, s.opening, end)
 	s.log(reason, failure, settlement)
-	if s.public && s.settlePublic != nil {
+	if s.public && s.finalizePublic != nil {
+		if err := s.finalizePublic(context.WithoutCancel(ctx), settlement, s.opening); err != nil {
+			failure := contract.NewError(s.requestID, contract.CodeServiceUnavailable, "the session completion could not be durably recorded")
+			s.emit(ctx, &contract.RealtimeErrorEvent{Fatal: true, Error: *failure}, nil)
+			code = websocket.StatusInternalError
+		} else {
+			s.emit(ctx, closed, nil)
+		}
+	} else if s.public && s.settlePublic != nil {
 		s.settlePublic(context.WithoutCancel(ctx), settlement, s.opening)
 	}
 

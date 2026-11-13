@@ -94,9 +94,10 @@ const (
 // records every call so a test can prove a provider was, or was never,
 // reached.
 type stubAdapter struct {
-	pool  *provider.KeyPool
-	mu    sync.Mutex
-	calls []*contract.Request
+	formats []contract.APIFormat
+	pool    *provider.KeyPool
+	mu      sync.Mutex
+	calls   []*contract.Request
 	// failAfter, when positive, fails the attempt after that many chunks.
 	failAfter int
 	// failDeployment fails before any output on that deployment only.
@@ -111,7 +112,10 @@ type stubAdapter struct {
 func (*stubAdapter) Provider() contract.ProviderSlug { return "stub" }
 
 func (s *stubAdapter) PlatformCredentials() *provider.KeyPool { return s.pool }
-func (*stubAdapter) APIFormats() []contract.APIFormat {
+func (s *stubAdapter) APIFormats() []contract.APIFormat {
+	if s.formats != nil {
+		return s.formats
+	}
 	return []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions,
 		contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions, contract.APIFormatEmbeddings, contract.APIFormatDecisions}
 }
@@ -613,12 +617,15 @@ type harness struct {
 }
 
 type harnessOptions struct {
-	catalogue *publicapi.PublicCatalogue
-	audio     publicapi.AudioCatalogue
-	rate      publicapi.RateLimit
-	origins   []string
-	store     publicapi.SettlementStore
-	authorize func(publicapi.Authorizer) publicapi.Authorizer
+	stubFormats     []contract.APIFormat
+	native          *publicapi.NativeConfig
+	realtimeFunding provider.Funding
+	catalogue       *publicapi.PublicCatalogue
+	audio           publicapi.AudioCatalogue
+	rate            publicapi.RateLimit
+	origins         []string
+	store           publicapi.SettlementStore
+	authorize       func(publicapi.Authorizer) publicapi.Authorizer
 	// realtime is the statement the realtime deployment publishes; OpenAI's
 	// when unset.
 	realtime *providerconfig.RealtimeStatement
@@ -682,7 +689,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		t.Fatal(err)
 	}
 	realtimeAdapter, err := openairealtime.New(openairealtime.Config{
-		Declarations: []provider.KeyDeclaration{{KeyID: "key_rt", Secret: fake.Key}},
+		Declarations: []provider.KeyDeclaration{{KeyID: "key_rt", Secret: fake.Key, Funding: options.realtimeFunding}},
 		HTTPClient:   upstream.Client(),
 	})
 	if err != nil {
@@ -698,7 +705,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter := &stubAdapter{pool: pool}
+	adapter := &stubAdapter{pool: pool, formats: options.stubFormats}
 	imageStub := &imageStubAdapter{pool: pool}
 	rerankStub := &rerankStubAdapter{pool: pool}
 	registry, err := provider.NewRegistry(adapter, realtimeAdapter, imageStub, rerankStub)
@@ -764,7 +771,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		t.Fatal(err)
 	}
 	api, err := publicapi.New(publicapi.Config{
-		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store,
+		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store, Native: options.native,
 		Funding: publicapi.RegistryFunding{Registry: registry}, Kinds: registry, Audio: options.audio, Catalogue: options.catalogue, Costs: cards,
 		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger, Metrics: options.metrics,
 	})

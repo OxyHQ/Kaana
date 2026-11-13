@@ -91,6 +91,8 @@ jobs:
           CREATE ROLE kaana_credential_admin NOLOGIN;
           CREATE ROLE kaana_customer_credential_control NOLOGIN;
           CREATE ROLE kaana_platform_credential_control NOLOGIN;
+          CREATE ROLE kaana_admission_runtime NOLOGIN;
+          CREATE ROLE kaana_admission_admin NOLOGIN;
           SQL
 
       - name: gofmt

@@ -101,6 +101,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/kaana-credentials ./cmd/kaana-credentials
 
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /out/kaana-native ./cmd/kaana-native
+
 # Customer BYOK mutations run as a separate task. Its database role may call
 # only the customer mutation functions and its KMS role gets Encrypt, never
 # Decrypt. The inference task holds the inverse authority.
@@ -159,6 +162,11 @@ RUN mkdir -p /out/etc/kaana-catalogue && cp configs/public-catalogue.json /out/e
 RUN mkdir -p /out/etc/kaana-commercial && cp configs/deployment-commercial.json /out/etc/kaana-commercial/ \
     && chown -R 65532:65532 /out/etc/kaana-commercial
 
+# Reviewed native policies are inert until the task explicitly supplies PATH+SHA
+# and the separately reviewed database enrollment is activated.
+RUN mkdir -p /out/etc/kaana-native && cp configs/native-admission/alia-kaana-v1.json /out/etc/kaana-native/ \
+    && chown -R 65532:65532 /out/etc/kaana-native
+
 RUN mkdir -p /out/etc/ssl/certs \
     && cp /tmp/aws-rds-global-bundle.pem /out/etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown 65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem
@@ -172,6 +180,7 @@ COPY --from=build /out/kaana /usr/local/bin/kaana
 COPY --from=build /out/kaana-probe /usr/local/bin/kaana-probe
 COPY --from=build /out/kaana-publisher /usr/local/bin/kaana-publisher
 COPY --from=build /out/kaana-credentials /usr/local/bin/kaana-credentials
+COPY --from=build /out/kaana-native /usr/local/bin/kaana-native
 COPY --from=build /out/kaana-credential-control /usr/local/bin/kaana-credential-control
 COPY --from=build /out/kaana-platform-credential-control /usr/local/bin/kaana-platform-credential-control
 COPY --from=build --chown=65532:65532 /out/etc/kaana /etc/kaana
@@ -180,6 +189,7 @@ COPY --from=build --chown=65532:65532 /out/etc/kaana-cutovers /etc/kaana-cutover
 COPY --from=build --chown=65532:65532 /out/etc/kaana-rates /etc/kaana-rates
 COPY --from=build --chown=65532:65532 /out/etc/kaana-catalogue /etc/kaana-catalogue
 COPY --from=build --chown=65532:65532 /out/etc/kaana-commercial /etc/kaana-commercial
+COPY --from=build --chown=65532:65532 /out/etc/kaana-native /etc/kaana-native
 COPY --from=build --chown=65532:65532 /out/etc/ssl/certs/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
 
 # Where the image reads its configuration snapshot. This is the image's own

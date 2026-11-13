@@ -1,195 +1,131 @@
-# ADR 0010 — Kaana sells and invoices; Oxy keeps identity
+# ADR 0010 — Kaana owns inference economics; Oxy keeps identity
 
-- Status: proposed. The owner decided the direction on 2026-11-12 ("Kaana sells
-  and invoices; Oxy keeps accounts"). Nothing here is built. Until phase 1 ships
-  and this ADR is accepted, **Oxy is still the ledger** and every document that
-  says so is still true of production.
-- Date: 2026-11-12
-- Supersedes, once accepted: ADR 0001 decision 2 ("Oxy owns customers and
-  limits... Oxy bills from Kaana's receipt"), ADR 0002 decisions 1 and 3 and the
-  economic-authority consequence of its 2026-10-15 amendment, and the "Kaana
-  never prices" rule in `AGENTS.md`, `inference-rules.md`, `architecture.md` and
-  `README.md`.
-- Oxy's half: Oxy ADRs 0005, 0006, 0009 and 0014 assign billing to Oxy and need
-  a matching superseding decision in that repository. This ADR cannot change
-  them.
-
-## Context
-
-Today the money path is split like this (read from the code on 2026-11-12):
-
-- **Oxy** authenticates the caller, applies policy, **reserves** a hold before a
-  request runs, **rates** units at the price version it copied from Kaana's
-  declared catalogue, writes the **ledger**, refunds the difference, keeps
-  **receipts**, collects payment and issues **invoices**. About 15,000 lines of
-  services, about 30 tables, the Console billing UI. Payments go through
-  **Peable**, Oxy's payments platform (hosted checkout, subscriptions, tax,
-  refunds, disputes, webhooks): Oxy's plans and subscriptions have been on
-  Peable since 2026-11-04 (Oxy ADR 0046). Account-scoped inference top-ups are
-  still named after Stripe in Oxy's code (`stripeAccountBilling.service.ts`,
-  `billing_stripe_events`); whether that path still reaches Stripe directly or
-  already goes through Peable must be confirmed in the Oxy repository before
-  phase 3. Stripe is otherwise only Peable's internal card provider, never a
-  merchant-facing dependency.
-- **Kaana** relays the caller's credential, receives a signed **grant**,
-  resolves routes inside it, executes, and writes one **settlement** per grant
-  to an outbox: units only, no amount (`internal/publicapi/settle.go`,
-  `inference_settlement_outbox`). It publishes the declared list prices
-  (`configs/public-catalogue.json`, 249 of 260 lines) and records its own
-  upstream cost (`internal/providercost`, `provider_cost_events`).
-
-The owner wants Kaana to charge and invoice its customers. Oxy stays the
-identity provider: accounts, organizations, `oxy_sk_` keys and the Console are
-not what is moving.
+- **Decision accepted:** owner direction on 2026-11-12, explicitly confirmed
+  and narrowed on 2026-11-13: Kaana processes inference, authorizes spending
+  and invoices; Oxy supplies identity only.
+- **Implementation is staged.** Contract, admission implementation and
+  production activation are separate states. No live financial migration is
+  asserted by this ADR.
+- Supersedes the economic-authority portions of ADRs 0001 and 0002 and the
+  former rule that Kaana may never price customer usage. Their accounting,
+  identity, credential-custody and execution invariants remain requirements.
+- Counterpart: [Oxy ADR 0065](https://github.com/OxyHQ/oxy/blob/main/docs/adr/0065-kaana-economic-authority-oxy-identity.md).
 
 ## Decision
 
-1. **Kaana is the seller of record for inference.** It decides what a request
-   costs a customer, holds and spends the customer's balance, charges it, and
-   issues the receipt and the invoice.
-2. **Oxy keeps identity.** An account, an application, a credential and a
-   scope are still Oxy's. Kaana stores the Oxy account id as an opaque string,
-   as it does today (`docs/architecture.md`: an Oxy id is never parsed or used as
-   a primary key). A balance row is keyed by a Kaana-minted id that carries the
-   Oxy account id as an attribute, never as the key.
-3. **The grant stays, and changes meaning.** Oxy still answers "who is this and
-   what policy applies" (principal, scopes, routing policy, model lines the
-   caller may use, provider and region limits, funding restriction for products
-   such as Alia Pro and Ultra). The **hold, the price and the ceiling move to
-   Kaana**: Kaana sizes the hold from the declared price and the request's
-   facts, reserves it in its own ledger before executing, and settles it after.
-4. **Units stay the atom.** Settlement is still exact, per-attempt, partitioned
-   units (`UsageReport`). Amounts are derived from units and an immutable price
-   version, never stored as the only fact.
-5. **First-party traffic is a policy, not a ledger bypass.** `internal_metered`
-   relationships (Alia, Clarity, Mention, Astro) keep taking no hold and producing
-   no receipt. Who owns their capacity and USD ceilings is an open question below.
+Inference content goes directly from the calling product to Kaana. Stateful
+product work belongs to Gemies, including the Alia gemie; conversations,
+tools, memory and approvals remain outside Kaana.
 
-## What the ledger must guarantee
+Oxy verifies accounts, applications, credentials, workload bindings and person
+sessions. It does not select an inference policy, model, funding class, price,
+payer or spending permission in the successor identity operation. Kaana owns
+its catalogue, power levels, routing and economic policy, admission, exact
+rating, balances, holds, settlement, receipts, payments and invoices. Oxy
+Console may present those functions through Kaana's API; that does not make
+Oxy the financial authority. Gemies product credits are a separate ledger.
 
-These are carried over from the Oxy implementation because they are what makes
-it trustworthy; the new one is not accepted without them:
+An identity assertion is not a spend grant. The canonical contract in
+`packages/contracts/src/internal/identity.ts` binds its exact identity-request
+bytes, request ID, audience and bounded expiry under a separate signature
+domain. It contains no inference content or economic facts. Own workloads do
+not acquire artificial scopes; external credentials retain their verified
+scopes. User attribution on a workload or key is not proof of a person or
+permission to spend from that person's account.
 
-- Append-only journal; corrections are compensating entries; money is exact
-  `NUMERIC`, never a float.
-- A reservation and its settlement-plus-refund are each one transaction, idempotent
-  on `grant_id` / `settlement_id`. A different body for a known id is a conflict.
-- Holds expire (15 minutes today) and a sweeper releases them.
-- A charge above its hold is refused and the hold stays until it expires.
-- A failed, cancelled or empty (zero-usage "completed") request is not charged.
-  Kaana's own upstream cost row still keeps the real units, because the provider
-  bills them regardless.
-- Price versions are immutable. Reusing a `priceVersionId` with different prices
-  is an error (today: `price_version_changed`, priced at nothing). A unit with no
-  price is `unpriced_unit`, a served line with no price is `model_not_priced`;
-  nothing settles at zero by absence.
-- Draw order: promotional funds, then purchased credit, then invoiced.
-- Payments are not the ledger: the ledger is the authority and is reconciled
-  against Peable, which cannot refuse a request in real time.
+The session extension distinguishes verified person authority from workload
+identity and application attribution. A public client ID does not authenticate
+an app. The application owner and verified subject/principal are separate
+facts; Kaana chooses an authorized payer under its own policy. An authenticated
+session cannot inherit a service-workload enrollment merely by naming the same
+application. All currently supported credential lanes must be classified
+before financial authority is selected; an authentication error never triggers
+fallback to an older economic endpoint.
 
-## What has to be built or moved
+## Source and production status, 2026-11-13
 
-| Capability | Today | Where it goes |
-|---|---|---|
-| Balance, holds, journal, receipts, refunds | Oxy (`inferenceLedger.service.ts`, ~2,200 lines; `billing_ledger_*`, `usage_*` tables) | Kaana database and a Kaana billing service |
-| Rating (units x price version) | Oxy, at settlement, from a price copy taken at authorization | Kaana, at settlement, from the declared catalogue |
-| Price versions and their receipt snapshots | Kaana assigns ids; Oxy snapshots them (`usage_receipt_unit_prices`) | Kaana |
-| Spending limits and budgets | Oxy (`spending_limits`, per application) | decision needed: Kaana enforces, Oxy sets? |
-| Payments, auto-recharge, subscriptions, credit grants | Oxy, through Peable (top-ups possibly still Stripe-named) | Kaana, through Peable |
-| Invoices and the monthly close for invoiced accounts | Oxy (`accountInvoicing.service.ts`) | Kaana |
-| Tax and VAT on inference invoices | **not built** for inference in Oxy; Peable carries a tax product | Kaana, using Peable's tax, once the answers below exist |
-| Reconciliation against the processor | Oxy (`billingReconciliation.service.ts`) | Kaana |
-| Receipts API (`GET /v1/generations`) | relayed from Oxy, amount included | served by Kaana |
-| Console billing pages | Oxy Console | Oxy Console, reading Kaana's API |
+| Capability | Evidence and state |
+|---|---|
+| Identity-only service/machine contract | Merged in #302 (`6b8a1a0`), contracts 8.13; Zod source, generated descriptor and Go validation. This does not deploy an Oxy endpoint or activate native admission. |
+| Session identity contract and Oxy verifier/emitter | Contract merged in #304 (`feb1f11`) and published as 8.14. Oxy verifier/emitter remains a tested candidate; no production endpoint activation claimed. |
+| Kaana-owned internal metered admission | `internal/nativeadmission` candidate implements reviewed policy, exact pricing, PostgreSQL capacity/idempotency and settlement work. It is not commercial customer balance or invoice delivery, and source presence does not enroll any workload. |
+| Current public execution | Existing Oxy grants and settlement delivery remain authoritative until each population's verified cutover. |
+| Retention and observability | Already implemented in #299: migration 0024 and bounded purge tooling, signed metrics and CloudWatch EMF. Operational scheduling/alarms and financial-record retention still need their own configuration. |
+| Commercial seller | The approved read-only Peable lookup found zero production merchants for Kaana's exact application. No merchant, fiscal settings or payment setup was created. |
 
-## Preconditions found in the code
+The Gemies backend retains the former Alia immutable application ID in
+`packages/server/src/identity.ts`. A read-only production check confirmed its
+active workload binding and matched the deployed Oxy policy source. Source and
+production agree; the newly registered Gemies brand application is a different
+principal. Enroll only the verified workload with reviewed terms, never an app
+inferred from its name. The old Oxy #2256 output-cap proposal is closed,
+unmerged and superseded; it is not an approved policy dependency.
 
-These make a straight port unsafe and have to be dealt with first:
+## One admission, one financial authority
 
-- **Per-process state.** Two `kaana` tasks run in production. Breakers, latency
-  and throughput maps, affinity, the per-credential rate limiter and BYOK
-  throttles are per process. A balance cannot live that way: every balance
-  decision must go through PostgreSQL, with row-level locking or an equivalent.
-- **The contract has no customer-money shapes** beyond the relayed `Money`
-  (`internal/contract/grant.go`). New shapes mean new `@kaana.ai/contracts`
-  versions and the descriptor flow.
-- **The database package is named for credentials.** `internal/credentialstore`
-  also holds the settlement outbox, realtime owners and cost events. Billing gets
-  its own package, schema and DB roles (the role-per-concern model already used
-  for the credential tasks), and the billing service is separate from the serving
-  hot path.
-- **No retention policy.** `provider_cost_events`,
-  `provider_credential_attempt_events`, `inference_settlement_outbox` and the
-  audit tables grow without bound. Billing records need a stated retention.
-- **No metrics.** There is no metrics endpoint. A ledger needs alerting on stuck
-  holds, outbox lag, rating failures and reconciliation drift.
-- **`KAANA_SETTLEMENT_SIGNING_KEY` is read from an environment variable** and is
-  documented nowhere. That key signs settlements today; its custody must be
-  settled before it signs anything financial.
-- **Webhook ingress.** Peable's webhooks need an unauthenticated but signed
-  route with its own signature domain, following the `edgeauth` pattern. Peable's
-  own guide (`docs/integrating-peable.md` in that repository) and its SDK define
-  the events and the signature.
+The durable admission fixes its authority, identity/idempotency scope, body
+digest and immutable policy/price version before provider execution. Existing
+Oxy-issued grants remain Oxy-owned through settlement, expiry and historical
+reads. Kaana-owned admissions settle only in Kaana. A timeout, cancellation,
+unknown outcome or retry cannot switch authority or execute the request again.
 
-## Phases
+Cutover must import or consult existing idempotency bindings before enabling
+new admissions. Oxy's caller-supplied-key namespace includes the credential ID;
+its expiry of a hold or concurrency lease does not erase the retry binding.
+Preserve that uniqueness across the boundary. A durable exact-principal workload
+fence stops new Oxy admissions before the final zero-unresolved-state export.
+Unknown historical body digests remain unknown: imported tombstones always refuse
+new execution under that key, regardless of the presented body. A known digest
+only establishes body equivalence when its canonicalization domain matches. Late Oxy settlements continue through the old outbox; do not
+rewrite them as Kaana charges or delete them to make reconciliation pass.
 
-0. **Decide and publish** (this ADR plus the answers below, and Oxy's superseding
-   decision). No behaviour changes.
-1. **Shadow rating.** Kaana rates every settlement itself from the declared
-   catalogue and compares with Oxy's receipt amount, writing differences to a
-   table and raising an alert. Oxy stays authoritative. This proves price
-   versions, units and rounding before any money moves.
-2. **Kaana ledger for a new population.** New accounts, or one opted-in
-   application, are held and charged by Kaana. Oxy's ledger keeps everyone else.
-   The grant carries which authority applies.
-3. **Payments and invoices** through Peable, with reconciliation.
-4. **Migration** of the remaining balances and open reservations, with a dual-write
-   window and a cutover date.
-5. **Retire** Oxy's inference ledger and edge, and update the rules.
+A first internal-metered population can move admission without transferring
+customer funds. This still requires a reviewed exact-principal policy,
+capacity/funding/price bounds, a complete legacy-key fence, atomic durable
+settlement, receipt correlation and production readback. It does not by itself
+complete commercial billing or the broader financial migration.
 
-Each phase ships behind a flag and is reported as rolled out only after a real
-request has completed with the expected receipt, per `inference-rules.md`.
+## Commercial implementation and migration inventory
 
-## Open questions
+These are concrete remaining deliverables, not unresolved ownership questions:
 
-The owner has to answer these before phase 1 can finish and phase 2 can start.
-None is decided here.
+| Work | Existing source and required completion |
+|---|---|
+| Account/currency funding and journals | Oxy `account_balances` and `billing_ledger_*`, with nearest active ancestor billing profiles. Build Kaana-owned exact-decimal balances and append-only journals; do not copy a shared funded balance per app. |
+| Holds, spending policy and settlement | Oxy `usage_reservations`, per-app spending limits and `inferenceLedger.service.ts`. Implement transactional reserve/settle/refund, expiry, funding restrictions and concurrent-budget enforcement in Kaana. Preserve immutable prices and body/idempotency conflicts. |
+| Funded-population inventory | A bounded read-only census of nonzero purchased/promotional/invoiced buckets, expiries, open holds, debts, shared funding accounts and processor references is required before choosing a transfer boundary. No such production census or monetary transfer is claimed here. |
+| Historical receipts and invoices | Keep original Oxy authority/read access and invoice associations. Reconcile old holds/outbox before a uniquely keyed transfer; never make one receipt billable in both systems. The public Kaana receipt relay currently reads Oxy's existing records, so changing transport alone needs no duplicate receipt ledger. |
+| Seller and payments | Create Kaana's Peable merchant only after the owner identifies its legal entity and approved fiscal configuration. Oxy inference top-ups still call the actual Stripe SDK; Oxy One's native Peable merchant is a separate product and must not be borrowed. Implement signed/idempotent payment webhooks, recharge, refunds, disputes and processor reconciliation in Kaana. |
+| Invoices and commercial terms | Implement invoice close, tax configuration, credit notes and receipt linkage. Preserve existing reviewed allowances, promotions, limits and discounts until a concrete replacement is approved; ownership migration does not invent prices. |
+| Deployment permissions | Catalogue list prices do not establish resale rights. Review commercial permission for each enabled deployment before public selling; internal availability is not `public_sell`. Customer BYOK platform fees remain subject to their existing fail-closed gate. |
+| Operations and acceptance | Distinct serving/migration financial DB roles; accounting retention and migration readbacks; alerts for stuck holds, settlement lag, rating failures and reconciliation drift; concurrent/retry/expiry/late-settlement acceptance and actual invoice reconciliation. |
 
-1. **Seller of record.** Which legal entity bills, and in which currencies?
-2. **Peable.** Which Peable merchant workspace (Orbit) does Kaana bill under, and
-   does Kaana call Peable directly with its own credentials or through Oxy? Are
-   inference top-ups in Oxy already on Peable or still on Stripe?
-3. **Tax and VAT.** Peable has a tax product, but nothing for inference invoices
-   exists in Oxy. Registration, tax-inclusive or exclusive prices, invoice
-   numbering, and who is responsible.
-4. **Margin and discounts.** Oxy's ADR 0002 amendment says Oxy keeps "descuentos y
-   margenes sobre el precio de lista", yet no such code was found in the grant and
-   settlement paths. Is the list price the customer price, and where do overrides
-   live?
-5. **Free tier and promotional credit.** Who owns allowances, promotional funds
-   and the `promotional-only` hold restriction?
-6. **Alia Pro and Ultra.** Their credits-only ceiling lives in Oxy's policy and the
-   grant's `maxFundingTier`. Does it stay a grant field Oxy sets?
-7. **Internal traffic.** Do Alia, Clarity, Mention and Astro stay unbilled and
-   unreceipted, and who holds their capacity ceilings?
-8. **BYOK platform fee.** Who sets the schedule? The approved list is empty and
-   production is fail-closed.
-9. **Refunds, disputes, chargebacks and credit notes.** Policy and who handles
-   them. Promotional funds are not refundable today.
-10. **History.** What happens to open reservations, receipts and invoices already
-    in Oxy's ledger, and what is the cutover date?
-11. **Receipts API.** Does `GET /v1/generations` keep the shape Oxy's receipts
-    have today?
-12. **Spending limits.** Who sets and who enforces per-application budgets?
+Money remains exact, never binary float. Technical usage and upstream provider
+cost remain distinct from the customer's charge. Price versions cannot be
+reused with changed rates, and missing prices never mean zero. Corrections use
+compensating entries. An in-flight hold or ambiguous processor result must be
+reconciled, not charged again.
 
-## Consequences
+## Rollout and retirement
 
-- Kaana stops being a pure data plane. The rules that say so (`AGENTS.md`,
-  `architecture.md`, `inference-rules.md`, `README.md`, ADR 0001 and 0002) are
-  rewritten when this is accepted, not before, because they describe production.
-- A second money authority exists during phases 2 to 4. The shadow phase and the
-  per-account authority field exist to keep it from being two ledgers for one
-  customer.
-- Oxy's `kaana_grants` schema, its settlement endpoint and the grant contract all
-  change with it. The change is coordinated, reader first, as ADR 0004 did for
-  first-party authority.
+1. Publish compatible identity contracts and deploy the verified identity
+   boundary. Preserve the old economic endpoints for existing operations.
+2. Complete Kaana admission, settlement and dispatch for an explicitly reviewed
+   first-party population, with session classification and legacy-key fencing.
+   Verify the actual artifact, policy, migration and a real request before
+   calling that population live.
+3. Complete commercial balances, limits, payments, seller/fiscal setup and
+   invoices with the same durable authority and accounting invariants.
+4. Approve a concrete funded-account migration from the read-only inventory;
+   stop new old-authority admissions for that population, drain or explicitly
+   transfer its holds, reconcile, record unique transfer entries and activate.
+   Do not use unconstrained dual writes or duplicate spendable balances.
+5. Retire old admission only after old operations and payment/outbox work are
+   drained and historical reads remain available. Report transport, identity,
+   internal metering, commercial accounting and invoice readiness separately.
+
+The owner has already decided who owns economic policy. The outstanding seller
+input is the legal entity/fiscal configuration; configuration and financial
+writes wait for that concrete answer. This does not block identity or bounded
+internal admission implementation. Production source state and release state
+remain distinct under [the inference rules](../inference-rules.md#source-state-is-not-production-state).

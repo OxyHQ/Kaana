@@ -2,11 +2,13 @@ package publicapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
@@ -116,12 +118,13 @@ func (g *RealtimeGate) Admit(ctx context.Context, r *http.Request, frame []byte)
 		body:   append([]byte("GET /v1/realtime?model="+string(model)+"\n"), frame...),
 		facts:  contract.GrantRequestFacts{DeclaredTools: tools, Stream: true, RealtimeSessionKind: &kind},
 		labels: open.Labels, clientRequestID: open.ClientSessionID,
+		sessionMaxDuration: time.Duration(limits.MaxDurationMs) * time.Millisecond, sessionMaxResponses: limits.MaxResponses,
 	})
 	if failure != nil {
 		return nil, failure
 	}
-	if admitted.grant.CustomerProviderCredential != nil {
-		s.releaseUnserved(ctx, admitted.grant)
+	if admitted.customerCredential() != nil {
+		s.releaseAdmission(ctx, admitted)
 		return nil, invalid(requestID, "", "a customer provider credential cannot hold a realtime session")
 	}
 	routes := make([]contract.AuthorizedRoute, 0, len(admitted.plan.routes))
@@ -134,13 +137,13 @@ func (g *RealtimeGate) Admit(ctx context.Context, r *http.Request, frame []byte)
 		}
 	}
 	if len(routes) == 0 {
-		s.releaseUnserved(ctx, admitted.grant)
+		s.releaseAdmission(ctx, admitted)
 		return nil, contract.NewPublicError(requestID, "no_route_available", contract.PublicMessage("no_route_available"))
 	}
-	request.Attribution = admitted.grant.Attribution()
-	request.RoutingPolicy = admitted.grant.RoutingPolicy
+	request.Attribution = admitted.attribution()
+	request.RoutingPolicy = admitted.routingPolicy()
 	request.AuthorizedRoutes = routes
-	return &realtime.PublicAdmission{
+	result := &realtime.PublicAdmission{
 		Request:    request,
 		Credential: bearer.digest,
 		Settle: func(ctx context.Context, settlement kaana.SessionSettlement, opening *kaana.SessionOpening) {
@@ -150,7 +153,33 @@ func (g *RealtimeGate) Admit(ctx context.Context, r *http.Request, frame []byte)
 			}
 			_ = s.settler.Settle(ctx, admitted.grant, *report, admitted.plan.stepOf(report.DeploymentID), settlement.UpstreamCost)
 		},
-	}, nil
+	}
+	if admitted.native != nil {
+		result.Settle = nil
+		result.ExecutionDeadline = admitted.native.LeaseUntil
+		result.Finalize = func(ctx context.Context, settlement kaana.SessionSettlement, _ *kaana.SessionOpening) error {
+			report := settlement.Report
+			if report == nil {
+				if len(settlement.UpstreamCost.Attempts) > 0 {
+					return errors.New("native realtime completion lacks usage")
+				}
+				report = admitted.unservedReport(nil, s.now())
+			}
+			return s.completeNative(ctx, admitted, *report, settlement.UpstreamCost)
+		}
+	}
+	return result, nil
+}
+
+func (s *Server) releaseAdmission(ctx context.Context, a *admission) {
+	if a.native == nil {
+		s.releaseUnserved(ctx, a.grant)
+		return
+	}
+	report := a.unservedReport(nil, s.now())
+	if err := s.completeNative(ctx, a, *report, kaana.SessionSettlement{}.UpstreamCost); err != nil {
+		s.logger.Error("native unserved admission awaits reconciliation", "admissionId", a.native.ID, "errorType", "completion_persistence")
+	}
 }
 
 // checkRealtimeOpen is `checkRealtimeSessionOpen` of `@kaana.ai/contracts`,

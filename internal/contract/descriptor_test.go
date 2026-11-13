@@ -83,6 +83,10 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
+	"meteredGenerationRecordSchema":          reflect.TypeOf(MeteredGenerationRecord{}),
+	"chargedGenerationRecordSchema":          reflect.TypeOf(ChargedGenerationRecord{}),
+	"unitPriceSchema":                        reflect.TypeOf(UnitPrice{}),
+	"priceSnapshotSchema":                    reflect.TypeOf(PriceSnapshot{}),
 	"kaanaIdentityRequestSchema":             reflect.TypeOf(IdentityRequest{}),
 	"kaanaIdentityPrincipalSchema":           reflect.TypeOf(IdentityPrincipal{}),
 	"kaanaIdentityAssertionSchema":           reflect.TypeOf(IdentityAssertion{}),
@@ -493,8 +497,6 @@ var notApplicable = map[string]string{
 
 	// Money and the ledger are Oxy's today (ADR 0010 proposes moving them to
 	// Kaana). Kaana measures units; a usage report carries no amount.
-	"unitPriceSchema":     "ledger: Oxy owns pricing",
-	"priceSnapshotSchema": "ledger: Oxy owns pricing",
 
 	// The public API of https://kaana.ai/v1 (ADR 0002, decisions 7-10). Defined
 	// in contract set 4.0.0 and served by internal/publicapi in ADR 0002 phase
@@ -504,7 +506,6 @@ var notApplicable = map[string]string{
 	"anthropicMessageSchema":         "public api: POST /v1/messages response",
 	"anthropicMessagesRequestSchema": "public api: POST /v1/messages request; its union-typed members are decoded by hand",
 	"anthropicStreamEventSchema":     "public api: POST /v1/messages stream frames",
-	"chargedGenerationRecordSchema":  "public api: GET /v1/generations record",
 	"promptCacheKeySchema":           "public api: the prompt_cache_key / promptCacheKey request field; internal/publicapi decodes it and keeps it in Kaana (ADR 0008)",
 	"providerPreferencesSchema":      "public api: the `provider` request preference; internal/publicapi decodes it and only narrows the grant's routes, so it never reaches the signed envelope (ADR 0008)",
 	"providerQuantizationSchema":     "public api: a quantization word inside the `provider` request preference (ADR 0008)",
@@ -519,7 +520,6 @@ var notApplicable = map[string]string{
 	"generationRecordSchema":         "public api: GET /v1/generations record",
 	"imageGenerationsRequestSchema":  "public api: POST /v1/images/generations request",
 	"imageGenerationsSchema":         "public api: POST /v1/images/generations response",
-	"meteredGenerationRecordSchema":  "public api: GET /v1/generations record",
 	"modelAudioCapabilitiesSchema":   "public api: voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
 	"modelListSchema":                "public api: GET /v1/models",
 	"modelSchema":                    "public api: GET /v1/models entry",
@@ -542,7 +542,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 67
+const expectedNotApplicableCount = 63
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -999,7 +999,7 @@ func (c *shapeChecker) compareField(shape, jsonName string, node descriptorNode,
 		problems = append(problems, fmt.Sprintf("%s: the contract makes it optional; the Go tag lacks omitempty", where))
 	case !optional && field.omitEmpty:
 		problems = append(problems, fmt.Sprintf("%s: the contract requires it; the Go tag has omitempty, so Kaana can omit a required field", where))
-	case !optional && pointer:
+	case !optional && pointer && !node.Nullable:
 		problems = append(problems, fmt.Sprintf("%s: the contract requires it; %s is a pointer", where, goType))
 	}
 
@@ -1012,6 +1012,8 @@ func (c *shapeChecker) compareField(shape, jsonName string, node descriptorNode,
 
 func (c *shapeChecker) compareKind(where string, node descriptorNode, goType reflect.Type) []string {
 	switch node.Kind {
+	case "discriminatedUnion":
+		return c.compareShape(where, node, goType)
 	case "ref":
 		return c.compareRef(where, node.Ref, goType)
 	case "string":
@@ -1179,6 +1181,7 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 var inlineEnumBindings = []enumBinding{
 	bindEnum(identityAuthorityValues),
 	bindEnum(identityApplicationBindingValues),
+	bindEnum(meteredTariffStatusValues),
 	bindEnum(serviceAuthorityValues),
 	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),
@@ -1256,6 +1259,9 @@ func flattenUnion(node descriptorNode) (map[string]descriptorNode, error) {
 			}
 			if previous, seen := merged[field.Name]; !seen {
 				merged[field.Name] = field
+			} else if previous.Kind == field.Kind {
+				previous.Nullable = previous.Nullable || field.Nullable
+				merged[field.Name] = previous
 			} else if previous.Kind != field.Kind {
 				merged[field.Name] = descriptorNode{Name: field.Name, Kind: "union", Variants: []descriptorNode{previous, field}}
 			}

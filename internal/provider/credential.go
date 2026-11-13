@@ -586,6 +586,25 @@ func (p *KeyPool) ExactBinding() (string, bool) {
 	return p.onlyKeyID, true
 }
 
+// UsableKeyIDs reports non-secret identities available within this exact pool
+// view. It does not lease a key, alter rotation, or widen a funding ceiling.
+func (p *KeyPool) UsableKeyIDs(at time.Time) []string {
+	if p == nil {
+		return nil
+	}
+	bound, ceiling := p.onlyKeyID, p.ceiling
+	base := p.base()
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	var ids []string
+	for _, key := range base.keys {
+		if (bound == "" || bound == key.keyID) && ceiling.Admits(key.funding) && !key.retiredUntil.After(at) {
+			ids = append(ids, key.keyID)
+		}
+	}
+	return ids
+}
+
 // SoleKeyID returns the id of the pool's only platform credential, and how
 // many the pool holds. Execution no longer depends on it — an unpinned
 // deployment walks its provider's whole pool — but a single-key pool's id is

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
@@ -26,16 +27,17 @@ import (
 
 // publicAPIDependencies is what the public API is built from.
 type publicAPIDependencies struct {
-	catalogue *publicapi.PublicCatalogue
-	costs     *providercost.Cards
-	executor  *kaana.Executor
-	inventory *inventory.Store
-	registry  *provider.Registry
-	rotation  *rotation.Registry
-	metrics   emf.Recorder
-	sessions  *realtime.Manager
-	store     *credentialstore.Postgres
-	keys      map[string]ed25519.PublicKey
+	commercial *commercial.Table
+	catalogue  *publicapi.PublicCatalogue
+	costs      *providercost.Cards
+	executor   *kaana.Executor
+	inventory  *inventory.Store
+	registry   *provider.Registry
+	rotation   *rotation.Registry
+	metrics    emf.Recorder
+	sessions   *realtime.Manager
+	store      *credentialstore.Postgres
+	keys       map[string]ed25519.PublicKey
 	// oxy is Kaana's access to Oxy's /internal/kaana/v1/*: the token for it
 	// (audience oxy-api:kaana-control; an oxy-api token is refused there with
 	// 401) and each route on the Oxy origin KAANA_OXY_API_BASE_URL names.
@@ -46,6 +48,7 @@ type publicAPIDependencies struct {
 
 // publicAPI is the public surface, when it is enabled.
 type publicAPI struct {
+	closeNative    func()
 	server         *publicapi.Server
 	settler        *publicapi.Settler
 	reconciliation http.Handler
@@ -137,13 +140,19 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 	if catalogue == nil {
 		return publicAPI{}, errors.New("the declared catalogue is required when KAANA_PUBLIC_API_ENABLED is true")
 	}
+	native, closeNative, err := buildNativeAPI(deps, getenv)
+	if err != nil {
+		return publicAPI{}, err
+	}
 	server, err := publicapi.New(publicapi.Config{
+		Native:    native,
 		Catalogue: catalogue, Costs: deps.costs,
 		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
 		Funding: publicapi.RegistryFunding{Registry: deps.registry}, Latency: deps.rotation, Metrics: deps.metrics, Kinds: deps.registry, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})
 	if err != nil {
+		closeNative()
 		return publicAPI{}, err
 	}
 	server.UseRealtime(deps.sessions.PublicHandler(server.RealtimeGate()))
@@ -152,7 +161,7 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		"settlementUrl", deps.oxy.ControlURL(contract.OxyKaanaSettlementsEndpoint),
 		"settlementKeyId", signer.KeyID(), "corsOrigins", origins)
 	return publicAPI{
-		server: server, settler: settler,
+		server: server, settler: settler, closeNative: closeNative,
 		reconciliation: publicapi.ReconciliationHandler{Store: deps.store, Verifier: reads, Logger: deps.logger},
 	}, nil
 }

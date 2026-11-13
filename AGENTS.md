@@ -1,11 +1,10 @@
 # Kaana
 
-Kaana is Oxy's inference platform (Go data plane plus a TypeScript contract and SDK):
-it runs `https://kaana.ai/v1` and a signed internal lane, and executes only what Oxy
-authorized, as a signed route list or a grant ([lanes](docs/lanes.md)). Oxy owns
-accounts, keys, ledger and console today; the owner has decided Kaana will sell and
-invoice with Oxy keeping identity ([ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md),
-proposed). Alia is the agent runtime and lives in another repo.
+Kaana runs `https://kaana.ai/v1` and owns inference execution and economic policy,
+accounting and invoicing under the accepted [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md).
+Oxy supplies identity, accounts, credentials and Console. Production is transitioning:
+legacy Oxy grants retain their original settlement authority until a reviewed cutover.
+Gemies owns the agent runtime; Alia is its assistant app.
 
 ## Commands
 
@@ -41,6 +40,7 @@ bun run lint:fix                                 # apply Biome fixes
   - public dialects: [anthropic-messages](docs/anthropic-messages.md), [json-repair](docs/json-repair.md), [decisions](docs/decisions.md)
   - providers: [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md) ([dated reviews](docs/provider-onboarding-log.md)), [realtime](docs/realtime.md) ([findings](docs/realtime-findings.md)), [openai-audio](docs/openai-audio.md), [elevenlabs](docs/elevenlabs.md), [deepgram](docs/deepgram.md)
   - rollout records (history, not rules): [schema-0013](docs/schema-0013-cutover-2026-09-24.md), [credential-id cutover](docs/provider-credential-id-cutover.md), [first-party-producer](docs/first-party-producer.md), [first-party-transport](docs/first-party-transport.md), [platform-activity](docs/platform-activity.md), [groq-token-capacity](docs/groq-token-capacity-2026-09-13.md), [scoped-attempt-claims](docs/scoped-attempt-claims.md)
+  - native authority rollout: [native-admission-cutover](docs/native-admission-cutover.md)
   - decisions: [docs/adr/](docs/adr/); reproducibility claims: [determinism](docs/determinism.md)
 
 ## Conventions that differ from defaults
@@ -63,12 +63,13 @@ Never:
 - put a provider key, endpoint secret or Oxy secret in the repo, a test, CI or an env
   var; keys live only as PostgreSQL KMS ciphertext ([key-pools](docs/key-pools.md)).
 - persist or log a prompt (images included), a completion or a user IP: it is customer data.
-- attempt a route no signed envelope or grant authorized, or add a field the contract
+- attempt a route no durable admission or legacy signed envelope/grant authorized, or add a field the contract
   lacks (`notApplicable` for unexchanged shapes): callers and Kaana would diverge.
-- let an amount reach an inference response or a usage report. `internal/providercost`
-  holds Kaana's upstream cost; `contract.Money` only relays a value (a grant's ceiling,
-  a receipt); the declared catalogue carries list prices. A customer-charging ledger is
-  [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md)'s proposal, not yet allowed.
+- expose upstream provider cost in inference responses. Customer prices and charges belong
+  to Kaana's canonical financial contracts; exact decimal arithmetic and durable journals
+  are required, never floating-point money ([ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md)).
+- activate financial migration, move balances or configure a seller without reviewed
+  population, legal/fiscal configuration, reconciliation and cutover evidence.
 - run `npm publish` locally: merging a version bump to `main` publishes it through
   `release-packages.yml` ([npm releases](https://github.com/OxyHQ/oxy/blob/main/docs/npm-releases.md)).
 
