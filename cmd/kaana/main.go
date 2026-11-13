@@ -354,6 +354,9 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if public.closeNative != nil {
+		defer public.closeNative()
+	}
 
 	address := os.Getenv("KAANA_ADDR")
 	if address == "" {
@@ -402,6 +405,7 @@ func run(logger *slog.Logger) error {
 
 	if public.settler != nil {
 		go public.settler.Run(ctx)
+		go func() { _ = public.server.RunNativeReconciliation(ctx) }()
 	}
 	go reloadSnapshots(ctx, inventoryStore, rotationRegistry, deploymentStats, registry, logger,
 		durationFromEnv("KAANA_INVENTORY_RELOAD_INTERVAL", 30*time.Second))

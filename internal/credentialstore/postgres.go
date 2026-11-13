@@ -112,6 +112,29 @@ type postgresDatabaseIdentity struct {
 
 // OpenPostgres connects and proves the database is reachable.
 func OpenPostgres(ctx context.Context, databaseURL string) (*Postgres, error) {
+	config, err := VerifiedPostgresConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("credential store: opening PostgreSQL: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("credential store: pinging PostgreSQL: %w", err)
+	}
+	return &Postgres{
+		pool: pool,
+		databaseIdentity: postgresDatabaseIdentity{
+			host: config.ConnConfig.Host, port: config.ConnConfig.Port, database: config.ConnConfig.Database,
+		},
+	}, nil
+}
+
+// VerifiedPostgresConfig is the shared connection boundary for credential and
+// native-admission roles. It never exposes a database URL through an error.
+func VerifiedPostgresConfig(databaseURL string) (*pgxpool.Config, error) {
 	if databaseURL == "" {
 		return nil, errors.New("credential store: DATABASE_URL is required")
 	}
@@ -128,20 +151,7 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*Postgres, error) {
 	config.MinConns = 0
 	config.MaxConnLifetime = 30 * time.Minute
 	config.MaxConnIdleTime = 5 * time.Minute
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("credential store: opening PostgreSQL: %w", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("credential store: pinging PostgreSQL: %w", err)
-	}
-	return &Postgres{
-		pool: pool,
-		databaseIdentity: postgresDatabaseIdentity{
-			host: config.ConnConfig.Host, port: config.ConnConfig.Port, database: config.ConnConfig.Database,
-		},
-	}, nil
+	return config, nil
 }
 
 // requireVerifiedPostgresTLS refuses encryption without server identity

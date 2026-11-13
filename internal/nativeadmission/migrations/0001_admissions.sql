@@ -9,6 +9,9 @@ CREATE TABLE kaana_admission.enrollments (
     active_policy_id TEXT,
     activation_at TIMESTAMPTZ,
     legacy_fence_complete BOOLEAN NOT NULL DEFAULT false,
+    legacy_fence_id TEXT,
+    legacy_fence_digest TEXT CHECK (legacy_fence_digest ~ '^[0-9a-f]{64}$'),
+    legacy_fence_activated_at TIMESTAMPTZ,
     UNIQUE(application_id, environment),
     CHECK (NOT enabled OR (activation_at IS NOT NULL AND legacy_fence_complete AND active_policy_id IS NOT NULL))
 );
@@ -45,7 +48,24 @@ CREATE TABLE kaana_admission.legacy_fences (
     -- Old edge admissions predate body hashes; an unknown hash still fences execution.
     body_digest TEXT CHECK (body_digest ~ '^[0-9a-f]{64}$'),
     legacy_admission_id TEXT NOT NULL,
+    legacy_request_id TEXT,
     UNIQUE(idempotency_scope,idempotency_key)
+);
+
+-- Each reviewed roster/export refresh is immutable audit evidence. Tombstones
+-- remain in legacy_fences; a new manifest may only extend their coverage.
+CREATE TABLE kaana_admission.fence_imports (
+    id TEXT PRIMARY KEY,
+    enrollment_id TEXT NOT NULL REFERENCES kaana_admission.enrollments(id),
+    policy_id TEXT NOT NULL REFERENCES kaana_admission.policy_versions(id),
+    manifest_digest TEXT NOT NULL CHECK (manifest_digest ~ '^[0-9a-f]{64}$'),
+    fence_id TEXT NOT NULL,
+    activated_at TIMESTAMPTZ NOT NULL,
+    exported_at TIMESTAMPTZ NOT NULL,
+    credential_ids JSONB NOT NULL,
+    entry_count BIGINT NOT NULL CHECK (entry_count>=0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE(enrollment_id,manifest_digest)
 );
 
 CREATE TABLE kaana_admission.admissions (
@@ -98,6 +118,7 @@ $$;
 CREATE TRIGGER immutable_native_policy BEFORE UPDATE OR DELETE ON kaana_admission.policy_versions FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 CREATE TRIGGER immutable_native_completion BEFORE UPDATE OR DELETE ON kaana_admission.completions FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 CREATE TRIGGER immutable_native_settlement BEFORE UPDATE OR DELETE ON kaana_admission.settlements FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
+CREATE TRIGGER immutable_fence_import BEFORE UPDATE OR DELETE ON kaana_admission.fence_imports FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 CREATE TRIGGER immutable_legacy_fence BEFORE UPDATE OR DELETE ON kaana_admission.legacy_fences FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 -- Row locking needs UPDATE privilege. Keep that privilege behind a fixed,
 -- read-only function rather than letting inference workers edit enrollment.
@@ -117,8 +138,9 @@ GRANT INSERT ON kaana_admission.admissions TO kaana_admission_runtime;
 GRANT UPDATE(state,generation_id) ON kaana_admission.admissions TO kaana_admission_runtime;
 GRANT INSERT,UPDATE ON kaana_admission.daily_windows TO kaana_admission_runtime;
 GRANT INSERT ON kaana_admission.settlements,kaana_admission.completions TO kaana_admission_runtime;
-GRANT SELECT,INSERT ON kaana_admission.enrollments,kaana_admission.policy_versions,kaana_admission.legacy_fences TO kaana_admission_admin;
+GRANT SELECT,INSERT ON kaana_admission.enrollments,kaana_admission.policy_versions,kaana_admission.legacy_fences,kaana_admission.fence_imports TO kaana_admission_admin;
 GRANT UPDATE ON kaana_admission.enrollments TO kaana_admission_admin;
+GRANT SELECT ON kaana_admission.admissions TO kaana_admission_admin;
 GRANT USAGE ON SCHEMA public TO kaana_admission_runtime;
 GRANT EXECUTE ON FUNCTION public.kaana_record_provider_attempt_events(JSONB) TO kaana_admission_runtime;
 DO $$ BEGIN

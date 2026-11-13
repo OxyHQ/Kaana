@@ -2,6 +2,7 @@ package publicapi_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -255,6 +256,85 @@ func TestNativeRealtimeCompletionIsDurableBeforeClosed(t *testing.T) {
 			}
 			if len(h.oxy.authorizationBodies()) != 0 {
 				t.Fatal("native session used Oxy economic authorization")
+			}
+		})
+	}
+}
+
+func nativeAudioFixture(t *testing.T) (*publicapi.NativeConfig, *nativeMemory, *publicapi.PublicCatalogue) {
+	t.Helper()
+	config, store, catalogue := nativeFixture(t)
+	var doc map[string]any
+	if err := json.Unmarshal(catalogue.Document(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	models := doc["models"].([]any)
+	for _, entry := range models {
+		model := entry.(map[string]any)
+		if model["modelId"] == string(speechModel.ModelID()) {
+			model["pricing"] = map[string]any{"priceVersionId": "native-speech-v1", "currency": "USD", "unitPrices": []any{map[string]any{"unit": "characters", "amount": "0.000015", "per": 1, "currency": "USD"}}}
+		}
+	}
+	cloned, _ := json.Marshal(models[0])
+	var transcription map[string]any
+	_ = json.Unmarshal(cloned, &transcription)
+	transcription["modelId"] = string(whisperModel.ModelID())
+	caps := transcription["capabilities"].(map[string]any)
+	caps["inputModalities"] = []string{"audio"}
+	caps["outputModalities"] = []string{"text"}
+	transcription["pricing"] = map[string]any{"priceVersionId": "native-transcription-v1", "currency": "USD", "unitPrices": []any{map[string]any{"unit": "audio_input_milliseconds", "amount": "0.005", "per": 60000, "currency": "USD"}}}
+	doc["models"] = append(models, transcription)
+	raw, _ := json.Marshal(doc)
+	var err error
+	catalogue, err = publicapi.ParsePublicCatalogue(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &config.Policies[0]
+	p.AllowedModels = append(p.AllowedModels, speechModel.ModelID(), whisperModel.ModelID())
+	terms := func(id contract.DeploymentID, model contract.ModelReference, cap string, maxInput int) *nativeadmission.OperationPolicy {
+		return &nativeadmission.OperationPolicy{Limits: contract.GrantStepLimits{MaxPricePerRequest: &contract.Money{Amount: contract.ExactDecimal(cap), Currency: "USD"}, MaxFundingTier: nativePtr(contract.FundingTierPaid)}, Routes: nativeadmission.RouteScope{Mode: "exact", Deployments: []nativeadmission.RoutePermission{{DeploymentID: id, ModelReference: model, Provider: "stub"}}}, MaxInput: maxInput}
+	}
+	p.Speech = terms("dep_speech", speechModel, "0.25", 15000)
+	p.Transcription = terms("dep_whisper", whisperModel, "0.05", 300000)
+	return config, store, catalogue
+}
+func TestNativeSpeechAndTranscriptionUseServedAdapterCapabilities(t *testing.T) {
+	for _, operation := range []string{"speech", "transcriptions"} {
+		t.Run(operation, func(t *testing.T) {
+			config, store, catalogue := nativeAudioFixture(t)
+			h := newHarness(t, harnessOptions{native: config, catalogue: catalogue})
+			body := map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel"}
+			if operation == "transcriptions" {
+				body = map[string]any{"model": "stub/whisper", "audio": map[string]any{"mediaType": "audio/wav", "data": base64.StdEncoding.EncodeToString(wav(1500))}}
+			}
+			response := h.post("/v1/audio/"+operation, validKey, body)
+			if response.StatusCode != 200 {
+				t.Fatalf("voice request failed %d %s", response.StatusCode, response.Body)
+			}
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			if store.staged != 1 || store.settled != 1 || h.adapter.called() != 1 {
+				t.Fatal("voice did not execute and persist exactly once")
+			}
+			if len(h.oxy.authorizationBodies()) != 0 {
+				t.Fatal("voice used old economic proxy")
+			}
+		})
+	}
+	for _, reason := range []string{"unsupported_adapter", "tuple_mismatch"} {
+		t.Run(reason, func(t *testing.T) {
+			config, store, catalogue := nativeAudioFixture(t)
+			options := harnessOptions{native: config, catalogue: catalogue}
+			if reason == "unsupported_adapter" {
+				options.stubFormats = []contract.APIFormat{contract.APIFormatResponses}
+			} else {
+				config.Policies[0].Speech.Routes.Deployments[0].DeploymentID = "dep_other"
+			}
+			h := newHarness(t, options)
+			response := h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel"})
+			if response.StatusCode == 200 || h.adapter.called() != 0 || store.admission != nil || len(h.oxy.authorizationBodies()) != 0 {
+				t.Fatal("unsupported voice route reached admission/provider/old authority")
 			}
 		})
 	}

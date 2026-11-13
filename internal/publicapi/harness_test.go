@@ -94,9 +94,10 @@ const (
 // records every call so a test can prove a provider was, or was never,
 // reached.
 type stubAdapter struct {
-	pool  *provider.KeyPool
-	mu    sync.Mutex
-	calls []*contract.Request
+	formats []contract.APIFormat
+	pool    *provider.KeyPool
+	mu      sync.Mutex
+	calls   []*contract.Request
 	// failAfter, when positive, fails the attempt after that many chunks.
 	failAfter int
 	// failDeployment fails before any output on that deployment only.
@@ -111,7 +112,10 @@ type stubAdapter struct {
 func (*stubAdapter) Provider() contract.ProviderSlug { return "stub" }
 
 func (s *stubAdapter) PlatformCredentials() *provider.KeyPool { return s.pool }
-func (*stubAdapter) APIFormats() []contract.APIFormat {
+func (s *stubAdapter) APIFormats() []contract.APIFormat {
+	if s.formats != nil {
+		return s.formats
+	}
 	return []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions,
 		contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions, contract.APIFormatEmbeddings, contract.APIFormatDecisions}
 }
@@ -613,6 +617,7 @@ type harness struct {
 }
 
 type harnessOptions struct {
+	stubFormats     []contract.APIFormat
 	native          *publicapi.NativeConfig
 	realtimeFunding provider.Funding
 	catalogue       *publicapi.PublicCatalogue
@@ -700,7 +705,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter := &stubAdapter{pool: pool}
+	adapter := &stubAdapter{pool: pool, formats: options.stubFormats}
 	imageStub := &imageStubAdapter{pool: pool}
 	rerankStub := &rerankStubAdapter{pool: pool}
 	registry, err := provider.NewRegistry(adapter, realtimeAdapter, imageStub, rerankStub)

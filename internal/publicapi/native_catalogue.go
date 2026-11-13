@@ -10,12 +10,13 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 // nativeModels projects the same declared fields served by the public catalogue.
 // Current route evidence supplements unknown capabilities; it never overwrites
 // an authoritative negative declaration.
-func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Time) ([]nativeadmission.Model, error) {
+func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Time, formats FormatKinds) ([]nativeadmission.Model, error) {
 	if c == nil || current == nil {
 		return nil, nil
 	}
@@ -48,7 +49,6 @@ func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Tim
 				InputModalities  []string `json:"inputModalities"`
 				OutputModalities []string `json:"outputModalities"`
 				Unreported       []string `json:"unreported"`
-				APIFormats       []string `json:"apiFormats"`
 				Tools            bool     `json:"tools"`
 				StructuredOutput bool     `json:"structuredOutput"`
 				JSONMode         bool     `json:"jsonMode"`
@@ -83,12 +83,17 @@ func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Tim
 			return nil, fmt.Errorf("publicapi: native catalogue projection: %w", err)
 		}
 		cap := fields.Capabilities
-		model := nativeadmission.Model{ID: id, Audience: declared.audience, PowerClass: declared.powerClass, Active: fields.Deprecation.Status != "retired", Unreported: cap.Unreported, APIFormats: cap.APIFormats, InputModalities: cap.InputModalities, OutputModalities: cap.OutputModalities, Tools: cap.Tools, StructuredOutput: cap.StructuredOutput, JSONMode: cap.JSONMode, Reasoning: cap.Reasoning, Streaming: cap.Streaming, MaxContextTokens: cap.MaxContextTokens, MaxOutputTokens: cap.MaxOutputTokens, MaxInputTokensPerImage: fields.ImageInput.MaxInputTokensPerImage, LicenseID: fields.License.LicenseID, CommercialUseAllowed: fields.License.CommercialUseAllowed, RetainsPayloads: fields.DataPolicy.RetainsPayloads, TrainsOnCustomerData: fields.DataPolicy.TrainsOnCustomerData, ZeroDataRetentionAvailable: fields.DataPolicy.ZeroDataRetentionAvailable, Price: nativeadmission.ModelPrice{ModelLine: id, PriceVersionID: fields.Pricing.PriceVersionID, Currency: fields.Pricing.Currency, UnitPrices: fields.Pricing.UnitPrices}}
+		model := nativeadmission.Model{ID: id, Audience: declared.audience, PowerClass: declared.powerClass, Active: fields.Deprecation.Status != "retired", Unreported: cap.Unreported, InputModalities: cap.InputModalities, OutputModalities: cap.OutputModalities, Tools: cap.Tools, StructuredOutput: cap.StructuredOutput, JSONMode: cap.JSONMode, Reasoning: cap.Reasoning, Streaming: cap.Streaming, MaxContextTokens: cap.MaxContextTokens, MaxOutputTokens: cap.MaxOutputTokens, MaxInputTokensPerImage: fields.ImageInput.MaxInputTokensPerImage, LicenseID: fields.License.LicenseID, CommercialUseAllowed: fields.License.CommercialUseAllowed, RetainsPayloads: fields.DataPolicy.RetainsPayloads, TrainsOnCustomerData: fields.DataPolicy.TrainsOnCustomerData, ZeroDataRetentionAvailable: fields.DataPolicy.ZeroDataRetentionAvailable, Price: nativeadmission.ModelPrice{ModelLine: id, PriceVersionID: fields.Pricing.PriceVersionID, Currency: fields.Pricing.Currency, UnitPrices: fields.Pricing.UnitPrices}}
 		routes, err := current.Resolve(contract.ModelReference(id), at)
 		if err != nil {
 			continue
 		}
 		for _, route := range routes.Candidates() {
+			for _, format := range []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions} {
+				if nativeFormatServed(formats, route, format) && !slices.Contains(model.APIFormats, string(format)) {
+					model.APIFormats = append(model.APIFormats, string(format))
+				}
+			}
 			if route.AcceptedParameters == nil {
 				continue
 			}
@@ -111,4 +116,16 @@ func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Tim
 		return 0
 	})
 	return result, nil
+}
+
+func nativeFormatServed(formats FormatKinds, route provider.Route, format contract.APIFormat) bool {
+	if formats == nil {
+		return false
+	}
+	executes, known := formats.ExecutesFormat(route.Provider, format)
+	if !known || !executes {
+		return false
+	}
+	family, classified, _ := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID)
+	return !classified || family.Format == format
 }

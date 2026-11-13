@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -105,7 +106,8 @@ func (s *Server) admitNative(ctx context.Context, r *http.Request, id contract.R
 		return nil, true, contract.NewPublicError(id, "unsupported_modality", contract.PublicMessage("unsupported_modality"))
 	}
 	current := s.inventory.Current()
-	models, err := s.catalogue.nativeModels(current, s.now())
+	formats, _ := s.kinds.(FormatKinds)
+	models, err := s.catalogue.nativeModels(current, s.now(), formats)
 	if err != nil {
 		return nil, true, nativeFailure(id, err)
 	}
@@ -151,7 +153,7 @@ func (s *Server) admitNative(ctx context.Context, r *http.Request, id contract.R
 		}
 	}
 	authorized := routeAuthorization{requestID: id, steps: planned.Steps, permits: func(step int, route provider.Route) bool {
-		return step < len(planned.StepRoutes) && planned.StepRoutes[step].Allows(route.DeploymentID, route.ModelReference, route.Provider, promotional(route)) && planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters)
+		return nativeOperationServed(s.kinds, formats, route, ask.operation, ask.facts.RealtimeSessionKind) && step < len(planned.StepRoutes) && planned.StepRoutes[step].Allows(route.DeploymentID, route.ModelReference, route.Provider, promotional(route)) && planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters)
 	}}
 	resolved, failure := resolveAuthorizedFor(authorized, current, s.funding, s.latency, s.servesOperation(ask.operation, ask.facts.RealtimeSessionKind), needs, s.now())
 	if failure != nil {
@@ -210,4 +212,24 @@ func nativeUnsupportedMessages(messages []contract.Message) bool {
 		}
 	}
 	return false
+}
+
+func nativeOperationServed(kinds RouteKinds, formats FormatKinds, route provider.Route, operation contract.GrantOperation, kind *contract.RealtimeSessionKind) bool {
+	if operation == contract.GrantRealtimeSession {
+		if kinds == nil {
+			return false
+		}
+		sessions, _, known := kinds.ServingKinds(route.Provider)
+		return known && kind != nil && slices.Contains(sessions, *kind)
+	}
+	format := contract.APIFormatResponses
+	switch operation {
+	case contract.GrantChatCompletions:
+		format = contract.APIFormatChatCompletions
+	case contract.GrantAudioSpeech:
+		format = contract.APIFormatAudioSpeech
+	case contract.GrantAudioTranscriptions:
+		format = contract.APIFormatAudioTranscriptions
+	}
+	return nativeFormatServed(formats, route, format)
 }
