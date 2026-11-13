@@ -23,6 +23,9 @@ func main() {
 	}
 }
 func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) error {
+	if len(args) > 0 && args[0] == "identity-check" {
+		return runIdentityCheck(args[1:], stdout, getenv, openIdentityCheck)
+	}
 	if len(args) == 0 {
 		return errors.New("usage: kaana-native migrate|register|import|validate")
 	}
