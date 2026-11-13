@@ -106,6 +106,11 @@ absent, and the code refuses rather than pretending.
   [openai-audio](openai-audio.md)) and image generation is
   `POST /v1/images/generations`. Rerank and any other modality are refused
   with `unsupported_modality` rather than mistranslated.
+- **A batch API** (asynchronous job submission, a 24-hour window, polling for
+  results). Kaana is synchronous and stateless, may not store a prompt or a
+  completion, and Oxy's ledger cannot hold a reservation that long; `batches`
+  stays in `APIFormat` as a reserved name. See
+  [ADR 0011](adr/0011-batch-api-out-of-scope.md).
 - **Replay protection beyond the signature time window.** Kaana keeps no nonce
   cache; the edge owns request idempotency.
 - **Realtime translation sessions and customer (BYOK) credentials for a
