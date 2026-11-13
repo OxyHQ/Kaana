@@ -43,7 +43,8 @@ Internal policies still create no hold or debit, even in a mixed server.
 
 Startup requires verified PostgreSQL TLS, the fixed composite role, installed
 native/billing/coordinator schema and actual allowed/forbidden privileges. Neither
-the composite group nor its login may have administrative memberships. Serving
+the composite group nor its login may have administrative memberships or ADMIN
+OPTION on any role grant. Serving
 can reserve/settle/expire through existing security-definer functions, but cannot
 create or fund accounts, modify budgets, write journals directly, change native
 policy/enrollment or create schema objects. An enabled billing account in the

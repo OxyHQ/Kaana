@@ -76,6 +76,8 @@ SELECT current_user='kaana_commercial_runtime'
  AND NOT pg_has_role(current_user,'kaana_runtime','MEMBER')
  AND NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid
                  WHERE m.member=current_user::regrole AND r.rolname NOT IN ('kaana_admission_runtime','kaana_billing_runtime'))
+ AND NOT EXISTS (SELECT 1 FROM pg_auth_members
+                 WHERE member IN (current_user::regrole,session_user::regrole) AND admin_option)
  AND NOT EXISTS (
    SELECT 1 FROM pg_roles WHERE rolname IN ('kaana_migrator','kaana_admission_admin','kaana_billing_admin','kaana_billing_migrator')
    AND (pg_has_role(current_user,oid,'MEMBER') OR pg_has_role(session_user,oid,'MEMBER')))

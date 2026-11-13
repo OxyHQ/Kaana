@@ -43,7 +43,7 @@ func runtimeFixture(t *testing.T, f *fixture) (*Runtime, *pgxpool.Config, string
 			t.Fatal(err)
 		}
 	}
-	if _, err = tx.Exec(f.ctx, `GRANT kaana_admission_runtime,kaana_billing_runtime TO kaana_commercial_runtime WITH INHERIT TRUE, SET FALSE`); err != nil {
+	if _, err = tx.Exec(f.ctx, `GRANT kaana_admission_runtime,kaana_billing_runtime TO kaana_commercial_runtime WITH INHERIT TRUE, SET FALSE, ADMIN FALSE`); err != nil {
 		t.Fatal(err)
 	}
 	login := testID("commercial_login_")
@@ -51,7 +51,7 @@ func runtimeFixture(t *testing.T, f *fixture) (*Runtime, *pgxpool.Config, string
 	if _, err = tx.Exec(f.ctx, `CREATE ROLE `+pgx.Identifier{login}.Sanitize()+` LOGIN NOINHERIT PASSWORD '`+password+`'`); err != nil {
 		t.Fatal("could not provision disposable login")
 	}
-	if _, err = tx.Exec(f.ctx, `GRANT kaana_commercial_runtime TO `+pgx.Identifier{login}.Sanitize()+` WITH INHERIT FALSE, SET TRUE`); err != nil {
+	if _, err = tx.Exec(f.ctx, `GRANT kaana_commercial_runtime TO `+pgx.Identifier{login}.Sanitize()+` WITH INHERIT FALSE, SET TRUE, ADMIN FALSE`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = tx.Exec(f.ctx, `GRANT CONNECT ON DATABASE `+pgx.Identifier{f.db.Config().ConnConfig.Database}.Sanitize()+` TO `+pgx.Identifier{login}.Sanitize()); err != nil {
@@ -140,6 +140,60 @@ func TestPostgresServingCommercialRuntimeRejectsAdministrativeLoginAndMissingSch
 	if got, err := openConfiguredRuntime(f.ctx, config); err == nil {
 		got.Close()
 		t.Fatal("incomplete commercial schema accepted")
+	}
+}
+
+func TestPostgresServingCommercialRuntimeRejectsRoleDelegation(t *testing.T) {
+	f := database(t)
+	runtime, config, login := runtimeFixture(t, f)
+	runtime.Close()
+	// Keep global role changes isolated from other disposable PG fixtures using
+	// the same provisioning lock. Each option is restored before releasing it.
+	operator, err := f.db.Acquire(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operator.Release()
+	if _, err = operator.Exec(f.ctx, `SELECT pg_advisory_lock(hashtext('billing-test-role-provision'))`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := operator.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext('billing-test-role-provision'))`); err != nil {
+			t.Error(err)
+		}
+	}()
+	for _, grant := range []struct{ role, member string }{
+		{"kaana_commercial_runtime", login},
+		{"kaana_admission_runtime", "kaana_commercial_runtime"},
+		{"kaana_billing_runtime", "kaana_commercial_runtime"},
+	} {
+		t.Run(grant.role, func(t *testing.T) {
+			role, member := pgx.Identifier{grant.role}.Sanitize(), pgx.Identifier{grant.member}.Sanitize()
+			if _, err := operator.Exec(f.ctx, `GRANT `+role+` TO `+member+` WITH ADMIN OPTION`); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if _, err := operator.Exec(context.Background(), `REVOKE ADMIN OPTION FOR `+role+` FROM `+member); err != nil {
+					t.Error(err)
+				}
+			}()
+			var elevated bool
+			if err := operator.QueryRow(f.ctx, `SELECT bool_or(admin_option) FROM pg_auth_members WHERE roleid=$1::regrole AND member=$2::regrole`, grant.role, grant.member).Scan(&elevated); err != nil || !elevated {
+				t.Fatal("negative control did not acquire delegation authority", err)
+			}
+			if got, err := openConfiguredRuntime(f.ctx, config); err == nil {
+				got.Close()
+				t.Fatal("runtime accepted ADMIN OPTION")
+			}
+			if _, err := operator.Exec(f.ctx, `REVOKE ADMIN OPTION FOR `+role+` FROM `+member); err != nil {
+				t.Fatal(err)
+			}
+			control, err := openConfiguredRuntime(f.ctx, config)
+			if err != nil {
+				t.Fatal("SET-only runtime refused after removing delegation authority", err)
+			}
+			control.Close()
+		})
 	}
 }
 
