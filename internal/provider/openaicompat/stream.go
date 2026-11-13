@@ -92,6 +92,21 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return outcome, err
 	}
 
+	if isRerankCall(call) {
+		var asked rerankRequest
+		_ = json.Unmarshal(call.Body, &asked)
+		topN := 0
+		if asked.TopN != nil {
+			topN = *asked.TopN
+		}
+		outcome, err = a.readRerank(response.Body, len(asked.Documents), topN)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = a.TransportFailure(ctx, ctxErr)
+		}
+		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+		return outcome, err
+	}
+
 	if isImageCall(call) {
 		requested := 1
 		var asked imageGenerationRequest

@@ -95,6 +95,7 @@ kaana.chat.completions.stream({ model: 'instant', messages: [{ role: 'user', con
 
 await kaana.embeddings.create({ model: 'openai/text-embedding-3-small', input: ['hola'] });
 await kaana.images.generate({ model: 'openai/gpt-image-1', prompt: 'A fox' });
+await kaana.rerank.create({ model: 'cohere/rerank-v3.5', query: 'fox', documents: ['dog', 'fox'] });
 // `model` is optional: absent, the application's decisions profile chooses, and
 // `decision.model` names the revision that answered. Answers that do not match
 // the questions (or the pinned model) are a KaanaProtocolError.

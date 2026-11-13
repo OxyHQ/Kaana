@@ -32,6 +32,17 @@ Existing grants, settlements and public request/response shapes are unchanged.
 This foundation does not activate native Kaana admissions or migrate balances;
 those require their own implementation and reviewed enrollment.
 
+## Contract set 8.15.0: the rerank request in the envelope
+
+MINOR, `@kaana.ai/contracts` 8.15.0. Additive; everything 8.14.0 parses still
+parses. The signed envelope gains the optional `rerank` member
+(`inferenceRerankParametersSchema`: `documents`, `topN`, `returnDocuments`) so
+`POST /v1/rerank` can be executed: the query is the envelope's text input, and
+`Input` has no member for a list a query is ranked against, so without it an
+adapter would receive a query and none of its documents. Required with, and valid only
+with, the `rerank` API format, text modality, a non-empty text query and no streaming.
+The public rerank shapes and the grant are unchanged.
+
 ## Contract set 8.12.0: image generation controls in the envelope
 
 MINOR, `@kaana.ai/contracts` 8.12.0. Additive; everything 8.11.0 parses still

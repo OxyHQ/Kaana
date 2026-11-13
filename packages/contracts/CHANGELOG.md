@@ -1,5 +1,16 @@
 # Changelog
 
+## 8.15.0
+
+The rerank request's documents in the signed envelope. Additive: everything
+8.14.0 parses still parses, and the public rerank shapes and the grant are
+unchanged.
+
+- `inferenceRequestSchema` gains the optional `rerank` member
+  (`inferenceRerankParametersSchema`: `documents`, `topN`, `returnDocuments`). It
+  is required with, and valid only with, the `rerank` API format, text modality, a
+  non-empty text query and no streaming; a decisions envelope carries none.
+
 ## 8.12.0
 
 Text-to-image controls in the signed envelope. Additive: everything 8.11.0

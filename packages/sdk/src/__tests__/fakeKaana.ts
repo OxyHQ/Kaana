@@ -18,6 +18,7 @@ import {
   type PublicErrorCode,
   realtimeClientCommandSchema,
   realtimeSessionOpenSchema,
+  rerankRequestSchema,
   responsesRequestSchema,
   speechRequestSchema,
   transcriptionJsonRequestSchema,
@@ -289,6 +290,14 @@ export class FakeKaana {
         if (!validated(imageGenerationsRequestSchema, body))
           return refuse('invalid_request', 'body');
         return json(requestId, { created: 1760521260, data: [{ b64_json: 'iVBORw0K' }] });
+      case 'POST /rerank':
+        if (!validated(rerankRequestSchema, body)) return refuse('invalid_request', 'body');
+        return json(requestId, {
+          id: 'gen_01JQZRERANK',
+          model: 'cohere/rerank-v3.5@2026-01-01',
+          results: [{ index: 1, relevance_score: 0.9 }],
+          usage: { prompt_tokens: 7, total_tokens: 7 },
+        });
       case 'POST /decisions':
         if (!validated(decisionRequestSchema, body)) return refuse('invalid_request', 'body');
         return json(requestId, {

@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.14.0';
+export const INFERENCE_CONTRACT_VERSION = '8.15.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -257,6 +257,17 @@ export const INFERENCE_CONTRACT_VERSION = '8.14.0';
  * distinct signature domain and bounded request binding. Existing grants and
  * public inference shapes are unchanged; publishing does not activate native
  * economic authorization or enroll any customer.
+ */
+
+/**
+ * Contract set 8.15.0 is additive: the signed envelope's optional `rerank`
+ * member (`inferenceRerankParametersSchema`: `documents`, `topN`,
+ * `returnDocuments`), which carries a rerank request's documents and controls to
+ * the adapter beside the query (the envelope's text input). It is valid only
+ * with the `rerank` API format, text modality and text input. The public
+ * request and response shapes and the grant are unchanged; Kaana now serves
+ * `POST /v1/rerank` and emits the `rerank` operation for a model some deployment
+ * can serve.
  */
 
 /** The public API's one origin and version. */

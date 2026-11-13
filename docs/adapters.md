@@ -349,6 +349,33 @@ Nothing is served until an operator declares an image model in
 entry Oxy admits no image line, and the public API refuses a model no deployment
 can draw with `unsupported_modality` before any grant.
 
+### Rerank (contract set 8.15.0)
+
+`rerank` is a whole, non-streaming response: the adapter returns `Outcome.Rerank`
+(`provider.RerankResult`: scored indexes into the request's documents, most relevant first,
+plus the input tokens the provider reported) and the executor returns it as `Result.Rerank`.
+The documents never travel back: the public handler copies a returned document's text from the
+request by index. `openaicompat` speaks the Cohere-style `POST {base}/rerank` (`model`, `query`,
+`documents`, `top_n`) for the slugs `providerconfig.ExecutableAPIFormats` lists, which is
+`openrouter` only (its documented `POST /api/v1/rerank`, carrying the fixed zero-retention
+`provider` policy). Every other slug's rerank endpoint and fields are unreviewed. `return_documents`
+is never sent. The adapter refuses an index outside the request's documents, a repeated one or a
+result without a score as a provider error, sorts by score and caps at `top_n` whatever the provider
+did. Units are `requests: 1` plus `input_tokens` from the first of `usage.prompt_tokens`,
+`usage.input_tokens`, `meta.billed_units.input_tokens`, `meta.tokens.input_tokens`, then a bare
+`total_tokens`; `search_units` is a count of searches, not tokens, and is ignored. An answer that
+reports no tokens is metered as one request with source `estimated`. An attempt that scored no
+document is an attributable server error (`kaana.producedNoRanking`, and the adapter's own check):
+never served, never billed, an unserved cost row, and failover reads it like any other fault.
+`conformance.RunRerank` is the suite; `internal/kaana/rerank_test.go` mutation-tests the gate.
+
+OpenRouter's rerank models are not classified by `ClassifyModel` (as its embedding models are
+not), so for an unclassified model attribution decides; a non-rerank model sent to the endpoint is
+the provider's 400. Nothing is served until an operator declares a rerank model in
+`configs/public-catalogue.json` with a price from primary evidence that carries `requests` and
+`input_tokens`; without one Oxy admits no rerank line, and the public API refuses a model no deployment
+can rerank with `unsupported_modality` before any grant. Not verified against a live provider.
+
 ## The conformance harness
 
 `internal/provider/conformance` is the suite an adapter must pass. An author

@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.16.0
+
+Depend on contracts 8.15.0 and add `rerank.create`, which posts
+`POST /v1/rerank` and parses the contract's response. Kaana answers
+`unsupported_modality` for a model no deployment can rerank.
+
 ## 3.15.0
 
 Depend on contracts 8.12.0: the client states contract set 8.12.0, which adds

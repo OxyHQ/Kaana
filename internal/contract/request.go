@@ -423,6 +423,20 @@ type ImageParameters struct {
 	ResponseFormat *ImageResponseFormat `json:"responseFormat,omitempty"`
 }
 
+// MaxRerankDocuments is the most documents one rerank request may carry
+// (`MAX_RERANK_DOCUMENTS`).
+const MaxRerankDocuments = 1000
+
+// RerankParameters are a rerank request's documents and controls (contract set
+// 8.15.0). The query is the envelope's text input; the documents travel here
+// because Input has no member for a list a query is ranked against. Documents
+// are customer data: never logged, persisted or hashed.
+type RerankParameters struct {
+	Documents       []string `json:"documents"`
+	TopN            *int     `json:"topN,omitempty"`
+	ReturnDocuments *bool    `json:"returnDocuments,omitempty"`
+}
+
 // AudioOutputParameters asks a conversational model to answer in its own
 // voice (contract set 3.2.0), as opposed to Speech, which reads given text
 // aloud. The audio streams as audio events and the words on the
@@ -446,6 +460,7 @@ type Request struct {
 	Speech           *SpeechParameters        `json:"speech,omitempty"`
 	Transcription    *TranscriptionParameters `json:"transcription,omitempty"`
 	Image            *ImageParameters         `json:"image,omitempty"`
+	Rerank           *RerankParameters        `json:"rerank,omitempty"`
 	AudioOutput      *AudioOutputParameters   `json:"audioOutput,omitempty"`
 	SchemaVersion    int                      `json:"schemaVersion"`
 	Attribution      Attribution              `json:"attribution"`
@@ -522,6 +537,25 @@ func (r *Request) Validate() error {
 		}
 		if image.ResponseFormat != nil && !image.ResponseFormat.Valid() {
 			return fmt.Errorf("contract: image.responseFormat is url or b64_json")
+		}
+	}
+	if r.Rerank != nil || r.Client.APIFormat == APIFormatRerank {
+		if r.Rerank == nil || r.Client.APIFormat != APIFormatRerank || r.Modality != ModalityText || r.Input.Format != InputText || r.Input.Text == nil || r.Stream {
+			return fmt.Errorf("contract: rerank requires the rerank API format with a nonstreaming text query and rerank parameters")
+		}
+		if *r.Input.Text == "" {
+			return fmt.Errorf("contract: rerank query must not be empty")
+		}
+		if len(r.Rerank.Documents) < 1 || len(r.Rerank.Documents) > MaxRerankDocuments {
+			return fmt.Errorf("contract: rerank.documents must hold 1 to %d documents", MaxRerankDocuments)
+		}
+		for _, document := range r.Rerank.Documents {
+			if document == "" {
+				return fmt.Errorf("contract: rerank.documents must not hold an empty document")
+			}
+		}
+		if r.Rerank.TopN != nil && *r.Rerank.TopN < 1 {
+			return fmt.Errorf("contract: rerank.topN must be at least 1")
 		}
 	}
 	if r.Transcription != nil {

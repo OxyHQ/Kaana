@@ -157,6 +157,9 @@ type Result struct {
 	// Image is the generated images of a completed images_generations
 	// request. It is customer content and is never logged or persisted.
 	Image *provider.ImageResult
+	// Rerank is the ranking of a completed rerank request. The documents it
+	// indexes are customer content held by the caller, never by the result.
+	Rerank *provider.RerankResult
 	// DetectedLanguage is the language a transcription's provider says it
 	// heard, as a BCP 47 tag; nil when it says none.
 	DetectedLanguage *contract.LanguageTag
@@ -453,7 +456,8 @@ func (e *Executor) execute(ctx context.Context, request *contract.Request, sink 
 		outcome, streamErr := streamAttempt(ctx, adapter, call, emit, credentials)
 		outcome.Units = FoldCacheWrite(outcome.Units, cacheWritePriced)
 		emptyAnswer := producedNoOutput(request.Client.APIFormat, streamErr, emit, outcome) ||
-			producedNoImage(request.Client.APIFormat, streamErr, outcome)
+			producedNoImage(request.Client.APIFormat, streamErr, outcome) ||
+			producedNoRanking(request.Client.APIFormat, streamErr, outcome)
 		if emptyAnswer {
 			streamErr = emptyAnswerFailure(route.Provider)
 		}
@@ -943,7 +947,7 @@ func (e *Executor) settle(
 	}
 	if len(usage) > 0 {
 		usage[len(usage)-1].Served = emit.hasDeliveredOutput() ||
-			(last.err == nil && (emit.attemptStarted || last.outcome.Embedding != nil || last.outcome.Image != nil || last.outcome.Decisions != nil))
+			(last.err == nil && (emit.attemptStarted || last.outcome.Embedding != nil || last.outcome.Image != nil || last.outcome.Rerank != nil || last.outcome.Decisions != nil))
 	}
 	cost := e.costs.MeasureRequest(requestID, usage)
 	var servedTier *contract.FundingTier
@@ -1004,6 +1008,16 @@ func (e *Executor) settle(
 			return Result{Failure: contract.NewError(requestID, contract.CodeInternalError, "invalid image usage report"), UpstreamCost: cost}
 		}
 		return Result{Report: report, Image: last.outcome.Image, UpstreamCost: cost}
+	}
+	if last.err == nil && last.outcome.Rerank != nil && request.Client.APIFormat == contract.APIFormatRerank {
+		report.Outcome = contract.OutcomeCompleted
+		if report.UsageSource == "" {
+			report.UsageSource = contract.UsageProviderReported
+		}
+		if err := report.Validate(); err != nil {
+			return Result{Failure: contract.NewError(requestID, contract.CodeInternalError, "invalid rerank usage report"), UpstreamCost: cost}
+		}
+		return Result{Report: report, Rerank: last.outcome.Rerank, UpstreamCost: cost}
 	}
 	if ttft := emit.timeToFirstToken(); ttft > 0 {
 		milliseconds := int(ttft.Milliseconds())
@@ -1125,6 +1139,16 @@ func producedNoOutput(format contract.APIFormat, streamErr error, emit *emitter,
 func producedNoImage(format contract.APIFormat, streamErr error, outcome provider.Outcome) bool {
 	return format == contract.APIFormatImagesGenerations && streamErr == nil &&
 		(outcome.Image == nil || len(outcome.Image.Images) == 0)
+}
+
+// producedNoRanking reports whether a rerank attempt completed without scoring
+// a single document. A rerank request has no text stream, so producedNoOutput
+// cannot see it; this is its gate. Serving such an attempt would hand the
+// customer an empty ranking and bill them for it (#266), so it is the
+// deployment's failure instead, and its units stay in the operator cost row.
+func producedNoRanking(format contract.APIFormat, streamErr error, outcome provider.Outcome) bool {
+	return format == contract.APIFormatRerank && streamErr == nil &&
+		(outcome.Rerank == nil || len(outcome.Rerank.Results) == 0)
 }
 
 // emptyAnswerFailure is the failure an attempt that produced nothing counts
