@@ -83,6 +83,7 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
+	"meteredGenerationRecordSchema":          reflect.TypeOf(MeteredGenerationRecord{}),
 	"kaanaIdentityRequestSchema":             reflect.TypeOf(IdentityRequest{}),
 	"kaanaIdentityPrincipalSchema":           reflect.TypeOf(IdentityPrincipal{}),
 	"kaanaIdentityAssertionSchema":           reflect.TypeOf(IdentityAssertion{}),
@@ -518,7 +519,6 @@ var notApplicable = map[string]string{
 	"generationRecordSchema":         "public api: GET /v1/generations record",
 	"imageGenerationsRequestSchema":  "public api: POST /v1/images/generations request",
 	"imageGenerationsSchema":         "public api: POST /v1/images/generations response",
-	"meteredGenerationRecordSchema":  "public api: GET /v1/generations record",
 	"modelAudioCapabilitiesSchema":   "public api: voice limits; realtime models' are inventory.AudioObservation today, speech models' in phase 1.2",
 	"modelListSchema":                "public api: GET /v1/models",
 	"modelSchema":                    "public api: GET /v1/models entry",
@@ -541,7 +541,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 67
+const expectedNotApplicableCount = 66
 
 type enumBinding struct {
 	goType  reflect.Type
@@ -998,7 +998,7 @@ func (c *shapeChecker) compareField(shape, jsonName string, node descriptorNode,
 		problems = append(problems, fmt.Sprintf("%s: the contract makes it optional; the Go tag lacks omitempty", where))
 	case !optional && field.omitEmpty:
 		problems = append(problems, fmt.Sprintf("%s: the contract requires it; the Go tag has omitempty, so Kaana can omit a required field", where))
-	case !optional && pointer:
+	case !optional && pointer && !node.Nullable:
 		problems = append(problems, fmt.Sprintf("%s: the contract requires it; %s is a pointer", where, goType))
 	}
 
@@ -1011,6 +1011,8 @@ func (c *shapeChecker) compareField(shape, jsonName string, node descriptorNode,
 
 func (c *shapeChecker) compareKind(where string, node descriptorNode, goType reflect.Type) []string {
 	switch node.Kind {
+	case "discriminatedUnion":
+		return c.compareShape(where, node, goType)
 	case "ref":
 		return c.compareRef(where, node.Ref, goType)
 	case "string":
@@ -1176,6 +1178,7 @@ func compareInlineEnum(where string, node descriptorNode, goType reflect.Type) [
 // through goEnums because they have no published name of their own, so they are
 // registered here and compared member for member exactly the same way.
 var inlineEnumBindings = []enumBinding{
+	bindEnum(meteredTariffStatusValues),
 	bindEnum(serviceAuthorityValues),
 	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),
@@ -1253,6 +1256,9 @@ func flattenUnion(node descriptorNode) (map[string]descriptorNode, error) {
 			}
 			if previous, seen := merged[field.Name]; !seen {
 				merged[field.Name] = field
+			} else if previous.Kind == field.Kind {
+				previous.Nullable = previous.Nullable || field.Nullable
+				merged[field.Name] = previous
 			} else if previous.Kind != field.Kind {
 				merged[field.Name] = descriptorNode{Name: field.Name, Kind: "union", Variants: []descriptorNode{previous, field}}
 			}

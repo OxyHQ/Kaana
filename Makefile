@@ -86,7 +86,7 @@ test:
 
 ## test-integration: the PostgreSQL suites, which need a real database.
 #
-# CI provides postgres:17-alpine with the five credential roles created. Locally
+# CI provides postgres:17-alpine with credential and admission roles created. Locally
 # you supply KAANA_POSTGRES_TEST_URL yourself. This target REFUSES an unset
 # variable rather than skipping: the Go tests skip silently without it, so a
 # target that inherited that skip would report a green integration run that
@@ -95,7 +95,7 @@ test-integration:
 ifndef KAANA_POSTGRES_TEST_URL
 	$(error KAANA_POSTGRES_TEST_URL is unset; these suites would skip and report green. See docs/operating.md)
 endif
-	go test -race -count=1 ./internal/credentialstore/...
+	go test -race -count=1 ./internal/credentialstore/... ./internal/nativeadmission/...
 
 ## contract: the full contract-drift gate.
 contract: contract-lint contract-package contract-generate contract-types contract-validate
