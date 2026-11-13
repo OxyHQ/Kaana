@@ -3,7 +3,7 @@
   "package": "@kaana.ai/contracts",
   "packageVersion": "8.12.0",
   "contractVersion": "8.12.0",
-  "shapeCount": 273,
+  "shapeCount": 278,
   "constants": {
     "GRANT_EXECUTION_WINDOW_MS": {
       "module": "internal/grant",
@@ -12,6 +12,14 @@
     "GRANT_SIGNATURE_DOMAIN": {
       "module": "internal/grant",
       "value": "oxy-kaana-grant:v1"
+    },
+    "IDENTITY_SIGNATURE_DOMAIN": {
+      "module": "internal/identity",
+      "value": "oxy-kaana-identity:v1"
+    },
+    "IDENTITY_VALIDITY_WINDOW_MS": {
+      "module": "internal/identity",
+      "value": 60000
     },
     "INFERENCE_CONTRACT_VERSION": {
       "module": "public/version",
@@ -252,6 +260,10 @@
         "upstream_content_filtered",
         "cancelled"
       ]
+    },
+    "OXY_KAANA_IDENTITIES_ENDPOINT": {
+      "module": "internal/identity",
+      "value": "/internal/kaana/v1/identities"
     },
     "PADDED_BASE64_PATTERN": {
       "module": "public/identifiers",
@@ -7909,6 +7921,233 @@
           "name": "provider",
           "kind": "ref",
           "ref": "inferenceProviderSlugSchema"
+        },
+        {
+          "name": "schemaVersion",
+          "kind": "literal",
+          "value": 1
+        }
+      ]
+    },
+    "kaanaIdentityApplicationClassSchema": {
+      "module": "internal/identity",
+      "versioned": false,
+      "kind": "enum",
+      "values": [
+        "first_party",
+        "third_party",
+        "internal",
+        "system"
+      ]
+    },
+    "kaanaIdentityAssertionSchema": {
+      "module": "internal/identity",
+      "versioned": true,
+      "kind": "object",
+      "strict": true,
+      "fields": [
+        {
+          "name": "audience",
+          "kind": "literal",
+          "value": "kaana.ai"
+        },
+        {
+          "name": "expiresAt",
+          "kind": "ref",
+          "ref": "inferenceTimestampSchema"
+        },
+        {
+          "name": "issuedAt",
+          "kind": "ref",
+          "ref": "inferenceTimestampSchema"
+        },
+        {
+          "name": "kind",
+          "kind": "literal",
+          "value": "identity"
+        },
+        {
+          "name": "principal",
+          "kind": "ref",
+          "ref": "kaanaIdentityPrincipalSchema"
+        },
+        {
+          "name": "requestId",
+          "kind": "ref",
+          "ref": "requestIdSchema"
+        },
+        {
+          "name": "requestSha256",
+          "kind": "string",
+          "constraints": {
+            "regex": "^[0-9a-f]{64}$",
+            "regexFlags": ""
+          }
+        },
+        {
+          "name": "schemaVersion",
+          "kind": "literal",
+          "value": 1
+        },
+        {
+          "name": "userId",
+          "kind": "ref",
+          "ref": "delegatedUserIdSchema",
+          "optional": true
+        }
+      ],
+      "refined": true
+    },
+    "kaanaIdentityLaneSchema": {
+      "module": "internal/identity",
+      "versioned": false,
+      "kind": "enum",
+      "values": [
+        "machine_credential",
+        "service_token"
+      ]
+    },
+    "kaanaIdentityPrincipalSchema": {
+      "module": "internal/identity",
+      "versioned": false,
+      "kind": "discriminatedUnion",
+      "discriminator": "authority",
+      "variants": [
+        {
+          "kind": "object",
+          "strict": true,
+          "fields": [
+            {
+              "name": "applicationClass",
+              "kind": "ref",
+              "ref": "kaanaIdentityApplicationClassSchema"
+            },
+            {
+              "name": "applicationId",
+              "kind": "ref",
+              "ref": "oxyApplicationIdSchema"
+            },
+            {
+              "name": "applicationIsInternal",
+              "kind": "boolean"
+            },
+            {
+              "name": "authority",
+              "kind": "literal",
+              "value": "first_party"
+            },
+            {
+              "name": "credentialId",
+              "kind": "ref",
+              "ref": "oxyCredentialIdSchema"
+            },
+            {
+              "name": "environment",
+              "kind": "ref",
+              "ref": "inferenceEnvironmentSchema"
+            },
+            {
+              "name": "lane",
+              "kind": "ref",
+              "ref": "kaanaIdentityLaneSchema"
+            },
+            {
+              "name": "ownerAccountId",
+              "kind": "ref",
+              "ref": "oxyAccountIdSchema"
+            }
+          ]
+        },
+        {
+          "kind": "object",
+          "strict": true,
+          "fields": [
+            {
+              "name": "applicationClass",
+              "kind": "ref",
+              "ref": "kaanaIdentityApplicationClassSchema"
+            },
+            {
+              "name": "applicationId",
+              "kind": "ref",
+              "ref": "oxyApplicationIdSchema"
+            },
+            {
+              "name": "applicationIsInternal",
+              "kind": "boolean"
+            },
+            {
+              "name": "authority",
+              "kind": "literal",
+              "value": "external"
+            },
+            {
+              "name": "credentialId",
+              "kind": "ref",
+              "ref": "oxyCredentialIdSchema"
+            },
+            {
+              "name": "environment",
+              "kind": "ref",
+              "ref": "inferenceEnvironmentSchema"
+            },
+            {
+              "name": "lane",
+              "kind": "ref",
+              "ref": "kaanaIdentityLaneSchema"
+            },
+            {
+              "name": "ownerAccountId",
+              "kind": "ref",
+              "ref": "oxyAccountIdSchema"
+            },
+            {
+              "name": "scopes",
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "ref": "inferenceScopeSchema"
+              }
+            }
+          ]
+        }
+      ],
+      "refined": true
+    },
+    "kaanaIdentityRequestSchema": {
+      "module": "internal/identity",
+      "versioned": true,
+      "kind": "object",
+      "strict": true,
+      "fields": [
+        {
+          "name": "audience",
+          "kind": "literal",
+          "value": "kaana.ai"
+        },
+        {
+          "name": "credential",
+          "kind": "string",
+          "constraints": {
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        {
+          "name": "kind",
+          "kind": "literal",
+          "value": "identity"
+        },
+        {
+          "name": "onBehalfOfUserId",
+          "kind": "ref",
+          "ref": "delegatedUserIdSchema",
+          "optional": true
+        },
+        {
+          "name": "requestId",
+          "kind": "ref",
+          "ref": "requestIdSchema"
         },
         {
           "name": "schemaVersion",
