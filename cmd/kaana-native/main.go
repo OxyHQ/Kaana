@@ -40,6 +40,7 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 	policyVersion := flags.Int("policy-version", 0, "reviewed version")
 	policyHash := flags.String("policy-sha256", "", "reviewed immutable policy digest")
 	manifestHash := flags.String("manifest-sha256", "", "reviewed exported manifest hash")
+	manifestPath := flags.String("manifest-file", "", "local reviewed manifest artifact; otherwise stdin")
 	fenceID := flags.String("fence-id", "", "reviewed Oxy fence epoch")
 	activated := flags.String("activated-at", "", "exact reviewed activation timestamp")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
@@ -47,6 +48,9 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 	}
 	if args[0] != "migrate" && args[0] != "register" && args[0] != "import" && args[0] != "validate" {
 		return errors.New("unknown native command")
+	}
+	if *manifestPath != "" && args[0] != "import" && args[0] != "validate" {
+		return errors.New("manifest-file is only valid for import or validate")
 	}
 	var selected *nativeadmission.Policy
 	var policies []nativeadmission.Policy
@@ -74,7 +78,7 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 	review := nativeadmission.ImportReview{}
 	if args[0] == "import" || args[0] == "validate" {
 		var err error
-		manifest, err = io.ReadAll(io.LimitReader(stdin, 64*1024*1024+1))
+		manifest, err = readManifestArtifact(*manifestPath, stdin)
 		if err != nil || len(manifest) > 64*1024*1024 {
 			return errors.New("manifest exceeds bound or cannot be read")
 		}
@@ -115,4 +119,31 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 		return errors.New("native administration transaction refused; no partial activation committed")
 	}
 	return json.NewEncoder(stdout).Encode(map[string]string{"status": "complete", "operation": args[0]})
+}
+
+// A local artifact supports a read-only ephemeral ECS volume. Its external
+// review hash and policy/fence identity are still checked before any DB access.
+func readManifestArtifact(path string, stdin io.Reader) ([]byte, error) {
+	input := stdin
+	if path != "" {
+		metadata, err := os.Lstat(path)
+		if err != nil || !metadata.Mode().IsRegular() || metadata.Mode().Perm()&0077 != 0 || metadata.Size() > 64*1024*1024 {
+			return nil, errors.New("manifest file is not a private bounded regular artifact")
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, errors.New("manifest file unavailable")
+		}
+		defer func() { _ = file.Close() }()
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 64*1024*1024 {
+			return nil, errors.New("manifest file is not a bounded regular artifact")
+		}
+		input = file
+	}
+	raw, err := io.ReadAll(io.LimitReader(input, 64*1024*1024+1))
+	if err != nil || len(raw) > 64*1024*1024 {
+		return nil, errors.New("manifest exceeds bound or cannot be read")
+	}
+	return raw, nil
 }
