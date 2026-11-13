@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.12.0';
+export const INFERENCE_CONTRACT_VERSION = '8.13.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -250,6 +250,13 @@ export const INFERENCE_CONTRACT_VERSION = '8.12.0';
  * adapter instead of dropping them. It is valid only with the
  * `images_generations` API format, image modality and text input. Nothing in
  * 8.11.0 changes and the public request and response shapes are unchanged.
+ */
+
+/**
+ * Contract set 8.13.0 adds identity-only Oxy assertions under /internal, with a
+ * distinct signature domain and bounded request binding. Existing grants and
+ * public inference shapes are unchanged; publishing does not activate native
+ * economic authorization or enroll any customer.
  */
 
 /** The public API's one origin and version. */
