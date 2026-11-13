@@ -613,12 +613,14 @@ type harness struct {
 }
 
 type harnessOptions struct {
-	catalogue *publicapi.PublicCatalogue
-	audio     publicapi.AudioCatalogue
-	rate      publicapi.RateLimit
-	origins   []string
-	store     publicapi.SettlementStore
-	authorize func(publicapi.Authorizer) publicapi.Authorizer
+	native          *publicapi.NativeConfig
+	realtimeFunding provider.Funding
+	catalogue       *publicapi.PublicCatalogue
+	audio           publicapi.AudioCatalogue
+	rate            publicapi.RateLimit
+	origins         []string
+	store           publicapi.SettlementStore
+	authorize       func(publicapi.Authorizer) publicapi.Authorizer
 	// realtime is the statement the realtime deployment publishes; OpenAI's
 	// when unset.
 	realtime *providerconfig.RealtimeStatement
@@ -682,7 +684,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		t.Fatal(err)
 	}
 	realtimeAdapter, err := openairealtime.New(openairealtime.Config{
-		Declarations: []provider.KeyDeclaration{{KeyID: "key_rt", Secret: fake.Key}},
+		Declarations: []provider.KeyDeclaration{{KeyID: "key_rt", Secret: fake.Key, Funding: options.realtimeFunding}},
 		HTTPClient:   upstream.Client(),
 	})
 	if err != nil {
@@ -764,7 +766,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		t.Fatal(err)
 	}
 	api, err := publicapi.New(publicapi.Config{
-		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store,
+		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store, Native: options.native,
 		Funding: publicapi.RegistryFunding{Registry: registry}, Kinds: registry, Audio: options.audio, Catalogue: options.catalogue, Costs: cards,
 		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger, Metrics: options.metrics,
 	})

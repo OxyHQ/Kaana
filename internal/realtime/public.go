@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -30,6 +31,11 @@ const PublicSubprotocol = "kaana.v1"
 
 // PublicAdmission is a public session Oxy granted.
 type PublicAdmission struct {
+	// ExecutionDeadline bounds native capacity from admission, including open time.
+	ExecutionDeadline time.Time
+	// Finalize persists native completion evidence before session.closed. A failure
+	// emits a typed terminal error; it never selects another financial authority.
+	Finalize func(context.Context, kaana.SessionSettlement, *kaana.SessionOpening) error
 	// Request is the session, resolved from the grant into signed routes.
 	Request *contract.RealtimeSessionRequest
 	// Credential is the digest of the credential that opened it; a resume
@@ -100,9 +106,13 @@ func (m *Manager) PublicHandler(gate PublicGate) http.Handler {
 		s.public = true
 		s.credential = admission.Credential
 		s.settlePublic = admission.Settle
+		s.finalizePublic = admission.Finalize
+		s.executionDeadline = admission.ExecutionDeadline
 		if !m.claimOwner(r.Context(), s) {
 			stop()
-			if admission.Settle != nil {
+			if admission.Finalize != nil {
+				_ = admission.Finalize(context.WithoutCancel(r.Context()), kaana.SessionSettlement{}, nil)
+			} else if admission.Settle != nil {
 				admission.Settle(context.WithoutCancel(r.Context()), kaana.SessionSettlement{}, nil)
 			}
 			m.refusePublic(r.Context(), ws, contract.NewPublicError(request.Attribution.RequestID, "service_unavailable", contract.PublicMessage("service_unavailable")), nil)
@@ -113,7 +123,9 @@ func (m *Manager) PublicHandler(gate PublicGate) http.Handler {
 			m.mu.Unlock()
 			stop()
 			m.releaseOwner(r.Context(), s)
-			if admission.Settle != nil {
+			if admission.Finalize != nil {
+				_ = admission.Finalize(context.WithoutCancel(r.Context()), kaana.SessionSettlement{}, nil)
+			} else if admission.Settle != nil {
 				admission.Settle(context.WithoutCancel(r.Context()), kaana.SessionSettlement{}, nil)
 			}
 			m.refusePublic(r.Context(), ws, contract.NewPublicError(request.Attribution.RequestID, "service_unavailable", contract.PublicMessage("service_unavailable")), nil)

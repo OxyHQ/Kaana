@@ -126,14 +126,15 @@ type AdmissionRequest struct {
 }
 
 type Admission struct {
-	ID         string
-	RequestID  contract.RequestID
-	Principal  contract.IdentityPrincipal
-	UserID     *contract.UserID
-	Operation  contract.GrantOperation
-	Plan       Plan
-	AdmittedAt time.Time
-	LeaseUntil time.Time
+	GenerationID *contract.GenerationID
+	ID           string
+	RequestID    contract.RequestID
+	Principal    contract.IdentityPrincipal
+	UserID       *contract.UserID
+	Operation    contract.GrantOperation
+	Plan         Plan
+	AdmittedAt   time.Time
+	LeaseUntil   time.Time
 }
 
 // Admit claims both idempotency and distributed capacity in a single locked

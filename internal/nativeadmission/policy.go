@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 )
@@ -26,6 +27,7 @@ var (
 // Empty configuration and Enabled=false admit nothing. Deployment permissions
 // are mandatory: an empty slice never means every deployment.
 type Policy struct {
+	CredentialIDs         []contract.CredentialID           `json:"credentialIds"`
 	ID                    string                            `json:"id"`
 	Version               int                               `json:"version"`
 	Enabled               bool                              `json:"enabled"`
@@ -55,11 +57,26 @@ type Policy struct {
 	ExecutionTimeout      time.Duration                     `json:"executionTimeout"`
 }
 
-func (p Policy) matches(i contract.IdentityPrincipal) bool {
-	return p.Enabled && i.OwnerAccountID != nil && p.OwnerAccountID == *i.OwnerAccountID && p.ApplicationID == i.ApplicationID && p.Environment == i.Environment && p.Lane == i.Lane && contract.IdentityAuthority(p.Authority) == i.Authority && p.ApplicationClass == i.ApplicationClass && p.ApplicationIsInternal == i.ApplicationIsInternal
+func (p Policy) matches(i contract.IdentityPrincipal) bool { return p.Enabled && p.Selects(i) }
+
+// Selects identifies an explicitly enrolled population, even while its policy is disabled.
+// It is classification only, never authorization or permission to execute.
+func (p Policy) Selects(i contract.IdentityPrincipal) bool {
+	return slices.Contains(p.CredentialIDs, i.CredentialID) && i.OwnerAccountID != nil && p.OwnerAccountID == *i.OwnerAccountID && p.ApplicationID == i.ApplicationID && p.Environment == i.Environment && p.Lane == i.Lane && contract.IdentityAuthority(p.Authority) == i.Authority && p.ApplicationClass == i.ApplicationClass && p.ApplicationIsInternal == i.ApplicationIsInternal
 }
 
 func (p Policy) validate() error {
+	if len(p.CredentialIDs) == 0 {
+		return errors.New("nativeadmission: an explicit credential population is required")
+	}
+	seenCredentials := make(map[contract.CredentialID]bool, len(p.CredentialIDs))
+	for _, id := range p.CredentialIDs {
+		if id == "" || len(utf16.Encode([]rune(id))) > 64 || seenCredentials[id] {
+			return errors.New("nativeadmission: credential population is invalid")
+		}
+		seenCredentials[id] = true
+	}
+
 	identity := contract.IdentityPrincipal{OwnerAccountID: &p.OwnerAccountID, ApplicationID: p.ApplicationID, CredentialID: "policy-validation", Environment: p.Environment, Lane: p.Lane, Authority: contract.IdentityAuthority(p.Authority), ApplicationClass: p.ApplicationClass, ApplicationIsInternal: p.ApplicationIsInternal}
 	if err := identity.Validate(); err != nil {
 		return fmt.Errorf("nativeadmission: invalid policy principal: %w", err)
