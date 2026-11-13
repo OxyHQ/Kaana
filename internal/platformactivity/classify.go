@@ -26,12 +26,11 @@ var excludedSegments = map[string]struct{}{
 }
 
 // excludedPrefixes are path prefixes that carry collection itself, service
-// token minting, the edge's own endpoints and operator scrapes. Reporting them
+// token minting and the edge's own endpoints. Reporting them
 // would make the collector observe its own traffic.
 var excludedPrefixes = []string{
 	"/internal/activity",
 	"/internal/v1/health",
-	"/internal/v1/metrics",
 	"/auth/service-token",
 	"/cdn-cgi/",
 }

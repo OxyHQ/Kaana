@@ -256,7 +256,7 @@ var excludedPaths = []string{
 	"/livez", "/healthz", "/health", "/health/deep", "/ready", "/readyz", "/live", "/status",
 	"/api/health", "/api/ready", "/api/live",
 	"/platform-stats", "/platform-activity", "/platform-infrastructure", "/infra-status",
-	"/cdn-cgi/trace", "/internal/v1/health", "/internal/v1/metrics",
+	"/cdn-cgi/trace", "/internal/v1/health",
 	"/internal/activity", "/internal/activity/infrastructure", "/auth/service-token",
 }
 

@@ -48,7 +48,7 @@ One table (`classify.go`) decides what is never reported, for inbound and
 outbound alike: first path segments `health`, `healthz`, `ready`, `readyz`,
 `live`, `livez`, `status`, `platform-stats`, `platform-activity`,
 `platform-infrastructure`, `infra-status` (each also under `/api/`), and the
-prefixes `/internal/activity`, `/internal/v1/health`, `/internal/v1/metrics`,
+prefixes `/internal/activity`, `/internal/v1/health`,
 `/auth/service-token` and `/cdn-cgi/`. It is a superset of Oxy's list; a test
 proves each excluded path produces no flow and that near-misses (`/statuspage`)
 do.
