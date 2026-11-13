@@ -88,6 +88,9 @@ var migration0022 string
 //go:embed migrations/0023_realtime_session_owners.sql
 var migration0023 string
 
+//go:embed migrations/0024_retention_purge.sql
+var migration0024 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool             *pgxpool.Pool
@@ -190,6 +193,7 @@ func schemaMigrations() []schemaMigration {
 		{version: "0021", body: migration0021},
 		{version: "0022", body: migration0022},
 		{version: "0023", body: migration0023},
+		{version: "0024", body: migration0024},
 	}
 }
 
