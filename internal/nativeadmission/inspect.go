@@ -72,41 +72,11 @@ func (s *Store) InspectPolicy(ctx context.Context, p Policy) (Inspection, error)
 	return report, nil
 }
 func inspectPolicy(ctx context.Context, tx pgx.Tx, p Policy) (Inspection, error) {
-	report := Inspection{MigrationState: "absent"}
-	var ledger bool
-	if err := tx.QueryRow(ctx, `SELECT to_regclass('public.kaana_admission_migrations') IS NOT NULL`).Scan(&ledger); err != nil {
-		return report, errors.New("native inspection ledger unavailable")
+	state, err := inspectMigrations(ctx, tx)
+	report := Inspection{MigrationState: state}
+	if err != nil || state != "verified" {
+		return report, err
 	}
-	if !ledger {
-		return report, nil
-	}
-	rows, err := tx.Query(ctx, `SELECT version,checksum FROM public.kaana_admission_migrations ORDER BY version`)
-	if err != nil {
-		return report, errors.New("native inspection ledger unavailable")
-	}
-	expected := map[string]string{"0001": digest([]byte(admissionMigration)), "0002": digest([]byte(legacyDailyMigration))}
-	count := 0
-	for rows.Next() {
-		var version, checksum string
-		if err = rows.Scan(&version, &checksum); err != nil {
-			rows.Close()
-			return report, errors.New("native inspection ledger invalid")
-		}
-		if wanted, ok := expected[version]; !ok || checksum != wanted {
-			rows.Close()
-			return report, errors.New("native inspection migration checksum mismatch")
-		}
-		count++
-	}
-	rows.Close()
-	if rows.Err() != nil {
-		return report, errors.New("native inspection ledger unavailable")
-	}
-	if count != len(expected) {
-		report.MigrationState = "incomplete"
-		return report, nil
-	}
-	report.MigrationState = "verified"
 	var enrollment string
 	var active *string
 	err = tx.QueryRow(ctx, `SELECT id,enabled,active_policy_id,legacy_fence_complete FROM kaana_admission.enrollments WHERE application_id=$1 AND environment=$2`, p.ApplicationID, p.Environment).Scan(&enrollment, &report.Enabled, &active, &report.LegacyFenceComplete)
@@ -162,4 +132,58 @@ func inspectDocument(document []byte, expectedDigest string) (Policy, error) {
 		return stored, errors.New("native inspection policy document mismatch")
 	}
 	return stored, nil
+}
+
+// VerifyMigrations checks only the immutable schema ledger, without loading or
+// changing any enrollment. An operator needs explicit read access to the ledger.
+func (s *Store) VerifyMigrations(ctx context.Context) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return errors.New("native migration verification unavailable")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	state, err := inspectMigrations(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if state != "verified" {
+		return errors.New("native migrations must be complete before commercial preparation")
+	}
+	return tx.Commit(ctx)
+}
+
+func inspectMigrations(ctx context.Context, tx pgx.Tx) (string, error) {
+	var ledger bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass('public.kaana_admission_migrations') IS NOT NULL`).Scan(&ledger); err != nil {
+		return "absent", errors.New("native inspection ledger unavailable")
+	}
+	if !ledger {
+		return "absent", nil
+	}
+	rows, err := tx.Query(ctx, `SELECT version,checksum FROM public.kaana_admission_migrations ORDER BY version`)
+	if err != nil {
+		return "absent", errors.New("native inspection ledger unavailable")
+	}
+	expected := map[string]string{"0001": digest([]byte(admissionMigration)), "0002": digest([]byte(legacyDailyMigration))}
+	count := 0
+	for rows.Next() {
+		var version, checksum string
+		if err = rows.Scan(&version, &checksum); err != nil {
+			rows.Close()
+			return "absent", errors.New("native inspection ledger invalid")
+		}
+		if wanted, ok := expected[version]; !ok || checksum != wanted {
+			rows.Close()
+			return "absent", errors.New("native inspection migration checksum mismatch")
+		}
+		count++
+	}
+	rows.Close()
+	if rows.Err() != nil {
+		return "absent", errors.New("native inspection ledger unavailable")
+	}
+	if count != len(expected) {
+		return "incomplete", nil
+	}
+	return "verified", nil
 }

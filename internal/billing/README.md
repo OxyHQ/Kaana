@@ -1,6 +1,6 @@
 # Commercial ledger foundation
 
-This package implements the transactional accounting core of [ADR 0010](../../docs/adr/0010-kaana-sells-and-invoices.md). The optional [commercial admission coordinator](../commercialadmission/README.md) joins its transactions to native admission and settlement. Neither package is connected to the serving process, a payment processor or invoices. No currency, account, credit or enrollment is seeded. Merely constructing `Store` does nothing to the database. The existing production economic authority is unchanged by this package.
+This package implements the transactional accounting core of [ADR 0010](../../docs/adr/0010-kaana-sells-and-invoices.md). The optional [commercial admission coordinator](../commercialadmission/README.md) joins its transactions to native admission and settlement. Serving has an explicit disabled-by-default commercial opt-in; neither package is connected to a payment processor or invoices. No currency, account, credit or enrollment is seeded. Merely constructing `Store` does nothing to the database. The existing production economic authority is unchanged by this package.
 
 ## Identity and roles
 
@@ -49,9 +49,9 @@ It covers concurrent reserve/settle/compensate, stable retries and changed-body 
 Before commercial traffic can use this library, the following work remains:
 
 1. Bind trusted authenticated accounts to an explicit authority/cutover policy, with legacy-key fencing and no double billing. Keep first-party metered enrollment distinct from commercial balances.
-2. Wire the tested coordinator into the serving constructor and recovery scheduler. Its transactional hooks already bind native planning/rating, reserve-before-execution and durable settlement retries, with authenticated native receipt reads. Operational configuration and activation remain absent.
+2. Provision and review the optional serving constructor, runtime roles, offline migrations and recovery scheduler described in the coordinator README. Its transactional hooks bind native planning/rating, reserve-before-execution and durable settlement retries, with authenticated native receipt reads. Production configuration and activation remain absent.
 3. Configure the seller/legal entity, supported currencies, merchant workspace, pricing/discount governance, tax treatment, invoice numbering and applicable retention. None is selected here.
 4. Integrate verified payment/grant events and reconciliation through the approved payment system. Implement cash refunds, disputes, invoice collection and credit notes separately; this package does not send money or issue invoices.
 5. Add operational metrics/alerts for stuck holds, failed rating/settlement, evidence conflicts and reconciliation drift, then run reviewed cutover and reconciliation checks.
 
-Until these are complete and reviewed, the package remains a tested library with no runtime caller and no financial activation.
+Until these are complete and reviewed, the opt-in remains unactivated: no real financial population is enrolled by this package.

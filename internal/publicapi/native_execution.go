@@ -87,7 +87,12 @@ func (s *Server) RunNativeReconciliation(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		bounded, cancel := context.WithTimeout(ctx, settlementWriteTimeout)
-		_, err := s.native.Store.ReplayCompletions(bounded, 100)
+		var err error
+		if s.native.Recover != nil {
+			err = s.native.Recover(bounded, 100)
+		} else {
+			_, err = s.native.Store.ReplayCompletions(bounded, 100)
+		}
 		cancel()
 		if err != nil && ctx.Err() == nil {
 			s.logger.Warn("native completion replay pending", "errorType", "settlement_pending")

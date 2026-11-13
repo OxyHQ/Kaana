@@ -32,7 +32,8 @@ var (
 )
 
 // Store's pool has the admission role; migration/enrollment use a distinct admin
-// pool. Neither role can read provider secrets or mutate customer balances.
+// pool. The optional fixed economics hooks use the separately restricted
+// commercial runtime pool; no admission role can read provider secrets.
 type Store struct {
 	pool      *pgxpool.Pool
 	economics AdmissionEconomics
