@@ -32,9 +32,17 @@ type LegacyManifest struct {
 		Grants     int `json:"grants"`
 		Holds      int `json:"holds"`
 	} `json:"unresolved"`
-	Entries []LegacyEntry `json:"entries"`
-	SHA256  string        `json:"sha256"`
+	DailyUsage LegacyDailyUsage `json:"dailyUsage"`
+	Entries    []LegacyEntry    `json:"entries"`
+	SHA256     string           `json:"sha256"`
 }
+type LegacyDailyUsage struct {
+	Scope                string `json:"scope"`
+	UTCDay               string `json:"utcDay"`
+	Admitted             int64  `json:"admitted"`
+	MaxRequestsPerUTCDay int    `json:"maxRequestsPerUtcDay"`
+}
+
 type LegacyEntry struct {
 	CredentialID      contract.CredentialID `json:"credentialId"`
 	KeyKind           string                `json:"keyKind"`
@@ -78,7 +86,7 @@ func DecodeLegacyManifest(raw []byte, review ImportReview, now time.Time) (Legac
 	if err := d.Decode(&payload); err != nil {
 		return manifest, err
 	}
-	if !hasFields(payload, "schemaVersion", "authority", "fenceId", "activatedAt", "exportedAt", "population", "unresolved", "entries", "sha256") {
+	if !hasFields(payload, "schemaVersion", "authority", "fenceId", "activatedAt", "exportedAt", "population", "unresolved", "dailyUsage", "entries", "sha256") {
 		return manifest, ErrInvalidRequest
 	}
 	population, ok := payload["population"].(map[string]any)
@@ -87,6 +95,10 @@ func DecodeLegacyManifest(raw []byte, review ImportReview, now time.Time) (Legac
 	}
 	unresolved, ok := payload["unresolved"].(map[string]any)
 	if !ok || !hasFields(unresolved, "admissions", "grants", "holds") {
+		return manifest, ErrInvalidRequest
+	}
+	daily, ok := payload["dailyUsage"].(map[string]any)
+	if !ok || !hasFields(daily, "scope", "utcDay", "admitted", "maxRequestsPerUtcDay") {
 		return manifest, ErrInvalidRequest
 	}
 	entries, ok := payload["entries"].([]any)
@@ -114,7 +126,7 @@ func DecodeLegacyManifest(raw []byte, review ImportReview, now time.Time) (Legac
 	if review.PolicyDigest != policyDigest(p) {
 		return manifest, errors.New("nativeadmission: reviewed policy digest mismatch")
 	}
-	if manifest.SchemaVersion != 1 || manifest.Authority != "oxy" || manifest.FenceID == "" || manifest.FenceID != review.FenceID || manifest.ActivatedAt != review.ActivatedAt || manifest.Population.CredentialKind != "workload" || p.Authority != contract.AuthorityFirstParty || p.Lane != contract.IdentityLaneService || p.ApplicationID != manifest.Population.ApplicationID || p.OwnerAccountID != manifest.Population.OwnerAccountID || p.Environment != manifest.Population.Environment {
+	if manifest.SchemaVersion != 2 || manifest.Authority != "oxy" || manifest.FenceID == "" || manifest.FenceID != review.FenceID || manifest.ActivatedAt != review.ActivatedAt || manifest.Population.CredentialKind != "application" || p.Authority != contract.AuthorityFirstParty || p.Lane != contract.IdentityLaneService || p.ApplicationID != manifest.Population.ApplicationID || p.OwnerAccountID != manifest.Population.OwnerAccountID || p.Environment != manifest.Population.Environment {
 		return manifest, errors.New("nativeadmission: reviewed population or fence epoch mismatch")
 	}
 	activated, err := time.Parse(time.RFC3339Nano, manifest.ActivatedAt)
@@ -124,6 +136,10 @@ func DecodeLegacyManifest(raw []byte, review ImportReview, now time.Time) (Legac
 	exported, err := time.Parse(time.RFC3339Nano, manifest.ExportedAt)
 	if err != nil || activated.After(exported) || exported.After(now) || !strings.HasSuffix(manifest.ActivatedAt, "Z") || !strings.HasSuffix(manifest.ExportedAt, "Z") {
 		return manifest, errors.New("nativeadmission: invalid fence chronology")
+	}
+	dailyUsage := manifest.DailyUsage
+	if dailyUsage.Scope != "application_environment" || dailyUsage.UTCDay != exported.UTC().Format("2006-01-02") || dailyUsage.Admitted < 0 || dailyUsage.Admitted > 9007199254740991 || dailyUsage.MaxRequestsPerUTCDay <= 0 || dailyUsage.MaxRequestsPerUTCDay != p.MaxPerUTCDay {
+		return manifest, errors.New("nativeadmission: invalid reviewed application daily usage")
 	}
 	if manifest.Unresolved.Admissions != 0 || manifest.Unresolved.Grants != 0 || manifest.Unresolved.Holds != 0 {
 		return manifest, errors.New("nativeadmission: legacy admissions have not drained")
@@ -198,6 +214,27 @@ func (s *Store) ImportLegacyFence(ctx context.Context, raw []byte, review Import
 			return ImportResult{}, ErrConflict
 		}
 	}
+	// A completed exact replay is a read-only acknowledgement, even on a later
+	// UTC day. It must not reactivate disabled enrollment or reset today's quota.
+	if previousDigest != nil && *previousDigest == manifest.SHA256 && activeVersion != nil && *activeVersion == review.Policy.Version {
+		var recorded bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kaana_admission.fence_imports WHERE enrollment_id=$1 AND manifest_digest=$2 AND daily_usage IS NOT NULL)`, enrollment, manifest.SHA256).Scan(&recorded); err != nil {
+			return ImportResult{}, err
+		}
+		if recorded {
+			if err = tx.Commit(ctx); err != nil {
+				return ImportResult{}, err
+			}
+			return ImportResult{review.Policy.ID, review.Policy.Version, storedDigest, manifest.SHA256, len(manifest.Entries)}, nil
+		}
+	}
+	var databaseDay string
+	if err = tx.QueryRow(ctx, `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD')`).Scan(&databaseDay); err != nil {
+		return ImportResult{}, err
+	}
+	if manifest.DailyUsage.UTCDay != databaseDay {
+		return ImportResult{}, errors.New("nativeadmission: fresh UTC-day usage snapshot required")
+	}
 	coverage := make(map[string]LegacyEntry, len(manifest.Entries))
 	for _, entry := range manifest.Entries {
 		scope := "request"
@@ -258,8 +295,12 @@ func (s *Store) ImportLegacyFence(ctx context.Context, raw []byte, review Import
 			return ImportResult{}, ErrConflict
 		}
 	}
+	if err = importLegacyDailyUsage(ctx, tx, enrollment, manifest); err != nil {
+		return ImportResult{}, err
+	}
+	dailyJSON, _ := json.Marshal(manifest.DailyUsage)
 	roster, _ := json.Marshal(manifest.Population.CredentialIDs)
-	if _, err = tx.Exec(ctx, `INSERT INTO kaana_admission.fence_imports(id,enrollment_id,policy_id,manifest_digest,fence_id,activated_at,exported_at,credential_ids,entry_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(enrollment_id,manifest_digest) DO NOTHING`, newID("kim_"), enrollment, policyID, manifest.SHA256, manifest.FenceID, activated, exported, roster, len(manifest.Entries)); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO kaana_admission.fence_imports(id,enrollment_id,policy_id,manifest_digest,fence_id,activated_at,exported_at,credential_ids,entry_count,daily_usage) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(enrollment_id,manifest_digest) DO NOTHING`, newID("kim_"), enrollment, policyID, manifest.SHA256, manifest.FenceID, activated, exported, roster, len(manifest.Entries), dailyJSON); err != nil {
 		return ImportResult{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE kaana_admission.enrollments SET enabled=$2,active_policy_id=$3,activation_at=COALESCE(activation_at,clock_timestamp()),legacy_fence_complete=true,legacy_fence_id=$4,legacy_fence_digest=$5,legacy_fence_activated_at=$6 WHERE id=$1`, enrollment, review.Policy.Enabled, policyID, manifest.FenceID, manifest.SHA256, manifest.ActivatedAt); err != nil {
@@ -286,4 +327,26 @@ func PolicyDigest(p Policy) (string, error) {
 		return "", err
 	}
 	return policyDigest(p), nil
+}
+
+// The caller owns the same enrollment row lock as Admit. A refresh changes
+// only the legacy component; the combined counter retains native admissions.
+func importLegacyDailyUsage(ctx context.Context, tx pgx.Tx, enrollment string, manifest LegacyManifest) error {
+	daily := manifest.DailyUsage
+	var previous int64
+	var previousExport time.Time
+	err := tx.QueryRow(ctx, `SELECT admitted,exported_at FROM kaana_admission.legacy_daily_usage WHERE enrollment_id=$1 AND utc_day=$2::date FOR UPDATE`, enrollment, daily.UTCDay).Scan(&previous, &previousExport)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	exported, _ := time.Parse(time.RFC3339Nano, manifest.ExportedAt)
+	if daily.Admitted < previous || !previousExport.IsZero() && exported.Before(previousExport) {
+		return ErrConflict
+	}
+	delta := daily.Admitted - previous
+	if _, err = tx.Exec(ctx, `INSERT INTO kaana_admission.daily_windows(enrollment_id,utc_day,admitted) VALUES($1,$2::date,$3) ON CONFLICT(enrollment_id,utc_day) DO UPDATE SET admitted=kaana_admission.daily_windows.admitted+EXCLUDED.admitted`, enrollment, daily.UTCDay, delta); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO kaana_admission.legacy_daily_usage(enrollment_id,utc_day,admitted,max_requests_per_utc_day,manifest_digest,exported_at) VALUES($1,$2::date,$3,$4,$5,$6) ON CONFLICT(enrollment_id,utc_day) DO UPDATE SET admitted=EXCLUDED.admitted,max_requests_per_utc_day=EXCLUDED.max_requests_per_utc_day,manifest_digest=EXCLUDED.manifest_digest,exported_at=EXCLUDED.exported_at`, enrollment, daily.UTCDay, daily.Admitted, daily.MaxRequestsPerUTCDay, manifest.SHA256, exported)
+	return err
 }

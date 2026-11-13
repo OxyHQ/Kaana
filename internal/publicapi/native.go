@@ -67,7 +67,9 @@ func (c *NativeConfig) validate() error {
 
 func (c *NativeConfig) selects(identity contract.IdentityPrincipal) bool {
 	for _, policy := range c.Policies {
-		if policy.Selects(identity) {
+		// Economic ownership is app/environment scoped. Authorization still
+		// requires the exact owner, credential roster, lane and class in Plan.
+		if policy.ApplicationID == identity.ApplicationID && policy.Environment == identity.Environment {
 			return true
 		}
 	}
