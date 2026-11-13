@@ -30,7 +30,7 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 		return runInspectAccess(args[1:], stdout, getenv)
 	}
 	if len(args) == 0 {
-		return errors.New("usage: kaana-native migrate|register|import|validate")
+		return errors.New("usage: kaana-native migrate|register|import|validate|inspect")
 	}
 	flags := flag.NewFlagSet("kaana-native", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -46,7 +46,7 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 		return errors.New("native command arguments invalid")
 	}
-	if args[0] != "migrate" && args[0] != "register" && args[0] != "import" && args[0] != "validate" {
+	if args[0] != "migrate" && args[0] != "register" && args[0] != "import" && args[0] != "validate" && args[0] != "inspect" {
 		return errors.New("unknown native command")
 	}
 	if *manifestPath != "" && args[0] != "import" && args[0] != "validate" {
@@ -97,13 +97,26 @@ func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) s
 	if url == "" {
 		return errors.New("database configuration is required")
 	}
-	store, closePool, err := nativeadmission.OpenAdministration(ctx, url, args[0] == "migrate")
+	var store *nativeadmission.Store
+	var closePool func()
+	var err error
+	if args[0] == "inspect" {
+		store, closePool, err = nativeadmission.OpenInspection(ctx, url)
+	} else {
+		store, closePool, err = nativeadmission.OpenAdministration(ctx, url, args[0] == "migrate")
+	}
 	if err != nil {
 		return err
 	}
 	defer closePool()
 
 	switch args[0] {
+	case "inspect":
+		result, inspectErr := store.InspectPolicy(ctx, *selected)
+		if inspectErr != nil {
+			return errors.New("native administration inspection refused; no state changed")
+		}
+		return json.NewEncoder(stdout).Encode(result)
 	case "migrate":
 		err = store.Migrate(ctx)
 	case "register":

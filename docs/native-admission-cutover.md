@@ -150,9 +150,26 @@ schema. This task never registers a policy, imports a fence or enables enrollmen
 Run
 `kaana-native register --policy-file PATH --policy-file-sha256 HASH --policy-id ID
 --policy-version VERSION --policy-sha256 DIGEST` as the enrollment operator.
-Registration alone leaves the enrollment disabled. All these commands use the
-operator's `DATABASE_URL` from the normal protected secret channel. They print
-bounded status/digests, not database errors or credentials.
+Registration creates a disabled enrollment; it does not disable an existing
+active enrollment. Verify the actual state with the same reviewed policy flags:
+`kaana-native inspect --policy-file PATH --policy-file-sha256 HASH --policy-id ID
+--policy-version VERSION --policy-sha256 DIGEST`. This fixed-query inspector uses
+the existing migration operator DSN and `kaana_migrator` role, a read-only
+connection and one repeatable-read/read-only transaction. It checks every stored
+migration checksum against the packaged migrations, and the selected registered
+policy digest and document against the reviewed policy. Corruption or a conflicting
+policy is an error; missing/incomplete migrations and absent enrollment or policy
+are reported explicitly. Output contains only migration state, registration and
+enrollment-presence booleans, enabled/fence-complete flags, and active policy
+version/digest. No principal, replay key, request row or policy document is emitted.
+It does not repair, register, disable or activate anything.
+
+Before configuration/cutover, require `migrationState: "verified"`,
+`enrollmentPresent: true`, `registered: true`, `enabled: false`,
+`activePolicy: null` and `legacyFenceComplete: false`. After the reviewed import,
+require enabled/fence-complete and the expected active version/digest. All these
+commands use the operator's `DATABASE_URL` from the normal protected secret
+channel and print bounded metadata, not database errors or credentials.
 
 ## Ordered activation
 
