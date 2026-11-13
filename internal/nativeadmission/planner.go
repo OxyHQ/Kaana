@@ -9,11 +9,16 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // Model is a projection of Kaana's validated declared catalogue, not a second
 // catalogue. Deployment eligibility remains the existing executor's decision.
 type Model struct {
+	// Unreported fields are unknown, not authoritative false. A structured
+	// request may use them only with affirmative current parameter evidence.
+	Unreported                                                        []string
+	AcceptedParameters                                                []provider.RequestParameter
 	APIFormats                                                        []string
 	RealtimeSessionKinds                                              []contract.RealtimeSessionKind
 	ID                                                                contract.ModelID
@@ -39,19 +44,20 @@ type Request struct {
 	RequestedEffort                       *contract.ReasoningEffort
 }
 type Plan struct {
-	PolicyID         string                          `json:"policyId"`
-	PolicyVersion    int                             `json:"policyVersion"`
-	PolicyDigest     string                          `json:"policyDigest"`
-	Steps            []contract.GrantStep            `json:"steps"`
-	RoutingPolicy    contract.RoutingPolicyReference `json:"routingPolicy"`
-	Prices           []ModelPrice                    `json:"prices"`
-	StepRoutes       []RouteScope                    `json:"stepRoutes"`
-	MaxConcurrent    int                             `json:"maxConcurrent"`
-	MaxPerUTCDay     int                             `json:"maxPerUtcDay"`
-	ExecutionTimeout time.Duration                   `json:"executionTimeout"`
-	InputTokens      int                             `json:"inputTokens"`
-	OutputTokens     int                             `json:"outputTokens"`
-	Quote            contract.Money                  `json:"quote"`
+	RequiredParameters map[contract.ModelID][]provider.RequestParameter `json:"requiredParameters,omitempty"`
+	PolicyID           string                                           `json:"policyId"`
+	PolicyVersion      int                                              `json:"policyVersion"`
+	PolicyDigest       string                                           `json:"policyDigest"`
+	Steps              []contract.GrantStep                             `json:"steps"`
+	RoutingPolicy      contract.RoutingPolicyReference                  `json:"routingPolicy"`
+	Prices             []ModelPrice                                     `json:"prices"`
+	StepRoutes         []RouteScope                                     `json:"stepRoutes"`
+	MaxConcurrent      int                                              `json:"maxConcurrent"`
+	MaxPerUTCDay       int                                              `json:"maxPerUtcDay"`
+	ExecutionTimeout   time.Duration                                    `json:"executionTimeout"`
+	InputTokens        int                                              `json:"inputTokens"`
+	OutputTokens       int                                              `json:"outputTokens"`
+	Quote              contract.Money                                   `json:"quote"`
 }
 type Planner struct {
 	policies []Policy
@@ -288,6 +294,12 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			seen[c.model.ID] = true
 			limits.AdmittedModelLines = append(limits.AdmittedModelLines, contract.AdmittedModelLine{ModelLine: c.model.ID, PriceVersionID: c.model.Price.PriceVersionID})
 			plan.Prices = append(plan.Prices, clone(c.model.Price))
+			if required := structuredRequirements(c.model, normalized); len(required) > 0 {
+				if plan.RequiredParameters == nil {
+					plan.RequiredParameters = make(map[contract.ModelID][]provider.RequestParameter)
+				}
+				plan.RequiredParameters[c.model.ID] = required
+			}
 			if c.quote.Cmp(maxQuote) > 0 {
 				maxQuote.Set(c.quote)
 			}
@@ -311,7 +323,7 @@ func eligible(policy Policy, model Model, r Request) bool {
 	if !model.Active || !admittedAudience(policy, model.Audience) || !slices.Contains(model.InputModalities, "text") || !slices.Contains(model.OutputModalities, "text") {
 		return false
 	}
-	if r.Facts.DeclaredTools > 0 && !model.Tools || r.StructuredOutput && !model.StructuredOutput || r.JSONMode && !model.JSONMode || (r.Reasoning || r.RequestedEffort != nil) && !model.Reasoning || r.Facts.Stream && !model.Streaming {
+	if r.Facts.DeclaredTools > 0 && !model.Tools || !structuredAllowed(model, "structuredOutput", model.StructuredOutput, r.StructuredOutput) || !structuredAllowed(model, "jsonMode", model.JSONMode, r.JSONMode) || (r.Reasoning || r.RequestedEffort != nil) && !model.Reasoning || r.Facts.Stream && !model.Streaming {
 		return false
 	}
 	if value(r.Facts.InputImages) > 0 && !slices.Contains(model.InputModalities, "image") {
@@ -427,4 +439,35 @@ func privacyEligible(limits contract.GrantStepLimits, m Model) bool {
 		return false
 	}
 	return len(limits.AllowedLicenseIDs) == 0 || slices.Contains(limits.AllowedLicenseIDs, m.LicenseID)
+}
+
+func structuredAllowed(model Model, field string, declared, required bool) bool {
+	if !required || declared {
+		return true
+	}
+	return slices.Contains(model.Unreported, field) && slices.Contains(model.AcceptedParameters, provider.ParameterResponseFormat)
+}
+func structuredRequirements(model Model, r Request) []provider.RequestParameter {
+	if (r.StructuredOutput && !model.StructuredOutput) || (r.JSONMode && !model.JSONMode) {
+		return []provider.RequestParameter{provider.ParameterResponseFormat}
+	}
+	return nil
+}
+
+// AllowsParameters must hold on EACH actual resolved route before admission.
+// A different route of an admitted line cannot inherit another route's evidence.
+func (p Plan) AllowsParameters(model contract.ModelID, observed *[]provider.RequestParameter) bool {
+	required := p.RequiredParameters[model]
+	if len(required) == 0 {
+		return true
+	}
+	if observed == nil {
+		return false
+	}
+	for _, parameter := range required {
+		if !slices.Contains(*observed, parameter) {
+			return false
+		}
+	}
+	return true
 }

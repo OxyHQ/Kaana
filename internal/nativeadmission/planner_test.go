@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -246,5 +247,42 @@ func TestProviderRegionAndCommercialRestrictionsArePreserved(t *testing.T) {
 	m.CommercialUseAllowed = false
 	if _, err = planner(t, p, m).Plan(principal(), request()); !errors.Is(err, ErrNoRoute) {
 		t.Fatal(err)
+	}
+}
+
+func TestUnknownStructuredCapabilityRequiresCurrentRouteAcceptance(t *testing.T) {
+	for _, field := range []string{"structuredOutput", "jsonMode"} {
+		t.Run(field, func(t *testing.T) {
+			m := model("medium")
+			m.StructuredOutput = false
+			m.JSONMode = false
+			r := request()
+			r.StructuredOutput = field == "structuredOutput"
+			r.JSONMode = field == "jsonMode"
+			accepted := []provider.RequestParameter{provider.ParameterResponseFormat}
+			m.AcceptedParameters = accepted
+			if _, err := planner(t, policy(), m).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
+				t.Fatal("authoritativefalse overridden")
+			}
+			m.Unreported = []string{field}
+			m.AcceptedParameters = nil
+			if _, err := planner(t, policy(), m).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
+				t.Fatal("unknown without evidence admitted")
+			}
+			m.AcceptedParameters = accepted
+			plan, err := planner(t, policy(), m).Plan(principal(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.AllowsParameters(m.ID, nil) || plan.AllowsParameters(m.ID, &[]provider.RequestParameter{}) {
+				t.Fatal("another route inherited line evidence")
+			}
+			if !plan.AllowsParameters(m.ID, &accepted) {
+				t.Fatal("observed acceptance lost")
+			}
+			if len(plan.RequiredParameters[m.ID]) != 1 {
+				t.Fatal("required evidence not persisted")
+			}
+		})
 	}
 }
