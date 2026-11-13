@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/OxyHQ/Kaana/internal/emf"
+	"github.com/OxyHQ/Kaana/internal/operatingmetrics"
 	"log/slog"
 	"net"
 	"net/http"
@@ -344,7 +345,17 @@ func run(logger *slog.Logger) error {
 	// The public API, https://kaana.ai/v1 (ADR 0002, phase 3). Off unless
 	// KAANA_PUBLIC_API_ENABLED is true, so a merge is not an exposure: it
 	// needs Oxy's authorization and settlement API live first.
-	metrics := emf.New(emf.Options{Namespace: "Oxy/Kaana", Service: "kaana"})
+	metrics := emf.New(emf.Options{
+		Namespace: "Oxy/Kaana", Service: "kaana",
+		// The operating gauges write one line per active deployment per metric
+		// (21 of them), each its own series because DeploymentId is a property;
+		// the default of 2000 would fold a few dozen deployments into "other".
+		// 10000 holds the whole current inventory (354 deployments) with room.
+		MaxSeries: 10_000,
+		Sample: operatingmetrics.Sources{
+			Inventory: inventoryStore, Rotation: rotationRegistry, Stats: deploymentStats, Providers: registry,
+		}.Sample,
+	})
 	defer metrics.Stop()
 	public, err := buildPublicAPI(publicAPIDependencies{
 		metrics:   metrics,

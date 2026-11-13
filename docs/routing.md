@@ -294,6 +294,10 @@ tokens per second.
 - **Throughput excludes the wait for the first output**: output tokens over the
   time after first output, so a slow start does not read as a slow generator.
   It is absent when either figure is unknown.
+- **It is also published as metrics.** The 5-minute and 30-minute windows, the
+  breaker state, score and consecutive failures are written every minute as
+  CloudWatch gauges (`internal/operatingmetrics`, [operating](operating.md#metrics)).
+  The deployment id is a property of the line, never a dimension.
 - **It is process-local.** A restart starts empty and a reader sees zero attempts,
   which is not health. Counts and durations only: no prompt, completion, key,
   caller or provider text.

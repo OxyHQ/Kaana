@@ -42,9 +42,11 @@ credential or turn its technical state table into a wallet.
 POST /internal/v1/inference    signed envelope in, normalized event stream out
 GET  /internal/v1/realtime     WebSocket; the signed first frame opens or resumes a session
 GET  /internal/v1/health       signed; the customer-safe provider projection
-GET  /internal/v1/metrics      signed; the same projection as Prometheus text exposition
 GET  /livez                    unsigned liveness; no provider or route detail
 ```
+
+There is no metrics route. Operational metrics are CloudWatch EMF lines on stdout
+([operating](operating.md#metrics)), so nothing has to scrape the data plane.
 
 An HTTP status answers exactly one question: was this a well-formed envelope
 from the Oxy edge? Once the answer is yes the response is `200` and an event

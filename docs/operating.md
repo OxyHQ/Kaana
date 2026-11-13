@@ -974,71 +974,6 @@ snapshot after a failed reload.
 distroless image cannot run a shell-based Docker/ECS health command, so the
 probe comes from outside the container.
 
-### Metrics
-
-`GET /internal/v1/metrics` is signed exactly like `/internal/v1/health`
-(`X-Oxy-Key-Id`, timestamp and signature over an empty body; an unsigned or
-badly signed request is refused `401` with no metric content). It answers
-Prometheus text exposition, `Content-Type: text/plain; version=0.0.4`, built at
-request time from the state the health route already reads. Nothing is recorded
-on the request path for it. There is no unsigned `/metrics`.
-
-Every family is a gauge (per-window counts are gauges because the window
-slides), formatted by `internal/metricsexport`: sorted, label values escaped,
-non-finite numbers omitted.
-
-- Process: `kaana_build_info{contract_version}`,
-  `kaana_inventory_snapshot_age_seconds`,
-  `kaana_inventory_snapshot_max_age_seconds`,
-  `kaana_inventory_serves_unpinned_references` (0 once past the staleness
-  horizon), `kaana_inventory_deployments`.
-- Per provider (`provider`): `kaana_provider_status{status}` one-hot over
-  `ok|degraded|unavailable|unconfigured`, and
-  `kaana_provider_credential_keys_declared|usable|out` (counts only, from the
-  same key-pool projection as health `providers`).
-- Per deployment (`deployment_id`, `provider`): `kaana_deployment_breaker_state`
-  (0 closed, 1 open, 2 half open), `kaana_deployment_health_score`,
-  `kaana_deployment_consecutive_failures`.
-- Per deployment and `window` (`5m|30m|1d`):
-  `kaana_deployment_window_attempts|succeeded|throttled|tool_call_attempts|tool_call_errors`,
-  `kaana_deployment_window_uptime_ratio`, and
-  `kaana_deployment_window_time_to_first_output_ms` and
-  `kaana_deployment_window_tokens_per_second` with `quantile`
-  `0.5|0.75|0.9|0.99`. A measurement the window has none of is omitted, not
-  zero.
-
-The label vocabulary is closed (`deployment_id`, `provider`, `window`,
-`quantile`, `status`, `contract_version`) and cardinality is bounded by the
-inventory snapshot. No prompt, completion, user address, key, key id, upstream
-URL or provider text can appear: the formatter has no field for them.
-
-Not exported: in-flight request count (nothing cheap counts it today).
-
-**How to scrape it, honestly.** A vanilla Prometheus scrape cannot reach this
-route, because it cannot produce an Oxy edge signature. A scraper must hold a
-key the verifier accepts, sign each request, and either feed Prometheus (a
-sidecar that exposes the unsigned text on a private interface, or remote-write)
-or forward it elsewhere. No such scraper exists in this repository, and this
-change adds no CloudWatch export and no infrastructure. The route is the data
-source only; until something holding the signing key polls it, the numbers are
-reachable only by hand-signed requests. It has not been exercised against a
-deployed Kaana.
-
-The Cloudflare DNS workflow never retires the legacy `api.kaana.ai` name by
-default. Retirement requires `action=apply`,
-`retire_legacy_api_dns=true`, the expected dedicated `alb_dns`, and
-`legacy_api_target=oxy-alb-648111691.us-west-2.elb.amazonaws.com` exactly. In
-that mode it re-reads the exact proxied apex CNAME, requires
-`https://kaana.ai/livez` to identify a healthy Kaana response, then requires
-exactly one DNS-only `CNAME` named `api.kaana.ai` whose content byte-matches
-that reviewed old shared Oxy ALB target. Only that record id is deleted, and
-its absence is read back. Whitespace, a missing or duplicate record, another
-record type, a proxied record, another target, or any drifted prerequisite
-refuses the deletion before a mutation.
-
-The edge public key belongs in plain environment. Kaana can verify with it and
-cannot sign an envelope it would accept. The signing private key stays in Oxy.
-
 ### Cloudflare request ceiling
 
 Public traffic to `kaana.ai` reaches Cloudflare before Kaana's dedicated load
@@ -1144,16 +1079,59 @@ is flushed on shutdown.
 | `SettlementWritten` | sum | | zero while traffic flows |
 | `SettlementDeliveryFailed` | sum | | a sustained rate: Oxy is refusing or unreachable |
 | `SettlementDelivered` | sum | | zero while `SettlementWritten` is not |
+| `ProviderKeysDeclared`, `ProviderKeysUsable`, `ProviderKeysOut` | gauge, count | `Provider` | `ProviderKeysUsable` at 0 (the pool is empty), or falling towards it |
+| `InventorySnapshotAgeSeconds` | gauge, seconds | | growing without bound: the inventory publisher stopped |
+| `InventoryStale` | gauge, 0/1 | | **1**: past the staleness horizon, unpinned references are refused |
+| `InventoryDeployments` | gauge, count | | a sudden drop |
+| `DeploymentBreakerState` | gauge, 0 closed / 1 open / 2 half open | `Provider` | max of 1 or more on a provider whose deployments are all out |
+| `DeploymentHealthScore` | gauge, 0 to 1 | `Provider` | min below your floor |
+| `DeploymentConsecutiveFailures` | gauge, count | `Provider` | max at or above the breaker threshold (3) |
+| `DeploymentAttempts5m`, `DeploymentSucceeded5m`, `DeploymentThrottled5m` (and `...30m`) | gauge, count | `Provider` | succeeded over attempts falling; throttled rising |
+| `DeploymentUptime5m` (and `30m`) | gauge, ratio | `Provider` | min below your floor; absent while no minute was observed |
+| `DeploymentTimeToFirstOutputP50Ms5m`, `DeploymentTimeToFirstOutputP99Ms5m` (and `30m`) | gauge, ms | `Provider` | p99 above your latency budget |
+| `DeploymentTokensPerSecondP50` + `5m` (and `30m`) | gauge, count/second | `Provider` | falling |
+| `DeploymentToolCallAttempts5m`, `DeploymentToolCallErrors5m` (and `30m`) | gauge, count | `Provider` | errors over attempts rising |
+
+The gauges are sampled on the publisher's own flush tick (`emf.Options.Sample`,
+`internal/operatingmetrics`), once a minute, from memory under the locks that state already
+has; nothing is recorded on a request path and no provider is called (an adapter's `Health`
+makes a network probe, so key counts come from the key pool's projection instead).
+
+**Per-deployment values are not metrics.** A deployment id is not a closed vocabulary (the
+inventory holds hundreds), so it is never a dimension. Each active deployment writes its
+gauges as lines carrying `DeploymentId` as a plain property, free to store and not billed.
+Query one in CloudWatch Logs Insights on the log group:
+
+```
+filter ispresent(DeploymentUptime5m)
+| stats max(DeploymentUptime5m) as uptime by DeploymentId
+```
+
+The metrics above, with `Provider`, aggregate the same lines per provider (max, min, sum). A
+deployment that is idle (breaker closed, no failures, no attempt in 30 minutes) writes
+nothing, and a window that observed no uptime, time to first output or throughput omits that
+metric rather than writing zero. Windows are in the metric name, not a `Window` dimension:
+the `[Service]` aggregate of a dimension would add 5-minute and 30-minute figures together.
+The one-day window stays on `GET /internal/v1/health` only.
+
+Billed series are metric names x (1 + providers): 21 deployment names + 3 key names, each
+over `[Service]` and `[Service, Provider]`, plus 3 process names, so with four providers
+24 x 5 + 3 = 123. Deployments add log lines (at most 21 per active deployment per minute),
+never metrics. `MaxSeries` is 10,000 for Kaana, which holds the whole inventory (354
+deployments); past it new lines fold into `other` and the `InventoryDeployments` gauge
+shows how large the inventory is.
 
 Rules: every dimension is a closed vocabulary, because each distinct combination is a billed
 custom metric (Mention measured 405 of them from route and method). A request id, model,
-provider, credential or account is never a label. Past 2,000 series in one interval new
-series fold into `other`. Metrics are best effort and never block or fail a request.
+credential, key id, provider error text or account is never a label, and neither is a
+deployment id (a property only). Past the series bound (2,000 by default) new series fold
+into `other`. Metrics are best effort and never block or fail a request.
 
 Not measured yet: the settlement outbox backlog and its oldest age (a gauge would need a
-database read, which is a new SECURITY DEFINER function and so a schema change), breaker
-state, and per-provider error rates. No alarms are configured by this repository; they
-belong in oxy-infra.
+database read, which is a new SECURITY DEFINER function and so a schema change), and
+per-provider error rates beyond the deployment attempt counts above. State is
+process-local: a restart shows zero attempts, which is not health. No alarms are configured by
+this repository; they belong in oxy-infra. There is no `/metrics` route and no scraper.
 
 ## Where a public request's time goes
 
