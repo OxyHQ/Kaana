@@ -164,7 +164,7 @@ RUN mkdir -p /out/etc/kaana-commercial && cp configs/deployment-commercial.json 
 
 # Reviewed native policies are inert until the task explicitly supplies PATH+SHA
 # and the separately reviewed database enrollment is activated.
-RUN mkdir -p /out/etc/kaana-native && cp configs/native-admission/alia-kaana-v1.json /out/etc/kaana-native/ \
+RUN mkdir -p /out/etc/kaana-native && cp configs/native-admission/alia-kaana-v1.json configs/native-admission/alia-kaana-v2.json /out/etc/kaana-native/ \
     && chown -R 65532:65532 /out/etc/kaana-native
 
 RUN mkdir -p /out/etc/ssl/certs \

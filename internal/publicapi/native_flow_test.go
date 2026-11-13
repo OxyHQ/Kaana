@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ func (i *nativeIdentity) Verify(_ context.Context, r contract.IdentityRequest) (
 }
 
 type nativeMemory struct {
+	report                                                  *contract.UsageReport
 	mu                                                      sync.Mutex
 	admission                                               *nativeadmission.Admission
 	staged, settled, bound                                  int
@@ -65,10 +67,11 @@ func (s *nativeMemory) Generation(context.Context, contract.IdentityPrincipal, *
 	}
 	return json.RawMessage(chargedRecord), nil
 }
-func (s *nativeMemory) StageCompletion(context.Context, string, contract.UsageReport, []providercost.Event) error {
+func (s *nativeMemory) StageCompletion(_ context.Context, _ string, report contract.UsageReport, _ []providercost.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.staged++
+	s.report = &report
 	return s.stageErr
 }
 func (s *nativeMemory) Settle(context.Context, string, contract.UsageReport, []providercost.Event) error {
@@ -404,6 +407,73 @@ func TestNativeCommercialDeclarationRequiredBeforeAdmission(t *testing.T) {
 		store.mu.Unlock()
 		if admitted {
 			t.Fatal("commercial refusal happened after durable admission")
+		}
+	}
+}
+
+func TestNativeHTTPFailoverKeepsTheExecutedDeploymentTariff(t *testing.T) {
+	for _, failFirst := range []bool{false, true} {
+		config, store, catalogue := nativeFixture(t)
+		p := &config.Policies[0]
+		p.Limits.MaxFundingTier = nil
+		p.Routes.Deployments = append(p.Routes.Deployments, nativeadmission.RoutePermission{DeploymentID: "dep_stub_a", Provider: "stub", ModelReference: textModel})
+		entries := []map[string]any{}
+		for i, route := range p.Routes.Deployments {
+			input, output := "3", "4"
+			if i == 1 {
+				input, output = "1", "2"
+			}
+			price := nativeadmission.ModelPrice{ModelLine: textModel.ModelID(), PriceVersionID: string(route.DeploymentID) + "-scoped", Currency: "USD", UnitPrices: []nativeadmission.UnitPrice{{Unit: contract.UnitInputTokens, Amount: input, Per: 1000000, Currency: "USD"}, {Unit: contract.UnitCachedInputTokens, Amount: input, Per: 1000000, Currency: "USD"}, {Unit: contract.UnitOutputTokens, Amount: output, Per: 1000000, Currency: "USD"}, {Unit: contract.UnitReasoningTokens, Amount: output, Per: 1000000, Currency: "USD"}, {Unit: contract.UnitRequests, Amount: "0", Per: 1, Currency: "USD"}}}
+			p.PriceBook = append(p.PriceBook, nativeadmission.RoutePrice{Route: route, Price: price, SourceArtifactSHA256: strings.Repeat("a", 64), SourcePriceVersionID: "old-scoped", SourceEvidenceRef: "reviewed:fixture"})
+			entries = append(entries, map[string]any{"deploymentId": route.DeploymentID, "commercial": map[string]any{"availabilityScope": "platform_internal", "commercialPermission": "standard_application_use"}})
+		}
+		slices.SortFunc(entries, func(a, b map[string]any) int {
+			return strings.Compare(string(a["deploymentId"].(contract.DeploymentID)), string(b["deploymentId"].(contract.DeploymentID)))
+		})
+		raw, _ := json.Marshal(map[string]any{"$comment": "Reviewed synthetic scoped tariffs", "schemaVersion": 1, "deployments": entries})
+		table, err := commercial.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config.Commercial = table
+		h := newHarness(t, harnessOptions{native: config, catalogue: catalogue})
+		if failFirst {
+			h.adapter.failDeployment = "dep_stub_b"
+		}
+		response := h.post("/v1/responses", validKey, map[string]any{"model": "auto", "input": "hello", "stream": true})
+		if response.StatusCode != 200 || !strings.Contains(string(response.Body), `"type":"done"`) {
+			t.Fatalf("native failover failed: %d %s", response.StatusCode, response.Body)
+		}
+		store.mu.Lock()
+		if store.report == nil || store.admission == nil {
+			store.mu.Unlock()
+			t.Fatal("durable completion missing")
+		}
+		report := *store.report
+		plan := store.admission.Plan
+		store.mu.Unlock()
+		want := contract.DeploymentID("dep_stub_b")
+		wantAmount := contract.ExactDecimal("0.000033000000")
+		if failFirst {
+			want = "dep_stub_a"
+			wantAmount = "0.000013000000"
+		}
+		if report.DeploymentID != want {
+			t.Fatal("tariff split changed funding or failover ordering", report.DeploymentID)
+		}
+		price, err := plan.PriceForReport(report)
+		if err != nil || price.PriceVersionID != string(want)+"-scoped" {
+			t.Fatal("executed tariff identity lost", err)
+		}
+		amount, err := nativeadmission.RateUnits(price, report.Units)
+		if err != nil || amount.Amount != wantAmount {
+			t.Fatal("served rate drift", amount, err)
+		}
+		h.oxy.mu.Lock()
+		oldCalls := h.oxy.grants + h.oxy.deliveries
+		h.oxy.mu.Unlock()
+		if oldCalls != 0 {
+			t.Fatal("native fallback contacted economic proxy")
 		}
 	}
 }

@@ -1,1 +1,39 @@
-{"activatedAt":"2026-11-13T00:00:00.000Z","authority":"oxy","entries":[{"bodyDigest":null,"credentialId":"workload-handle-test","digestDomain":"unknown","key":"caller:❤️:<>&: ","keyKind":"idempotency_key","legacyAdmissionId":"metered:historical-test","requestId":"request-test"}],"exportedAt":"2026-11-13T00:00:01.000Z","fenceId":"01900000-0000-7000-8000-000000000001","population":{"applicationId":"application-test","credentialIds":["workload-handle-test"],"credentialKind":"workload","environment":"production","ownerAccountId":"owner-test"},"schemaVersion":1,"sha256":"7a85bf15e61fa6e9ad56a1326053f2c8bd8e4a9b5edd99478d7594eb3c81cf3d","unresolved":{"admissions":0,"grants":0,"holds":0}}
+{
+  "activatedAt": "2026-11-13T00:00:00.000Z",
+  "authority": "oxy",
+  "entries": [
+    {
+      "bodyDigest": null,
+      "credentialId": "workload-handle-test",
+      "digestDomain": "unknown",
+      "key": "caller:❤️:<>&: ",
+      "keyKind": "idempotency_key",
+      "legacyAdmissionId": "metered:historical-test",
+      "requestId": "request-test"
+    }
+  ],
+  "exportedAt": "2026-11-13T00:00:01.000Z",
+  "fenceId": "01900000-0000-7000-8000-000000000001",
+  "population": {
+    "applicationId": "application-test",
+    "credentialIds": [
+      "workload-handle-test"
+    ],
+    "credentialKind": "application",
+    "environment": "production",
+    "ownerAccountId": "owner-test"
+  },
+  "schemaVersion": 2,
+  "unresolved": {
+    "admissions": 0,
+    "grants": 0,
+    "holds": 0
+  },
+  "dailyUsage": {
+    "scope": "application_environment",
+    "utcDay": "2026-11-13",
+    "admitted": 1,
+    "maxRequestsPerUtcDay": 5000
+  },
+  "sha256": "16b2a1a47aa61785150b6e3fce72e8e10aa306c5f7fca842f4b4d9fca65fe5c8"
+}

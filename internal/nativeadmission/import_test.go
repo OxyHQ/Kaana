@@ -17,7 +17,7 @@ func interopReview() ImportReview {
 	p.ApplicationID = "application-test"
 	p.OwnerAccountID = "owner-test"
 	p.CredentialIDs = []contract.CredentialID{"workload-handle-test"}
-	return ImportReview{Policy: p, PolicyDigest: policyDigest(p), ManifestSHA256: "7a85bf15e61fa6e9ad56a1326053f2c8bd8e4a9b5edd99478d7594eb3c81cf3d", FenceID: "01900000-0000-7000-8000-000000000001", ActivatedAt: "2026-11-13T00:00:00.000Z"}
+	return ImportReview{Policy: p, PolicyDigest: policyDigest(p), ManifestSHA256: "16b2a1a47aa61785150b6e3fce72e8e10aa306c5f7fca842f4b4d9fca65fe5c8", FenceID: "01900000-0000-7000-8000-000000000001", ActivatedAt: "2026-11-13T00:00:00.000Z"}
 }
 func TestLegacyManifestMatchesActualOxyCanonicalBytes(t *testing.T) {
 	raw, err := os.ReadFile("testdata/legacy-interop.json")
@@ -86,14 +86,15 @@ func manifestBytes(t *testing.T, m LegacyManifest) []byte {
 }
 func testLegacyManifest(t *testing.T, p Policy) ([]byte, ImportReview) {
 	t.Helper()
-	m := LegacyManifest{SchemaVersion: 1, Authority: "oxy", FenceID: "fence-reviewed", ActivatedAt: "2026-01-01T00:00:00.000Z", ExportedAt: "2026-01-01T00:01:00.000Z", Entries: []LegacyEntry{
+	now := time.Now().UTC().Add(-time.Second)
+	m := LegacyManifest{SchemaVersion: 2, Authority: "oxy", FenceID: "fence-reviewed", ActivatedAt: "2026-01-01T00:00:00.000Z", ExportedAt: now.Format(time.RFC3339Nano), DailyUsage: LegacyDailyUsage{Scope: "application_environment", UTCDay: now.Format("2006-01-02"), MaxRequestsPerUTCDay: p.MaxPerUTCDay}, Entries: []LegacyEntry{
 		{CredentialID: p.CredentialIDs[0], KeyKind: "idempotency_key", Key: "caller:<>&:❤️:\u2028", LegacyAdmissionID: "metered:old", RequestID: "req-old", DigestDomain: "unknown"},
 		{CredentialID: p.CredentialIDs[0], KeyKind: "request_id", Key: "req-old", LegacyAdmissionID: "metered:old", RequestID: "req-old", DigestDomain: "unknown"},
 	}}
 	m.Population.ApplicationID = p.ApplicationID
 	m.Population.OwnerAccountID = p.OwnerAccountID
 	m.Population.Environment = p.Environment
-	m.Population.CredentialKind = "workload"
+	m.Population.CredentialKind = "application"
 	m.Population.CredentialIDs = clone(p.CredentialIDs)
 	slices.SortFunc(m.Population.CredentialIDs, func(a, b contract.CredentialID) int { return utf16Compare(string(a), string(b)) })
 	raw := manifestBytes(t, m)
@@ -220,7 +221,7 @@ func TestPostgresReviewedRosterRefreshCannotDropCoverageOrRollBack(t *testing.T)
 	if err := json.Unmarshal(raw, &refreshed); err != nil {
 		t.Fatal(err)
 	}
-	refreshed.ExportedAt = "2026-01-02T00:00:00.000Z"
+	refreshed.ExportedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	refreshed.Population.CredentialIDs = append(refreshed.Population.CredentialIDs, "workload-new")
 	newRaw := manifestBytes(t, refreshed)
 	_ = json.Unmarshal(newRaw, &refreshed)
@@ -293,9 +294,7 @@ func TestPostgresRefreshWaitsForAdmittedPolicyTransaction(t *testing.T) {
 	if err := s.RegisterPolicy(ctx, p2); err != nil {
 		t.Fatal(err)
 	}
-	next := review
-	next.Policy = p2
-	next.PolicyDigest = policyDigest(p2)
+	refreshRaw, next := dailyManifest(t, p2, 2, time.Now())
 	if _, err := pool.Exec(ctx, `CREATE FUNCTION kaana_admission.test_block_insert() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN PERFORM pg_advisory_xact_lock(93746211); IF NEW.policy_id IS DISTINCT FROM (SELECT active_policy_id FROM kaana_admission.enrollments WHERE id=NEW.enrollment_id) THEN RAISE EXCEPTION 'stale policy crossed activation'; END IF; RETURN NEW; END$$; CREATE TRIGGER test_admission_barrier BEFORE INSERT ON kaana_admission.admissions FOR EACH ROW EXECUTE FUNCTION kaana_admission.test_block_insert()`); err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +328,7 @@ func TestPostgresRefreshWaitsForAdmittedPolicyTransaction(t *testing.T) {
 	}
 	wait(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event='advisory' AND query LIKE 'INSERT INTO kaana_admission.admissions%')`)
 	imported := make(chan error, 1)
-	go func() { _, err := s.ImportLegacyFence(ctx, raw, next); imported <- err }()
+	go func() { _, err := s.ImportLegacyFence(ctx, refreshRaw, next); imported <- err }()
 	wait(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE 'SELECT e.id,p.id,p.digest%')`)
 	select {
 	case err := <-imported:
@@ -344,6 +343,10 @@ func TestPostgresRefreshWaitsForAdmittedPolicyTransaction(t *testing.T) {
 	}
 	if err = <-imported; err != nil {
 		t.Fatal("refresh failed", err)
+	}
+	var total, legacy int
+	if err = pool.QueryRow(ctx, `SELECT d.admitted,l.admitted FROM kaana_admission.daily_windows d JOIN kaana_admission.legacy_daily_usage l USING(enrollment_id,utc_day)`).Scan(&total, &legacy); err != nil || total != 3 || legacy != 2 {
+		t.Fatal("concurrent refresh lost native consumption", total, legacy, err)
 	}
 	if _, err = s.Admit(ctx, storeRequest(t, p, "req-after-refresh", nil)); !errors.Is(err, ErrNotEnrolled) {
 		t.Fatal("old plan admitted after activation", err)

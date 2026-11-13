@@ -3,12 +3,13 @@ package nativeadmission
 import (
 	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"math/big"
 	"testing"
 	"time"
 )
 
 func TestReviewedInitialPolicyPreservesVerifiedTerms(t *testing.T) {
-	policies, err := LoadPolicyFile("../../configs/native-admission/alia-kaana-v1.json", "682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2")
+	policies, err := LoadPolicyFile("../../configs/native-admission/alia-kaana-v2.json", "eb3385f238ff5639771542b0caeb6cb7474347d59f205400351e6f9c2adcf490")
 	if err != nil || len(policies) != 1 {
 		t.Fatal("reviewed policy invalid")
 	}
@@ -44,4 +45,54 @@ func TestReviewedInitialPolicyPreservesVerifiedTerms(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("reviewed policy digest: %s", digest)
+}
+
+func TestReviewedPriceBookPreservesAllEightExportedTariffs(t *testing.T) {
+	policies, err := LoadPolicyFile("../../configs/native-admission/alia-kaana-v2.json", "eb3385f238ff5639771542b0caeb6cb7474347d59f205400351e6f9c2adcf490")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := policies[0]
+	expected := map[string][3]string{
+		"openai/gpt-oss-120b|cerebras":               {"0.35", "0.35", "0.75"},
+		"openai/gpt-oss-120b|groq":                   {"0.15", "0.075", "0.60"},
+		"openai/gpt-oss-120b|openrouter":             {"0.03", "0.03", "0.17"},
+		"deepseek/deepseek-v4-flash-0731|openrouter": {"0.0434", "0.0434", "0.30"},
+		"openai/gpt-5.4-nano|openrouter":             {"0.20", "0.20", "1.25"},
+		"anthropic/claude-haiku-4.5|openrouter":      {"1", "1", "5"},
+		"anthropic/claude-sonnet-5|openrouter":       {"2", "2", "10"},
+	}
+	if p.Version != 2 || len(p.PriceBook) != 8 {
+		t.Fatal("reviewed schedule count changed")
+	}
+	for _, entry := range p.PriceBook {
+		if entry.SourceArtifactSHA256 != "317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3" || entry.SourcePriceVersionID == entry.Price.PriceVersionID {
+			t.Fatal("tariff migration provenance missing")
+		}
+		rates, err := unitRates(entry.Price)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.Price.ModelLine == "x-ai/text-to-speech" {
+			amount, err := RateUnits(entry.Price, []contract.UsageQuantity{{Unit: contract.UnitCharacters, Quantity: 15000}})
+			if err != nil || amount.Amount != "0.225000000000" {
+				t.Fatal("speech tariff changed", amount, err)
+			}
+			continue
+		}
+		want, ok := expected[string(entry.Price.ModelLine)+"|"+string(entry.Route.Provider)]
+		if !ok {
+			t.Fatal("unexpected scoped tariff")
+		}
+		for unit, text := range map[contract.UsageUnit]string{contract.UnitInputTokens: want[0], contract.UnitCachedInputTokens: want[1], contract.UnitOutputTokens: want[2], contract.UnitReasoningTokens: want[2]} {
+			expectedRate, _ := new(big.Rat).SetString(text)
+			expectedRate.Quo(expectedRate, big.NewRat(1000000, 1))
+			if rates[unit] == nil || rates[unit].Cmp(expectedRate) != 0 {
+				t.Fatal("verified exported tariff changed", entry.Price.ModelLine, entry.Route.Provider, unit)
+			}
+		}
+		if rates[contract.UnitCacheWriteInputTokens] != nil || rates[contract.UnitRequests] == nil || rates[contract.UnitRequests].Sign() != 0 {
+			t.Fatal("undeclared cache-write tariff or request fee invented")
+		}
+	}
 }

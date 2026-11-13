@@ -16,6 +16,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
+	"github.com/OxyHQ/Kaana/internal/provider"
 )
 
 // PublicCatalogue is the part of GET /v1/models Kaana does not measure: who
@@ -430,8 +431,8 @@ func (s *Server) cacheWritePricedSteps(steps []contract.GrantStep) kaana.CacheWr
 			admitted[line.ModelLine] = line.PriceVersionID
 		}
 	}
-	return func(model contract.ModelReference) bool {
-		line := model.ModelID()
+	return func(route provider.Route) bool {
+		line := route.ModelReference.ModelID()
 		version := admitted[line]
 		return version != "" && s.catalogue.PricesUnit(line, version, contract.UnitCacheWriteInputTokens)
 	}
@@ -502,6 +503,7 @@ func (c *PublicCatalogue) Audio(model contract.ModelReference) (*AudioCapabiliti
 // catalogueAccess asks Oxy what the caller may see (catalogue.read, cached by
 // the authorizer for at most 60 seconds per credential).
 type catalogueView struct {
+	PriceBook     []nativeadmission.RoutePrice
 	Audience      contract.CatalogueAudience
 	AllowedLevels []contract.PowerLevel
 }
@@ -527,8 +529,11 @@ func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) 
 				if !policy.Enabled {
 					return nil, contract.NewPublicError(requestID, "policy_violation", contract.PublicMessage("policy_violation"))
 				}
-				return &catalogueView{Audience: policy.Audience, AllowedLevels: policy.AllowedLevels}, nil
+				return &catalogueView{Audience: policy.Audience, AllowedLevels: policy.AllowedLevels, PriceBook: policy.PriceBook}, nil
 			}
+		}
+		if s.native.selects(identity.Principal) {
+			return nil, contract.NewPublicError(requestID, "policy_violation", contract.PublicMessage("policy_violation"))
 		}
 	}
 	access, failure := s.authorizer.Catalogue(r.Context(), contract.CatalogueAuthorizationRequest{
@@ -586,7 +591,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	data := make([]json.RawMessage, 0)
 	for _, model := range s.served(access.Audience) {
-		rendered, err := model.declared.render(model.entry, model.revisions)
+		rendered, err := nativePricedDeclaration(model.declared, model.entry.Model, access.PriceBook).render(model.entry, model.revisions)
 		if err != nil {
 			writeError(w, requestID, contract.NewPublicError(requestID, "internal_error", contract.PublicMessage("internal_error")))
 			return
@@ -613,7 +618,7 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 		if model.entry.Model != reference.ModelID() || (pinned && !slices.Contains(model.revisions, revision)) {
 			continue
 		}
-		rendered, err := model.declared.render(model.entry, model.revisions)
+		rendered, err := nativePricedDeclaration(model.declared, model.entry.Model, access.PriceBook).render(model.entry, model.revisions)
 		if err != nil {
 			break
 		}
@@ -881,9 +886,9 @@ func (s *Server) forwardsCacheMarkers(a *admission) bool {
 	if len(a.plan.routes) == 0 {
 		return false
 	}
-	priced := s.cacheWritePricedSteps(a.steps())
+	priced := s.cacheWritePricedAdmission(a)
 	for _, route := range a.plan.routes {
-		if !priced(route.ModelReference) {
+		if !priced(provider.Route{ModelReference: route.ModelReference, DeploymentID: route.DeploymentID, Provider: route.Provider}) {
 			return false
 		}
 	}

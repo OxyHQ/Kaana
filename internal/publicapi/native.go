@@ -67,7 +67,9 @@ func (c *NativeConfig) validate() error {
 
 func (c *NativeConfig) selects(identity contract.IdentityPrincipal) bool {
 	for _, policy := range c.Policies {
-		if policy.Selects(identity) {
+		// Economic ownership is app/environment scoped. Authorization still
+		// requires the exact owner, credential roster, lane and class in Plan.
+		if policy.ApplicationID == identity.ApplicationID && policy.Environment == identity.Environment {
 			return true
 		}
 	}
@@ -141,7 +143,7 @@ func (s *Server) admitNative(ctx context.Context, r *http.Request, id contract.R
 		}
 	}
 	needs := ask.needs
-	needs.prices = s.catalogue
+	needs.prices = nativeLinePrices(planned.Prices)
 	if planned.OutputTokens > 0 {
 		needs.maxOutputTokens = &planned.OutputTokens
 		needs.inputTokens = planned.InputTokens
@@ -154,7 +156,7 @@ func (s *Server) admitNative(ctx context.Context, r *http.Request, id contract.R
 			needs.affine = deployment
 		}
 	}
-	authorized := routeAuthorization{requestID: id, steps: planned.Steps, permits: func(step int, route provider.Route) bool {
+	authorized := routeAuthorization{requestID: id, steps: planned.Steps, groups: planned.StepGroups, permits: func(step int, route provider.Route) bool {
 		return nativeCommercialAllows(s.native.Commercial, identity.Principal, route) && nativeOperationServed(s.kinds, formats, route, ask.operation, ask.facts.RealtimeSessionKind) && step < len(planned.StepRoutes) && planned.StepRoutes[step].Allows(route.DeploymentID, route.ModelReference, route.Provider, promotional(route)) && planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters)
 	}}
 	resolved, failure := resolveAuthorizedFor(authorized, current, s.funding, s.latency, s.servesOperation(ask.operation, ask.facts.RealtimeSessionKind), needs, s.now())

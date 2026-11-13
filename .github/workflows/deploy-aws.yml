@@ -47,9 +47,11 @@ on:
       - 'configs/public-catalogue.json'
       - 'configs/deployment-commercial.json'
       - 'configs/native-admission/alia-kaana-v1.json'
+      - 'configs/native-admission/alia-kaana-v2.json'
       - '.github/credential-admin-operations.json'
       - '.github/workflows/deploy-aws.yml'
       - '.github/scripts/realtime-peer-vpc.py'
+      - '.github/scripts/native-policy-deploy-guard.py'
   workflow_dispatch:
     inputs:
       mode:
@@ -400,6 +402,15 @@ jobs:
               ' > "/tmp/task-definition-$service.json"
             fi
 
+            if [ "$service" = "$APP" ]; then
+              LIVE_NATIVE_TD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+                --query 'services[0].taskDefinition' --output text)
+              aws ecs describe-task-definition --task-definition "$LIVE_NATIVE_TD" \
+                --query taskDefinition > /tmp/kaana-native-live.json
+              python3 .github/scripts/native-policy-deploy-guard.py \
+                --live /tmp/kaana-native-live.json --candidate "/tmp/task-definition-$service.json"
+            fi
+
             ARN=$(aws ecs register-task-definition --cli-input-json "file:///tmp/task-definition-$service.json" \
               --query 'taskDefinition.taskDefinitionArn' --output text)
             echo "registered $ARN"
@@ -412,6 +423,13 @@ jobs:
             if [ "$REGISTERED_IMAGE" != "$IMAGE" ]; then
               echo "::error::$ARN names image '$REGISTERED_IMAGE', expected '$IMAGE'"
               return 1
+            fi
+            if [ "$service" = "$APP" ]; then
+              aws ecs describe-task-definition --task-definition "$ARN" \
+                --query taskDefinition > /tmp/kaana-native-registered.json
+              python3 .github/scripts/native-policy-deploy-guard.py \
+                --live /tmp/kaana-native-live.json --candidate /tmp/kaana-native-registered.json \
+                --expected "/tmp/task-definition-$service.json"
             fi
             if [ "$service" = "$PUBLISHER_SERVICE" ]; then
               REGISTERED_ENVIRONMENT=$(aws ecs describe-task-definition --task-definition "$ARN" \

@@ -135,16 +135,11 @@ func (c *Coordinator) Settle(ctx context.Context, tx pgx.Tx, r nativeadmission.R
 	if r.Metered.Tariff.Amount == nil || r.Metered.Tariff.Currency == nil {
 		return nativeadmission.EconomicSettlement{}, nativeadmission.ErrUnpriced
 	}
-	var served *nativeadmission.ModelPrice
-	for index := range a.Plan.Prices {
-		if a.Plan.Prices[index].ModelLine == r.Report.ResolvedModelReference.ModelID() {
-			served = &a.Plan.Prices[index]
-			break
-		}
+	served, priceErr := a.Plan.PriceForReport(r.Report)
+	if priceErr != nil {
+		return nativeadmission.EconomicSettlement{}, priceErr
 	}
-	if served == nil {
-		return nativeadmission.EconomicSettlement{}, nativeadmission.ErrUnpriced
-	}
+
 	hasUsage := false
 	for _, u := range r.Report.Units {
 		if u.Quantity > 0 {

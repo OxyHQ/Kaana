@@ -48,13 +48,22 @@ for this local check.
 
 ## Initial policy evidence
 
-The inactive image artifact is `configs/native-admission/alia-kaana-v1.json`,
-policy `alia-kaana-native` version 1. Its file SHA256 is
-`682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2`;
+The reviewed activation candidate is `configs/native-admission/alia-kaana-v2.json`,
+policy `alia-kaana-native` version 2. Its file SHA256 is
+`eb3385f238ff5639771542b0caeb6cb7474347d59f205400351e6f9c2adcf490`;
 its canonical policy digest is
-`94bc525a54452211cdeb1b8257d0bf616c35139e180b2fdc60272deaa77d27b1`.
-It contains the one live eligible workload handle, not all historical credential
-rows. Registration and configuration still do not activate it.
+`e3a93c71c530c37dbd545c8a0ce4111ba17c467739513a2a4b5b5a66a136b382`.
+It contains only the independently verified API workload handle. The integrations
+workload, secret-backed service credentials and other principals receive no new
+rights. The application/environment authority boundary still refuses them without
+calling Oxy's economic endpoints. Registration and configuration do not activate
+this policy until the reviewed fence import completes.
+
+Version 1 remains packaged solely as historical evidence of the inactive
+foundation release; never register or activate it. Its file SHA256 remains
+`682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2`.
+Version 2 adds the verified deployment-scoped customer pricebook without changing
+the reviewed identity roster, monetary limits or global catalogue prices.
 
 The 2026-11-13 read-only probes used the deployed Oxy source
 `b8294d61f5f44b9f7fdc9cfb343bd93a55b3f2ff` for the effective-policy double read.
@@ -72,23 +81,38 @@ The native policy preserves these facts rather than adding privacy or funding
 restrictions. Its exact routes retain Kaana's reviewed commercial declarations;
 missing declarations and enterprise/BYOK-only routes are refused before admission.
 
-The packaged policy is tested against the real declared tariff: 126,976 input
+The packaged policy is tested against the reviewed migrated tariff: 126,976 input
 units plus the normalized 8,192 output allowance on the reviewed DeepSeek 0731
-route quotes USD 0.007274496000, below USD 0.05. Lower monetary ceilings and an
+route quotes USD 0.007968358400, below USD 0.05. Lower monetary ceilings and an
 insufficient context window still refuse it. These are deterministic price and
 admission checks, not live provider inference or proof of deployment.
 
-### Tariff migration gate
+### Scoped tariff evidence
 
-Do not activate the initial population until every currently supported power level
-and voice operation has a verified customer tariff in Kaana. At this checkpoint,
-GPT-OSS 120B, Claude Haiku 4.5 and Claude Sonnet 5 have no `pricing` declaration.
-The legacy public grant also refuses these absent prices, but the old Oxy edge
-uses deployment-scoped database snapshots and can still serve them. Equivalence
-with the grant is therefore insufficient evidence for replacing that live edge.
-Export and review the exact old snapshots for every authorized deployment tuple;
-never fill this gap from provider costs or choose one provider's price for others.
-The current native route tests deliberately preserve the unpriced refusal.
+The read-only deployed Oxy export has SHA256
+`317618cf04035449b23a43d438e2adbb60b528400cf6237f4fa8e2cde61ba7f3`.
+All eight exact deployment/model/provider tuples matched one approved source
+snapshot. Version 2 preserves their exact amounts, currencies and units in its
+own immutable price versions, with the source version and evidence reference.
+The three GPT-OSS providers have different tariffs; they are never collapsed into
+one model-wide price. DeepSeek's inherited price also differs from Kaana's global
+catalogue, which remains unchanged for other populations.
+
+Each route must independently fit the request ceiling. Tariff variants in the
+same power-level step retain the existing funding/preference/failover order.
+Settlement and commercial receipt validation select only the actually served
+provider, deployment and immutable model reference from durable usage. Missing
+or inconsistent served identity is unpriced reconciliation, never an inferred
+allocation. Cache-write permission uses that same tuple; no provider borrows
+another provider's cache tariff. The authenticated catalogue view shows a scoped
+price for a single-tariff line and omits an aggregate price for provider-dependent
+lines. It does not mutate the shared catalogue.
+
+Tests cover the eight exported schedules, real adapter and route capabilities,
+8192-token budget bounds, different-tariff failover, caller price preferences,
+cache-write isolation and durable settlement replay. Production activation still
+requires the deployed identity and database-role canaries, the complete app/env
+fence/drain/export and reviewed version-2 import described below.
 
 ## Database authority and artifact
 
@@ -141,17 +165,26 @@ bounded status/digests, not database errors or credentials.
    the fleet converges. Before fencing, removing configuration can restore the
    old authority if a prerequisite fails. Never enable native admission here.
 5. Confirm the exact steady fleet, then activate Oxy's permanent admission fence
-   for the exact workload population. Drain old admitted grants and holds.
+   for the entire reviewed application/environment. Native policy still authorizes
+   only its explicit credential subset; a different owner, handle or credential
+   lane cannot escape to Oxy under that application/environment. Drain all old
+   admitted grants and holds in the fenced scope.
    Existing old settlement remains Oxy-owned. Export the canonical manifest only
    when unresolved admissions, grants and holds are all zero.
 6. Independently review the exported manifest hash, fence ID, exact activatedAt,
-   live credential roster, policy digest and population. Keep the artifact in a
+   live credential roster, policy digest and population. Manifest version 2 includes
+   `dailyUsage` for `application_environment`: the export UTC day, all admitted
+   requests in that day, and the positive effective daily limit. The policy limit
+   must equal that reviewed limit. Eligible roster entries do not automatically
+   become authorized; historical aliases remain fenced even for retired handles.
+   Keep the artifact in a
    private location. `kaana-native validate` accepts the same review flags as
    import and reads the manifest on stdin; it performs no database operation.
 7. Run `kaana-native import` with the registration flags plus
    `--manifest-sha256 HASH --fence-id ID --activated-at EXACT_TIMESTAMP`, with the
    manifest on stdin. One transaction verifies and inserts every permanent old
-   key/request alias, records immutable import evidence, and activates the exact
+   key/request alias, carries the legacy daily consumption, records immutable
+   import evidence, and activates the exact
    policy pointer. Any mismatch or write failure rolls back the whole operation.
 8. Deploy Gemies' reviewed direct transport only after native activation, then
    verify exact live source/image/config hashes, native generation records,
@@ -172,7 +205,15 @@ Oxy manifest under the **same permanent fence ID and activatedAt**. A changed
 manifest hash requires a strictly higher version of the same policy ID and a
 nondecreasing export time. Every previous tombstone must remain present and
 unchanged. Imports retain immutable audit records. Omission, rollback or a new
-fence epoch refuses activation; an exact replay is idempotent.
+fence epoch refuses activation. New imports require a snapshot for the current
+PostgreSQL UTC day. Daily consumption has a separate legacy component: refresh
+adds only its nonnegative increase to the combined counter, preserving native
+admissions. Consumption above the reviewed limit is retained and blocks new
+admissions until the next UTC day. The enrollment row lock serializes import
+and admission. An exact completed replay for the active policy is a read-only
+acknowledgement, including after midnight; it cannot reset quota or re-enable a
+disabled enrollment. Migration `0002` adds this accounting without changing the
+published `0001` checksum.
 
 The importer uses Oxy's canonical serializer semantics: UTF-16 key ordering,
 JSON.stringify escaping, and no HTML/U+2028 rewriting. Real cross-language fixtures

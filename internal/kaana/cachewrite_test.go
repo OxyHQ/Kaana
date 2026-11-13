@@ -75,7 +75,7 @@ func everywhereUnitsAppear(t *testing.T, ctx context.Context) (stream, report, c
 // existed, on every path that leaves the process. Mutation: a fold that always
 // splits fails this test.
 func TestAnUnpricedGrantFoldsTheCacheWriteIntoInputTokens(t *testing.T) {
-	notPriced := kaana.CacheWritePriced(func(contract.ModelReference) bool { return false })
+	notPriced := kaana.CacheWritePriced(func(provider.Route) bool { return false })
 	for name, ctx := range map[string]context.Context{
 		"no price information": context.Background(),
 		"a grant without it":   kaana.WithCacheWritePriced(context.Background(), notPriced),
@@ -102,8 +102,8 @@ func TestAnUnpricedGrantFoldsTheCacheWriteIntoInputTokens(t *testing.T) {
 // that never splits fails this test.
 func TestAPricedGrantKeepsTheCacheWriteAsItsOwnUnit(t *testing.T) {
 	var asked []contract.ModelReference
-	priced := kaana.CacheWritePriced(func(model contract.ModelReference) bool {
-		asked = append(asked, model)
+	priced := kaana.CacheWritePriced(func(route provider.Route) bool {
+		asked = append(asked, route.ModelReference)
 		return true
 	})
 	stream, report, cost := everywhereUnitsAppear(t, kaana.WithCacheWritePriced(context.Background(), priced))

@@ -44,6 +44,8 @@ type Request struct {
 	RequestedEffort                       *contract.ReasoningEffort
 }
 type Plan struct {
+	StepGroups          []int                                            `json:"stepGroups,omitempty"`
+	RoutePrices         []RoutePrice                                     `json:"routePrices,omitempty"`
 	EconomicTreatment   EconomicTreatment                                `json:"economicTreatment"`
 	Operation           contract.GrantOperation                          `json:"operation"`
 	SessionMaxDuration  time.Duration                                    `json:"sessionMaxDuration,omitempty"`
@@ -85,6 +87,14 @@ func NewPlanner(policies []Policy, catalogue []Model) (*Planner, error) {
 	}
 	modelIDs := map[contract.ModelID]bool{}
 	versions := map[string]ModelPrice{}
+	for _, policy := range policies {
+		for _, entry := range policy.PriceBook {
+			if old, ok := versions[entry.Price.PriceVersionID]; ok && !samePrice(old, entry.Price) {
+				return nil, errors.New("nativeadmission: conflicting scoped price version")
+			}
+			versions[entry.Price.PriceVersionID] = entry.Price
+		}
+	}
 	for _, model := range catalogue {
 		if !model.ID.Valid() || modelIDs[model.ID] {
 			return nil, errors.New("nativeadmission: duplicate or invalid model")
@@ -240,7 +250,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 	plan := Plan{EconomicTreatment: policy.EconomicTreatment, Operation: request.Operation, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
 	maxQuote := new(big.Rat)
 	seen := map[contract.ModelID]bool{}
-	for _, target := range targets {
+	for group, target := range targets {
 		effective := *policy
 		routes := policy.Routes
 		if value(request.Facts.InputImages) > 0 {
@@ -253,12 +263,14 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 		}
 		ceiling, _ := moneyRat(*effective.Limits.MaxPricePerRequest)
 		type candidate struct {
-			model Model
-			quote *big.Rat
-			input int
+			routePrice *RoutePrice
+			model      Model
+			quote      *big.Rat
+			input      int
 		}
 		var candidates []candidate
-		for _, model := range p.models {
+		for _, priced := range policy.pricedModels(p.models, routes) {
+			model := priced.model
 			if seen[model.ID] || !eligible(effective, model, normalized) {
 				continue
 			}
@@ -287,7 +299,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			if quote.Cmp(ceiling) > 0 {
 				continue
 			}
-			candidates = append(candidates, candidate{model, quote, input})
+			candidates = append(candidates, candidate{priced.routePrice, model, quote, input})
 		}
 		sort.Slice(candidates, func(i, j int) bool {
 			if cmp := candidates[i].quote.Cmp(candidates[j].quote); cmp != 0 {
@@ -296,9 +308,24 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			return candidates[i].model.ID < candidates[j].model.ID
 		})
 		limits := clone(effective.Limits)
+		hasScoped := slices.ContainsFunc(candidates, func(c candidate) bool { return c.routePrice != nil })
 		for _, c := range candidates {
 			seen[c.model.ID] = true
-			limits.AdmittedModelLines = append(limits.AdmittedModelLines, contract.AdmittedModelLine{ModelLine: c.model.ID, PriceVersionID: c.model.Price.PriceVersionID})
+			line := contract.AdmittedModelLine{ModelLine: c.model.ID, PriceVersionID: c.model.Price.PriceVersionID}
+			if !hasScoped {
+				limits.AdmittedModelLines = append(limits.AdmittedModelLines, line)
+			} else {
+				scopedLimits := clone(effective.Limits)
+				scopedLimits.AdmittedModelLines = []contract.AdmittedModelLine{line}
+				plan.Steps = append(plan.Steps, contract.GrantStep{Target: target, Limits: scopedLimits})
+				scopedRoutes := clone(routes)
+				if c.routePrice != nil {
+					scopedRoutes = RouteScope{Mode: "exact", Deployments: []RoutePermission{c.routePrice.Route}, RequirePromotionalCredit: routes.RequirePromotionalCredit}
+					plan.RoutePrices = append(plan.RoutePrices, clone(*c.routePrice))
+				}
+				plan.StepRoutes = append(plan.StepRoutes, scopedRoutes)
+				plan.StepGroups = append(plan.StepGroups, group)
+			}
 			plan.Prices = append(plan.Prices, clone(c.model.Price))
 			if required := structuredRequirements(c.model, normalized); len(required) > 0 {
 				if plan.RequiredParameters == nil {
@@ -316,6 +343,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 		if len(limits.AdmittedModelLines) > 0 {
 			plan.Steps = append(plan.Steps, contract.GrantStep{Target: target, Limits: limits})
 			plan.StepRoutes = append(plan.StepRoutes, clone(routes))
+			plan.StepGroups = append(plan.StepGroups, group)
 		}
 	}
 	if len(plan.Steps) == 0 {
@@ -396,7 +424,9 @@ func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy
 		return Plan{}, ErrInvalidRequest
 	}
 	ceiling, _ := moneyRat(*terms.Limits.MaxPricePerRequest)
-	for _, m := range p.models {
+	var combined *Plan
+	for _, priced := range policy.pricedModels(p.models, terms.Routes) {
+		m := priced.model
 		if m.ID != *r.Target.ModelLine || !m.Active || !admittedAudience(policy, m.Audience) || !privacyEligible(terms.Limits, m) {
 			continue
 		}
@@ -435,7 +465,29 @@ func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy
 		if r.Operation == contract.GrantRealtimeSession {
 			timeout = r.SessionMaxDuration
 		}
-		return Plan{EconomicTreatment: policy.EconomicTreatment, Operation: r.Operation, SessionMaxDuration: r.SessionMaxDuration, SessionMaxResponses: r.SessionMaxResponses, SessionKind: r.Facts.RealtimeSessionKind, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}, nil
+		result := Plan{EconomicTreatment: policy.EconomicTreatment, Operation: r.Operation, SessionMaxDuration: r.SessionMaxDuration, SessionMaxResponses: r.SessionMaxResponses, SessionKind: r.Facts.RealtimeSessionKind, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}
+		if priced.routePrice != nil {
+			result.RoutePrices = []RoutePrice{clone(*priced.routePrice)}
+			result.StepRoutes = []RouteScope{{Mode: "exact", Deployments: []RoutePermission{priced.routePrice.Route}, RequirePromotionalCredit: terms.Routes.RequirePromotionalCredit}}
+		}
+		result.StepGroups = []int{0}
+		if combined == nil {
+			combined = &result
+		} else {
+			combined.Steps = append(combined.Steps, result.Steps...)
+			combined.StepRoutes = append(combined.StepRoutes, result.StepRoutes...)
+			combined.StepGroups = append(combined.StepGroups, 0)
+			combined.Prices = append(combined.Prices, result.Prices...)
+			combined.RoutePrices = append(combined.RoutePrices, result.RoutePrices...)
+			amount, _ := moneyRat(result.Quote)
+			previous, _ := moneyRat(combined.Quote)
+			if amount.Cmp(previous) > 0 {
+				combined.Quote = result.Quote
+			}
+		}
+	}
+	if combined != nil {
+		return *combined, nil
 	}
 	return Plan{}, ErrNoRoute
 }
