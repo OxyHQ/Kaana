@@ -25,10 +25,8 @@ func (p Policy) validatePriceBook() error {
 		if entry.Route.DeploymentID == "" || !entry.Route.ModelReference.Valid() || !strings.Contains(string(entry.Route.ModelReference), "@") || !entry.Route.Provider.Valid() || entry.Route.ModelReference.ModelID() != entry.Price.ModelLine || seen[entry.Route] || len(entry.SourceArtifactSHA256) != 64 || entry.SourcePriceVersionID == "" || entry.SourceEvidenceRef == "" {
 			return errors.New("nativeadmission: invalid scoped price evidence")
 		}
-		for _, c := range entry.SourceArtifactSHA256 {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-				return ErrUnpriced
-			}
+		if !contract.ValidSHA256Hex(entry.SourceArtifactSHA256) {
+			return ErrUnpriced
 		}
 		if _, err := unitRates(entry.Price); err != nil {
 			return err
