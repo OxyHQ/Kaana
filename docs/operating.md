@@ -1120,9 +1120,9 @@ How it runs:
 - Deletion is irreversible and Kaana keeps no backup beyond the database's own. Run the dry run
   first, and take a snapshot before the first `--apply`.
 
-This policy is Kaana's technical default. If [ADR 0010](adr/0010-kaana-sells-and-invoices.md)
-makes Kaana the seller of record, tax and accounting law will set longer minimums for whatever
-becomes an invoice or a receipt; revisit it then. The settlement outbox is also what Oxy's
+This policy is Kaana's technical default. The accepted [ADR 0010](adr/0010-kaana-sells-and-invoices.md) financial migration
+requires a separately reviewed retention policy for customer receipts and invoices;
+these technical-data windows do not establish that policy. The settlement outbox is also what Oxy's
 reconciliation reads, so do not shorten its window without Oxy.
 
 ## Metrics
