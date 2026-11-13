@@ -112,6 +112,8 @@ func TestSpokenChatIsExecutableOnlyWhereTheDeploymentSpeaks(t *testing.T) {
 		{gateway, "openai/gpt-6-astra", true},
 		{gateway, "openai/gpt-realtime-2", false},
 		{gateway, "openai/gpt-image-2", false},
+		{text, "gpt-image-1", true},
+		{audio, "gpt-image-1", false},
 		{gateway, "google/gemini-3.8-flash", true}, // unclassified: attribution decides
 		{xaiRealtime, "grok-voice-think-fast-2.0", true},
 		{xai, "grok-voice-think-fast-2.0", false},

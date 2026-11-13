@@ -13,6 +13,7 @@ import {
   inferenceAudioOutputParametersSchema,
   inferenceMessageSchema,
   inferenceReasoningSchema,
+  inferenceImageParametersSchema,
   inferenceSpeechParametersSchema,
   inferenceTranscriptionParametersSchema,
   responseFormatSchema,
@@ -108,6 +109,8 @@ const inferenceRequestObjectSchema = z.object({
   /** Absent means the route's own default reasoning behaviour. */
   reasoning: inferenceReasoningSchema.optional(),
   speech: inferenceSpeechParametersSchema.optional(),
+  /** Text-to-image controls. Contract set 8.12.0. */
+  image: inferenceImageParametersSchema.optional(),
   /** File transcription parameters. Contract set 4.5.0. */
   transcription: inferenceTranscriptionParametersSchema.optional(),
   /** Spoken output from a conversational model. Contract set 3.2.0. */
@@ -189,6 +192,7 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
       request.responseFormat !== undefined ||
       request.reasoning !== undefined ||
       request.speech !== undefined ||
+      request.image !== undefined ||
       request.transcription !== undefined ||
       request.audioOutput !== undefined
     ) {
@@ -219,6 +223,19 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
       code: 'custom',
       path: ['speech'],
       message: 'speech parameters require the audio_speech API format',
+    });
+  }
+  if (
+    request.image !== undefined &&
+    (request.client.apiFormat !== 'images_generations' ||
+      request.modality !== 'image' ||
+      request.input.format !== 'text')
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['image'],
+      message:
+        'image parameters require the images_generations API format with image modality and text input',
     });
   }
   if (

@@ -92,6 +92,23 @@ func (a *Adapter) Stream(ctx context.Context, call *provider.Call, out provider.
 		return outcome, err
 	}
 
+	if isImageCall(call) {
+		requested := 1
+		var asked imageGenerationRequest
+		if json.Unmarshal(call.Body, &asked) == nil && asked.N != nil {
+			requested = *asked.N
+		}
+		outcome, err = a.readImages(response.Body, requested)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The caller withdrew or the deadline passed while the answer was
+			// read (or just after). Whatever was measured travels with the
+			// failure; nothing is served from an attempt nobody is waiting on.
+			err = a.TransportFailure(ctx, ctxErr)
+		}
+		outcome.KeyID, outcome.KeyClass = key.ID, key.Class
+		return outcome, err
+	}
+
 	// Stamped here, once, on whichever path ran: the key is chosen by the walk
 	// above and every return below is an attempt that spent it.
 	if call.Stream {

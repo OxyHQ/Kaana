@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.11.0';
+export const INFERENCE_CONTRACT_VERSION = '8.12.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -243,6 +243,13 @@ export const INFERENCE_CONTRACT_VERSION = '8.11.0';
  * operation (`grantOperationSchema`, last member) and the public `POST /v1/rerank`
  * shapes (`rerankRequestSchema`, `rerankResponseSchema`). Kaana emits no `rerank`
  * operation and serves no route yet; Oxy supports the operation first.
+ *
+ * Contract set 8.12.0 is additive: the signed envelope's optional `image`
+ * member (`inferenceImageParametersSchema`: `n`, `size`, `quality`, `style`,
+ * `responseFormat`), which carries a text-to-image request's controls to the
+ * adapter instead of dropping them. It is valid only with the
+ * `images_generations` API format, image modality and text input. Nothing in
+ * 8.11.0 changes and the public request and response shapes are unchanged.
  */
 
 /** The public API's one origin and version. */

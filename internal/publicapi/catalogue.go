@@ -711,12 +711,29 @@ type imageRequest struct {
 	User           *string                 `json:"user,omitempty"`
 }
 
-// handleImages validates an image request and refuses it before any grant:
-// no Kaana adapter executes image generation, and the signed envelope has no
-// image-generation input, so nothing could serve it. Refusing before Oxy is
-// asked holds no money for a request that cannot run.
+// imageData is one element of imageGenerationsSchema's data: a URL or inline
+// base64, never both.
+type imageData struct {
+	URL     string `json:"url,omitempty"`
+	B64JSON string `json:"b64_json,omitempty"`
+}
+
+// imageResponse is imageGenerationsSchema.
+type imageResponse struct {
+	Created int64       `json:"created"`
+	Data    []imageData `json:"data"`
+}
+
+// maxImagePromptLength is imageGenerationsRequestSchema's prompt bound.
+const maxImagePromptLength = 32000
+
+// handleImages serves POST /v1/images/generations. It validates the request
+// and refuses it before any grant unless some deployment of the model could
+// generate an image (servesImages): a model nothing here serves holds no
+// money. The prompt and the generated images are customer content: they are
+// never logged, and the prompt is sent to Oxy as neither text nor hash.
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
-	requestID := NewRequestID()
+	requestID, receivedAt := NewRequestID(), s.now()
 	body, failure := s.readJSON(w, r, requestID)
 	if failure != nil {
 		writeError(w, requestID, failure)
@@ -727,19 +744,68 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, requestID, failure)
 		return
 	}
+	boundedControl := func(value *string) bool { return value == nil || (*value != "" && utf16Length(*value) <= 32) }
 	switch {
 	case !request.Model.Valid():
 		failure = invalid(requestID, "model", "model is a model reference (publisher/model[@revision])")
-	case request.Prompt == "" || utf16Length(request.Prompt) > 32000:
+	case request.Prompt == "" || utf16Length(request.Prompt) > maxImagePromptLength:
 		failure = invalid(requestID, "prompt", "prompt is 1 to 32000 characters")
 	case request.N != nil && (*request.N < 1 || *request.N > 10):
 		failure = invalid(requestID, "n", "n is 1 to 10")
+	case !boundedControl(request.Size):
+		failure = invalid(requestID, "size", "size is 1 to 32 characters")
+	case !boundedControl(request.Quality):
+		failure = invalid(requestID, "quality", "quality is 1 to 32 characters")
+	case !boundedControl(request.Style):
+		failure = invalid(requestID, "style", "style is 1 to 32 characters")
 	case request.ResponseFormat != nil && *request.ResponseFormat != "url" && *request.ResponseFormat != "b64_json":
 		failure = invalid(requestID, "response_format", "response_format is url or b64_json")
-	default:
+	case request.User != nil && (*request.User == "" || len(*request.User) > 64):
+		failure = invalid(requestID, "user", "user is 1 to 64 characters")
+	case !s.servesImages(request.Model):
 		failure = contract.NewPublicError(requestID, "unsupported_modality", "no model is served for image generation").WithParam("model")
 	}
-	writeError(w, requestID, failure)
+	if failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
+
+	images := 1
+	if request.N != nil {
+		images = *request.N
+	}
+	estimate := utf16Length(request.Prompt)/4 + 1
+	target := contract.ModelTarget(request.Model)
+	ask := authorization{operation: contract.GrantImagesGenerations, target: &target, body: body, endpoint: "/v1/images/generations",
+		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, Images: &images}}
+	if request.User != nil {
+		user := contract.UserID(*request.User)
+		ask.onBehalfOf = &user
+	}
+	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, ask)
+	if failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
+	envelope := admitted.request(contract.ModalityImage, contract.APIFormatImagesGenerations, contract.Input{Format: contract.InputText, Text: &request.Prompt})
+	parameters := contract.ImageParameters{N: request.N, Size: request.Size, Quality: request.Quality, Style: request.Style}
+	if request.ResponseFormat != nil {
+		format := contract.ImageResponseFormat(*request.ResponseFormat)
+		parameters.ResponseFormat = &format
+	}
+	if parameters != (contract.ImageParameters{}) {
+		envelope.Image = &parameters
+	}
+	result := s.execute(r.Context(), admitted, &envelope, func(contract.StreamEvent) error { return nil })
+	if result.Failure != nil || result.Image == nil || len(result.Image.Images) == 0 {
+		writeError(w, requestID, failureOf(result, requestID))
+		return
+	}
+	answer := imageResponse{Created: s.now().Unix(), Data: make([]imageData, 0, len(result.Image.Images))}
+	for _, image := range result.Image.Images {
+		answer.Data = append(answer.Data, imageData{URL: image.URL, B64JSON: image.B64JSON})
+	}
+	writeJSON(w, requestID, http.StatusOK, answer)
 }
 
 // forwardsCacheMarkers is whether a cache_control marker may reach a provider

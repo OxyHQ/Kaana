@@ -256,6 +256,13 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 		}
 		formats := []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}
 		switch slug {
+		case "openai":
+			// OpenAI documents the OpenAI-shaped `POST {base}/images/generations`
+			// (https://platform.openai.com/docs/api-reference/images/create).
+			// OpenRouter generates images through chat completions' `modalities`,
+			// not this endpoint, and xAI's, SiliconFlow's and the other slugs'
+			// request fields are unreviewed, so none of them lists it.
+			formats = append(formats, contract.APIFormatImagesGenerations)
 		case "openrouter":
 			formats = append(formats, contract.APIFormatEmbeddings, contract.APIFormatDecisions)
 		case "siliconflow":

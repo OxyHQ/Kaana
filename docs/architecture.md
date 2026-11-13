@@ -104,7 +104,8 @@ absent, and the code refuses rather than pretending.
   dimensions. Speech and transcription have their own endpoints
   (`POST /v1/audio/speech`, `POST /v1/audio/transcriptions`; see
   [openai-audio](openai-audio.md)) and image generation is
-  `POST /v1/images/generations`. Rerank and any other modality are refused
+  `POST /v1/images/generations`, served by the OpenAI-compatible adapter where the
+  capability table lists it (see [adapters](adapters.md#image-generation-contract-set-8120)). Rerank and any other modality are refused
   with `unsupported_modality` rather than mistranslated.
 - **A batch API** (asynchronous job submission, a 24-hour window, polling for
   results). Kaana is synchronous and stateless, may not store a prompt or a

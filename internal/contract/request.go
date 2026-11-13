@@ -400,6 +400,29 @@ type TranscriptionParameters struct {
 	Prompt   *string      `json:"prompt,omitempty"`
 }
 
+// ImageResponseFormat is how a generated image is returned.
+type ImageResponseFormat string
+
+const (
+	ImageResponseURL     ImageResponseFormat = "url"
+	ImageResponseB64JSON ImageResponseFormat = "b64_json"
+)
+
+var imageResponseFormatValues = []ImageResponseFormat{ImageResponseURL, ImageResponseB64JSON}
+
+func (f ImageResponseFormat) Valid() bool { return isMember(f, imageResponseFormatValues) }
+
+// ImageParameters are a text-to-image request's controls (contract set 8.12.0),
+// each the caller's own and forwarded as named. An adapter whose provider takes
+// one it was given refuses the request rather than dropping the control.
+type ImageParameters struct {
+	N              *int                 `json:"n,omitempty"`
+	Size           *string              `json:"size,omitempty"`
+	Quality        *string              `json:"quality,omitempty"`
+	Style          *string              `json:"style,omitempty"`
+	ResponseFormat *ImageResponseFormat `json:"responseFormat,omitempty"`
+}
+
 // AudioOutputParameters asks a conversational model to answer in its own
 // voice (contract set 3.2.0), as opposed to Speech, which reads given text
 // aloud. The audio streams as audio events and the words on the
@@ -422,6 +445,7 @@ func (f AudioOutputFormat) Valid() bool { return isMember(f, audioOutputFormatVa
 type Request struct {
 	Speech           *SpeechParameters        `json:"speech,omitempty"`
 	Transcription    *TranscriptionParameters `json:"transcription,omitempty"`
+	Image            *ImageParameters         `json:"image,omitempty"`
 	AudioOutput      *AudioOutputParameters   `json:"audioOutput,omitempty"`
 	SchemaVersion    int                      `json:"schemaVersion"`
 	Attribution      Attribution              `json:"attribution"`
@@ -481,6 +505,23 @@ func (r *Request) Validate() error {
 		}
 		if r.Speech.Speed != nil && (*r.Speech.Speed < 0.25 || *r.Speech.Speed > 4) {
 			return fmt.Errorf("contract: invalid speech speed")
+		}
+	}
+	if r.Image != nil {
+		if r.Client.APIFormat != APIFormatImagesGenerations || r.Modality != ModalityImage || r.Input.Format != InputText {
+			return fmt.Errorf("contract: image parameters require images_generations with image modality and text input")
+		}
+		image := r.Image
+		for name, value := range map[string]*string{"size": image.Size, "quality": image.Quality, "style": image.Style} {
+			if value != nil && (len(*value) == 0 || utf16Length(*value) > 32) {
+				return fmt.Errorf("contract: image.%s must be 1 to 32 characters", name)
+			}
+		}
+		if image.N != nil && (*image.N < 1 || *image.N > 10) {
+			return fmt.Errorf("contract: image.n must be 1 to 10")
+		}
+		if image.ResponseFormat != nil && !image.ResponseFormat.Valid() {
+			return fmt.Errorf("contract: image.responseFormat is url or b64_json")
 		}
 	}
 	if r.Transcription != nil {

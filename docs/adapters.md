@@ -326,6 +326,29 @@ fake. Opening walks the key through `provider.WalkAttempts`, the same
 verdicts, retirement and attempt evidence as `provider.Walk`. `realtime.md` has
 the whole design, both mappings and the edge wire.
 
+### Image generation (contract set 8.12.0)
+
+`images_generations` is a whole, non-streaming response: the adapter returns
+`Outcome.Image` (`provider.ImageResult`: a URL or inline base64 per image, customer
+content that is never logged or persisted) and the executor returns it as
+`Result.Image`. `openaicompat` speaks OpenAI's `POST {base}/images/generations`
+for the slugs `providerconfig.ExecutableAPIFormats` lists (today `openai` only; OpenRouter
+generates images through chat `modalities`, and xAI's and the other slugs' fields are
+unreviewed) and for the models `ClassifyModel` calls image models. The caller's controls
+(`n`, `size`, `quality`, `style`, `response_format`, the envelope's `image` member) are
+sent as named and never defaulted; a control the model refuses is the provider's 400.
+Units are `images` (what the provider returned, so a partial answer is metered as
+returned) plus `input_tokens` and `output_tokens` when the provider reports them. An
+attempt that produced no image is an attributable server error
+(`kaana.producedNoImage`, and the adapter's own check): never served, never billed, an
+unserved cost row, and failover reads it like any other fault. `conformance.RunImages`
+is the suite; `internal/kaana/image_test.go` mutation-tests the gate.
+
+Nothing is served until an operator declares an image model in
+`configs/public-catalogue.json` with a price from primary evidence: without a catalogue
+entry Oxy admits no image line, and the public API refuses a model no deployment
+can draw with `unsupported_modality` before any grant.
+
 ## The conformance harness
 
 `internal/provider/conformance` is the suite an adapter must pass. An author

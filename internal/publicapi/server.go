@@ -45,6 +45,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
@@ -346,6 +347,42 @@ const fundingRankUnknown = 3
 // does not serve at all.
 type RouteKinds interface {
 	ServingKinds(slug contract.ProviderSlug) (sessions []contract.RealtimeSessionKind, requests bool, known bool)
+}
+
+// FormatKinds is the optional half of RouteKinds that says which request
+// families a slug's adapter declares. A process whose RouteKinds does not
+// implement it serves no image generation, because nothing can say it can.
+type FormatKinds interface {
+	ExecutesFormat(slug contract.ProviderSlug, format contract.APIFormat) (executes, known bool)
+}
+
+// servesImages is whether any deployment of the model reference could
+// generate an image here: some route whose adapter declares images_generations
+// and whose upstream model, where its id names its family, is an image model.
+// It is read before Oxy is asked, so a request nothing can serve holds no money.
+func (s *Server) servesImages(reference contract.ModelReference) bool {
+	formats, ok := s.kinds.(FormatKinds)
+	if !ok || s.inventory == nil {
+		return false
+	}
+	current := s.inventory.Current()
+	if current == nil {
+		return false
+	}
+	set, err := current.Resolve(reference, s.now())
+	if err != nil {
+		return false
+	}
+	for _, route := range set.Candidates() {
+		if executes, _ := formats.ExecutesFormat(route.Provider, contract.APIFormatImagesGenerations); !executes {
+			continue
+		}
+		if family, classified, _ := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID); classified && family.Format != contract.APIFormatImagesGenerations {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // servesOperation keeps, of an admitted line's routes, the ones whose adapter
