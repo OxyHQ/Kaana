@@ -49,3 +49,19 @@ func TestNoFloatingPointAndConservativeFractionBoundary(t *testing.T) {
 		t.Fatal("nondecimal price accepted")
 	}
 }
+
+func TestTextQuoteRequiresEveryPotentialPartitionPrice(t *testing.T) {
+	for _, unit := range []contract.UsageUnit{contract.UnitInputTokens, contract.UnitCachedInputTokens, contract.UnitOutputTokens, contract.UnitReasoningTokens, contract.UnitRequests} {
+		p := price("fixture/medium")
+		kept := []UnitPrice{}
+		for _, candidate := range p.UnitPrices {
+			if candidate.Unit != unit {
+				kept = append(kept, candidate)
+			}
+		}
+		p.UnitPrices = kept
+		if _, err := textQuote(p, 100, 100); !errors.Is(err, ErrUnpriced) {
+			t.Fatalf("missing %s was admitted", unit)
+		}
+	}
+}
