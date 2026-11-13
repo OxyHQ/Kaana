@@ -53,11 +53,15 @@ func TestPostgresInspectAccessReportsGrantedDeniedAndAbsentRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	prefix := "access_" + hex.EncodeToString(nonce)
+	// CI uses SCRAM, while a local disposable cluster may use trust. Give this
+	// isolated login its own ephemeral password rather than inheriting the
+	// maintenance user's password or depending on host authentication settings.
+	fixturePassword := hex.EncodeToString(nonce)
 	login, granted, denied, missing := prefix+"_login", prefix+"_grant", prefix+"_deny", prefix+"_missing"
 	for _, role := range []string{login, granted, denied} {
 		options := " NOLOGIN"
 		if role == login {
-			options = " LOGIN NOINHERIT"
+			options = " LOGIN NOINHERIT PASSWORD '" + fixturePassword + "'"
 		}
 		if _, err = admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role}.Sanitize()+options); err != nil {
 			t.Fatal(err)
@@ -82,6 +86,7 @@ func TestPostgresInspectAccessReportsGrantedDeniedAndAbsentRoles(t *testing.T) {
 	readConfig := config.Copy()
 	readConfig.Database = prefix
 	readConfig.User = login
+	readConfig.Password = fixturePassword
 	readConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	reader, err := pgx.ConnectConfig(ctx, readConfig)
 	if err != nil {
