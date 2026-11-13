@@ -208,6 +208,12 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	if request.Client.APIFormat == contract.APIFormatAudioTranscriptions {
 		return a.translateTranscription(request, route)
 	}
+	if request.Client.APIFormat == contract.APIFormatImagesGenerations {
+		return a.translateImage(request, route)
+	}
+	if isImageModel(a.config.Provider, route.UpstreamModelID) {
+		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the image deployment requires images_generations"}
+	}
 	if a.config.Provider == "xai" && route.UpstreamModelID == "tts" {
 		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the speech deployment requires audio_speech"}
 	}

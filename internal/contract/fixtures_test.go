@@ -70,12 +70,13 @@ func TestWriteWireFixtures(t *testing.T) {
 	// commercial fixtures and 2 controls. Contract set 8.6.0 (reasoning continuity)
 	// adds 3 fixtures (a budget with exclude, an opt-in, a block token) and 4
 	// controls (reasoning on a user message, an effort beside a budget, an empty
-	// reasoning part, a zero budget).
-	if len(valid) != 116 {
-		t.Fatalf("expected 116 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// reasoning part, a zero budget). Contract set 8.12.0 adds 1 fixture (image
+	// parameters) and 1 control (image parameters on a text request).
+	if len(valid) != 117 {
+		t.Fatalf("expected 117 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 47 {
-		t.Fatalf("expected 47 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 48 {
+		t.Fatalf("expected 48 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
@@ -304,6 +305,16 @@ func validFixtures(t *testing.T) []fixture {
 		t.Fatalf("invalid streamed speech fixture: %v", err)
 	}
 
+	// Contract set 8.12.0: a text-to-image request with every control named.
+	imageRequest := textTarget
+	imageRequest.Modality = ModalityImage
+	imageRequest.Client.APIFormat = APIFormatImagesGenerations
+	imageRequest.Input = Input{Format: InputText, Text: pointerTo("a fox")}
+	imageRequest.Image = &ImageParameters{N: pointerTo(2), Size: pointerTo("1024x1024"), Quality: pointerTo("high"), Style: pointerTo("vivid"), ResponseFormat: pointerTo(ImageResponseB64JSON)}
+	if err := imageRequest.Validate(); err != nil {
+		t.Fatalf("invalid image fixture: %v", err)
+	}
+
 	batch := textTarget
 	batch.Input = Input{Format: InputTextBatch, Texts: []string{"a", "b"}}
 
@@ -384,6 +395,7 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceRequestSchema", Case: "text-batch-input", Value: batch},
 		{Schema: "inferenceRequestSchema", Case: "speech-with-parameters", Value: speech},
 		{Schema: "inferenceRequestSchema", Case: "speech-streamed", Value: streamedSpeech},
+		{Schema: "inferenceRequestSchema", Case: "image-with-parameters", Value: imageRequest},
 		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
 		{Schema: "normalizedUsageReportSchema", Case: "failed-with-nothing-measured", Value: failedReport},
 		{Schema: "inferenceErrorSchema", Case: "retryable-with-upstream", Value: failure},
@@ -621,7 +633,12 @@ func invalidFixtures() []fixture {
 		OwnerAccountID: "acc_01JQZ", ConnectionID: "conn_01JQZ", Environment: EnvironmentProduction,
 	}
 
+	// Image controls on a request that is not an image request.
+	imageOnText := validAuthorizedRouteRequest()
+	imageOnText.Image = &ImageParameters{N: pointerTo(1)}
+
 	return []fixture{
+		{Schema: "inferenceRequestSchema", Case: "image-parameters-on-a-text-request", Value: imageOnText},
 		{Schema: "inferenceRequestSchema", Case: "empty-authorized-routes", Value: emptyAuthorizedRoutes},
 		{Schema: "inferenceRequestSchema", Case: "duplicate-authorized-deployment", Value: duplicateDeployment},
 		{Schema: "inferenceRequestSchema", Case: "different-line-labelled-same-model", Value: mislabelledSameModel},

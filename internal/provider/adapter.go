@@ -195,6 +195,10 @@ type Outcome struct {
 	Decisions []contract.DecisionAnswer
 
 	Embedding *EmbeddingResult
+	// Image is the generated images of an images_generations attempt. Nil, or
+	// an empty list, is an attempt that produced nothing: the executor turns
+	// it into a provider failure rather than serving it (producedNoImage).
+	Image *ImageResult
 	// DetectedLanguage is the language a transcription's provider says it
 	// heard (DetectedLanguage reads it); nil when it says none.
 	DetectedLanguage *contract.LanguageTag
@@ -244,6 +248,18 @@ type EmbeddingResult struct {
 	Data        []contract.EmbeddingVector
 	InputTokens int
 	TotalTokens int
+}
+
+// GeneratedImage is one image a provider produced: exactly one of URL and
+// B64JSON is set. It is customer content: never logged, never persisted.
+type GeneratedImage struct {
+	URL     string
+	B64JSON string
+}
+
+// ImageResult is the normalized output of a text-to-image attempt.
+type ImageResult struct {
+	Images []GeneratedImage
 }
 
 // HealthStatus is the coarse state of an adapter's upstream.
@@ -495,6 +511,22 @@ func (r *Registry) ServingKinds(slug contract.ProviderSlug) (sessions []contract
 		return nil, true, true
 	}
 	return nil, false, false
+}
+
+// ExecutesFormat reports whether the request adapter registered for a slug
+// declares a request family. known is false for a slug with no request
+// adapter (including one served only as realtime sessions).
+func (r *Registry) ExecutesFormat(slug contract.ProviderSlug, format contract.APIFormat) (executes, known bool) {
+	if r == nil {
+		return false, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	adapter, ok := r.adapters[slug]
+	if !ok {
+		return false, false
+	}
+	return Executes(adapter, format), true
 }
 
 // ResolveCredential answers the credential half of either resolution for any

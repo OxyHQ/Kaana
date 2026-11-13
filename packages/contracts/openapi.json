@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.11.0",
+    "version": "8.12.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -4310,6 +4310,39 @@
         "type": "string",
         "maxLength": 2048,
         "pattern": "^https:\\/\\/[^\\s]+$"
+      },
+      "InferenceImageParameters": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "size": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "quality": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "style": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "responseFormat": {
+            "type": "string",
+            "enum": [
+              "url",
+              "b64_json"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "InferenceMessageRole": {
         "type": "string",

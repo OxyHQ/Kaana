@@ -447,6 +447,24 @@ export const inferenceSpeechParametersSchema = z
   .strict();
 
 /**
+ * Parameters for text-to-image (contract set 8.12.0), preserved in the request.
+ * Each is the caller's own control, forwarded as named: an adapter whose
+ * provider takes none of them refuses the request rather than dropping it.
+ * `n` is how many images; `size`, `quality` and `style` are the provider's own
+ * vocabulary (each size/quality class is its own model reference in the
+ * catalogue, so none of them widens a hold).
+ */
+export const inferenceImageParametersSchema = z
+  .object({
+    n: z.number().int().min(1).max(10).optional(),
+    size: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32)).optional(),
+    quality: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32)).optional(),
+    style: z.string().check(minUtf16Length(1)).check(maxUtf16Length(32)).optional(),
+    responseFormat: z.enum(['url', 'b64_json']).optional(),
+  })
+  .strict();
+
+/**
  * Parameters for a file transcription, preserved in the signed request
  * (contract set 4.5.0). `language` is the caller's statement of what is spoken,
  * in the tag the model's catalogue `audio.languages` declares; absent lets the
@@ -496,6 +514,7 @@ export const requestLabelsSchema = z
     'at most 16 labels may be attached to one request',
   );
 
+export type InferenceImageParameters = z.infer<typeof inferenceImageParametersSchema>;
 export type InferenceSpeechParameters = z.infer<typeof inferenceSpeechParametersSchema>;
 export type InferenceTranscriptionParameters = z.infer<
   typeof inferenceTranscriptionParametersSchema

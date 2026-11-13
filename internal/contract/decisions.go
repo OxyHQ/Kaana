@@ -344,7 +344,7 @@ func ValidateDecisionAnswers(input DecisionInput, answers []DecisionAnswer) erro
 
 // ValidateDecisionsEnvelope also runs in Translate, before any upstream spend.
 func (r *Request) ValidateDecisionsEnvelope() error {
-	if r.Client.APIFormat != APIFormatDecisions || r.Input.Format != InputDecisions || r.Input.Decisions == nil || r.Modality != ModalityText || r.Stream || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || r.Reasoning != nil || r.Speech != nil || r.Transcription != nil || r.AudioOutput != nil || r.Input.Messages != nil || r.Input.Text != nil || r.Input.Texts != nil {
+	if r.Client.APIFormat != APIFormatDecisions || r.Input.Format != InputDecisions || r.Input.Decisions == nil || r.Modality != ModalityText || r.Stream || r.MaxOutputTokens != nil || len(r.Tools) != 0 || r.ToolChoice != nil || r.ResponseFormat != nil || r.Reasoning != nil || r.Speech != nil || r.Image != nil || r.Transcription != nil || r.AudioOutput != nil || r.Input.Messages != nil || r.Input.Text != nil || r.Input.Texts != nil {
 		return fmt.Errorf("contract: decisions require typed nonstreaming text without generation controls")
 	}
 	// A pinned model is served on exactly that revision, and an unpinned one

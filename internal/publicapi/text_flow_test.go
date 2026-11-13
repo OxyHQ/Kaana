@@ -358,8 +358,8 @@ func TestTheCatalogueJoinsTheDeclarationWithWhatIsServed(t *testing.T) {
 	}
 }
 
-// Receipts are Oxy's record, relayed unread; image generation is refused
-// before any grant because nothing can serve it.
+// Receipts are Oxy's record, relayed unread; image generation for a model no
+// deployment can draw is refused before any grant.
 func TestGenerationsAreRelayedAndImagesRefused(t *testing.T) {
 	h := newHarness(t, harnessOptions{})
 	record := h.get("/v1/generations/gen_1", validKey)
@@ -377,7 +377,7 @@ func TestGenerationsAreRelayedAndImagesRefused(t *testing.T) {
 		t.Errorf("images = %+v", failure)
 	}
 	if len(h.oxy.authorizationBodies()) != 3 {
-		t.Errorf("%d authorizations; images must not ask for one", len(h.oxy.authorizationBodies()))
+		t.Errorf("%d authorizations; a model nothing serves for images must not ask for one", len(h.oxy.authorizationBodies()))
 	}
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.15.0
+
+Depend on contracts 8.12.0: the client states contract set 8.12.0, which adds
+the signed envelope's optional `image` member. The SDK adds no method and the
+request shapes it sends are unchanged.
+
 ## 3.14.0
 
 Depend on contracts 8.11.0: the `rerank` grant operation and the

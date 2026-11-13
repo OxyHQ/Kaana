@@ -1,5 +1,15 @@
 # Changelog
 
+## 8.12.0
+
+Text-to-image controls in the signed envelope. Additive: everything 8.11.0
+parses still parses, and the public request and response shapes are unchanged.
+
+- `inferenceRequestSchema` gains the optional `image` member
+  (`inferenceImageParametersSchema`: `n`, `size`, `quality`, `style`,
+  `responseFormat`). It is valid only with the `images_generations` API format,
+  image modality and text input, and a decisions envelope carries none.
+
 ## 8.11.0
 
 The `rerank` operation, contract only. Additive: everything 8.10.0 parses still

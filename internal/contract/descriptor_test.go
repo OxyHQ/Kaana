@@ -90,6 +90,7 @@ var goShapes = map[string]reflect.Type{
 	"decisionFailureSchema":                  reflect.TypeOf(DecisionFailure{}),
 	"inferenceSpeechParametersSchema":        reflect.TypeOf(SpeechParameters{}),
 	"inferenceTranscriptionParametersSchema": reflect.TypeOf(TranscriptionParameters{}),
+	"inferenceImageParametersSchema":         reflect.TypeOf(ImageParameters{}),
 	// contracts 4.4.0 (set 3.2.0): spoken output from a conversational model.
 	"inferenceAudioOutputParametersSchema": reflect.TypeOf(AudioOutputParameters{}),
 	"inferenceStreamAudioEventSchema":      reflect.TypeOf(StreamAudioEvent{}),
@@ -1172,6 +1173,7 @@ var inlineEnumBindings = []enumBinding{
 	bindEnum(serviceAuthorityValues),
 	bindEnum(decisionKindValues),
 	bindEnum(speechFormatValues),
+	bindEnum(imageResponseFormatValues),
 	bindEnum(audioMediaTypeValues),
 	bindEnum(audioOutputFormatValues),
 	bindEnum(imageDetailValues),

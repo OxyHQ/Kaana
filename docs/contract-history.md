@@ -5,6 +5,16 @@
 > in [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md); this file also carries
 > sets 3.8.0 to 7.0.0, which that changelog never recorded, and the longer reasoning behind each set.
 
+## Contract set 8.12.0: image generation controls in the envelope
+
+MINOR, `@kaana.ai/contracts` 8.12.0. Additive; everything 8.11.0 parses still
+parses. The signed envelope gains the optional `image` member
+(`inferenceImageParametersSchema`: `n`, `size`, `quality`, `style`,
+`responseFormat`) so `POST /v1/images/generations` can be executed: without it an
+adapter would receive a prompt and none of the caller's controls. Valid only with
+`images_generations`, image modality and text input. The public request and
+response shapes are unchanged.
+
 ## Contract set 8.11.0: the rerank operation (contract only)
 
 MINOR, `@kaana.ai/contracts` 8.11.0. Additive; everything 8.10.0 parses still
