@@ -5,6 +5,15 @@
 > in [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md); this file also carries
 > sets 3.8.0 to 7.0.0, which that changelog never recorded, and the longer reasoning behind each set.
 
+## Contract set 8.11.0: the rerank operation (contract only)
+
+MINOR, `@kaana.ai/contracts` 8.11.0. Additive; everything 8.10.0 parses still
+parses. `grantOperationSchema` gains `rerank` (appended last: Oxy asserts the list
+member for member) and `rerankRequestSchema` / `rerankResponseSchema` describe
+`POST /v1/rerank`. Nothing in Kaana emits the operation or serves the route; Oxy
+supports it first. No usage unit is added: `requests` and `input_tokens` carry
+it, and the hold is bounded by the grant request's `estimatedInputTokens`.
+
 ## Contract set 8.10.0: price controls in `provider` (ADR 0008)
 
 MINOR, `@kaana.ai/contracts` 8.10.0. Additive; everything 8.9.0 parses still

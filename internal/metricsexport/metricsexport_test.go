@@ -37,11 +37,11 @@ func absent(t *testing.T, output []byte, prefix string) {
 
 func TestProcessLevelGauges(t *testing.T) {
 	output := metricsexport.Render(metricsexport.Input{
-		ContractVersion: "8.10.0",
+		ContractVersion: "8.11.0",
 		Snapshot:        metricsexport.Snapshot{AgeSeconds: 42, MaxAgeSeconds: 3600, ServesUnpinnedReferences: true},
 		Deployments:     []metricsexport.Deployment{{ID: "dep_a", Provider: "p", State: "closed"}},
 	})
-	contains(t, output, `kaana_build_info{contract_version="8.10.0"} 1`)
+	contains(t, output, `kaana_build_info{contract_version="8.11.0"} 1`)
 	contains(t, output, `kaana_inventory_snapshot_age_seconds 42`)
 	contains(t, output, `kaana_inventory_snapshot_max_age_seconds 3600`)
 	contains(t, output, `kaana_inventory_serves_unpinned_references 1`)
@@ -268,7 +268,7 @@ func TestCardinalityIsBoundedByTheClosedSets(t *testing.T) {
 		})
 	}
 	output := metricsexport.Render(metricsexport.Input{
-		ContractVersion: "8.10.0",
+		ContractVersion: "8.11.0",
 		Providers:       []metricsexport.Provider{{Slug: "pa", Status: "ok", Credentials: &metricsexport.KeyPool{Declared: 9, Usable: 4}}},
 		Deployments:     deployments,
 	})
@@ -316,7 +316,7 @@ func TestNothingSensitiveCanBeRendered(t *testing.T) {
 	const secret = "sk-live-0123456789abcdef"
 	const providerError = "upstream said: invalid api key for user 203.0.113.9"
 	output := string(metricsexport.Render(metricsexport.Input{
-		ContractVersion: "8.10.0",
+		ContractVersion: "8.11.0",
 		Providers: []metricsexport.Provider{{
 			Slug: "openai", Status: "unavailable",
 			Credentials: &metricsexport.KeyPool{Declared: 2, Usable: 0},

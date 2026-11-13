@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.10.0';
+export const INFERENCE_CONTRACT_VERSION = '8.11.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -238,6 +238,11 @@ export const INFERENCE_CONTRACT_VERSION = '8.10.0';
  * Both read the declared list price of a model line, in USD per million tokens.
  * Public request members only: the signed grant and envelope are unchanged and
  * no response carries an amount.
+ *
+ * Contract set 8.11.0 is additive and CONTRACT ONLY: the `rerank` grant
+ * operation (`grantOperationSchema`, last member) and the public `POST /v1/rerank`
+ * shapes (`rerankRequestSchema`, `rerankResponseSchema`). Kaana emits no `rerank`
+ * operation and serves no route yet; Oxy supports the operation first.
  */
 
 /** The public API's one origin and version. */

@@ -1,5 +1,19 @@
 # Changelog
 
+## 8.11.0
+
+The `rerank` operation, contract only. Additive: everything 8.10.0 parses still
+parses. Kaana does not serve `POST /v1/rerank` and emits no `rerank` grant
+operation yet; Oxy supports the operation first.
+
+- `grantOperationSchema` gains `rerank`, appended last (Oxy compares the list in
+  order).
+- `rerankRequestSchema`: `model`, `query`, `documents` (1 to 1000 non-empty
+  strings; string documents only), `top_n?`, `return_documents?`, `user?`.
+- `rerankResponseSchema`: `id`, `model`, `results` (`index`, `relevance_score`,
+  optional `document.text`), `usage` (`prompt_tokens`, `total_tokens`). No amount.
+- No new usage unit: `requests` and `input_tokens` suffice.
+
 ## 8.10.0
 
 Price controls in the `provider` routing preference (Kaana ADR 0008). Additive:

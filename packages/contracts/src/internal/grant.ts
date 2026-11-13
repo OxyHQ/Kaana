@@ -94,6 +94,7 @@ export const grantOperationSchema = z.enum([
   'images_generations',
   'decisions',
   'realtime_session',
+  'rerank',
 ]);
 
 /**
