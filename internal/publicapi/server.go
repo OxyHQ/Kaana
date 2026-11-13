@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/OxyHQ/Kaana/internal/emf"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -118,7 +119,10 @@ type Config struct {
 	// value takes DefaultRateLimit.
 	RateLimit RateLimit
 	Logger    *slog.Logger
-	Now       func() time.Time
+	// Metrics receives the public lane's operational metrics (internal/emf); nil
+	// records nothing.
+	Metrics emf.Recorder
+	Now     func() time.Time
 }
 
 // Server serves /v1.
@@ -126,6 +130,7 @@ type Server struct {
 	executor   Executor
 	authorizer Authorizer
 	settler    *Settler
+	metrics    emf.Recorder
 	inventory  *inventory.Store
 	funding    FundingRanker
 	latency    PerformanceReader
@@ -189,7 +194,7 @@ func New(config Config) (*Server, error) {
 	return &Server{
 		executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
 		inventory: config.Inventory, funding: config.Funding, latency: config.Latency, affinity: newAffinityTable(), kinds: config.Kinds, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
-		origins: origins, limiter: newLimiter(rate, now), logger: logger, now: now,
+		origins: origins, limiter: newLimiter(rate, now), logger: logger, metrics: config.Metrics, now: now,
 	}, nil
 }
 
@@ -413,4 +418,20 @@ func (f RegistryFunding) CheapestTier(route provider.Route, ceiling provider.Fun
 type PerformanceReader interface {
 	FirstOutput(contract.DeploymentID) (time.Duration, bool)
 	Throughput(contract.DeploymentID) (float64, bool)
+}
+
+// record sends one observation to the metrics recorder, if there is one.
+func (s *Server) record(metric emf.Metric, value float64, labels emf.Labels) {
+	if s.metrics != nil {
+		s.metrics.Record(metric, value, labels)
+	}
+}
+
+// rateAllowed asks the per-credential limiter and counts a refusal.
+func (s *Server) rateAllowed(digest [32]byte) (time.Duration, bool) {
+	wait, allowed := s.limiter.allow(digest)
+	if !allowed {
+		s.record(emf.RateLimited, 1, nil)
+	}
+	return wait, allowed
 }

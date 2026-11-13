@@ -501,7 +501,7 @@ func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) 
 	if !ok {
 		return nil, contract.NewPublicError(requestID, "authentication_failed", contract.PublicMessage("authentication_failed"))
 	}
-	if wait, allowed := s.limiter.allow(bearer.digest); !allowed {
+	if wait, allowed := s.rateAllowed(bearer.digest); !allowed {
 		return nil, contract.NewPublicError(requestID, "rate_limited", contract.PublicMessage("rate_limited")).WithRetryAfter(int(wait.Milliseconds()) + 1)
 	}
 	return s.authorizer.Catalogue(r.Context(), contract.CatalogueAuthorizationRequest{
@@ -678,7 +678,7 @@ func (s *Server) receipt(w http.ResponseWriter, r *http.Request, requestID contr
 		writeError(w, requestID, contract.NewPublicError(requestID, "authentication_failed", contract.PublicMessage("authentication_failed")))
 		return
 	}
-	if wait, allowed := s.limiter.allow(bearer.digest); !allowed {
+	if wait, allowed := s.rateAllowed(bearer.digest); !allowed {
 		writeError(w, requestID, contract.NewPublicError(requestID, "rate_limited", contract.PublicMessage("rate_limited")).WithRetryAfter(int(wait.Milliseconds())+1))
 		return
 	}

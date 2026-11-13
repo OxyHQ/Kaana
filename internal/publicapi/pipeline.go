@@ -64,7 +64,7 @@ func (s *Server) admit(ctx context.Context, r *http.Request, requestID contract.
 	if !ok {
 		return nil, contract.NewPublicError(requestID, "authentication_failed", contract.PublicMessage("authentication_failed"))
 	}
-	if wait, allowed := s.limiter.allow(bearer.digest); !allowed {
+	if wait, allowed := s.rateAllowed(bearer.digest); !allowed {
 		return nil, contract.NewPublicError(requestID, "rate_limited", contract.PublicMessage("rate_limited")).WithRetryAfter(int(wait.Milliseconds()) + 1)
 	}
 	user, ok := onBehalfOf(r)

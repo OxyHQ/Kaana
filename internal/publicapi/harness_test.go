@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/OxyHQ/Kaana/internal/emf"
 	"io"
 	"log/slog"
 	"net/http"
@@ -617,6 +618,8 @@ type harnessOptions struct {
 	// realtime is the statement the realtime deployment publishes; OpenAI's
 	// when unset.
 	realtime *providerconfig.RealtimeStatement
+	// metrics receives the operational metrics; nil records none.
+	metrics emf.Recorder
 }
 
 type lockedBuffer struct {
@@ -745,7 +748,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	settler, err := publicapi.NewSettler(publicapi.SettlerConfig{
 		Store: settlementStore, Oxy: control, Signer: signer, Logger: logger,
-		Interval: time.Hour,
+		Interval: time.Hour, Metrics: options.metrics,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -753,7 +756,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	api, err := publicapi.New(publicapi.Config{
 		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store,
 		Funding: publicapi.RegistryFunding{Registry: registry}, Audio: options.audio, Catalogue: options.catalogue, Costs: cards,
-		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger,
+		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger, Metrics: options.metrics,
 	})
 	if err != nil {
 		t.Fatal(err)

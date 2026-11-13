@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"github.com/OxyHQ/Kaana/internal/emf"
 	"log/slog"
 	"net/http"
 	"os"
@@ -31,6 +32,7 @@ type publicAPIDependencies struct {
 	inventory *inventory.Store
 	registry  *provider.Registry
 	rotation  *rotation.Registry
+	metrics   emf.Recorder
 	sessions  *realtime.Manager
 	store     *credentialstore.Postgres
 	keys      map[string]ed25519.PublicKey
@@ -109,7 +111,7 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 		return publicAPI{}, err
 	}
 	settler, err := publicapi.NewSettler(publicapi.SettlerConfig{
-		Store: deps.store, Oxy: deps.oxy, Signer: signer, Logger: deps.logger,
+		Store: deps.store, Oxy: deps.oxy, Signer: signer, Logger: deps.logger, Metrics: deps.metrics,
 	})
 	if err != nil {
 		return publicAPI{}, err
@@ -138,7 +140,7 @@ func buildPublicAPI(deps publicAPIDependencies) (publicAPI, error) {
 	server, err := publicapi.New(publicapi.Config{
 		Catalogue: catalogue, Costs: deps.costs,
 		Executor: deps.executor, Authorizer: authorizer, Settler: settler, Inventory: deps.inventory,
-		Funding: publicapi.RegistryFunding{Registry: deps.registry}, Latency: deps.rotation, Kinds: deps.registry, AllowedOrigins: origins,
+		Funding: publicapi.RegistryFunding{Registry: deps.registry}, Latency: deps.rotation, Metrics: deps.metrics, Kinds: deps.registry, AllowedOrigins: origins,
 		RateLimit: rate, Logger: deps.logger,
 	})
 	if err != nil {

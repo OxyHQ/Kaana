@@ -3,6 +3,7 @@ package publicapi
 import (
 	"context"
 	"fmt"
+	"github.com/OxyHQ/Kaana/internal/emf"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -116,6 +117,11 @@ func (s *Server) logTiming(ctx context.Context, trace *requestTrace, started tim
 		slog.Int64("grantMs", trace.grant.Milliseconds()),
 		slog.Int64("executeMs", trace.execute.Milliseconds()),
 		slog.Int64("kaanaMs", max(own, 0).Milliseconds()),
+	}
+	s.record(emf.PublicRequest, float64(total.Milliseconds()), emf.Labels{"Operation": string(trace.operation), "Outcome": trace.outcome})
+	s.record(emf.GrantRoundTrip, float64(trace.grant.Milliseconds()), nil)
+	if summary.ProviderExchanges > 0 {
+		s.record(emf.UpstreamExchange, float64(summary.Provider.Milliseconds()), nil)
 	}
 	s.logger.LogAttrs(context.WithoutCancel(ctx), slog.LevelInfo, "public request timing", append(attrs, summary.Attrs()...)...)
 }
