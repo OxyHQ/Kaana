@@ -32,7 +32,7 @@ func rerankRoute() provider.Route {
 
 // runRerank drives Translate and Stream against a fake upstream answering with
 // the given JSON and returns the body the upstream received.
-func runRerank(t *testing.T, answer string, parameters *contract.RerankParameters) (provider.Outcome, error, []byte) {
+func runRerank(t *testing.T, answer string, parameters *contract.RerankParameters) (provider.Outcome, []byte, error) {
 	t.Helper()
 	var received []byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func runRerank(t *testing.T, answer string, parameters *contract.RerankParameter
 		t.Fatalf("translating: %v", err)
 	}
 	outcome, err := adapter.Stream(context.Background(), call, silentEmitter{}, nil)
-	return outcome, err, received
+	return outcome, received, err
 }
 
 func documents(count int) []string {
@@ -81,7 +81,7 @@ func TestOnlyOpenRouterIsListedForRerank(t *testing.T) {
 
 func TestTheRerankRequestIsTheDocumentedBody(t *testing.T) {
 	topN := 2
-	_, err, received := runRerank(t, `{"results":[{"index":0,"relevance_score":0.5}]}`, &contract.RerankParameters{Documents: []string{"alpha", "beta"}, TopN: &topN, ReturnDocuments: new(bool)})
+	_, received, err := runRerank(t, `{"results":[{"index":0,"relevance_score":0.5}]}`, &contract.RerankParameters{Documents: []string{"alpha", "beta"}, TopN: &topN, ReturnDocuments: new(bool)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestTheRerankRequestIsTheDocumentedBody(t *testing.T) {
 }
 
 func TestRerankWithoutTopNSendsNone(t *testing.T) {
-	_, err, received := runRerank(t, `{"results":[{"index":0,"relevance_score":0.5}]}`, &contract.RerankParameters{Documents: documents(2)})
+	_, received, err := runRerank(t, `{"results":[{"index":0,"relevance_score":0.5}]}`, &contract.RerankParameters{Documents: documents(2)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestRerankTokenReportingVariants(t *testing.T) {
 		"documents echoed as {}": {`{"results":[{"index":0,"relevance_score":1,"document":{"text":"d"}}],"usage":{"prompt_tokens":26}}`, 26},
 	} {
 		t.Run(name, func(t *testing.T) {
-			outcome, err, _ := runRerank(t, tc.answer, &contract.RerankParameters{Documents: documents(2)})
+			outcome, _, err := runRerank(t, tc.answer, &contract.RerankParameters{Documents: documents(2)})
 			if err != nil || outcome.Rerank == nil {
 				t.Fatalf("outcome = %+v, err = %v", outcome, err)
 			}
@@ -155,7 +155,7 @@ func TestRerankTokenReportingVariants(t *testing.T) {
 
 func TestRerankOrdersAndCapsTheProvidersAnswer(t *testing.T) {
 	topN := 2
-	outcome, err, _ := runRerank(t, `{"results":[{"index":2,"relevance_score":0.1},{"index":0,"relevance_score":0.9},{"index":1,"relevance_score":0.5}]}`, &contract.RerankParameters{Documents: documents(3), TopN: &topN})
+	outcome, _, err := runRerank(t, `{"results":[{"index":2,"relevance_score":0.1},{"index":0,"relevance_score":0.9},{"index":1,"relevance_score":0.5}]}`, &contract.RerankParameters{Documents: documents(3), TopN: &topN})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestARerankAnswerOutsideTheRequestIsAProviderError(t *testing.T) {
 		"unreadable":               `not json`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			outcome, err, _ := runRerank(t, answer, &contract.RerankParameters{Documents: documents(2)})
+			outcome, _, err := runRerank(t, answer, &contract.RerankParameters{Documents: documents(2)})
 			var upstream provider.ErrUpstream
 			if !errors.As(err, &upstream) || upstream.Code != contract.CodeProviderError || outcome.Rerank != nil {
 				t.Fatalf("outcome = %+v, err = %v", outcome, err)
@@ -188,7 +188,7 @@ func TestARerankAnswerOutsideTheRequestIsAProviderError(t *testing.T) {
 }
 
 func TestAnEmptyRerankAnswerIsAServerError(t *testing.T) {
-	outcome, err, _ := runRerank(t, `{"results":[],"usage":{"prompt_tokens":5}}`, &contract.RerankParameters{Documents: documents(2)})
+	outcome, _, err := runRerank(t, `{"results":[],"usage":{"prompt_tokens":5}}`, &contract.RerankParameters{Documents: documents(2)})
 	var upstream provider.ErrUpstream
 	if !errors.As(err, &upstream) || upstream.Category != contract.UpstreamServerError || outcome.Rerank != nil {
 		t.Fatalf("outcome = %+v, err = %v", outcome, err)
