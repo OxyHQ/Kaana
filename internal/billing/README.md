@@ -1,6 +1,6 @@
 # Commercial ledger foundation
 
-This package implements the transactional accounting core of [ADR 0010](../../docs/adr/0010-kaana-sells-and-invoices.md). It is **not connected to request admission, the server, a payment processor or invoices**. No currency, account, credit or enrollment is seeded. Merely constructing `Store` does nothing to the database. The existing production economic authority is unchanged by this package.
+This package implements the transactional accounting core of [ADR 0010](../../docs/adr/0010-kaana-sells-and-invoices.md). The optional [commercial admission coordinator](../commercialadmission/README.md) joins its transactions to native admission and settlement. Neither package is connected to the serving process, a payment processor or invoices. No currency, account, credit or enrollment is seeded. Merely constructing `Store` does nothing to the database. The existing production economic authority is unchanged by this package.
 
 ## Identity and roles
 
@@ -44,12 +44,12 @@ The PostgreSQL suite creates a random disposable database per test and uses dedi
 go test -race -count=1 ./internal/billing/...
 ```
 
-It covers concurrent reserve/settle/compensate, stable retries and changed-body conflicts, account/currency isolation, budget/credit caps, precision, rollback after a receipt has been inserted, cancellation while waiting for a lock, bounded expiry, late reports, zero-charge outcomes, price identity and role permissions. The integration command in the main build must include this package when it is adopted; a skipped suite is not a PostgreSQL validation.
+It covers concurrent reserve/settle/compensate, stable retries and changed-body conflicts, account/currency isolation, budget/credit caps, precision, rollback after a receipt has been inserted, cancellation while waiting for a lock, bounded expiry, late reports, zero-charge outcomes, price identity and role permissions. `make test-integration` includes this package and the coordinator; a skipped suite is not a PostgreSQL validation.
 
 Before commercial traffic can use this library, the following work remains:
 
 1. Bind trusted authenticated accounts to an explicit authority/cutover policy, with legacy-key fencing and no double billing. Keep first-party metered enrollment distinct from commercial balances.
-2. Wire native planning/rating, durable completion delivery, reserve-before-execution, settlement retries and the expiry scheduler. Validate that persisted units/price evidence and rated amounts match; expose authenticated receipt reads without widening inference responses with amounts.
+2. Wire the tested coordinator into the serving constructor and recovery scheduler. Its transactional hooks already bind native planning/rating, reserve-before-execution and durable settlement retries, with authenticated native receipt reads. Operational configuration and activation remain absent.
 3. Configure the seller/legal entity, supported currencies, merchant workspace, pricing/discount governance, tax treatment, invoice numbering and applicable retention. None is selected here.
 4. Integrate verified payment/grant events and reconciliation through the approved payment system. Implement cash refunds, disputes, invoice collection and credit notes separately; this package does not send money or issue invoices.
 5. Add operational metrics/alerts for stuck holds, failed rating/settlement, evidence conflicts and reconciliation drift, then run reviewed cutover and reconciliation checks.

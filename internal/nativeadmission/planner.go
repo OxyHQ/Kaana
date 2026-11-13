@@ -44,6 +44,7 @@ type Request struct {
 	RequestedEffort                       *contract.ReasoningEffort
 }
 type Plan struct {
+	EconomicTreatment   EconomicTreatment                                `json:"economicTreatment"`
 	Operation           contract.GrantOperation                          `json:"operation"`
 	SessionMaxDuration  time.Duration                                    `json:"sessionMaxDuration,omitempty"`
 	SessionMaxResponses int                                              `json:"sessionMaxResponses,omitempty"`
@@ -235,7 +236,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			targets = append(targets, contract.LevelTarget(policy.Promotional.FallbackLevel))
 		}
 	}
-	plan := Plan{Operation: request.Operation, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
+	plan := Plan{EconomicTreatment: policy.EconomicTreatment, Operation: request.Operation, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
 	maxQuote := new(big.Rat)
 	seen := map[contract.ModelID]bool{}
 	for _, target := range targets {
@@ -433,7 +434,7 @@ func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy
 		if r.Operation == contract.GrantRealtimeSession {
 			timeout = r.SessionMaxDuration
 		}
-		return Plan{Operation: r.Operation, SessionMaxDuration: r.SessionMaxDuration, SessionMaxResponses: r.SessionMaxResponses, SessionKind: r.Facts.RealtimeSessionKind, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}, nil
+		return Plan{EconomicTreatment: policy.EconomicTreatment, Operation: r.Operation, SessionMaxDuration: r.SessionMaxDuration, SessionMaxResponses: r.SessionMaxResponses, SessionKind: r.Facts.RealtimeSessionKind, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}, nil
 	}
 	return Plan{}, ErrNoRoute
 }
