@@ -1,4 +1,5 @@
 import hashlib
+import json
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -83,6 +84,59 @@ class NativePolicyDeployTests(unittest.TestCase):
         self.assertIn('--task-definition "$family"', deploy)
         for source in [ROOT / "Makefile", ROOT / ".github/workflows/ci.yml"]:
             self.assertIn("native_policy_deploy_guard_test.py", source.read_text())
+
+
+
+class NativeMigrationWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (ROOT / ".github/workflows/deploy-aws.yml").read_text()
+        path = ROOT / "configs/native-admission/alia-kaana-v2.json"
+        self.pair = {GUARD.PATH: "/etc/kaana-native/alia-kaana-v2.json", GUARD.SHA: hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    def test_live_and_candidate_config_drive_only_native_opt_in(self):
+        import shlex
+        import subprocess
+        start = self.workflow.index('          native_configured=false')
+        end = self.workflow.index("          profile=$(jq -ce '.taskProfiles.migrator'", start)
+        fragment = "\n".join(line[10:] for line in self.workflow[start:end].splitlines())
+        for live, candidate, expected in [(task(), task(), "false"), (task(self.pair), task(self.pair), "true"), (task(), task(self.pair), "true"), (task(self.pair), task(), None), (task(), task({GUARD.PATH: self.pair[GUARD.PATH]}), None)]:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as folder:
+                isolated = fragment.replace("/tmp/kaana-migration-", folder + "/kaana-migration-")
+                prefix = "set -euo pipefail\nCLUSTER=fixture\nAPP=kaana\nFAMILY=oxy-kaana\nLIVE=" + shlex.quote(json.dumps(live)) + "\nCANDIDATE=" + shlex.quote(json.dumps(candidate)) + "\n"
+                prefix += r'''aws(){
+ case "$*" in
+  *services\[0\].status*) printf '%s' ACTIVE ;;
+  *services\[0\].taskDefinition*) printf '%s' live ;;
+  *'--task-definition live'*) printf '%s' "$LIVE" ;;
+  *'--task-definition oxy-kaana'*) printf '%s' "$CANDIDATE" ;;
+  *) return 99 ;;
+ esac
+}
+'''
+                result = subprocess.run(["bash", "-c", prefix + isolated + '\nprintf "%s" "$native_configured"'], cwd=ROOT, text=True, capture_output=True)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, expected)
+
+    def test_task_command_and_serving_barrier_are_exact(self):
+        import subprocess
+        start = self.workflow.index('          overrides=$(jq -cn --arg container "$container" --argjson native')
+        end = self.workflow.index('          result=$(aws ecs run-task', start)
+        fragment = "\n".join(line[10:] for line in self.workflow[start:end].splitlines())
+        for configured in ("false", "true"):
+            result = subprocess.run(["bash", "-c", 'set -euo pipefail\ncontainer=migrator\nnative_configured=' + configured + '\n' + fragment + '\nprintf "%s" "$overrides"'], text=True, capture_output=True, check=True)
+            self.assertEqual(json.loads(result.stdout)["containerOverrides"][0]["command"], ["migrate", "--native"] if configured == "true" else ["migrate"])
+        start = self.workflow.index('              if [ "$(jq -r')
+        end = self.workflow.index('\n              fi', start) + len('\n              fi')
+        fragment = "\n".join(line[14:] for line in self.workflow[start:end].splitlines())
+        for configured, ready, refused in [(True, "true", False), (True, "false", True), (True, "", True), (False, "false", False)]:
+            result = subprocess.run(["bash", "-c", 'NATIVE_POLICY=\'' + json.dumps({"configured": configured}) + '\'\nNATIVE_SCHEMA_READY=' + ready + '\ngate(){\n' + fragment + '\n}\ngate'], text=True, capture_output=True)
+            self.assertEqual(result.returncode != 0, refused)
+        self.assertLess(self.workflow.index('if [ "$exit_code" != 0 ]'), self.workflow.index('echo "native_ready=$native_configured"'))
+        self.assertLess(self.workflow.index('native configuration appeared after schema preparation'), self.workflow.index('aws ecs update-service'))
+        self.assertIn('NATIVE_SCHEMA_READY: ${{ steps.schema.outputs.native_ready }}', self.workflow)
 
 
 if __name__ == "__main__":

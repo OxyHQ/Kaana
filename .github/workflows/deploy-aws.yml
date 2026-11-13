@@ -219,6 +219,7 @@ jobs:
       # It still runs while the 0013 gate is open, without deploying, which is how
       # that cutover prepared its schema.
       - name: Apply the candidate's credential schema before serving it
+        id: schema
         if: >-
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true' ||
           github.event_name == 'push' || inputs.mode == 'deploy'
@@ -226,6 +227,23 @@ jobs:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
           set -euo pipefail
+          # Native schema work is opt-in through the reviewed live/candidate
+          # serving configuration. The same migrator role owns both ledgers;
+          # this task never registers policy or imports an authority fence.
+          native_configured=false
+          status=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
+            --query 'services[0].status' --output text)
+          if [ "$status" = ACTIVE ]; then
+            live_definition=$(aws ecs describe-services --cluster "$CLUSTER" --services "$APP" \
+              --query 'services[0].taskDefinition' --output text)
+            aws ecs describe-task-definition --task-definition "$live_definition" \
+              --query taskDefinition > /tmp/kaana-migration-live.json
+            aws ecs describe-task-definition --task-definition "$FAMILY" \
+              --query taskDefinition > /tmp/kaana-migration-candidate.json
+            policy=$(python3 .github/scripts/native-policy-deploy-guard.py \
+              --live /tmp/kaana-migration-live.json --candidate /tmp/kaana-migration-candidate.json)
+            native_configured=$(jq -er 'if .configured == true then "true" elif .configured == false then "false" else error("missing native schema decision") end' <<<"$policy")
+          fi
           profile=$(jq -ce '.taskProfiles.migrator' .github/credential-admin-operations.json)
           family=$(jq -r '.taskDefinitionFamily' <<<"$profile")
           container=$(jq -r '.containerName' <<<"$profile")
@@ -247,8 +265,8 @@ jobs:
           network=$(jq -c --arg security_group "$security_group" \
             '{awsvpcConfiguration:{subnets:.subnetIds,securityGroups:[$security_group],assignPublicIp:"ENABLED"}}' \
             .github/credential-admin-operations.json)
-          overrides=$(jq -cn --arg container "$container" \
-            '{containerOverrides:[{name:$container,command:["migrate"]}]}')
+          overrides=$(jq -cn --arg container "$container" --argjson native "$native_configured" \
+            '{containerOverrides:[{name:$container,command:(["migrate"] + if $native then ["--native"] else [] end)}]}')
           result=$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$task_definition" \
             --count 1 --launch-type FARGATE --network-configuration "$network" \
             --overrides "$overrides" --output json)
@@ -264,6 +282,7 @@ jobs:
             echo "::error::the candidate's migrator exited $exit_code; no service was updated"
             exit 1
           fi
+          echo "native_ready=$native_configured" >> "$GITHUB_OUTPUT"
           echo "credential schema is current for $IMAGE"
 
       - name: Deploy to ECS (skipped until a service exists)
@@ -279,6 +298,7 @@ jobs:
           (github.event_name == 'push' || inputs.mode == 'deploy')
         env:
           IMAGE: ${{ steps.image.outputs.image }}
+          NATIVE_SCHEMA_READY: ${{ steps.schema.outputs.native_ready }}
         run: |
           set -euo pipefail
 
@@ -407,8 +427,12 @@ jobs:
                 --query 'services[0].taskDefinition' --output text)
               aws ecs describe-task-definition --task-definition "$LIVE_NATIVE_TD" \
                 --query taskDefinition > /tmp/kaana-native-live.json
-              python3 .github/scripts/native-policy-deploy-guard.py \
-                --live /tmp/kaana-native-live.json --candidate "/tmp/task-definition-$service.json"
+              NATIVE_POLICY=$(python3 .github/scripts/native-policy-deploy-guard.py \
+                --live /tmp/kaana-native-live.json --candidate "/tmp/task-definition-$service.json")
+              if [ "$(jq -r '.configured' <<<"$NATIVE_POLICY")" = true ] && [ "$NATIVE_SCHEMA_READY" != true ]; then
+                echo "::error::native configuration appeared after schema preparation; no service was updated"
+                return 1
+              fi
             fi
 
             ARN=$(aws ecs register-task-definition --cli-input-json "file:///tmp/task-definition-$service.json" \

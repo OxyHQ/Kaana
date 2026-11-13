@@ -20,7 +20,7 @@ func dailyManifest(t *testing.T, p Policy, admitted int64, day time.Time) ([]byt
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	m.ExportedAt = day.UTC().Format(time.RFC3339Nano)
+	m.ExportedAt = day.UTC().Format(legacyManifestTimeLayout)
 	m.DailyUsage.UTCDay = day.UTC().Format("2006-01-02")
 	m.DailyUsage.Admitted = admitted
 	raw = manifestBytes(t, m)
@@ -183,7 +183,7 @@ func TestPostgresDailyStaleInitialAndHistoricalExactReplay(t *testing.T) {
 	if err := s.RegisterPolicy(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	raw, review := dailyManifest(t, p, 4, time.Now().Add(-24*time.Hour))
+	raw, review := dailyManifest(t, p, 4, time.Now().Add(-24*time.Hour).Truncate(time.Second).Add(123456789*time.Nanosecond))
 	if _, err := s.ImportLegacyFence(ctx, raw, review); err == nil {
 		t.Fatal("stale initial quota accepted")
 	}
@@ -353,5 +353,74 @@ func TestPostgresAdmissionWaitsForLegacyDailyImport(t *testing.T) {
 	var count int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM kaana_admission.admissions`).Scan(&count); err != nil || count != 0 {
 		t.Fatal("over-limit admission persisted", count, err)
+	}
+}
+
+func TestManifestRequiresExactOxyMillisecondTimestamps(t *testing.T) {
+	raw, review := testLegacyManifest(t, policy())
+	var base LegacyManifest
+	if err := json.Unmarshal(raw, &base); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"activatedAt", "exportedAt"} {
+		for _, suffix := range []string{"Z", ".1Z", ".12Z", ".123456Z", ".123456789Z", ".123+00:00"} {
+			t.Run(field+suffix, func(t *testing.T) {
+				changed := clone(base)
+				value := "2026-01-01T00:00:00" + suffix
+				if field == "activatedAt" {
+					changed.ActivatedAt = value
+				} else {
+					changed.ExportedAt = value
+					changed.DailyUsage.UTCDay = "2026-01-01"
+				}
+				data := manifestBytes(t, changed)
+				_ = json.Unmarshal(data, &changed)
+				r := review
+				r.ManifestSHA256 = changed.SHA256
+				r.ActivatedAt = changed.ActivatedAt
+				if _, err := DecodeLegacyManifest(data, r, time.Now()); err == nil {
+					t.Fatal("noncanonical timestamp accepted with valid reviewed hash")
+				}
+			})
+		}
+	}
+	// The actual producer's millisecond precision is accepted, never rounded on
+	// input. Matching the reviewed hash does not waive this wire requirement.
+	base.ActivatedAt = "2026-01-01T00:00:00.123Z"
+	raw = manifestBytes(t, base)
+	_ = json.Unmarshal(raw, &base)
+	review.ManifestSHA256 = base.SHA256
+	review.ActivatedAt = base.ActivatedAt
+	if _, err := DecodeLegacyManifest(raw, review, time.Now()); err != nil {
+		t.Fatal("canonical positive control", err)
+	}
+}
+
+func TestPostgresManifestTimestampPrecision(t *testing.T) {
+	_, pool, ctx := testDatabase(t)
+	// Deterministic reproduction of the CI failure: a textual nanosecond instant
+	// rounds upward in PostgreSQL, unlike the accepted millisecond wire format.
+	for _, tc := range []struct {
+		value   string
+		rounded bool
+	}{
+		{"2026-01-01T00:00:00.123456789Z", true},
+		{"2026-01-01T00:00:00.123Z", false},
+	} {
+		original, err := time.Parse(time.RFC3339Nano, tc.value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var stored time.Time
+		if err = pool.QueryRow(ctx, `SELECT $1::timestamptz`, tc.value).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if tc.rounded {
+			if !stored.After(original) {
+				t.Fatal("expected original rounding reproducer", stored)
+			}
+		} else if !stored.Equal(original) {
+			t.Fatal("canonical epoch changed", stored)
+		}
 	}
 }

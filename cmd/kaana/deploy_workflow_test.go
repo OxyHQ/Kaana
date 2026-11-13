@@ -83,7 +83,9 @@ func TestAWSDeployBuildsOnlyFromMainAndGatesECSDeployment(t *testing.T) {
 		`        if: >-
           vars.KAANA_CREDENTIAL_RUNTIME_SCHEMA_0013_COMPLETE != 'true' ||
           github.event_name == 'push' || inputs.mode == 'deploy'`,
-		`command:["migrate"]`,
+		`command:(["migrate"] + if $native then ["--native"] else [] end)`,
+		`--argjson native "$native_configured"`,
+		`echo "native_ready=$native_configured" >> "$GITHUB_OUTPUT"`,
 		`if [ "$exit_code" != 0 ]; then`,
 		"the candidate's migrator exited $exit_code; no service was updated",
 	} {

@@ -87,7 +87,7 @@ func manifestBytes(t *testing.T, m LegacyManifest) []byte {
 func testLegacyManifest(t *testing.T, p Policy) ([]byte, ImportReview) {
 	t.Helper()
 	now := time.Now().UTC().Add(-time.Second)
-	m := LegacyManifest{SchemaVersion: 2, Authority: "oxy", FenceID: "fence-reviewed", ActivatedAt: "2026-01-01T00:00:00.000Z", ExportedAt: now.Format(time.RFC3339Nano), DailyUsage: LegacyDailyUsage{Scope: "application_environment", UTCDay: now.Format("2006-01-02"), MaxRequestsPerUTCDay: p.MaxPerUTCDay}, Entries: []LegacyEntry{
+	m := LegacyManifest{SchemaVersion: 2, Authority: "oxy", FenceID: "fence-reviewed", ActivatedAt: "2026-01-01T00:00:00.000Z", ExportedAt: now.Format(legacyManifestTimeLayout), DailyUsage: LegacyDailyUsage{Scope: "application_environment", UTCDay: now.Format("2006-01-02"), MaxRequestsPerUTCDay: p.MaxPerUTCDay}, Entries: []LegacyEntry{
 		{CredentialID: p.CredentialIDs[0], KeyKind: "idempotency_key", Key: "caller:<>&:❤️:\u2028", LegacyAdmissionID: "metered:old", RequestID: "req-old", DigestDomain: "unknown"},
 		{CredentialID: p.CredentialIDs[0], KeyKind: "request_id", Key: "req-old", LegacyAdmissionID: "metered:old", RequestID: "req-old", DigestDomain: "unknown"},
 	}}
@@ -221,7 +221,7 @@ func TestPostgresReviewedRosterRefreshCannotDropCoverageOrRollBack(t *testing.T)
 	if err := json.Unmarshal(raw, &refreshed); err != nil {
 		t.Fatal(err)
 	}
-	refreshed.ExportedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	refreshed.ExportedAt = time.Now().UTC().Format(legacyManifestTimeLayout)
 	refreshed.Population.CredentialIDs = append(refreshed.Population.CredentialIDs, "workload-new")
 	newRaw := manifestBytes(t, refreshed)
 	_ = json.Unmarshal(newRaw, &refreshed)
