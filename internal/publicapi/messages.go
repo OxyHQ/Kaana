@@ -76,6 +76,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
 		operation: contract.GrantResponses, target: request.Model.grantTarget(), body: body, endpoint: "/v1/messages",
+		nativeReasoning: reasoning, nativeUnsupported: nativeUnsupportedMessages(messages),
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: request.MaxTokens,
 			InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
 		needs: requestNeeds{parameters: carriedParameters(request.MaxTokens, contract.SamplingParameters{Temperature: request.Temperature, TopP: request.TopP, TopK: request.TopK,

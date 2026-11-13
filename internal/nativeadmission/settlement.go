@@ -33,7 +33,7 @@ func (s *Store) Settle(ctx context.Context, id string, report contract.UsageRepo
 	if err != nil {
 		return err
 	}
-	if report.RequestID != a.RequestID || !sameAttribution(a.Attribution(), report.Attribution) {
+	if report.RequestID != a.RequestID || !sameAttribution(a.Attribution(), report.Attribution) || !sameGeneration(a.GenerationID, report.GenerationID) {
 		return ErrConflict
 	}
 	for _, event := range events {
@@ -87,7 +87,7 @@ func (s *Store) Settle(ctx context.Context, id string, report contract.UsageRepo
 func readAdmission(ctx context.Context, tx pgx.Tx, id string) (*Admission, error) {
 	var a Admission
 	var principal, plan []byte
-	err := tx.QueryRow(ctx, `SELECT id,request_id,principal,delegated_user_id,operation,plan,admitted_at,lease_until FROM kaana_admission.admissions WHERE id=$1 AND authority='kaana' FOR UPDATE`, id).Scan(&a.ID, &a.RequestID, &principal, &a.UserID, &a.Operation, &plan, &a.AdmittedAt, &a.LeaseUntil)
+	err := tx.QueryRow(ctx, `SELECT id,request_id,principal,delegated_user_id,operation,plan,admitted_at,lease_until,generation_id FROM kaana_admission.admissions WHERE id=$1 AND authority='kaana' FOR UPDATE`, id).Scan(&a.ID, &a.RequestID, &principal, &a.UserID, &a.Operation, &plan, &a.AdmittedAt, &a.LeaseUntil, &a.GenerationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

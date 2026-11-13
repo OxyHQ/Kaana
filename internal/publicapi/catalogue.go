@@ -15,6 +15,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 )
 
 // PublicCatalogue is the part of GET /v1/models Kaana does not measure: who
@@ -415,8 +416,12 @@ func (c *PublicCatalogue) PricesUnit(line contract.ModelID, priceVersionID strin
 // (kaana.FoldCacheWrite): true for a model whose line the grant admitted at a
 // price version that prices the unit.
 func (s *Server) cacheWritePriced(grant *contract.Grant) kaana.CacheWritePriced {
+	return s.cacheWritePricedSteps(grant.Steps)
+}
+
+func (s *Server) cacheWritePricedSteps(steps []contract.GrantStep) kaana.CacheWritePriced {
 	admitted := make(map[contract.ModelID]string)
-	for _, step := range grant.Steps {
+	for _, step := range steps {
 		for _, line := range step.Limits.AdmittedModelLines {
 			if existing, seen := admitted[line.ModelLine]; seen && existing != line.PriceVersionID {
 				admitted[line.ModelLine] = ""
@@ -496,7 +501,12 @@ func (c *PublicCatalogue) Audio(model contract.ModelReference) (*AudioCapabiliti
 
 // catalogueAccess asks Oxy what the caller may see (catalogue.read, cached by
 // the authorizer for at most 60 seconds per credential).
-func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) (*contract.CatalogueAccess, *contract.PublicError) {
+type catalogueView struct {
+	Audience      contract.CatalogueAudience
+	AllowedLevels []contract.PowerLevel
+}
+
+func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) (*catalogueView, *contract.PublicError) {
 	bearer, ok := bearerFrom(r)
 	if !ok {
 		return nil, contract.NewPublicError(requestID, "authentication_failed", contract.PublicMessage("authentication_failed"))
@@ -504,10 +514,31 @@ func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) 
 	if wait, allowed := s.rateAllowed(bearer.digest); !allowed {
 		return nil, contract.NewPublicError(requestID, "rate_limited", contract.PublicMessage("rate_limited")).WithRetryAfter(int(wait.Milliseconds()) + 1)
 	}
-	return s.authorizer.Catalogue(r.Context(), contract.CatalogueAuthorizationRequest{
+	if s.native != nil {
+		identity, failure := s.native.Identity.Verify(r.Context(), contract.IdentityRequest{SchemaVersion: 1, Kind: "identity", RequestID: requestID, Audience: "kaana.ai", Credential: bearer.value})
+		if failure != nil {
+			return nil, failure
+		}
+		if identity == nil {
+			return nil, contract.NewPublicError(requestID, "service_unavailable", contract.PublicMessage("service_unavailable"))
+		}
+		for _, policy := range s.native.Policies {
+			if policy.Selects(identity.Principal) {
+				if !policy.Enabled {
+					return nil, contract.NewPublicError(requestID, "policy_violation", contract.PublicMessage("policy_violation"))
+				}
+				return &catalogueView{Audience: policy.Audience, AllowedLevels: policy.AllowedLevels}, nil
+			}
+		}
+	}
+	access, failure := s.authorizer.Catalogue(r.Context(), contract.CatalogueAuthorizationRequest{
 		SchemaVersion: contract.AuthorizationSchemaVersion, Kind: contract.AuthorizationKindCatalogue,
 		Credential: bearer.value, RequestID: requestID,
 	})
+	if failure != nil {
+		return nil, failure
+	}
+	return &catalogueView{Audience: access.Audience, AllowedLevels: access.AllowedLevels}, nil
 }
 
 // served is every line the inventory serves now that the catalogue declares
@@ -682,6 +713,37 @@ func (s *Server) receipt(w http.ResponseWriter, r *http.Request, requestID contr
 		writeError(w, requestID, contract.NewPublicError(requestID, "rate_limited", contract.PublicMessage("rate_limited")).WithRetryAfter(int(wait.Milliseconds())+1))
 		return
 	}
+	if s.native != nil {
+		identity, failure := s.native.Identity.Verify(r.Context(), contract.IdentityRequest{SchemaVersion: 1, Kind: "identity", RequestID: requestID, Audience: "kaana.ai", Credential: bearer.value, OnBehalfOfUserID: request.OnBehalfOfUserID})
+		if failure != nil {
+			writeError(w, requestID, failure)
+			return
+		}
+		if identity == nil {
+			writeError(w, requestID, contract.NewPublicError(requestID, "service_unavailable", contract.PublicMessage("service_unavailable")))
+			return
+		}
+		known, err := s.native.Store.HasNativeGeneration(r.Context(), identity.Principal.CredentialID, request.GenerationID, request.IdempotencyKey)
+		if err != nil {
+			writeError(w, requestID, nativeFailure(requestID, err))
+			return
+		}
+		if known {
+			record, err := s.native.Store.Generation(r.Context(), identity.Principal, request.GenerationID, request.IdempotencyKey, identity.UserID)
+			if err != nil {
+				if errors.Is(err, nativeadmission.ErrNotFound) || errors.Is(err, nativeadmission.ErrNotEnrolled) {
+					writeJSON(w, requestID, http.StatusNotFound, contract.NewPublicError(requestID, "invalid_request", "generation record is not available"))
+				} else {
+					writeError(w, requestID, nativeFailure(requestID, err))
+				}
+				return
+			}
+			writeJSON(w, requestID, http.StatusOK, record)
+			return
+		}
+		// Confirmed absence in Kaana permits only the original authority's historical
+		// receipt read. No authorization, execution, settlement or charge occurs here.
+	}
 	request.SchemaVersion, request.Kind, request.Credential, request.RequestID = contract.AuthorizationSchemaVersion, contract.AuthorizationKindReceipt, bearer.value, requestID
 	record, failure := s.authorizer.Receipt(r.Context(), request)
 	if failure != nil {
@@ -819,7 +881,7 @@ func (s *Server) forwardsCacheMarkers(a *admission) bool {
 	if len(a.plan.routes) == 0 {
 		return false
 	}
-	priced := s.cacheWritePriced(a.grant)
+	priced := s.cacheWritePricedSteps(a.steps())
 	for _, route := range a.plan.routes {
 		if !priced(route.ModelReference) {
 			return false

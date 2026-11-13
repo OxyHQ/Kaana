@@ -88,6 +88,7 @@ type Executor interface {
 
 // Config wires a Server.
 type Config struct {
+	Native     *NativeConfig
 	Executor   Executor
 	Authorizer Authorizer
 	Settler    *Settler
@@ -128,6 +129,7 @@ type Config struct {
 
 // Server serves /v1.
 type Server struct {
+	native     *NativeConfig
 	executor   Executor
 	authorizer Authorizer
 	settler    *Settler
@@ -151,6 +153,11 @@ type Server struct {
 // New builds the server, refusing a configuration that could serve unpaid or
 // unsettled requests.
 func New(config Config) (*Server, error) {
+	if config.Native != nil {
+		if err := config.Native.validate(); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case config.Executor == nil:
 		return nil, errors.New("publicapi: no executor")
@@ -193,7 +200,7 @@ func New(config Config) (*Server, error) {
 		rate = DefaultRateLimit
 	}
 	return &Server{
-		executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
+		native: config.Native, executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
 		inventory: config.Inventory, funding: config.Funding, latency: config.Latency, affinity: newAffinityTable(), kinds: config.Kinds, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
 		origins: origins, limiter: newLimiter(rate, now), logger: logger, metrics: config.Metrics, now: now,
 	}, nil

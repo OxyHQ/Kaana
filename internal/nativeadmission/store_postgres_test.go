@@ -445,3 +445,60 @@ func TestPostgresCompletionSurvivesRestartAndCannotBeRewritten(t *testing.T) {
 		t.Fatalf("native replay crossed economic authority: %d %v", pending, err)
 	}
 }
+
+func TestPostgresNativeGenerationOwnershipPrecedesReadPermission(t *testing.T) {
+	s, pool, ctx := testDatabase(t)
+	p := policy()
+	enableTestPolicy(t, s, pool, ctx, p)
+	key := contract.IdempotencyKey("known-key")
+	a, err := s.Admit(ctx, storeRequest(t, p, "request-native-owned", &key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := contract.GenerationID("gen-native-owned")
+	if err = s.BindGeneration(ctx, a.ID, id); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.BindGeneration(ctx, a.ID, id); err != nil {
+		t.Fatal("same binding must replay")
+	}
+	if err = s.BindGeneration(ctx, a.ID, "gen-changed"); !errors.Is(err, ErrConflict) {
+		t.Fatal("generation binding changed")
+	}
+	for _, lookup := range []contract.GenerationID{id, contract.GenerationID(a.RequestID)} {
+		found, err := s.HasNativeGeneration(ctx, "foreign", &lookup, nil)
+		if err != nil || !found {
+			t.Fatal("pending/foreign native ownership was lost")
+		}
+		if _, err = s.Generation(ctx, a.Principal, &lookup, nil, nil); !errors.Is(err, ErrNotFound) {
+			t.Fatal("pending generation exposed record")
+		}
+	}
+	found, err := s.HasNativeGeneration(ctx, a.Principal.CredentialID, nil, &key)
+	if err != nil || !found {
+		t.Fatal("native key not owned")
+	}
+	missing := contract.GenerationID("legacy-only")
+	if found, err = s.HasNativeGeneration(ctx, "foreign", &missing, nil); err != nil || found {
+		t.Fatal("absent historical ID not distinct")
+	}
+	report := reportFor(a)
+	if err = s.StageCompletion(ctx, a.ID, report, nil); !errors.Is(err, ErrConflict) {
+		t.Fatal("completion dropped bound generation")
+	}
+	report.GenerationID = &id
+	if err = s.StageCompletion(ctx, a.ID, report, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Settle(ctx, a.ID, report, nil); err != nil {
+		t.Fatal(err)
+	}
+	foreign := a.Principal
+	foreign.OwnerAccountID = ptr(contract.AccountID("different"))
+	if _, err = s.Generation(ctx, foreign, &id, nil, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatal("foreign record was readable")
+	}
+	if _, err = s.Generation(ctx, a.Principal, &id, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}

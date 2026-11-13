@@ -50,7 +50,7 @@ func (s *Store) StageCompletion(ctx context.Context, id string, report contract.
 	if err != nil {
 		return err
 	}
-	if report.RequestID != admission.RequestID || !sameAttribution(admission.Attribution(), report.Attribution) {
+	if report.RequestID != admission.RequestID || !sameAttribution(admission.Attribution(), report.Attribution) || !sameGeneration(admission.GenerationID, report.GenerationID) {
 		return ErrConflict
 	}
 	for _, event := range events {

@@ -163,3 +163,28 @@ func TestRealtimeMinuteQualificationAndWholeSessionBound(t *testing.T) {
 		t.Fatal("token-priced realtime admitted without token bound")
 	}
 }
+
+func TestNativePopulationRequiresExactReviewedCredential(t *testing.T) {
+	p := policy()
+	known := principal()
+	if !p.Selects(known) {
+		t.Fatal("reviewed workload omitted")
+	}
+	for _, credential := range []contract.CredentialID{"service-secret-same-application", "new-unreviewed-workload"} {
+		other := known
+		other.CredentialID = credential
+		if p.Selects(other) {
+			t.Fatal("application identity widened credential population")
+		}
+		if _, err := planner(t, p, model("medium")).Plan(other, request()); !errors.Is(err, ErrNotEnrolled) {
+			t.Fatalf("unreviewed credential admitted: %v", err)
+		}
+	}
+	p.Enabled = false
+	if !p.Selects(known) {
+		t.Fatal("disabled population escaped native selection")
+	}
+	if _, err := planner(t, p, model("medium")).Plan(known, request()); !errors.Is(err, ErrNotEnrolled) {
+		t.Fatalf("disabled population executed: %v", err)
+	}
+}

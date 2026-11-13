@@ -322,6 +322,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	estimate := estimatedTokens(request.Input.messages)
 	admitted, failure := s.admit(r.Context(), r, requestID, receivedAt, authorization{
 		operation: contract.GrantResponses, target: request.Model.grantTarget(), body: body, endpoint: "/v1/responses",
+		nativeFormat: request.ResponseFormat.signed(), nativeReasoning: request.Reasoning, nativeUnsupported: nativeUnsupportedMessages(request.Input.messages),
 		labels: request.Labels, clientRequestID: request.ClientRequestID,
 		facts: contract.GrantRequestFacts{EstimatedInputTokens: &estimate, MaxOutputTokens: request.MaxOutputTokens,
 			InputImages: images, DeclaredTools: len(request.Tools), Stream: stream},
@@ -343,8 +344,8 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		FrequencyPenalty: request.FrequencyPenalty, PresencePenalty: request.PresencePenalty, Seed: request.Seed, StopSequences: request.StopSequences}
 	envelope.Tools, envelope.ToolChoice, envelope.ResponseFormat, envelope.Reasoning = request.Tools, request.ToolChoice, request.ResponseFormat.signed(), request.Reasoning
 	policyHeaders := func(header http.Header) {
-		header.Set(HeaderRoutingPolicyID, admitted.grant.RoutingPolicy.RoutingPolicyID)
-		header.Set(HeaderRoutingPolicyVersion, strconv.Itoa(admitted.grant.RoutingPolicy.PolicyVersion))
+		header.Set(HeaderRoutingPolicyID, admitted.routingPolicy().RoutingPolicyID)
+		header.Set(HeaderRoutingPolicyVersion, strconv.Itoa(admitted.routingPolicy().PolicyVersion))
 	}
 	folded := newCollected()
 	folded.keepReasoning = envelope.Reasoning != nil && !envelope.Reasoning.Excluded()
@@ -373,7 +374,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: contract.SchemaVersion, RequestID: requestID, GenerationID: folded.generationID,
 		Model: result.Report.ResolvedModelReference, FinishReason: finishOr(folded.finish),
 		Output: []contract.Message{message}, Usage: nonNilUnits(result.Report.Units),
-		RoutingPolicy: admitted.grant.RoutingPolicy, LatencyMs: int(max(0, s.now().Sub(receivedAt).Milliseconds())),
+		RoutingPolicy: admitted.routingPolicy(), LatencyMs: int(max(0, s.now().Sub(receivedAt).Milliseconds())),
 	})
 }
 
@@ -530,6 +531,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	ask.needs = requestNeeds{inputTokens: estimate, maxOutputTokens: maxTokens, parameters: chatParameters(request, maxTokens), prefs: request.Provider}
 	ask.cacheKey = stringOrEmpty(request.PromptCacheKey)
+	ask.nativeUnsupported = request.Audio != nil || nativeUnsupportedMessages(messages)
+	if request.ResponseFormat != nil {
+		ask.nativeFormat = &contract.ResponseFormat{Type: contract.ResponseFormatType(request.ResponseFormat.Type)}
+	}
+	if request.ReasoningEffort != nil {
+		ask.nativeReasoning = &contract.ReasoningParameters{Effort: request.ReasoningEffort}
+	}
 	if request.User != nil {
 		user := contract.UserID(*request.User)
 		ask.onBehalfOf = &user
@@ -952,7 +960,7 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, requestID, http.StatusOK, decisionSuccess{
 		SchemaVersion: contract.SchemaVersion, RequestID: requestID, Model: result.Decisions.Model,
-		Data: result.Decisions.Data, Usage: nonNilUnits(result.Decisions.Usage.Units), RoutingPolicy: admitted.grant.RoutingPolicy,
+		Data: result.Decisions.Data, Usage: nonNilUnits(result.Decisions.Usage.Units), RoutingPolicy: admitted.routingPolicy(),
 	})
 }
 

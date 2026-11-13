@@ -185,8 +185,12 @@ const maxAffinityEntries = 8192
 // two accounts that happen to send the same string never share a deployment
 // choice. It is a hash: neither the key nor the caller's ids are kept.
 func affinityKey(grant *contract.Grant, cacheKey string) [32]byte {
+	return principalAffinityKey(grant.Principal.BillingAccountID, grant.Principal.CredentialID, cacheKey)
+}
+
+func principalAffinityKey(owner contract.AccountID, credential contract.CredentialID, cacheKey string) [32]byte {
 	hash := sha256.New()
-	for _, part := range []string{string(grant.Principal.BillingAccountID), string(grant.Principal.CredentialID), cacheKey} {
+	for _, part := range []string{string(owner), string(credential), cacheKey} {
 		hash.Write([]byte(part))
 		hash.Write([]byte{0})
 	}
