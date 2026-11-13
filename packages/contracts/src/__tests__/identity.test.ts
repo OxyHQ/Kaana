@@ -22,6 +22,33 @@ const assertion = {
 };
 
 describe('identity is independent of economic authorization', () => {
+  it('requires explicit internal classification and the same bounded identities as Go', () => {
+    const { applicationIsInternal: _flag, ...withoutFlag } = assertion.principal;
+    for (const principal of [
+      withoutFlag,
+      { ...assertion.principal, applicationIsInternal: null },
+      { ...assertion.principal, applicationId: 'a'.repeat(65) },
+      { ...assertion.principal, applicationId: '😀'.repeat(33) },
+    ]) {
+      expect(kaanaIdentityAssertionSchema.safeParse({ ...assertion, principal }).success).toBe(
+        false,
+      );
+    }
+    expect(
+      kaanaIdentityAssertionSchema.safeParse({
+        ...assertion,
+        principal: { ...assertion.principal, applicationId: '😀'.repeat(32) },
+      }).success,
+    ).toBe(true);
+    for (const value of [
+      { ...assertion, requestId: 'a'.repeat(129) },
+      { ...assertion, userId: null },
+      { ...assertion, userId: 'u'.repeat(65) },
+      { ...assertion, issuedAt: '2026-11-13T12:00:00+00:00' },
+    ]) {
+      expect(kaanaIdentityAssertionSchema.safeParse(value).success).toBe(false);
+    }
+  });
   it('carries a live workload without fabricated scopes and external credentials with scopes', () => {
     expect(kaanaIdentityAssertionSchema.safeParse(assertion).success).toBe(true);
     expect(

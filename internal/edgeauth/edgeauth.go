@@ -267,6 +267,11 @@ func GrantSigningInput(keyID string, timestampMillis int64, body []byte) []byte 
 	return signingInput(grantDomainSeparator, keyID, timestampMillis, body)
 }
 
+// IdentitySigningInput separates identity facts from spending authorizations.
+func IdentitySigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(contract.IdentitySignatureDomain, keyID, timestampMillis, body)
+}
+
 // SettlementReadSigningInput is the exact input Oxy signs to read the
 // settlement outbox; body is the raw query string.
 func SettlementReadSigningInput(keyID string, timestampMillis int64, rawQuery []byte) []byte {

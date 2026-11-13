@@ -54,6 +54,36 @@ func TestGrantSignaturesAreTheirOwnPurpose(t *testing.T) {
 	}
 }
 
+func TestIdentityAndGrantSignaturesAreNotInterchangeable(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]ed25519.PublicKey{keyID: public}
+	identities, err := edgeauth.NewIdentityVerifier(keys, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants, err := edgeauth.NewGrantVerifier(keys, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"schemaVersion":1,"kind":"identity"}`)
+	identityHeaders := signWith(edgeauth.IdentitySigningInput, private, body)
+	if err := identities.Verify(identityHeaders, body); err != nil {
+		t.Fatal(err)
+	}
+	if grants.Verify(identityHeaders, body) == nil {
+		t.Fatal("identity signature approved spending")
+	}
+	if identities.Verify(signWith(edgeauth.GrantSigningInput, private, body), body) == nil {
+		t.Fatal("grant signature approved identity")
+	}
+	if identities.Verify(identityHeaders, []byte(`{"schemaVersion":1,"kind":"changed"}`)) == nil {
+		t.Fatal("identity signature accepted other bytes")
+	}
+}
+
 // Kaana signs settlements with its own key, which Oxy verifies under the
 // settlement domain: the public half reproduces the signature and only that
 // domain does.

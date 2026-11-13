@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -69,6 +71,13 @@ func (p *IdentityPrincipal) UnmarshalJSON(data []byte) error {
 	if err := identityDecode(data, &v); err != nil {
 		return err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if value, ok := fields["applicationIsInternal"]; !ok || string(value) == "null" {
+		return errors.New("contract: applicationIsInternal must be stated")
+	}
 	if err := validateAuthorityWire(data, &v.Authority, "scopes"); err != nil {
 		return err
 	}
@@ -77,7 +86,7 @@ func (p *IdentityPrincipal) UnmarshalJSON(data []byte) error {
 }
 
 func (p IdentityPrincipal) Validate() error {
-	if p.OwnerAccountID == "" || p.ApplicationID == "" || p.CredentialID == "" || !isMember(p.Environment, environmentValues) {
+	if !identityID(string(p.OwnerAccountID), 64) || !identityID(string(p.ApplicationID), 64) || !identityID(string(p.CredentialID), 64) || !isMember(p.Environment, environmentValues) {
 		return errors.New("contract: identity principal is incomplete")
 	}
 	if p.Lane != IdentityLaneService && p.Lane != IdentityLaneMachine {
@@ -113,6 +122,13 @@ func DecodeIdentityAssertion(data []byte) (*IdentityAssertion, error) {
 	if err := identityDecode(data, &v); err != nil {
 		return nil, err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if value, ok := fields["userId"]; ok && string(value) == "null" {
+		return nil, errors.New("contract: identity attribution is not nullable")
+	}
 	if err := v.Validate(); err != nil {
 		return nil, err
 	}
@@ -120,16 +136,19 @@ func DecodeIdentityAssertion(data []byte) (*IdentityAssertion, error) {
 }
 
 func (a IdentityAssertion) Validate() error {
-	if a.SchemaVersion != 1 || a.Kind != "identity" || a.Audience != "kaana.ai" || a.RequestID == "" || !ValidSHA256Hex(a.RequestSHA256) {
+	if a.SchemaVersion != 1 || a.Kind != "identity" || a.Audience != "kaana.ai" || !identityID(string(a.RequestID), 128) || !ValidSHA256Hex(a.RequestSHA256) {
 		return errors.New("contract: identity assertion binding is invalid")
 	}
-	issued, err := time.Parse(time.RFC3339Nano, string(a.IssuedAt))
+	issued, err := identityTime(a.IssuedAt)
 	if err != nil {
 		return errors.New("contract: identity issuedAt is invalid")
 	}
-	expires, err := time.Parse(time.RFC3339Nano, string(a.ExpiresAt))
+	expires, err := identityTime(a.ExpiresAt)
 	if err != nil || !expires.After(issued) || expires.Sub(issued) > IdentityValidityWindow {
 		return errors.New("contract: identity validity exceeds 60 seconds")
+	}
+	if a.UserID != nil && !identityID(string(*a.UserID), 64) {
+		return errors.New("contract: identity attribution is invalid")
 	}
 	return a.Principal.Validate()
 }
@@ -144,4 +163,18 @@ func identityDecode(data []byte, v any) error {
 		return errors.New("contract: identity has trailing JSON")
 	}
 	return nil
+}
+
+func identityID(value string, maximum int) bool { return value != "" && utf16Length(value) <= maximum }
+
+var identityTimePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?Z$`)
+
+func identityTime(value Timestamp) (time.Time, error) {
+	if !identityTimePattern.MatchString(string(value)) {
+		return time.Time{}, errors.New("contract: identity timestamp must be UTC")
+	}
+	if strings.Count(string(value), ":") == 1 {
+		return time.Parse("2006-01-02T15:04Z", string(value))
+	}
+	return time.Parse(time.RFC3339Nano, string(value))
 }
