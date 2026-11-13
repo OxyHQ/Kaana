@@ -21,6 +21,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
+	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/openrouterkey"
 	"github.com/OxyHQ/Kaana/internal/provider"
 )
@@ -50,8 +51,9 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		reviewed := flags.Bool("reviewed-0020", false, "restrict to reviewed migration 0020")
 		reviewedUnpin := flags.Bool("reviewed-0021", false, "restrict to reviewed migration 0021")
 		inspectOnly := flags.Bool("inspect-only", false, "read-only migration proof")
-		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 || (*inspectOnly && !*reviewed && !*reviewedUnpin) || (*reviewed && *reviewedUnpin) {
-			return errors.New("usage: kaana-credentials migrate [--reviewed-0020|--reviewed-0021 [--inspect-only]]")
+		native := flags.Bool("native", false, "also apply the configured native admission schema")
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 || (*inspectOnly && !*reviewed && !*reviewedUnpin) || (*reviewed && *reviewedUnpin) || (*native && (*reviewed || *reviewedUnpin || *inspectOnly)) {
+			return errors.New("usage: kaana-credentials migrate [--native | --reviewed-0020|--reviewed-0021 [--inspect-only]]")
 		}
 		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
 		if err != nil {
@@ -72,9 +74,24 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 			}
 			return json.NewEncoder(stdout).Encode(report)
 		}
-		if err := repository.Migrate(ctx); err != nil {
+		if err = applySchemaMigrations(ctx, *native, repository.Migrate, func(ctx context.Context) error {
+			store, closePool, err := nativeadmission.OpenAdministration(ctx, databaseURL, true)
+			if err != nil {
+				return errors.New("native migration role unavailable")
+			}
+			defer closePool()
+			if err = store.Migrate(ctx); err != nil {
+				return errors.New("native admission migration failed")
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
+		if *native {
+			_, err = fmt.Fprintln(stdout, "Kaana credential and native admission schemas are current")
+			return err
+		}
+
 		_, err = fmt.Fprintln(stdout, "Kaana credential schema is current")
 		return err
 
@@ -608,4 +625,17 @@ func readDocument(input io.Reader) ([]byte, error) {
 		return nil, errors.New("no document on stdin")
 	}
 	return document, nil
+}
+
+// Native schema migration is opt-in and runs only after credential migrations
+// succeed. The native callback opens the same reviewed DSN as kaana_migrator;
+// neither callback has a registration or fence-import operation.
+func applySchemaMigrations(ctx context.Context, native bool, credentials func(context.Context) error, admission func(context.Context) error) error {
+	if err := credentials(ctx); err != nil {
+		return err
+	}
+	if native {
+		return admission(ctx)
+	}
+	return nil
 }

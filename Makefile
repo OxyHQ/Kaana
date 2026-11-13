@@ -95,7 +95,7 @@ test-integration:
 ifndef KAANA_POSTGRES_TEST_URL
 	$(error KAANA_POSTGRES_TEST_URL is unset; these suites would skip and report green. See docs/operating.md)
 endif
-	go test -race -count=1 ./internal/credentialstore/... ./internal/nativeadmission/... ./internal/billing/... ./internal/commercialadmission/... ./cmd/kaana-native/...
+	go test -race -count=1 ./internal/credentialstore/... ./internal/nativeadmission/... ./internal/billing/... ./internal/commercialadmission/... ./cmd/kaana-native/... ./cmd/kaana-credentials/...
 
 ## contract: the full contract-drift gate.
 contract: contract-lint contract-package contract-generate contract-types contract-validate

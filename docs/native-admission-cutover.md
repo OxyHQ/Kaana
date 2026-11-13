@@ -136,7 +136,18 @@ provider-cost function ownership. Missing roles are evidence for provisioning,
 not permission to create them from the serving process. Keep connection strings
 and private roster artifacts out of logs.
 
-Run the candidate's `kaana-native migrate` as the migration operator. Run
+Run the candidate's `kaana-native migrate` as the migration operator for the
+initial bootstrap, after the reviewed roles exist. Subsequent normal deployments
+inspect both the live and candidate native configuration before schema preparation.
+If either requires native support, the existing credential-migrator task runs
+`kaana-credentials migrate --native`: credential migrations first, then native
+migrations under `kaana_migrator`, using the existing protected migration DSN.
+Without native configuration it still runs only `kaana-credentials migrate`.
+A migration failure prevents serving updates. Configuration appearing after the
+schema step also prevents the update, rather than serving against an unprepared
+schema. This task never registers a policy, imports a fence or enables enrollment.
+
+Run
 `kaana-native register --policy-file PATH --policy-file-sha256 HASH --policy-id ID
 --policy-version VERSION --policy-sha256 DIGEST` as the enrollment operator.
 Registration alone leaves the enrollment disabled. All these commands use the
@@ -179,10 +190,22 @@ bounded status/digests, not database errors or credentials.
    become authorized; historical aliases remain fenced even for retired handles.
    Keep the artifact in a
    private location. `kaana-native validate` accepts the same review flags as
-   import and reads the manifest on stdin; it performs no database operation.
+   import and reads the manifest on stdin or from `--manifest-file PATH`; it
+   performs no database operation. For ECS, download the independently reviewed
+   private S3 object into a shared ephemeral volume with a separately reviewed
+   sidecar. Grant only that exact object's read permission, require encrypted
+   storage, pin the downloader image, and require its successful exit before the
+   native container starts. The downloader must set file ownership to the native
+   container's UID 65532 and mode 0600; mount the volume read-only in that container.
+   Never put the artifact, credentials or a presigned URL in argv or overrides.
+   Test this exact delivery path with a synthetic fixture and `validate` in the
+   candidate image before fencing, then validate the actual export before import.
+   The CLI rejects nonregular, symlinked, nonprivate or larger-than-64-MiB files
+   before opening the database. The reviewed canonical manifest hash is supplied
+   independently; downloading an artifact or calculating its hash is not approval.
 7. Run `kaana-native import` with the registration flags plus
    `--manifest-sha256 HASH --fence-id ID --activated-at EXACT_TIMESTAMP`, with the
-   manifest on stdin. One transaction verifies and inserts every permanent old
+   manifest on stdin or the same reviewed `--manifest-file PATH`. One transaction verifies and inserts every permanent old
    key/request alias, carries the legacy daily consumption, records immutable
    import evidence, and activates the exact
    policy pointer. Any mismatch or write failure rolls back the whole operation.
