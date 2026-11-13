@@ -75,11 +75,11 @@ func TestWriteWireFixtures(t *testing.T) {
 	// controls (reasoning on a user message, an effort beside a budget, an empty
 	// reasoning part, a zero budget). Contract set 8.12.0 adds 1 fixture (image
 	// parameters) and 1 control (image parameters on a text request).
-	if len(valid) != 120 {
-		t.Fatalf("expected 120 valid fixtures, built %d; update the floor deliberately", len(valid))
+	if len(valid) != 121 {
+		t.Fatalf("expected 121 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 52 {
-		t.Fatalf("expected 52 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 53 {
+		t.Fatalf("expected 53 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 	}
 
 	root := fixtureOutputRoot(t)
@@ -318,6 +318,18 @@ func validFixtures(t *testing.T) []fixture {
 		t.Fatalf("invalid image fixture: %v", err)
 	}
 
+	// Contract set 8.15.0: a rerank request with its documents and controls.
+	rerankRequest := textTarget
+	rerankRequest.Stream = false
+	rerankRequest.Modality = ModalityText
+	rerankRequest.ToolChoice = nil
+	rerankRequest.Client.APIFormat = APIFormatRerank
+	rerankRequest.Input = Input{Format: InputText, Text: pointerTo("which is about foxes")}
+	rerankRequest.Rerank = &RerankParameters{Documents: []string{"a fox", "a dog"}, TopN: pointerTo(1), ReturnDocuments: pointerTo(true)}
+	if err := rerankRequest.Validate(); err != nil {
+		t.Fatalf("invalid rerank fixture: %v", err)
+	}
+
 	batch := textTarget
 	batch.Input = Input{Format: InputTextBatch, Texts: []string{"a", "b"}}
 
@@ -399,6 +411,7 @@ func validFixtures(t *testing.T) []fixture {
 		{Schema: "inferenceRequestSchema", Case: "speech-with-parameters", Value: speech},
 		{Schema: "inferenceRequestSchema", Case: "speech-streamed", Value: streamedSpeech},
 		{Schema: "inferenceRequestSchema", Case: "image-with-parameters", Value: imageRequest},
+		{Schema: "inferenceRequestSchema", Case: "rerank-with-documents", Value: rerankRequest},
 		{Schema: "normalizedUsageReportSchema", Case: "completed", Value: usageReport},
 		{Schema: "normalizedUsageReportSchema", Case: "failed-with-nothing-measured", Value: failedReport},
 		{Schema: "inferenceErrorSchema", Case: "retryable-with-upstream", Value: failure},
@@ -640,7 +653,13 @@ func invalidFixtures() []fixture {
 	imageOnText := validAuthorizedRouteRequest()
 	imageOnText.Image = &ImageParameters{N: pointerTo(1)}
 
+	// A rerank API format that carries no documents.
+	rerankWithoutDocuments := validAuthorizedRouteRequest()
+	rerankWithoutDocuments.Client.APIFormat = APIFormatRerank
+	rerankWithoutDocuments.Input = Input{Format: InputText, Text: pointerTo("a query")}
+
 	return []fixture{
+		{Schema: "inferenceRequestSchema", Case: "rerank-without-documents", Value: rerankWithoutDocuments},
 		{Schema: "inferenceRequestSchema", Case: "image-parameters-on-a-text-request", Value: imageOnText},
 		{Schema: "inferenceRequestSchema", Case: "empty-authorized-routes", Value: emptyAuthorizedRoutes},
 		{Schema: "inferenceRequestSchema", Case: "duplicate-authorized-deployment", Value: duplicateDeployment},

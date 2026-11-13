@@ -199,6 +199,10 @@ type Outcome struct {
 	// an empty list, is an attempt that produced nothing: the executor turns
 	// it into a provider failure rather than serving it (producedNoImage).
 	Image *ImageResult
+	// Rerank is the ranking of a rerank attempt. Nil, or an empty list, is an
+	// attempt that produced nothing: the executor turns it into a provider
+	// failure rather than serving it (producedNoRerank).
+	Rerank *RerankResult
 	// DetectedLanguage is the language a transcription's provider says it
 	// heard (DetectedLanguage reads it); nil when it says none.
 	DetectedLanguage *contract.LanguageTag
@@ -260,6 +264,21 @@ type GeneratedImage struct {
 // ImageResult is the normalized output of a text-to-image attempt.
 type ImageResult struct {
 	Images []GeneratedImage
+}
+
+// RankedDocument is one document's score: Index is its position in the request's
+// documents. The document text never travels here; the caller already holds it.
+type RankedDocument struct {
+	Index          int
+	RelevanceScore float64
+}
+
+// RerankResult is the normalized output of a rerank attempt: the ranking, most
+// relevant first, and the input tokens the provider reported (zero when it
+// reported none).
+type RerankResult struct {
+	Results     []RankedDocument
+	InputTokens int
 }
 
 // HealthStatus is the coarse state of an adapter's upstream.

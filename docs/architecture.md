@@ -96,8 +96,8 @@ absent, and the code refuses rather than pretending.
 - **A threshold-based `approaching_limit` quota state.** It would need a
   threshold nobody has chosen, and nothing in this build would act on it: a key
   is usable or it is not.
-- **Modalities other than text, embeddings, speech, transcription and image
-  generation.** Embeddings are served only where the capability table
+- **Modalities other than text, embeddings, speech, transcription, image
+  generation and rerank.** Embeddings are served only where the capability table
   (`providerconfig.ExecutableAPIFormats`) lists an embeddings endpoint: today
   the OpenAI-compatible adapter's `POST {base}/embeddings` for `siliconflow`
   and `openrouter`, non-streaming, text or text-batch input, at a fixed 1024
@@ -105,8 +105,12 @@ absent, and the code refuses rather than pretending.
   (`POST /v1/audio/speech`, `POST /v1/audio/transcriptions`; see
   [openai-audio](openai-audio.md)) and image generation is
   `POST /v1/images/generations`, served by the OpenAI-compatible adapter where the
-  capability table lists it (see [adapters](adapters.md#image-generation-contract-set-8120)). Rerank and any other modality are refused
-  with `unsupported_modality` rather than mistranslated.
+  capability table lists it (see [adapters](adapters.md#image-generation-contract-set-8120)). Rerank is `POST /v1/rerank`, served
+  by the OpenAI-compatible adapter where the capability table lists it
+  (`openrouter` only; see [adapters](adapters.md#rerank-contract-set-8150)) and refused with
+  `unsupported_modality` for a model no deployment can serve, which until the
+  operator declares a rerank model in the catalogue is every model. Any other
+  modality is refused with `unsupported_modality` rather than mistranslated.
 - **A batch API** (asynchronous job submission, a 24-hour window, polling for
   results). Kaana is synchronous and stateless, may not store a prompt or a
   completion, and Oxy's ledger cannot hold a reservation that long; `batches`

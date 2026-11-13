@@ -352,6 +352,13 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.Client.APIFormat == contract.APIFormatRerank || request.Rerank != nil {
+		// Rerank is an ordinary grant on https://kaana.ai/v1/rerank; the signed
+		// envelope lane has no response shape for a ranking.
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(requestID, contract.CodeInvalidRequest, "rerank is served on https://kaana.ai/v1/rerank").WithParam("client.apiFormat"))
+		return
+	}
+
 	if request.Modality == contract.ModalityEmbedding {
 		startedAt := time.Now()
 		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })

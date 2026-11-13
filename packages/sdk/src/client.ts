@@ -28,9 +28,13 @@ import {
   modelSchema,
   type PowerLevelEntry,
   powerLevelListSchema,
+  type RerankRequest,
+  type RerankResponse,
   type Response,
   type ResponseStreamEvent,
   type ResponsesRequest,
+  rerankRequestSchema,
+  rerankResponseSchema,
   responseSchema,
   responsesRequestSchema,
   type SpeechRequest,
@@ -119,6 +123,9 @@ export class Kaana {
   };
   readonly images: {
     generate(request: ImageGenerationsRequest, options?: RequestOptions): Promise<ImageGenerations>;
+  };
+  readonly rerank: {
+    create(request: RerankRequest, options?: RequestOptions): Promise<RerankResponse>;
   };
   readonly decisions: {
     create(request: DecisionRequest, options?: RequestOptions): Promise<DecisionSuccess>;
@@ -234,6 +241,10 @@ export class Kaana {
           imageGenerationsSchema,
           options,
         ),
+    };
+    this.rerank = {
+      create: async (request, options) =>
+        post('/rerank', body(request, rerankRequestSchema), rerankResponseSchema, options),
     };
     this.decisions = {
       create: async (request, options) => {

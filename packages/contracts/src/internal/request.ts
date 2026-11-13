@@ -14,6 +14,7 @@ import {
   inferenceMessageSchema,
   inferenceReasoningSchema,
   inferenceImageParametersSchema,
+  inferenceRerankParametersSchema,
   inferenceSpeechParametersSchema,
   inferenceTranscriptionParametersSchema,
   responseFormatSchema,
@@ -111,6 +112,8 @@ const inferenceRequestObjectSchema = z.object({
   speech: inferenceSpeechParametersSchema.optional(),
   /** Text-to-image controls. Contract set 8.12.0. */
   image: inferenceImageParametersSchema.optional(),
+  /** The documents and controls of a rerank request. Contract set 8.15.0. */
+  rerank: inferenceRerankParametersSchema.optional(),
   /** File transcription parameters. Contract set 4.5.0. */
   transcription: inferenceTranscriptionParametersSchema.optional(),
   /** Spoken output from a conversational model. Contract set 3.2.0. */
@@ -193,6 +196,7 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
       request.reasoning !== undefined ||
       request.speech !== undefined ||
       request.image !== undefined ||
+      request.rerank !== undefined ||
       request.transcription !== undefined ||
       request.audioOutput !== undefined
     ) {
@@ -236,6 +240,22 @@ export const inferenceRequestSchema = inferenceRequestObjectSchema.superRefine((
       path: ['image'],
       message:
         'image parameters require the images_generations API format with image modality and text input',
+    });
+  }
+  if (
+    (request.rerank !== undefined || request.client.apiFormat === 'rerank') &&
+    (request.rerank === undefined ||
+      request.client.apiFormat !== 'rerank' ||
+      request.modality !== 'text' ||
+      request.input.format !== 'text' ||
+      request.input.text.length === 0 ||
+      request.stream)
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['rerank'],
+      message:
+        'a rerank request needs the rerank API format, text modality, a non-empty text query, no streaming and rerank parameters',
     });
   }
   if (

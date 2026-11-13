@@ -1648,3 +1648,25 @@ func TestModelsCarriesProviderObservedMetadata(t *testing.T) {
 		t.Errorf("the catalogue entry is\n%s\nwant\n%s", body.Models[0], want)
 	}
 }
+
+// Rerank is an ordinary grant on https://kaana.ai/v1/rerank: the signed
+// envelope lane has no response shape for a ranking and refuses it whole,
+// before any adapter is reached.
+func TestTheSignedLaneRefusesRerank(t *testing.T) {
+	harness := newHarness(t, &stubAdapter{chunks: 2})
+	body := envelope(t, func(body map[string]any) {
+		client := body["client"].(map[string]any)
+		client["apiFormat"] = "rerank"
+		body["modality"] = "text"
+		body["input"] = map[string]any{"format": "text", "text": "q"}
+		body["rerank"] = map[string]any{"documents": []string{"a"}}
+	})
+	response := harness.post(t, context.Background(), body, true)
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a rerank envelope was answered %d", response.StatusCode)
+	}
+	if _, _, calls := harness.adapter.snapshot(); calls != 0 {
+		t.Errorf("a rerank envelope reached the adapter %d times", calls)
+	}
+}

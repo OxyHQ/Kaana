@@ -379,6 +379,12 @@ describe('the other endpoints', () => {
     expect(embeddings.data[0].embedding).toEqual([0.1, 0.2]);
     const images = await kaana.images.generate({ model: 'openai/gpt-image-1', prompt: 'A fox' });
     expect(images.data.length).toBe(1);
+    const ranking = await kaana.rerank.create({
+      model: 'cohere/rerank-v3.5',
+      query: 'fox',
+      documents: ['dog', 'fox'],
+    });
+    expect(ranking.results[0].index).toBe(1);
     const decision = await kaana.decisions.create({
       model: MODEL,
       state: 'A post about cats.',

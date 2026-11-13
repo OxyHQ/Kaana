@@ -794,6 +794,14 @@ names Qwen, Apache-2.0 and output dimensions from 32 to 4096, and OpenRouter
 lists three zero-retention endpoints for it (Nebius, DeepInfra, SiliconFlow).
 Every other embedding row is dropped as unattributed.
 
+**Rerank.** OpenRouter documents `POST /api/v1/rerank` (`model`, `query`, `documents`,
+`top_n`; results with an index and a relevance score).[^openrouter-rerank] `openrouter` lists
+`rerank` in the capability table and no other slug does: their endpoints are unreviewed. The
+request carries the same fixed `provider` policy; no OpenRouter rerank model is attributed or
+priced, and the response's usage fields are tolerated in the variants providers use rather
+than confirmed (OpenRouter's reference does not show them). Not verified against a live key,
+including whether the `provider` object is accepted on this endpoint.
+
 Not verified by a request, for the reason `openai-audio.md` gives for
 `modalities`: whether `require_parameters: true` counts `dimensions`. It is not
 in OpenRouter's "LLM parameters" list, and every zero-retention endpoint of the
@@ -905,6 +913,7 @@ green:
 [^openrouter-zdr]: [OpenRouter zero-data-retention endpoint list](https://openrouter.ai/api/v1/endpoints/zdr); per model: `https://openrouter.ai/api/v1/models/{id}/endpoints`
 [^openrouter-errors]: [OpenRouter API errors](https://openrouter.ai/docs/api-reference/errors)
 [^openrouter-routing]: [OpenRouter provider selection: `require_parameters`, `zdr`](https://openrouter.ai/docs/guides/routing/provider-selection)
+[^openrouter-rerank]: [OpenRouter TypeScript SDK, rerank](https://openrouter.ai/docs/client-sdks/typescript/sdks/rerank/README.md)
 [^openrouter-embeddings]: [OpenRouter create embeddings](https://openrouter.ai/docs/api/api-reference/embeddings/create-embeddings); [embeddings guide](https://openrouter.ai/docs/api/reference/embeddings)
 [^groq-systems]: [Groq Compound systems](https://console.groq.com/docs/compound/systems)
 [^groq-speech]: [Groq Orpheus text-to-speech](https://console.groq.com/docs/text-to-speech/orpheus)

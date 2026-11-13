@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { MAX_RERANK_DOCUMENTS, rerankRequestSchema, rerankResponseSchema } from '../index.js';
-import { grantOperationSchema } from '../internal.js';
+import { grantOperationSchema, inferenceRequestSchema } from '../internal.js';
 
 const valid = { model: 'cohere/rerank-v3', query: 'q', documents: ['a', 'b'] };
 const ok = (value: unknown) => rerankRequestSchema.safeParse(value).success;
@@ -52,5 +52,50 @@ describe('POST /v1/rerank response', () => {
       false,
     );
     expect(parses({ ...response, cost: { amount: '1' } })).toBe(false);
+  });
+});
+
+describe('the signed envelope of a rerank request', () => {
+  const envelope = {
+    schemaVersion: 2 as const,
+    attribution: {
+      principal: {
+        billing: { accountId: 'acc_1' },
+        applicationId: 'app_1',
+        credentialId: 'cred_1',
+        environment: 'production' as const,
+        inferenceScopes: ['inference:invoke'],
+      },
+      requestId: 'req_1',
+    },
+    target: { kind: 'model' as const, modelReference: 'cohere/rerank-v3.5' },
+    modality: 'text' as const,
+    input: { format: 'text' as const, text: 'which is about foxes' },
+    stream: false,
+    sampling: {},
+    tools: [],
+    rerank: { documents: ['a fox', 'a dog'], topN: 1, returnDocuments: true },
+    client: {
+      apiFormat: 'rerank' as const,
+      endpoint: '/v1/rerank',
+      receivedAt: '2026-08-15T09:41:00.000Z',
+    },
+    routingPolicy: { routingPolicyId: 'rp_1', policyVersion: 3 },
+  };
+  const accepts = (value: unknown) => inferenceRequestSchema.safeParse(value).success;
+
+  it('needs its documents, and only a rerank request has them', () => {
+    expect(accepts(envelope)).toBe(true);
+    const { rerank: _rerank, ...withoutMember } = envelope;
+    expect(accepts(withoutMember)).toBe(false);
+    expect(accepts({ ...envelope, client: { ...envelope.client, apiFormat: 'embeddings' } })).toBe(
+      false,
+    );
+    expect(accepts({ ...envelope, stream: true })).toBe(false);
+    expect(accepts({ ...envelope, input: { format: 'text', text: '' } })).toBe(false);
+    expect(accepts({ ...envelope, rerank: { documents: [] } })).toBe(false);
+    expect(accepts({ ...envelope, rerank: { documents: [''] } })).toBe(false);
+    expect(accepts({ ...envelope, rerank: { documents: ['a'], topN: 0 } })).toBe(false);
+    expect(accepts({ ...envelope, rerank: { documents: ['a'], extra: 1 } })).toBe(false);
   });
 });

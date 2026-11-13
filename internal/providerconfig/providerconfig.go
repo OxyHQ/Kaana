@@ -264,7 +264,10 @@ func ExecutableAPIFormats(slug contract.ProviderSlug, protocol string) []contrac
 			// request fields are unreviewed, so none of them lists it.
 			formats = append(formats, contract.APIFormatImagesGenerations)
 		case "openrouter":
-			formats = append(formats, contract.APIFormatEmbeddings, contract.APIFormatDecisions)
+			// OpenRouter documents `POST /api/v1/rerank` (model, query,
+			// documents, top_n; scored results by index). The other slugs'
+			// rerank endpoints and fields are unreviewed, so none lists it.
+			formats = append(formats, contract.APIFormatEmbeddings, contract.APIFormatDecisions, contract.APIFormatRerank)
 		case "siliconflow":
 			formats = append(formats, contract.APIFormatEmbeddings)
 		case "xai":

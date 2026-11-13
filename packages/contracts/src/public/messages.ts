@@ -465,6 +465,22 @@ export const inferenceImageParametersSchema = z
   .strict();
 
 /**
+ * The documents and controls of a rerank request (contract set 8.15.0), carried
+ * in the signed envelope beside the query (the envelope's text input). Strings
+ * only, as on the public request. Customer data: never logged or persisted.
+ */
+export const inferenceRerankParametersSchema = z
+  .object({
+    documents: z
+      .array(z.string().check(minUtf16Length(1)))
+      .min(1)
+      .max(1000),
+    topN: z.number().int().min(1).optional(),
+    returnDocuments: z.boolean().optional(),
+  })
+  .strict();
+
+/**
  * Parameters for a file transcription, preserved in the signed request
  * (contract set 4.5.0). `language` is the caller's statement of what is spoken,
  * in the tag the model's catalogue `audio.languages` declares; absent lets the
@@ -514,6 +530,7 @@ export const requestLabelsSchema = z
     'at most 16 labels may be attached to one request',
   );
 
+export type InferenceRerankParameters = z.infer<typeof inferenceRerankParametersSchema>;
 export type InferenceImageParameters = z.infer<typeof inferenceImageParametersSchema>;
 export type InferenceSpeechParameters = z.infer<typeof inferenceSpeechParametersSchema>;
 export type InferenceTranscriptionParameters = z.infer<

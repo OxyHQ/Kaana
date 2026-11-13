@@ -19,20 +19,34 @@ Every contract set, newest first, with the reasoning behind it, is in
 [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md). Add the new set to both
 when the version moves ([version.ts](../packages/contracts/src/public/version.ts) holds the rule).
 
-## Rerank: contract only, not yet served
+## Rerank: served, inert until a catalogue entry
 
-`POST /v1/rerank` is declared in contract set 8.11.0 and is **not yet served**:
-Kaana has no route, no adapter and no catalogue entry for it, still refuses rerank
-([architecture](architecture.md)), and emits no `rerank` grant operation (the
-operation is the last member of `grantOperationSchema`). Oxy supports it first.
+`POST /v1/rerank` is declared in contract set 8.11.0 and served from contract set
+8.15.0. Oxy supports the `rerank` grant operation (OxyHQ/oxy#2260). Kaana serves
+it for a model some deployment can rerank (`openrouter` is the one slug the capability table lists)
+and refuses any other model with `unsupported_modality`, param `model`, **before
+any grant is requested**. No rerank model is in `configs/public-catalogue.json`,
+so Oxy admits no rerank line and nothing is served until an operator declares
+one with a price from primary evidence. It has not been exercised against a live provider.
 
 - Request (`rerankRequestSchema`, strict): `model` (`publisher/model[@revision]`),
   `query` (non-empty), `documents` (1 to 1000 non-empty strings; strings only in
   v1), optional `top_n` (integer, at least 1), `return_documents` and `user`.
 - Response (`rerankResponseSchema`, strict): `id`, `model`, `results` (`index`,
   `relevance_score`, optional `document: { text }`; most relevant first) and
-  `usage` (`prompt_tokens`, `total_tokens`). It carries no amount.
-- No usage unit is added. The grant's `estimatedInputTokens` carries the hold.
+  `usage` (`prompt_tokens`, `total_tokens`). It carries no amount. The text of a
+  returned document is copied from the request by index, never from the provider.
+- The grant's operation is `rerank` with `endpoint` `/v1/rerank` and the fact
+  `estimatedInputTokens`: a quarter of each piece's UTF-16 length plus one, summed over the
+  query and every document (the arithmetic embeddings use). Oxy holds `requests: 1` and
+  `input_tokens` up to it. No usage unit is added: the report carries `requests: 1`
+  and `input_tokens` as the provider reported them; when the provider reports no tokens
+  the report carries `requests` alone with source `estimated`, and the response's
+  `usage` repeats the estimate.
+- The signed envelope (8.15.0) carries the query as its text input and the
+  documents in the optional `rerank` member (`documents`, `topN`, `returnDocuments`),
+  valid only with the `rerank` API format, text modality and no streaming. The signed
+  `/internal/v1/inference` lane refuses it: rerank is a public-API grant only.
 
 ## The contract is not re-invented here
 

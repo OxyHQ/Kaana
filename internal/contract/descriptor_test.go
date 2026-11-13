@@ -94,6 +94,7 @@ var goShapes = map[string]reflect.Type{
 	"inferenceSpeechParametersSchema":        reflect.TypeOf(SpeechParameters{}),
 	"inferenceTranscriptionParametersSchema": reflect.TypeOf(TranscriptionParameters{}),
 	"inferenceImageParametersSchema":         reflect.TypeOf(ImageParameters{}),
+	"inferenceRerankParametersSchema":        reflect.TypeOf(RerankParameters{}),
 	// contracts 4.4.0 (set 3.2.0): spoken output from a conversational model.
 	"inferenceAudioOutputParametersSchema": reflect.TypeOf(AudioOutputParameters{}),
 	"inferenceStreamAudioEventSchema":      reflect.TypeOf(StreamAudioEvent{}),

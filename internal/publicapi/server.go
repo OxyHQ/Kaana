@@ -213,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/audio/speech", s.timed(s.handleSpeech))
 	mux.HandleFunc("POST /v1/audio/transcriptions", s.timed(s.handleTranscriptions))
 	mux.HandleFunc("POST /v1/images/generations", s.timed(s.handleImages))
+	mux.HandleFunc("POST /v1/rerank", s.timed(s.handleRerank))
 	mux.HandleFunc("POST /v1/decisions", s.timed(s.handleDecisions))
 	mux.HandleFunc("GET /v1/generations/{id}", s.handleGeneration)
 	mux.HandleFunc("GET /v1/generations", s.handleGenerationByKey)
@@ -357,10 +358,21 @@ type FormatKinds interface {
 }
 
 // servesImages is whether any deployment of the model reference could
-// generate an image here: some route whose adapter declares images_generations
-// and whose upstream model, where its id names its family, is an image model.
-// It is read before Oxy is asked, so a request nothing can serve holds no money.
+// generate an image here; servesRerank, whether one could rerank. See
+// servesFormat.
 func (s *Server) servesImages(reference contract.ModelReference) bool {
+	return s.servesFormat(reference, contract.APIFormatImagesGenerations)
+}
+
+func (s *Server) servesRerank(reference contract.ModelReference) bool {
+	return s.servesFormat(reference, contract.APIFormatRerank)
+}
+
+// servesFormat is whether any deployment of the model reference could perform a
+// request family here: some route whose adapter declares the format and whose
+// upstream model, where its id names its family, is of that family. It is read
+// before Oxy is asked, so a request nothing can serve holds no money.
+func (s *Server) servesFormat(reference contract.ModelReference, format contract.APIFormat) bool {
 	formats, ok := s.kinds.(FormatKinds)
 	if !ok || s.inventory == nil {
 		return false
@@ -374,10 +386,10 @@ func (s *Server) servesImages(reference contract.ModelReference) bool {
 		return false
 	}
 	for _, route := range set.Candidates() {
-		if executes, _ := formats.ExecutesFormat(route.Provider, contract.APIFormatImagesGenerations); !executes {
+		if executes, _ := formats.ExecutesFormat(route.Provider, format); !executes {
 			continue
 		}
-		if family, classified, _ := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID); classified && family.Format != contract.APIFormatImagesGenerations {
+		if family, classified, _ := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID); classified && family.Format != format {
 			continue
 		}
 		return true

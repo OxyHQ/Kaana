@@ -326,7 +326,7 @@ func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
 	}{
 		{"openai", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatImagesGenerations}},
 		{"siliconflow", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings}},
-		{"openrouter", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatDecisions}},
+		{"openrouter", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatEmbeddings, contract.APIFormatDecisions, contract.APIFormatRerank}},
 		{"xai", providerconfig.ProtocolOpenAICompatible, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions, contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}},
 		{"anthropic", providerconfig.ProtocolAnthropicMessages, []contract.APIFormat{contract.APIFormatResponses, contract.APIFormatChatCompletions}},
 		{"deepgram", providerconfig.ProtocolDeepgramVoice, []contract.APIFormat{contract.APIFormatAudioSpeech, contract.APIFormatAudioTranscriptions}},

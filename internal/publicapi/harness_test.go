@@ -82,6 +82,7 @@ const (
 	judgeModel    = contract.ModelReference("stub/judge@2026-05-01")
 	whisperModel  = contract.ModelReference("stub/whisper@v1")
 	imageModel    = contract.ModelReference("stubimage/draw@v1")
+	rerankModel   = contract.ModelReference("stubrerank/rank@v1")
 	realtimeModel = contract.ModelReference("openai/gpt-realtime-2.1@observed-2026-09-30")
 )
 
@@ -601,6 +602,7 @@ type harness struct {
 	outbox   *memoryOutbox
 	adapter  *stubAdapter
 	image    *imageStubAdapter
+	rerank   *rerankStubAdapter
 	upstream *fake.Upstream
 	server   *httptest.Server
 	api      *publicapi.Server
@@ -664,6 +666,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true,
 			"observed": json.RawMessage(whisperObserved)},
 		{"deploymentId": "dep_image", "provider": "stubimage", "modelReference": imageModel, "upstreamModelId": "stub-image", "current": true},
+		{"deploymentId": "dep_rerank", "provider": "stubrerank", "modelReference": rerankModel, "upstreamModelId": "stub-rerank", "current": true},
 		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true,
 			"observed": realtimeObserved(t, realtimeStatement)},
 	}
@@ -697,20 +700,22 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	adapter := &stubAdapter{pool: pool}
 	imageStub := &imageStubAdapter{pool: pool}
-	registry, err := provider.NewRegistry(adapter, realtimeAdapter, imageStub)
+	rerankStub := &rerankStubAdapter{pool: pool}
+	registry, err := provider.NewRegistry(adapter, realtimeAdapter, imageStub, rerankStub)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.ReplaceGeneration([]provider.CredentialBinding{
 		{DeploymentID: "dep_realtime", Provider: "openai-realtime", KeyID: "key_rt"},
 		{DeploymentID: "dep_image", Provider: "stubimage", KeyID: "key_paid"},
+		{DeploymentID: "dep_rerank", Provider: "stubrerank", KeyID: "key_paid"},
 		{DeploymentID: "dep_stub_a", Provider: "stub", KeyID: "key_paid"},
 		{DeploymentID: "dep_stub_b", Provider: "stub", KeyID: "key_free"},
 		{DeploymentID: "dep_fallback", Provider: "stub", KeyID: "key_free"},
 		{DeploymentID: "dep_speech", Provider: "stub", KeyID: "key_paid"},
 		{DeploymentID: "dep_judge", Provider: "stub", KeyID: "key_paid"},
 		{DeploymentID: "dep_whisper", Provider: "stub", KeyID: "key_paid"},
-	}, adapter, realtimeAdapter, imageStub); err != nil {
+	}, adapter, realtimeAdapter, imageStub, rerankStub); err != nil {
 		t.Fatal(err)
 	}
 	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_public_v1","source":"operator","sourceVersion":"test","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
@@ -782,7 +787,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		_ = manager.Shutdown(ctx)
 		server.Close()
 	})
-	return &harness{t: t, oxy: oxy, outbox: outbox, adapter: adapter, upstream: upstream, server: server, api: api, image: imageStub,
+	return &harness{t: t, oxy: oxy, outbox: outbox, adapter: adapter, upstream: upstream, server: server, api: api, image: imageStub, rerank: rerankStub,
 		settler: settler, manager: manager, logs: logs, signer: signer}
 }
 
