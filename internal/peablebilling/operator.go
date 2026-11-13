@@ -245,6 +245,11 @@ func verifyOperator(ctx context.Context, pool *pgxpool.Pool, role string) error 
  AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='kaana_billing'
  AND (has_function_privilege(current_user,p.oid,'EXECUTE') OR has_function_privilege(session_user,p.oid,'EXECUTE')))
+ AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+ WHERE n.nspname='kaana_peable_billing'
+ AND (has_function_privilege(current_user,p.oid,'EXECUTE') OR has_function_privilege(session_user,p.oid,'EXECUTE'))
+ AND p.oid<>ALL(CASE WHEN $1 THEN ARRAY['kaana_peable_billing.bind_customer(text,text,text)'::regprocedure,'kaana_peable_billing.prepare_draft(text,text,text[],integer)'::regprocedure]::oid[]
+ ELSE ARRAY['kaana_peable_billing.read_draft(text)'::regprocedure,'kaana_peable_billing.claim_step(text,text)'::regprocedure,'kaana_peable_billing.record_step(text,text,text)'::regprocedure]::oid[] END))
  AND has_function_privilege(current_user,'kaana_peable_billing.bind_customer(text,text,text)','EXECUTE')=$1
  AND has_function_privilege(current_user,'kaana_peable_billing.prepare_draft(text,text,text[],integer)','EXECUTE')=$1
  AND has_function_privilege(current_user,'kaana_peable_billing.read_draft(text)','EXECUTE')= (NOT $1)
