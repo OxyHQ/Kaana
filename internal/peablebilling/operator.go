@@ -235,14 +235,15 @@ func verifyOperator(ctx context.Context, pool *pgxpool.Pool, role string) error 
 	} else {
 		err = pool.QueryRow(ctx, `SELECT has_schema_privilege(current_user,'kaana_peable_billing','USAGE')
  AND NOT has_schema_privilege(current_user,'kaana_peable_billing','CREATE')
- AND NOT has_table_privilege(current_user,'kaana_peable_billing.drafts','INSERT,UPDATE,DELETE')
- AND NOT has_table_privilege(session_user,'kaana_peable_billing.drafts','INSERT,UPDATE,DELETE')
  AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='kaana_billing' AND ((c.relname='accounts' AND (has_table_privilege(current_user,c.oid,'UPDATE') OR has_table_privilege(session_user,c.oid,'UPDATE')))
- OR (c.relname='journal' AND (has_table_privilege(current_user,c.oid,'INSERT') OR has_table_privilege(session_user,c.oid,'INSERT')))))
+ WHERE n.nspname IN('kaana_billing','kaana_peable_billing') AND c.relkind IN('r','p','v','m','f')
+ AND (has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+ OR has_table_privilege(session_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')))
  AND NOT has_schema_privilege(current_user,'kaana_billing','CREATE')
+ AND NOT has_schema_privilege(session_user,'kaana_billing','CREATE')
+ AND NOT has_schema_privilege(session_user,'kaana_peable_billing','CREATE')
  AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
- WHERE n.nspname='kaana_billing' AND p.proname IN('fund','refund','configure_account')
+ WHERE n.nspname='kaana_billing'
  AND (has_function_privilege(current_user,p.oid,'EXECUTE') OR has_function_privilege(session_user,p.oid,'EXECUTE')))
  AND has_function_privilege(current_user,'kaana_peable_billing.bind_customer(text,text,text)','EXECUTE')=$1
  AND has_function_privilege(current_user,'kaana_peable_billing.prepare_draft(text,text,text[],integer)','EXECUTE')=$1
