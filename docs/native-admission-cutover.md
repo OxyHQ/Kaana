@@ -78,6 +78,18 @@ route quotes USD 0.007274496000, below USD 0.05. Lower monetary ceilings and an
 insufficient context window still refuse it. These are deterministic price and
 admission checks, not live provider inference or proof of deployment.
 
+### Tariff migration gate
+
+Do not activate the initial population until every currently supported power level
+and voice operation has a verified customer tariff in Kaana. At this checkpoint,
+GPT-OSS 120B, Claude Haiku 4.5 and Claude Sonnet 5 have no `pricing` declaration.
+The legacy public grant also refuses these absent prices, but the old Oxy edge
+uses deployment-scoped database snapshots and can still serve them. Equivalence
+with the grant is therefore insufficient evidence for replacing that live edge.
+Export and review the exact old snapshots for every authorized deployment tuple;
+never fill this gap from provider costs or choose one provider's price for others.
+The current native route tests deliberately preserve the unpriced refusal.
+
 ## Database authority and artifact
 
 The image includes `kaana-native`. Provision `kaana_admission_runtime` and
@@ -93,7 +105,12 @@ Grant the serving login membership in `kaana_admission_runtime`. The server open
 a separate verified-TLS pool and immediately SET ROLEs to that role; no schema or
 enrollment is changed at startup. Validate the actual runtime/admin/migrator
 memberships and successful SET ROLE under the deployed secret bindings before
-activation. Keep connection strings and private roster artifacts out of logs.
+activation. The packaged `kaana-native inspect-access` reads only PostgreSQL
+catalog metadata with a read-only startup setting and transaction; it reports
+actual role existence, membership, SET ROLE authority, schema permissions and
+provider-cost function ownership. Missing roles are evidence for provisioning,
+not permission to create them from the serving process. Keep connection strings
+and private roster artifacts out of logs.
 
 Run the candidate's `kaana-native migrate` as the migration operator. Run
 `kaana-native register --policy-file PATH --policy-file-sha256 HASH --policy-id ID

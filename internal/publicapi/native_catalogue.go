@@ -126,6 +126,18 @@ func nativeFormatServed(formats FormatKinds, route provider.Route, format contra
 	if !known || !executes {
 		return false
 	}
-	family, classified, _ := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID)
-	return !classified || family.Format == format
+	family, classified, expressible := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID)
+	if !classified {
+		return true
+	}
+	if !expressible {
+		return false
+	}
+	// Responses is a public dialect: text adapters translate it to their
+	// upstream chat protocol. Model-family classification names that upstream
+	// family, not the public dialect accepted by Registry.ExecutesFormat above.
+	if format == contract.APIFormatResponses && family.Format == contract.APIFormatChatCompletions && !family.Spoken {
+		return true
+	}
+	return family.Format == format
 }
