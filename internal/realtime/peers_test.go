@@ -116,6 +116,10 @@ func TestPrivatePeerResumeReplaysWithoutOpeningOrSettlingTwice(t *testing.T) {
 	read(t, second)
 	expectClose(t, second, websocket.StatusNormalClosure)
 	waitFor(t, "owner settlement", func() bool { return len(owner.costs.recorded()) == 1 && owner.manager.Open() == 0 })
+	waitFor(t, "owner directory release", func() bool {
+		_, found, err := directory.Lookup(context.Background(), string(id), sessionowner.Internal)
+		return err == nil && !found
+	})
 	if owner.upstream.Dials() != 1 || other.upstream.Dials() != 0 || len(other.costs.recorded()) != 0 {
 		t.Fatal("relay admitted a second execution")
 	}
