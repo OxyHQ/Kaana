@@ -125,3 +125,64 @@ func TestPostgresOperatorMigrationRole(t *testing.T) {
 		t.Fatal("migrator accepted for delivery")
 	}
 }
+
+func TestPostgresOperatorRejectsDestructiveDirectPrivileges(t *testing.T) {
+	f := database(t)
+	cfg, login := operatorLogin(t, f, "kaana_peable_billing_runtime")
+	for _, tc := range []struct{ table, privilege string }{
+		{"kaana_billing.accounts", "DELETE"}, {"kaana_billing.journal", "TRUNCATE"}, {"kaana_billing.receipts", "TRIGGER"}, {"kaana_peable_billing.draft_receipts", "DELETE"},
+	} {
+		t.Run(tc.table+"_"+tc.privilege, func(t *testing.T) {
+			grant := "GRANT " + tc.privilege + " ON " + tc.table + " TO " + pgx.Identifier{login}.Sanitize()
+			revoke := "REVOKE " + tc.privilege + " ON " + tc.table + " FROM " + pgx.Identifier{login}.Sanitize()
+			if _, err := f.ownerDB.Exec(f.ctx, grant); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if _, err := f.ownerDB.Exec(f.ctx, revoke); err != nil {
+					t.Error(err)
+				}
+			}()
+			var actual bool
+			if err := f.ownerDB.QueryRow(f.ctx, `SELECT has_table_privilege($1,$2,$3)`, login, tc.table, tc.privilege).Scan(&actual); err != nil || !actual {
+				t.Fatalf("privilege not actually granted: %v", err)
+			}
+			if _, closePool, err := openOperatorConfig(f.ctx, cfg, "inspect"); err == nil {
+				closePool()
+				t.Fatal("destructive login privilege accepted")
+			}
+			if _, err := f.ownerDB.Exec(f.ctx, revoke); err != nil {
+				t.Fatal(err)
+			}
+			_, closePool, err := openOperatorConfig(f.ctx, cfg, "inspect")
+			if err != nil {
+				t.Fatal("positive restored control", err)
+			}
+			closePool()
+		})
+	}
+}
+
+func TestPostgresOperatorRejectsDirectFinancialFunction(t *testing.T) {
+	f := database(t)
+	cfg, login := operatorLogin(t, f, "kaana_peable_billing_runtime")
+	signature := "kaana_billing.reserve(text,text,text,text,text,text,integer)"
+	grant := "GRANT EXECUTE ON FUNCTION " + signature + " TO " + pgx.Identifier{login}.Sanitize()
+	revoke := "REVOKE EXECUTE ON FUNCTION " + signature + " FROM " + pgx.Identifier{login}.Sanitize()
+	if _, err := f.ownerDB.Exec(f.ctx, grant); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = f.ownerDB.Exec(f.ctx, revoke) }()
+	if _, closePool, err := openOperatorConfig(f.ctx, cfg, "inspect"); err == nil {
+		closePool()
+		t.Fatal("direct reserve authority accepted")
+	}
+	if _, err := f.ownerDB.Exec(f.ctx, revoke); err != nil {
+		t.Fatal(err)
+	}
+	_, closePool, err := openOperatorConfig(f.ctx, cfg, "inspect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closePool()
+}
