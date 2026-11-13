@@ -366,6 +366,15 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		_, err = fmt.Fprintf(stdout, "saved key policy for %s\n", providerSlugValue)
 		return err
 
+	case "purge-retention":
+		return purgeRetentionCommand(ctx, arguments[1:], func() (retentionPurger, func(), error) {
+			repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
+			if err != nil {
+				return nil, nil, err
+			}
+			return repository, repository.Close, nil
+		}, mutationActor, time.Now().UTC(), stdout)
+
 	case "list-key-policies":
 		flags := flag.NewFlagSet("list-key-policies", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -578,7 +587,7 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies|put-credential-metadata|record-capacity-evidence|list-credential-metadata|inspect-openrouter-key>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies|purge-retention|put-credential-metadata|record-capacity-evidence|list-credential-metadata|inspect-openrouter-key>")
 }
 
 // maxDocumentBytes bounds a metadata or evidence document read from stdin.

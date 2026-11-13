@@ -1087,6 +1087,44 @@ continues to serve the DNS workflow, its zone-scoped DNS Edit permission remains
 necessary too. The workflow names that one secret directly; it never enumerates
 the repository secret context.
 
+## Data retention
+
+Three tables grow with traffic and had no policy. This is it, with the tool that enforces it
+(migration `0024`, `kaana-credentials purge-retention`).
+
+| Table | One row per | Kept | Why |
+|---|---|---|---|
+| `provider_cost_events` | upstream attempt | 395 days (13 months) | a financial year plus a month of close, to reconcile provider invoices |
+| `provider_credential_attempt_events` | credential attempt | 395 days | the evidence behind key retirement and withholding; far older than any streak it feeds |
+| `inference_settlement_outbox` | settlement | **delivered** rows 90 days | Oxy settles within minutes and reconciles from the signed read; an **undelivered** row is never purged |
+
+Not purged: the audit tables (`provider_credential_audit`, the operation and policy audits),
+which are low volume and are the evidence; `provider_credentials`; everything small.
+
+How it runs:
+
+- `kaana-credentials purge-retention` is a **dry run** that prints how many rows are eligible.
+  `--apply` deletes, needs `KAANA_CREDENTIAL_ACTOR`, works in batches (`--batch`, default
+  5,000, at most 10,000) and stops after 100 batches per table, so run it again until it reports
+  fewer rows than that.
+- Windows are flags (`--cost-events-days`, `--attempt-events-days`, `--settlements-days`). The
+  **database refuses any cutoff newer than 30 days**, whatever is passed, and only
+  `kaana_credential_admin` may execute the purge functions: not the serving task, not the control
+  tasks.
+- It deletes the oldest rows first and skips rows another transaction holds, so it is safe beside
+  live traffic.
+- **Nothing runs it automatically.** No scheduled job exists and none is added by this change. To
+  run it from the credential-admin workflow or on a schedule needs an operation in
+  `.github/credential-admin-operations.json` (it pins an image digest) and a schedule in
+  oxy-infra; both are deliberate follow-ups.
+- Deletion is irreversible and Kaana keeps no backup beyond the database's own. Run the dry run
+  first, and take a snapshot before the first `--apply`.
+
+This policy is Kaana's technical default. If [ADR 0010](adr/0010-kaana-sells-and-invoices.md)
+makes Kaana the seller of record, tax and accounting law will set longer minimums for whatever
+becomes an invoice or a receipt; revisit it then. The settlement outbox is also what Oxy's
+reconciliation reads, so do not shorten its window without Oxy.
+
 ## Metrics
 
 Kaana publishes operational metrics the way every Oxy backend does
