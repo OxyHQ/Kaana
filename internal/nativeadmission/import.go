@@ -7,12 +7,15 @@ import (
 	"errors"
 	"io"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/jackc/pgx/v5"
 )
+
+// Oxy serializes Date.toISOString(): exact UTC milliseconds. This precision
+// survives PostgreSQL timestamp storage without changing epoch or chronology.
+const legacyManifestTimeLayout = "2006-01-02T15:04:05.000Z"
 
 type LegacyManifest struct {
 	SchemaVersion int    `json:"schemaVersion"`
@@ -130,11 +133,11 @@ func DecodeLegacyManifest(raw []byte, review ImportReview, now time.Time) (Legac
 		return manifest, errors.New("nativeadmission: reviewed population or fence epoch mismatch")
 	}
 	activated, err := time.Parse(time.RFC3339Nano, manifest.ActivatedAt)
-	if err != nil {
-		return manifest, ErrInvalidRequest
+	if err != nil || activated.UTC().Format(legacyManifestTimeLayout) != manifest.ActivatedAt {
+		return manifest, errors.New("nativeadmission: fence timestamp must be canonical UTC milliseconds")
 	}
 	exported, err := time.Parse(time.RFC3339Nano, manifest.ExportedAt)
-	if err != nil || activated.After(exported) || exported.After(now) || !strings.HasSuffix(manifest.ActivatedAt, "Z") || !strings.HasSuffix(manifest.ExportedAt, "Z") {
+	if err != nil || activated.After(exported) || exported.After(now) || exported.UTC().Format(legacyManifestTimeLayout) != manifest.ExportedAt {
 		return manifest, errors.New("nativeadmission: invalid fence chronology")
 	}
 	dailyUsage := manifest.DailyUsage

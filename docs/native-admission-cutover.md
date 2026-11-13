@@ -215,6 +215,11 @@ acknowledgement, including after midnight; it cannot reset quota or re-enable a
 disabled enrollment. Migration `0002` adds this accounting without changing the
 published `0001` checksum.
 
+Manifest epoch/export timestamps must use Oxy's exact `Date.toISOString()`
+representation: UTC with three fractional millisecond digits. Noncanonical
+precision or offsets are refused even when the reviewed hash matches, so
+PostgreSQL cannot change an accepted epoch through timestamp rounding.
+
 The importer uses Oxy's canonical serializer semantics: UTF-16 key ordering,
 JSON.stringify escaping, and no HTML/U+2028 rewriting. Real cross-language fixtures
 cover opaque keys with emoji, HTML characters and Unicode separators. Unknown old
