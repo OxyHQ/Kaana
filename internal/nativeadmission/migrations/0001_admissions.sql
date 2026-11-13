@@ -6,10 +6,11 @@ CREATE TABLE kaana_admission.enrollments (
     application_id TEXT NOT NULL,
     environment TEXT NOT NULL CHECK (environment IN ('production','staging','development')),
     enabled BOOLEAN NOT NULL DEFAULT false,
+    active_policy_id TEXT,
     activation_at TIMESTAMPTZ,
     legacy_fence_complete BOOLEAN NOT NULL DEFAULT false,
     UNIQUE(application_id, environment),
-    CHECK (NOT enabled OR (activation_at IS NOT NULL AND legacy_fence_complete))
+    CHECK (NOT enabled OR (activation_at IS NOT NULL AND legacy_fence_complete AND active_policy_id IS NOT NULL))
 );
 
 CREATE TABLE kaana_admission.policy_versions (
@@ -19,9 +20,13 @@ CREATE TABLE kaana_admission.policy_versions (
     version INTEGER NOT NULL CHECK (version>0),
     digest TEXT NOT NULL CHECK (digest ~ '^[0-9a-f]{64}$'),
     document JSONB NOT NULL,
+    UNIQUE(id,enrollment_id),
     UNIQUE(policy_key,version),
     UNIQUE(enrollment_id,digest)
 );
+
+ALTER TABLE kaana_admission.enrollments ADD CONSTRAINT active_policy_same_enrollment
+    FOREIGN KEY(active_policy_id,id) REFERENCES kaana_admission.policy_versions(id,enrollment_id);
 
 CREATE TABLE kaana_admission.daily_windows (
     enrollment_id TEXT NOT NULL REFERENCES kaana_admission.enrollments(id),
@@ -37,7 +42,8 @@ CREATE TABLE kaana_admission.legacy_fences (
     enrollment_id TEXT NOT NULL REFERENCES kaana_admission.enrollments(id),
     idempotency_scope TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
-    body_digest TEXT NOT NULL CHECK (body_digest ~ '^[0-9a-f]{64}$'),
+    -- Old edge admissions predate body hashes; an unknown hash still fences execution.
+    body_digest TEXT CHECK (body_digest ~ '^[0-9a-f]{64}$'),
     legacy_admission_id TEXT NOT NULL,
     UNIQUE(idempotency_scope,idempotency_key)
 );
@@ -56,12 +62,22 @@ CREATE TABLE kaana_admission.admissions (
     idempotency_scope TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     plan JSONB NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('executing','settled','abandoned')),
+    state TEXT NOT NULL CHECK (state IN ('executing','pending_settlement','settled','abandoned')),
     admitted_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     lease_until TIMESTAMPTZ NOT NULL,
     UNIQUE(idempotency_scope,idempotency_key)
 );
 CREATE INDEX native_active_admissions ON kaana_admission.admissions(enrollment_id,lease_until) WHERE state='executing';
+
+-- A provider completion is durable before a public terminal event. Rating and
+-- provider cost persistence can resume after a worker crash without inference.
+CREATE TABLE kaana_admission.completions (
+    admission_id TEXT PRIMARY KEY REFERENCES kaana_admission.admissions(id),
+    digest TEXT NOT NULL CHECK (digest ~ '^[0-9a-f]{64}$'),
+    report JSONB NOT NULL,
+    provider_events JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
 
 CREATE TABLE kaana_admission.settlements (
     id TEXT PRIMARY KEY,
@@ -80,6 +96,7 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER immutable_native_policy BEFORE UPDATE OR DELETE ON kaana_admission.policy_versions FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
+CREATE TRIGGER immutable_native_completion BEFORE UPDATE OR DELETE ON kaana_admission.completions FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 CREATE TRIGGER immutable_native_settlement BEFORE UPDATE OR DELETE ON kaana_admission.settlements FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 CREATE TRIGGER immutable_legacy_fence BEFORE UPDATE OR DELETE ON kaana_admission.legacy_fences FOR EACH ROW EXECUTE FUNCTION kaana_admission.reject_mutation();
 -- Row locking needs UPDATE privilege. Keep that privilege behind a fixed,
@@ -99,7 +116,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA kaana_admission TO kaana_admission_runtime;
 GRANT INSERT ON kaana_admission.admissions TO kaana_admission_runtime;
 GRANT UPDATE(state,generation_id) ON kaana_admission.admissions TO kaana_admission_runtime;
 GRANT INSERT,UPDATE ON kaana_admission.daily_windows TO kaana_admission_runtime;
-GRANT INSERT ON kaana_admission.settlements TO kaana_admission_runtime;
+GRANT INSERT ON kaana_admission.settlements,kaana_admission.completions TO kaana_admission_runtime;
 GRANT SELECT,INSERT ON kaana_admission.enrollments,kaana_admission.policy_versions,kaana_admission.legacy_fences TO kaana_admission_admin;
 GRANT UPDATE ON kaana_admission.enrollments TO kaana_admission_admin;
 GRANT USAGE ON SCHEMA public TO kaana_admission_runtime;

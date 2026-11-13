@@ -14,8 +14,8 @@ import (
 
 // Attribution never replaces the workload's owner with caller-supplied userId.
 func (a Admission) Attribution() contract.Attribution {
-	authority := a.Principal.Authority
-	return contract.Attribution{RequestID: a.RequestID, UserID: a.UserID, Principal: contract.AuthenticatedPrincipal{Authority: &authority, Billing: contract.BillingPrincipal{AccountID: a.Principal.OwnerAccountID}, ApplicationID: a.Principal.ApplicationID, CredentialID: a.Principal.CredentialID, Environment: a.Principal.Environment, InferenceScopes: a.Principal.Scopes}}
+	authority := contract.ServiceAuthority(a.Principal.Authority)
+	return contract.Attribution{RequestID: a.RequestID, UserID: a.UserID, Principal: contract.AuthenticatedPrincipal{Authority: &authority, Billing: contract.BillingPrincipal{AccountID: *a.Principal.OwnerAccountID}, ApplicationID: a.Principal.ApplicationID, CredentialID: a.Principal.CredentialID, Environment: a.Principal.Environment, InferenceScopes: a.Principal.Scopes}}
 }
 
 // Settle atomically records authoritative usage, provider costs and the release
@@ -45,14 +45,10 @@ func (s *Store) Settle(ctx context.Context, id string, report contract.UsageRepo
 	if err != nil {
 		return err
 	}
-	digestBody, err := json.Marshal(struct {
-		Report contract.UsageReport
-		Events []providercost.Event
-	}{report, events})
+	fingerprint, err := completionDigest(report, events)
 	if err != nil {
 		return err
 	}
-	fingerprint := digest(digestBody)
 	var old string
 	err = tx.QueryRow(ctx, `SELECT digest FROM kaana_admission.settlements WHERE admission_id=$1`, id).Scan(&old)
 	if err == nil {
@@ -62,6 +58,13 @@ func (s *Store) Settle(ctx context.Context, id string, report contract.UsageRepo
 		return tx.Commit(ctx)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	err = tx.QueryRow(ctx, `SELECT digest FROM kaana_admission.completions WHERE admission_id=$1`, id).Scan(&old)
+	if err == nil && old != fingerprint {
+		return ErrConflict
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	generation, ratingFailure := meteredRecord(*a, report)
@@ -145,6 +148,9 @@ func meteredRecord(a Admission, r contract.UsageReport) (contract.MeteredGenerat
 func (s *Store) Generation(ctx context.Context, principal contract.IdentityPrincipal, id *contract.GenerationID, key *contract.IdempotencyKey, user *contract.UserID) (json.RawMessage, error) {
 	if err := principal.Validate(); err != nil {
 		return nil, err
+	}
+	if principal.OwnerAccountID == nil {
+		return nil, ErrNotEnrolled
 	}
 	if (id == nil) == (key == nil) {
 		return nil, ErrInvalidRequest

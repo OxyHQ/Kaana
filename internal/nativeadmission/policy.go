@@ -56,11 +56,11 @@ type Policy struct {
 }
 
 func (p Policy) matches(i contract.IdentityPrincipal) bool {
-	return p.Enabled && p.OwnerAccountID == i.OwnerAccountID && p.ApplicationID == i.ApplicationID && p.Environment == i.Environment && p.Lane == i.Lane && p.Authority == i.Authority && p.ApplicationClass == i.ApplicationClass && p.ApplicationIsInternal == i.ApplicationIsInternal
+	return p.Enabled && i.OwnerAccountID != nil && p.OwnerAccountID == *i.OwnerAccountID && p.ApplicationID == i.ApplicationID && p.Environment == i.Environment && p.Lane == i.Lane && contract.IdentityAuthority(p.Authority) == i.Authority && p.ApplicationClass == i.ApplicationClass && p.ApplicationIsInternal == i.ApplicationIsInternal
 }
 
 func (p Policy) validate() error {
-	identity := contract.IdentityPrincipal{OwnerAccountID: p.OwnerAccountID, ApplicationID: p.ApplicationID, CredentialID: "policy-validation", Environment: p.Environment, Lane: p.Lane, Authority: p.Authority, ApplicationClass: p.ApplicationClass, ApplicationIsInternal: p.ApplicationIsInternal}
+	identity := contract.IdentityPrincipal{OwnerAccountID: &p.OwnerAccountID, ApplicationID: p.ApplicationID, CredentialID: "policy-validation", Environment: p.Environment, Lane: p.Lane, Authority: contract.IdentityAuthority(p.Authority), ApplicationClass: p.ApplicationClass, ApplicationIsInternal: p.ApplicationIsInternal}
 	if err := identity.Validate(); err != nil {
 		return fmt.Errorf("nativeadmission: invalid policy principal: %w", err)
 	}
@@ -244,4 +244,16 @@ func (s RouteScope) Allows(id contract.DeploymentID, model contract.ModelReferen
 	return slices.ContainsFunc(s.Deployments, func(d RoutePermission) bool {
 		return d.DeploymentID == id && d.ModelReference == model && d.Provider == provider
 	})
+}
+
+// admitsExecution binds the operation-specific lease to the active policy.
+func (p Policy) admitsExecution(operation contract.GrantOperation, plan Plan) bool {
+	if plan.Operation != operation {
+		return false
+	}
+	if operation != contract.GrantRealtimeSession {
+		return plan.ExecutionTimeout == p.ExecutionTimeout && plan.SessionMaxDuration == 0 && plan.SessionMaxResponses == 0 && plan.SessionKind == nil
+	}
+	terms := p.Realtime
+	return terms != nil && plan.SessionKind != nil && slices.Contains(terms.SessionKinds, *plan.SessionKind) && plan.SessionMaxDuration >= time.Millisecond && plan.SessionMaxDuration%time.Millisecond == 0 && plan.SessionMaxDuration <= terms.MaxSessionDuration && plan.ExecutionTimeout == plan.SessionMaxDuration && plan.SessionMaxResponses > 0 && plan.SessionMaxResponses <= terms.MaxSessionResponses
 }

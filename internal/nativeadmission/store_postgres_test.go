@@ -66,7 +66,7 @@ func enableTestPolicy(t *testing.T, s *Store, pool *pgxpool.Pool, ctx context.Co
 	if err := s.RegisterPolicy(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE kaana_admission.enrollments SET enabled=true,activation_at=clock_timestamp(),legacy_fence_complete=true`); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE kaana_admission.enrollments e SET enabled=true,activation_at=clock_timestamp(),legacy_fence_complete=true,active_policy_id=p.id FROM kaana_admission.policy_versions p WHERE p.enrollment_id=e.id AND p.policy_key=$1 AND p.version=$2`, p.ID, p.Version); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -178,6 +178,18 @@ func TestPostgresLegacyFenceAndDailyCapacity(t *testing.T) {
 	if _, err := s.Admit(ctx, r); !errors.Is(err, ErrLegacy) {
 		t.Fatalf("legacy grant executed: %v", err)
 	}
+	unknownKey := contract.IdempotencyKey("old:edge:key")
+	unknownRequest := storeRequest(t, p, "req-legacy-unknown", &unknownKey)
+	unknownScope, unknownValue := idempotencyIdentity(unknownRequest.Principal.CredentialID, &unknownKey, unknownRequest.RequestID)
+	if _, err := pool.Exec(ctx, `INSERT INTO kaana_admission.legacy_fences(id,enrollment_id,idempotency_scope,idempotency_key,body_digest,legacy_admission_id) SELECT $1,id,$2,$3,NULL,'old-edge' FROM kaana_admission.enrollments`, newID("kif_"), unknownScope, unknownValue); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{unknownRequest.BodyDigest, digest([]byte("different-body"))} {
+		unknownRequest.BodyDigest = body
+		if _, err := s.Admit(ctx, unknownRequest); !errors.Is(err, ErrLegacy) {
+			t.Fatalf("unknown legacy digest reran or invented conflict: %v", err)
+		}
+	}
 	if _, err := s.Admit(ctx, storeRequest(t, p, "req-new", nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +240,7 @@ func TestPostgresNativeSettlementAndGenerationOwnership(t *testing.T) {
 		t.Fatalf("invalid native generation: %+v", record)
 	}
 	foreign := a.Principal
-	foreign.OwnerAccountID = "another-owner"
+	foreign.OwnerAccountID = ptr(contract.AccountID("another-owner"))
 	if _, err = s.Generation(ctx, foreign, nil, &key, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign owner read generation: %v", err)
 	}
@@ -280,6 +292,8 @@ func TestPostgresCostsAndNativeSettlementCommitTogether(t *testing.T) {
 		`INSERT INTO kaana_admission.legacy_fences(id,enrollment_id,idempotency_scope,idempotency_key,body_digest,legacy_admission_id) SELECT 'forged',id,'credential:forged','key',repeat('a',64),'old' FROM kaana_admission.enrollments`,
 		`UPDATE kaana_admission.policy_versions SET version=99`,
 		`SELECT encrypted_secret FROM provider_credentials`,
+		`UPDATE provider_credentials SET enabled=false`,
+		`UPDATE kaana_admission.admissions SET plan='{}'::jsonb`,
 	} {
 		if _, err = runtimePool.Exec(ctx, query); err == nil {
 			t.Fatal("runtime crossed policy/credential boundary")
@@ -298,5 +312,136 @@ func TestPostgresCostsAndNativeSettlementCommitTogether(t *testing.T) {
 	event.AttemptIndex = 1
 	if err = s.Settle(ctx, a.ID, report, []providercost.Event{event}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed cost replay accepted: %v", err)
+	}
+}
+
+func TestPostgresActivePolicyRejectsOldPlansAndPreservesOldSettlements(t *testing.T) {
+	s, pool, ctx := testDatabase(t)
+	old := policy()
+	enableTestPolicy(t, s, pool, ctx, old)
+	admitted, err := s.Admit(ctx, storeRequest(t, old, "req-policy-v1", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := old
+	newer.Version++
+	newer.MaxConcurrent = 1
+	newer.MaxPerUTCDay = 2
+	enableTestPolicy(t, s, pool, ctx, newer)
+	if _, err = s.Admit(ctx, storeRequest(t, old, "req-stale-policy", nil)); !errors.Is(err, ErrNotEnrolled) {
+		t.Fatalf("stale version remained executable: %v", err)
+	}
+	if _, err = s.Admit(ctx, storeRequest(t, newer, "req-policy-v2", nil)); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("old admission disappeared from new capacity: %v", err)
+	}
+	if err = s.Settle(ctx, admitted.ID, reportFor(admitted), nil); err != nil {
+		t.Fatalf("old snapshot no longer settles: %v", err)
+	}
+	if _, err = s.Admit(ctx, storeRequest(t, newer, "req-policy-v2", nil)); err != nil {
+		t.Fatalf("active version refused: %v", err)
+	}
+}
+
+func TestPostgresRealtimeAdmissionUsesItsBoundedSessionLease(t *testing.T) {
+	s, pool, ctx := testDatabase(t)
+	p := policy()
+	operation := terms(p, "0.25")
+	operation.MaxInput = 126976
+	operation.MaxSessionDuration = 30 * time.Minute
+	operation.MaxSessionResponses = 500
+	operation.SessionKinds = []contract.RealtimeSessionKind{"conversation"}
+	p.Realtime = &operation
+	voice := model("realtime")
+	voice.RealtimeSessionKinds = operation.SessionKinds
+	voice.InputModalities = []string{"text", "audio"}
+	voice.OutputModalities = []string{"text", "audio"}
+	voice.Price = nonTextPrice(voice.ID, UnitPrice{contract.UnitAudioInputMilliseconds, "0.08", 60000, "USD"}, UnitPrice{contract.UnitAudioOutputMilliseconds, "0.08", 60000, "USD"}, UnitPrice{contract.UnitSessionMilliseconds, "0.08", 60000, "USD"}, UnitPrice{contract.UnitRequests, "0.004", 1, "USD"})
+	request := Request{Operation: contract.GrantRealtimeSession, Target: ptr(contract.ModelTarget("fixture/realtime")), Facts: contract.GrantRequestFacts{EstimatedInputTokens: ptr(1000), RealtimeSessionKind: ptr(contract.RealtimeSessionKind("conversation"))}, SessionMaxDuration: 30 * time.Minute, SessionMaxResponses: 500}
+	plan, err := planner(t, p, voice).Plan(principal(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableTestPolicy(t, s, pool, ctx, p)
+	admissionRequest := AdmissionRequest{RequestID: "req-native-realtime", Principal: principal(), Operation: request.Operation, BodyDigest: digest([]byte("session-frame")), Plan: plan}
+	admitted, err := s.Admit(ctx, admissionRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admitted.LeaseUntil.Sub(admitted.AdmittedAt) != request.SessionMaxDuration {
+		t.Fatal("session lease used text timeout")
+	}
+	forged := admissionRequest
+	forged.RequestID = "req-long-session"
+	forged.Plan.SessionMaxDuration = 31 * time.Minute
+	forged.Plan.ExecutionTimeout = 31 * time.Minute
+	if _, err = s.Admit(ctx, forged); !errors.Is(err, ErrNotEnrolled) {
+		t.Fatalf("unbounded session lease accepted: %v", err)
+	}
+	report := reportFor(admitted)
+	report.ResolvedModelReference = "fixture/realtime@v1"
+	report.Units = []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 60000}, {Unit: contract.UnitRequests, Quantity: 1}}
+	if err = s.Settle(ctx, admitted.ID, report, nil); err != nil {
+		t.Fatal(err)
+	}
+	var amount string
+	if err = pool.QueryRow(ctx, `SELECT generation->'tariff'->>'amount' FROM kaana_admission.settlements WHERE admission_id=$1`, admitted.ID).Scan(&amount); err != nil || amount != "0.084000000000" {
+		t.Fatalf("session usage rating=%s err=%v", amount, err)
+	}
+}
+
+func TestPostgresCompletionSurvivesRestartAndCannotBeRewritten(t *testing.T) {
+	s, pool, ctx := testDatabase(t)
+	p := policy()
+	p.MaxConcurrent = 1
+	enableTestPolicy(t, s, pool, ctx, p)
+	admission, err := s.Admit(ctx, storeRequest(t, p, "req-durable-completion", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := reportFor(admission)
+	event := providercost.Event{RequestID: admission.RequestID, AttemptIndex: 0, Provider: "test", KeyID: "event-key-not-yet-imported", DeploymentID: "dep-test", ModelReference: report.ResolvedModelReference, Source: providercost.SourceUnknown, Served: true, OccurredAt: admission.AdmittedAt.Add(time.Second), Units: report.Units, Telemetry: providercost.AttemptTelemetry{StartedAt: admission.AdmittedAt, Latency: time.Second, Outcome: providercost.AttemptSucceeded}}
+	if err = s.StageCompletion(ctx, admission.ID, report, []providercost.Event{event}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Admit(ctx, storeRequest(t, p, "req-after-provider-ended", nil)); err != nil {
+		t.Fatalf("durable completion retained execution capacity: %v", err)
+	}
+	changed := report
+	changed.Units = []contract.UsageQuantity{{Unit: contract.UnitOutputTokens, Quantity: 9}}
+	if err = s.StageCompletion(ctx, admission.ID, changed, []providercost.Event{event}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("staged evidence changed: %v", err)
+	}
+	if err = s.Settle(ctx, admission.ID, changed, []providercost.Event{event}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("settlement ignored staged evidence: %v", err)
+	}
+	ownConfig := pool.Config().Copy()
+	pool.Close()
+	recoveredPool, err := pgxpool.NewWithConfig(ctx, ownConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recoveredPool.Close()
+	recovered := NewStore(recoveredPool)
+	if n, err := recovered.ReplayCompletions(ctx, 100); err == nil || n != 0 {
+		t.Fatalf("missing provider key falsely settled: %d %v", n, err)
+	}
+	var pending int
+	if err = recoveredPool.QueryRow(ctx, `SELECT count(*) FROM kaana_admission.completions`).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("pending evidence lost: %d %v", pending, err)
+	}
+	if _, err = recoveredPool.Exec(ctx, `INSERT INTO provider_credentials(provider_slug,key_id,encrypted_secret,kms_key_arn,position) VALUES('test','event-key-not-yet-imported','\x01','arn:aws:kms:us-west-2:123456789012:key/11111111-1111-1111-1111-111111111111',1)`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := recovered.ReplayCompletions(ctx, 100); err != nil || n != 1 {
+		t.Fatalf("restart replay: %d %v", n, err)
+	}
+	if n, err := recovered.ReplayCompletions(ctx, 100); err != nil || n != 0 {
+		t.Fatalf("completion replay duplicated usage: %d %v", n, err)
+	}
+	if err = recoveredPool.QueryRow(ctx, `SELECT count(*) FROM provider_cost_events WHERE request_id=$1`, admission.RequestID).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("provider cost replay count: %d %v", pending, err)
+	}
+	if err = recoveredPool.QueryRow(ctx, `SELECT count(*) FROM inference_settlement_outbox`).Scan(&pending); err != nil || pending != 0 {
+		t.Fatalf("native replay crossed economic authority: %d %v", pending, err)
 	}
 }

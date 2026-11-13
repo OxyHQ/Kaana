@@ -12,11 +12,11 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 func principal() contract.IdentityPrincipal {
-	return contract.IdentityPrincipal{OwnerAccountID: "owner", ApplicationID: "app", CredentialID: "credential", Environment: contract.EnvironmentProduction, Lane: contract.IdentityLaneService, Authority: contract.AuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}
+	return contract.IdentityPrincipal{OwnerAccountID: ptr(contract.AccountID("owner")), ApplicationID: "app", CredentialID: "credential", Environment: contract.EnvironmentProduction, Lane: contract.IdentityLaneService, Authority: contract.IdentityAuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}
 }
 func policy() Policy {
 	i := principal()
-	return Policy{ID: "native-test", Version: 1, Enabled: true, OwnerAccountID: i.OwnerAccountID, ApplicationID: i.ApplicationID, Environment: i.Environment, Lane: i.Lane, Authority: i.Authority, ApplicationClass: i.ApplicationClass, ApplicationIsInternal: i.ApplicationIsInternal, Audience: contract.AudiencePlatformInternal, AllowedLevels: []contract.PowerLevel{contract.PowerAuto, contract.PowerInstant, contract.PowerMedium, contract.PowerHigh, contract.PowerXHigh, contract.PowerPro}, AllowedModels: []contract.ModelID{"fixture/medium"}, Routes: RouteScope{Mode: "exact", Deployments: []RoutePermission{{DeploymentID: "deployment-reviewed", ModelReference: "fixture/medium@immutable", Provider: "fixture"}}}, Limits: contract.GrantStepLimits{MaxPricePerRequest: &contract.Money{Amount: "0.05", Currency: "USD"}, MaxFundingTier: ptr(contract.FundingTierCredit), RequireZeroDataRetention: true, ProhibitTrainingOnCustomerData: true}, MaxInputTokens: 126976, MaxOutputTokens: 8192, DefaultOutputTokens: 2048, MaxTools: 128, MaxConcurrent: 32, MaxPerUTCDay: 5000, ExecutionTimeout: time.Minute}
+	return Policy{ID: "native-test", Version: 1, Enabled: true, OwnerAccountID: *i.OwnerAccountID, ApplicationID: i.ApplicationID, Environment: i.Environment, Lane: i.Lane, Authority: contract.ServiceAuthority(i.Authority), ApplicationClass: i.ApplicationClass, ApplicationIsInternal: i.ApplicationIsInternal, Audience: contract.AudiencePlatformInternal, AllowedLevels: []contract.PowerLevel{contract.PowerAuto, contract.PowerInstant, contract.PowerMedium, contract.PowerHigh, contract.PowerXHigh, contract.PowerPro}, AllowedModels: []contract.ModelID{"fixture/medium"}, Routes: RouteScope{Mode: "exact", Deployments: []RoutePermission{{DeploymentID: "deployment-reviewed", ModelReference: "fixture/medium@immutable", Provider: "fixture"}}}, Limits: contract.GrantStepLimits{MaxPricePerRequest: &contract.Money{Amount: "0.05", Currency: "USD"}, MaxFundingTier: ptr(contract.FundingTierCredit), RequireZeroDataRetention: true, ProhibitTrainingOnCustomerData: true}, MaxInputTokens: 126976, MaxOutputTokens: 8192, DefaultOutputTokens: 2048, MaxTools: 128, MaxConcurrent: 32, MaxPerUTCDay: 5000, ExecutionTimeout: time.Minute}
 }
 func price(id contract.ModelID) ModelPrice {
 	return ModelPrice{ModelLine: id, PriceVersionID: string(id) + "-v1", Currency: "USD", UnitPrices: []UnitPrice{{contract.UnitInputTokens, "1", 1000000, "USD"}, {contract.UnitCachedInputTokens, "0.1", 1000000, "USD"}, {contract.UnitCacheWriteInputTokens, "1.25", 1000000, "USD"}, {contract.UnitOutputTokens, "2", 1000000, "USD"}, {contract.UnitReasoningTokens, "2", 1000000, "USD"}, {contract.UnitRequests, "0", 1, "USD"}}}
@@ -55,9 +55,9 @@ func TestIdentityIsNotEconomicEnrollment(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.Enabled = true
-	for _, mutate := range []func(*contract.IdentityPrincipal){func(i *contract.IdentityPrincipal) { i.OwnerAccountID = "another" }, func(i *contract.IdentityPrincipal) { i.ApplicationID = "gemies-brand-is-not-identity" }, func(i *contract.IdentityPrincipal) { i.Environment = contract.EnvironmentStaging }, func(i *contract.IdentityPrincipal) { i.ApplicationIsInternal = false }, func(i *contract.IdentityPrincipal) { i.ApplicationClass = "first_party" }, func(i *contract.IdentityPrincipal) {
+	for _, mutate := range []func(*contract.IdentityPrincipal){func(i *contract.IdentityPrincipal) { i.OwnerAccountID = ptr(contract.AccountID("another")) }, func(i *contract.IdentityPrincipal) { i.ApplicationID = "gemies-brand-is-not-identity" }, func(i *contract.IdentityPrincipal) { i.Environment = contract.EnvironmentStaging }, func(i *contract.IdentityPrincipal) { i.ApplicationIsInternal = false }, func(i *contract.IdentityPrincipal) { i.ApplicationClass = "first_party" }, func(i *contract.IdentityPrincipal) {
 		i.Lane = contract.IdentityLaneMachine
-		i.Authority = contract.AuthorityExternal
+		i.Authority = contract.IdentityAuthorityExternal
 		i.Scopes = []contract.Scope{contract.ScopeInvoke}
 	}} {
 		changed := i

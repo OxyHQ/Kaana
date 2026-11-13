@@ -20,7 +20,7 @@ import (
 )
 
 func TestIdentityVerificationBindsOnlyAuthenticationFacts(t *testing.T) {
-	for _, variant := range []string{"valid", "minute precision", "wrong request", "wrong body", "wrong audience", "expired", "future", "wrong attribution", "grant domain", "unsigned", "missing internal flag", "economic field"} {
+	for _, variant := range []string{"valid", "minute precision", "wrong request", "wrong body", "wrong audience", "expired", "future", "wrong attribution", "grant domain", "unsigned", "missing internal flag", "economic field", "session absent attribution", "session matching attribution", "session mismatched attribution"} {
 		t.Run(variant, func(t *testing.T) {
 			public, private, err := ed25519.GenerateKey(nil)
 			if err != nil {
@@ -29,6 +29,9 @@ func TestIdentityVerificationBindsOnlyAuthenticationFacts(t *testing.T) {
 			now := time.Now().UTC().Truncate(time.Minute).Add(30 * time.Second)
 			user := contract.UserID("person")
 			request := contract.IdentityRequest{SchemaVersion: 1, Kind: "identity", RequestID: "identity-test", Audience: "kaana.ai", Credential: "synthetic-caller", OnBehalfOfUserID: &user}
+			if variant == "session absent attribution" {
+				request.OnBehalfOfUserID = nil
+			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != contract.OxyKaanaIdentitiesEndpoint {
 					t.Error("identity used economic endpoint")
@@ -43,12 +46,28 @@ func TestIdentityVerificationBindsOnlyAuthenticationFacts(t *testing.T) {
 					t.Error(decodeErr)
 					return
 				}
-				if len(fields) != 6 {
+				expectedFields := 6
+				if request.OnBehalfOfUserID == nil {
+					expectedFields = 5
+				}
+				if len(fields) != expectedFields {
 					t.Error("unexpected inference facts in identity request")
 				}
 				hash := sha256.Sum256(raw)
-				assertion := contract.IdentityAssertion{SchemaVersion: 1, Kind: "identity", RequestID: request.RequestID, Audience: request.Audience, RequestSHA256: hex.EncodeToString(hash[:]), IssuedAt: contract.Timestamp(now.Add(-30 * time.Second).Format(time.RFC3339)), ExpiresAt: contract.Timestamp(now.Add(30 * time.Second).Format(time.RFC3339)), UserID: &user, Principal: contract.IdentityPrincipal{OwnerAccountID: "owner", ApplicationID: "app", CredentialID: "workload", Environment: "production", Lane: contract.IdentityLaneService, Authority: contract.AuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}}
+				assertion := contract.IdentityAssertion{SchemaVersion: 1, Kind: "identity", RequestID: request.RequestID, Audience: request.Audience, RequestSHA256: hex.EncodeToString(hash[:]), IssuedAt: contract.Timestamp(now.Add(-30 * time.Second).Format(time.RFC3339)), ExpiresAt: contract.Timestamp(now.Add(30 * time.Second).Format(time.RFC3339)), UserID: &user, Principal: contract.IdentityPrincipal{OwnerAccountID: identityPointer(contract.AccountID("owner")), ApplicationID: "app", CredentialID: "workload", Environment: "production", Lane: contract.IdentityLaneService, Authority: contract.IdentityAuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}}
 				switch variant {
+				case "session absent attribution", "session matching attribution", "session mismatched attribution":
+					assertion.Principal.OwnerAccountID = nil
+					assertion.Principal.Authority = contract.IdentityAuthoritySession
+					assertion.Principal.Lane = contract.IdentityLaneSession
+					assertion.Principal.ApplicationOwnerAccountID = identityPointer(contract.AccountID("application-owner"))
+					assertion.Principal.ApplicationBinding = identityPointer(contract.IdentityApplicationBinding("public_client_id"))
+					subject := contract.UserID("person")
+					if variant == "session mismatched attribution" {
+						subject = "other-person"
+					}
+					assertion.UserID = &subject
+					assertion.Principal.VerifiedRequester = &contract.IdentityVerifiedRequester{SubjectAccountID: contract.AccountID(subject), PrincipalUserID: "session-person"}
 				case "minute precision":
 					assertion.IssuedAt = contract.Timestamp(now.Add(-30 * time.Second).Format("2006-01-02T15:04Z"))
 					assertion.ExpiresAt = contract.Timestamp(now.Add(30 * time.Second).Format("2006-01-02T15:04Z"))
@@ -97,7 +116,7 @@ func TestIdentityVerificationBindsOnlyAuthenticationFacts(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertion, failure := verifier.Verify(context.Background(), request)
-			valid := variant == "valid" || variant == "minute precision"
+			valid := variant == "valid" || variant == "minute precision" || variant == "session absent attribution" || variant == "session matching attribution"
 			if valid && (assertion == nil || failure != nil) {
 				t.Fatalf("valid assertion refused: %v", failure)
 			}
@@ -147,3 +166,5 @@ func TestIdentityVerificationCancellation(t *testing.T) {
 		t.Fatal("cancellation did not terminate verification")
 	}
 }
+
+func identityPointer[T any](value T) *T { return &value }
