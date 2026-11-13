@@ -96,6 +96,9 @@ func openIdentityCheck(ctx context.Context, getenv func(string) string) (identit
 	if err != nil {
 		return identityCheckClient{}, err
 	}
+	// oxyvalidation.New owns its bounded background queue; Close joins it.
+	// Request contexts are passed to Verify and Mint below.
+	//nolint:contextcheck // Constructor has no context argument; its explicit Close lifecycle is always joined.
 	reporter, err := oxyvalidation.New(oxyvalidation.Config{BaseURL: baseURL, Environment: contract.EnvironmentProduction, WorkloadMinter: workload, Logger: logger, Timeout: 10 * time.Second})
 	if err != nil {
 		return identityCheckClient{}, err

@@ -111,7 +111,11 @@ bounded status/digests, not database errors or credentials.
 2. Deploy native-capable Kaana code with native configuration absent. Verify the
    exact fleet image and identity-only endpoint from Kaana's real workload. That
    canary verifies a signed identity assertion without provider execution,
-   reservation, settlement or billing writes.
+   reservation, settlement or billing writes. Run the packaged
+   `kaana-native identity-check --application-id REVIEWED_KAANA_APPLICATION_ID`
+   from that exact workload with the existing canonical Oxy origin, production
+   environment and public verification keys. Success prints only
+   `{"verified":true}`; it does not open a database or execute inference.
 3. Apply the candidate schema and register the reviewed immutable policy while
    its enrollment remains disabled. Prove role boundaries and migration digest.
 4. Deploy the reviewed policy PATH+SHA to the whole fleet while the database
