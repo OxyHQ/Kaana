@@ -30,7 +30,10 @@ var (
 
 // Store's pool has the admission role; migration/enrollment use a distinct admin
 // pool. Neither role can read provider secrets or mutate customer balances.
-type Store struct{ pool *pgxpool.Pool }
+type Store struct {
+	pool      *pgxpool.Pool
+	economics AdmissionEconomics
+}
 
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
@@ -177,6 +180,9 @@ func (s *Store) Admit(ctx context.Context, request AdmissionRequest) (*Admission
 	if err = json.Unmarshal(policyBytes, &policy); err != nil {
 		return nil, err
 	}
+	if err = s.requireEconomics(policy.EconomicTreatment); err != nil {
+		return nil, err
+	}
 	if !policy.matches(request.Principal) || policy.MaxConcurrent != request.Plan.MaxConcurrent || policy.MaxPerUTCDay != request.Plan.MaxPerUTCDay || !policy.admitsExecution(request.Operation, request.Plan) {
 		return nil, ErrNotEnrolled
 	}
@@ -233,6 +239,11 @@ func (s *Store) Admit(ctx context.Context, request AdmissionRequest) (*Admission
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO kaana_admission.admissions(id,enrollment_id,policy_id,request_id,principal,delegated_user_id,operation,body_digest,idempotency_scope,idempotency_key,plan,state,admitted_at,lease_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'executing',$12,$13)`, a.ID, enrollment, policyID, a.RequestID, principal, a.UserID, a.Operation, request.BodyDigest, scope, key, plan, now, a.LeaseUntil); err != nil {
 		return nil, err
+	}
+	if a.Plan.EconomicTreatment == Commercial {
+		if err = s.economics.Reserve(ctx, tx, *a); err != nil {
+			return nil, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err

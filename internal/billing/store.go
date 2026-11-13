@@ -128,10 +128,18 @@ type Hold struct {
 }
 
 func (s *Store) Reserve(ctx context.Context, r ReserveRequest) (Hold, error) {
+	return reserveWith(ctx, s.pool, r)
+}
+
+// ReserveInTransaction participates in the caller's admission transaction.
+func ReserveInTransaction(ctx context.Context, tx pgx.Tx, r ReserveRequest) (Hold, error) {
+	return reserveWith(ctx, tx, r)
+}
+func reserveWith(ctx context.Context, db queryer, r ReserveRequest) (Hold, error) {
 	if r.TTL < time.Second || r.TTL > 15*time.Minute || r.TTL%time.Second != 0 {
 		return Hold{}, ErrInvalid
 	}
-	return queryJSON[Hold](ctx, s.pool, `SELECT kaana_billing.reserve($1,$2,$3,$4,$5,$6,$7)`, r.AccountID, r.Key, r.AdmissionID, r.PriceSnapshotID, r.PriceDigest, r.Maximum, int(r.TTL/time.Second))
+	return queryJSON[Hold](ctx, db, `SELECT kaana_billing.reserve($1,$2,$3,$4,$5,$6,$7)`, r.AccountID, r.Key, r.AdmissionID, r.PriceSnapshotID, r.PriceDigest, r.Maximum, int(r.TTL/time.Second))
 }
 
 type SettleRequest struct {
@@ -155,7 +163,15 @@ type Settlement struct {
 }
 
 func (s *Store) Settle(ctx context.Context, r SettleRequest) (Settlement, error) {
-	return queryJSON[Settlement](ctx, s.pool, `SELECT kaana_billing.settle($1,$2,$3,$4,$5,$6,$7,$8)`, r.AccountID, r.HoldID, r.Key, r.EvidenceID, r.EvidenceDigest, r.Outcome, r.HasUsage, r.RatedAmount)
+	return settleWith(ctx, s.pool, r)
+}
+
+// SettleInTransaction commits the charge with native usage and its public record.
+func SettleInTransaction(ctx context.Context, tx pgx.Tx, r SettleRequest) (Settlement, error) {
+	return settleWith(ctx, tx, r)
+}
+func settleWith(ctx context.Context, db queryer, r SettleRequest) (Settlement, error) {
+	return queryJSON[Settlement](ctx, db, `SELECT kaana_billing.settle($1,$2,$3,$4,$5,$6,$7,$8)`, r.AccountID, r.HoldID, r.Key, r.EvidenceID, r.EvidenceDigest, r.Outcome, r.HasUsage, r.RatedAmount)
 }
 
 type RefundRequest struct{ AccountID, ReceiptID, Key, Amount, EvidenceID string }
@@ -213,7 +229,11 @@ func (s *Store) Balance(ctx context.Context, accountID string) (Balance, error) 
 	return b, wrap(err)
 }
 
-func queryJSON[T any](ctx context.Context, pool *pgxpool.Pool, query string, args ...any) (T, error) {
+type queryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func queryJSON[T any](ctx context.Context, pool queryer, query string, args ...any) (T, error) {
 	var result T
 	var raw []byte
 	if err := pool.QueryRow(ctx, query, args...).Scan(&raw); err != nil {
@@ -239,4 +259,12 @@ func wrap(err error) error {
 		}
 	}
 	return fmt.Errorf("billing: database operation: %w", err)
+}
+
+// AccountForOwnerInTransaction resolves a trusted principal's opaque owner and
+// the rated currency. It neither provisions an account nor substitutes a user.
+func AccountForOwnerInTransaction(ctx context.Context, tx pgx.Tx, owner, currency string) (Account, error) {
+	var a Account
+	err := tx.QueryRow(ctx, `SELECT a.id,a.currency_id,a.enabled FROM kaana_billing.accounts a JOIN kaana_billing.currencies c ON c.id=a.currency_id WHERE a.oxy_owner=$1 AND c.code=$2`, owner, currency).Scan(&a.ID, &a.CurrencyID, &a.Enabled)
+	return a, wrap(err)
 }

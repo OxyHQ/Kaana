@@ -84,6 +84,9 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
 	"meteredGenerationRecordSchema":          reflect.TypeOf(MeteredGenerationRecord{}),
+	"chargedGenerationRecordSchema":          reflect.TypeOf(ChargedGenerationRecord{}),
+	"unitPriceSchema":                        reflect.TypeOf(UnitPrice{}),
+	"priceSnapshotSchema":                    reflect.TypeOf(PriceSnapshot{}),
 	"kaanaIdentityRequestSchema":             reflect.TypeOf(IdentityRequest{}),
 	"kaanaIdentityPrincipalSchema":           reflect.TypeOf(IdentityPrincipal{}),
 	"kaanaIdentityAssertionSchema":           reflect.TypeOf(IdentityAssertion{}),
@@ -494,8 +497,6 @@ var notApplicable = map[string]string{
 
 	// Money and the ledger are Oxy's today (ADR 0010 proposes moving them to
 	// Kaana). Kaana measures units; a usage report carries no amount.
-	"unitPriceSchema":     "ledger: Oxy owns pricing",
-	"priceSnapshotSchema": "ledger: Oxy owns pricing",
 
 	// The public API of https://kaana.ai/v1 (ADR 0002, decisions 7-10). Defined
 	// in contract set 4.0.0 and served by internal/publicapi in ADR 0002 phase
@@ -505,7 +506,6 @@ var notApplicable = map[string]string{
 	"anthropicMessageSchema":         "public api: POST /v1/messages response",
 	"anthropicMessagesRequestSchema": "public api: POST /v1/messages request; its union-typed members are decoded by hand",
 	"anthropicStreamEventSchema":     "public api: POST /v1/messages stream frames",
-	"chargedGenerationRecordSchema":  "public api: GET /v1/generations record",
 	"promptCacheKeySchema":           "public api: the prompt_cache_key / promptCacheKey request field; internal/publicapi decodes it and keeps it in Kaana (ADR 0008)",
 	"providerPreferencesSchema":      "public api: the `provider` request preference; internal/publicapi decodes it and only narrows the grant's routes, so it never reaches the signed envelope (ADR 0008)",
 	"providerQuantizationSchema":     "public api: a quantization word inside the `provider` request preference (ADR 0008)",
@@ -542,7 +542,7 @@ var notApplicable = map[string]string{
 
 // expectedNotApplicableCount is asserted exactly. Changing it is the moment to
 // ask whether a shape is being excused rather than implemented.
-const expectedNotApplicableCount = 66
+const expectedNotApplicableCount = 63
 
 type enumBinding struct {
 	goType  reflect.Type

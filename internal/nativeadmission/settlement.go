@@ -33,6 +33,9 @@ func (s *Store) Settle(ctx context.Context, id string, report contract.UsageRepo
 	if err != nil {
 		return err
 	}
+	if err = s.requireEconomics(a.Plan.EconomicTreatment); err != nil {
+		return err
+	}
 	if report.RequestID != a.RequestID || !sameAttribution(a.Attribution(), report.Attribution) || !sameGeneration(a.GenerationID, report.GenerationID) {
 		return ErrConflict
 	}
@@ -68,7 +71,38 @@ func (s *Store) Settle(ctx context.Context, id string, report contract.UsageRepo
 		return err
 	}
 	generation, ratingFailure := meteredRecord(*a, report)
-	encoded, err := json.Marshal(generation)
+	var encoded []byte
+	if a.Plan.EconomicTreatment == Commercial {
+		financial, hookErr := s.economics.Settle(ctx, tx, RatedCompletion{Admission: *a, Report: report, EvidenceDigest: fingerprint, Metered: generation, RatingFailure: ratingFailure})
+		if hookErr != nil {
+			return hookErr
+		}
+		if financial.Charge != nil {
+			if ratingFailure != nil || financial.UnavailableReason != "" {
+				return ErrConflict
+			}
+			if err = financial.Charge.Validate(); err != nil {
+				return err
+			}
+			// Attribution and observed usage cannot be replaced by a hook's return value.
+			charge := financial.Charge
+			if charge.RequestID != a.RequestID || charge.ApplicationID != a.Principal.ApplicationID || charge.CredentialID != a.Principal.CredentialID || charge.Environment != a.Principal.Environment || charge.Outcome != report.Outcome || charge.Model != report.ResolvedModelReference || charge.UsageSource != report.UsageSource || !sameJSON(charge.Units, append([]contract.UsageQuantity{}, report.Units...)) || !sameJSON(charge.GenerationID, report.GenerationID) || !sameJSON(charge.DelegatedUserID, a.UserID) {
+				return ErrConflict
+			}
+			if err = validateChargePrice(*a, report, generation, *charge); err != nil {
+				return err
+			}
+			encoded, err = json.Marshal(charge)
+		} else {
+			switch financial.UnavailableReason {
+			case "rating_failed", "hold_expired", "unknown_usage":
+			default:
+				return ErrConflict
+			}
+		}
+	} else {
+		encoded, err = json.Marshal(generation)
+	}
 	if err != nil {
 		return err
 	}
@@ -173,6 +207,9 @@ func (s *Store) Generation(ctx context.Context, principal contract.IdentityPrinc
 	if err != nil {
 		return nil, err
 	}
+	if len(body) == 0 {
+		return nil, ErrNotFound
+	}
 	return json.RawMessage(body), nil
 }
 
@@ -184,4 +221,40 @@ func (s *Store) Expire(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+func sameJSON(a, b any) bool {
+	left, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(b)
+	return err == nil && string(left) == string(right)
+}
+
+func validateChargePrice(a Admission, r contract.UsageReport, metered contract.MeteredGenerationRecord, charge contract.ChargedGenerationRecord) error {
+	if charge.PlatformFeeOnly || metered.Tariff.Amount == nil || metered.Tariff.Currency == nil {
+		return ErrConflict
+	}
+	expected := contract.Money{Amount: *metered.Tariff.Amount, Currency: *metered.Tariff.Currency}
+	if r.Outcome == contract.OutcomeFailed || r.Outcome == contract.OutcomeCancelled {
+		expected.Amount = "0"
+	}
+	actual, err := moneyRat(contract.Money{Amount: charge.BilledAmount, Currency: charge.Currency})
+	if err != nil {
+		return err
+	}
+	wanted, err := moneyRat(expected)
+	if err != nil || actual.Cmp(wanted) != 0 {
+		return ErrConflict
+	}
+	for _, price := range a.Plan.Prices {
+		if price.ModelLine == r.ResolvedModelReference.ModelID() {
+			if charge.PriceSnapshot.PriceVersionID != price.PriceVersionID || charge.PriceSnapshot.Currency != price.Currency || !sameJSON(charge.PriceSnapshot.UnitPrices, price.UnitPrices) {
+				return ErrConflict
+			}
+			return nil
+		}
+	}
+	return ErrUnpriced
 }
