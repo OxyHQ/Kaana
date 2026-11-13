@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -33,6 +34,7 @@ type NativePromotionSource interface {
 // NativeConfig is explicit, disabled by absence, and contains no default product
 // enrollment. Matching callers stay under native authority on every error.
 type NativeConfig struct {
+	Commercial *commercial.Table
 	Identity   IdentityVerifier
 	Store      NativeStore
 	Policies   []nativeadmission.Policy
@@ -40,8 +42,8 @@ type NativeConfig struct {
 }
 
 func (c *NativeConfig) validate() error {
-	if c.Identity == nil || c.Store == nil || len(c.Policies) == 0 {
-		return errors.New("publicapi: native identity, durable store and explicit policies are required")
+	if c.Identity == nil || c.Store == nil || c.Commercial == nil || len(c.Policies) == 0 {
+		return errors.New("publicapi: native identity, durable store, commercial declarations and explicit policies are required")
 	}
 	if _, err := nativeadmission.NewPlanner(c.Policies, nil); err != nil {
 		return err
@@ -153,7 +155,7 @@ func (s *Server) admitNative(ctx context.Context, r *http.Request, id contract.R
 		}
 	}
 	authorized := routeAuthorization{requestID: id, steps: planned.Steps, permits: func(step int, route provider.Route) bool {
-		return nativeOperationServed(s.kinds, formats, route, ask.operation, ask.facts.RealtimeSessionKind) && step < len(planned.StepRoutes) && planned.StepRoutes[step].Allows(route.DeploymentID, route.ModelReference, route.Provider, promotional(route)) && planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters)
+		return nativeCommercialAllows(s.native.Commercial, identity.Principal, route) && nativeOperationServed(s.kinds, formats, route, ask.operation, ask.facts.RealtimeSessionKind) && step < len(planned.StepRoutes) && planned.StepRoutes[step].Allows(route.DeploymentID, route.ModelReference, route.Provider, promotional(route)) && planned.AllowsParameters(route.ModelReference.ModelID(), route.AcceptedParameters)
 	}}
 	resolved, failure := resolveAuthorizedFor(authorized, current, s.funding, s.latency, s.servesOperation(ask.operation, ask.facts.RealtimeSessionKind), needs, s.now())
 	if failure != nil {
@@ -232,4 +234,23 @@ func nativeOperationServed(kinds RouteKinds, formats FormatKinds, route provider
 		format = contract.APIFormatAudioTranscriptions
 	}
 	return nativeFormatServed(formats, route, format)
+}
+
+// The same published commercial declaration gates the legacy public grant. A
+// catalogue's model audience alone cannot authorize a particular deployment.
+func nativeCommercialAllows(table *commercial.Table, principal contract.IdentityPrincipal, route provider.Route) bool {
+	facts := table.For(route.DeploymentID)
+	if facts == nil || facts.Validate() != nil {
+		return false
+	}
+	switch facts.AvailabilityScope {
+	case contract.ScopePublicPAYG, contract.ScopeOxyHosted:
+		return true
+	case contract.ScopePlatformInternal:
+		return principal.Authority == contract.IdentityAuthorityFirstParty && principal.ApplicationIsInternal
+	default:
+		// Enterprise entitlements and customer BYOK connections require their own
+		// validated admission authority; neither is enabled by this population.
+		return false
+	}
 }

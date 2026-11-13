@@ -347,8 +347,9 @@ func run(logger *slog.Logger) error {
 	metrics := emf.New(emf.Options{Namespace: "Oxy/Kaana", Service: "kaana"})
 	defer metrics.Stop()
 	public, err := buildPublicAPI(publicAPIDependencies{
-		metrics:   metrics,
-		catalogue: declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, rotation: rotationRegistry, sessions: sessions,
+		commercial: deploymentCommercial,
+		metrics:    metrics,
+		catalogue:  declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, rotation: rotationRegistry, sessions: sessions,
 		store: credentialDatabase, keys: keys, oxy: validationReporter, logger: logger,
 	})
 	if err != nil {

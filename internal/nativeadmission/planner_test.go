@@ -187,7 +187,7 @@ func TestCostContextPrivacyAndCapabilitiesFailClosed(t *testing.T) {
 }
 func TestMalformedOrUnsupportedRequestsNeverFallBack(t *testing.T) {
 	p := planner(t, policy(), model("medium"))
-	for _, change := range []func(*Request){func(r *Request) { r.Operation = contract.GrantAudioSpeech }, func(r *Request) { r.Facts.MaxOutputTokens = ptr(8193) }, func(r *Request) { r.Facts.EstimatedInputTokens = nil }, func(r *Request) { r.Facts.EstimatedInputTokens = ptr(-1) }, func(r *Request) { r.Facts.DeclaredTools = 129 }, func(r *Request) { r.Facts.InputImages = ptr(-1) }, func(r *Request) { r.Facts.AudioInputMilliseconds = ptr(1) }} {
+	for _, change := range []func(*Request){func(r *Request) { r.Operation = contract.GrantAudioSpeech }, func(r *Request) { r.Facts.MaxOutputTokens = ptr(0) }, func(r *Request) { r.Facts.EstimatedInputTokens = nil }, func(r *Request) { r.Facts.EstimatedInputTokens = ptr(-1) }, func(r *Request) { r.Facts.DeclaredTools = 129 }, func(r *Request) { r.Facts.InputImages = ptr(-1) }, func(r *Request) { r.Facts.AudioInputMilliseconds = ptr(1) }} {
 		r := request()
 		change(&r)
 		if _, err := p.Plan(principal(), r); !errors.Is(err, ErrInvalidRequest) {
@@ -219,7 +219,7 @@ func TestImageBoundsAndDeclaredPrices(t *testing.T) {
 }
 func TestPolicyMustBeExplicitAndUnambiguous(t *testing.T) {
 	p := policy()
-	for _, change := range []func(*Policy){func(p *Policy) { p.Routes.Deployments = nil }, func(p *Policy) { p.Limits.MaxFundingTier = nil }, func(p *Policy) { p.Limits.MaxPricePerRequest = nil }, func(p *Policy) { p.MaxOutputTokens = 0 }, func(p *Policy) { p.ExecutionTimeout = 24 * time.Hour }} {
+	for _, change := range []func(*Policy){func(p *Policy) { p.Routes.Deployments = nil }, func(p *Policy) { p.Limits.MaxFundingTier = ptr(contract.FundingTier("invalid")) }, func(p *Policy) { p.Limits.MaxPricePerRequest = nil }, func(p *Policy) { p.MaxOutputTokens = 0 }, func(p *Policy) { p.ExecutionTimeout = 24 * time.Hour }} {
 		bad := clone(p)
 		change(&bad)
 		if _, err := NewPlanner([]Policy{bad}, nil); err == nil {
@@ -284,5 +284,55 @@ func TestUnknownStructuredCapabilityRequiresCurrentRouteAcceptance(t *testing.T)
 				t.Fatal("required evidence not persisted")
 			}
 		})
+	}
+}
+
+func TestOutputAllowanceNormalizesBeforeClassificationAndQuote(t *testing.T) {
+	p := policy()
+	planFor := planner(t, p, model("medium"), model("high"))
+	for _, requested := range []int{2560, 8192, 16384} {
+		r := request()
+		r.Facts.MaxOutputTokens = ptr(requested)
+		got, err := planFor.Plan(principal(), r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		effective := min(requested, p.MaxOutputTokens)
+		if got.OutputTokens != effective {
+			t.Fatalf("effective output %d != %d", got.OutputTokens, effective)
+		}
+		r.Facts.MaxOutputTokens = ptr(effective)
+		baseline, err := planFor.Plan(principal(), r)
+		if err != nil || got.Quote != baseline.Quote || got.Steps[0].Target.Reference() != baseline.Steps[0].Target.Reference() {
+			t.Fatal("normalization changed quote or classification")
+		}
+	}
+	for _, bad := range []int{0, -1} {
+		r := request()
+		r.Facts.MaxOutputTokens = ptr(bad)
+		if _, err := planFor.Plan(principal(), r); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatal("nonpositive output admitted")
+		}
+	}
+}
+
+func TestOptionalFundingCeilingRetainsOrdinaryPolicy(t *testing.T) {
+	p := policy()
+	p.Limits.MaxFundingTier = nil
+	got, err := planner(t, p, model("medium")).Plan(principal(), request())
+	if err != nil || got.Steps[0].Limits.MaxFundingTier != nil {
+		t.Fatal("ordinary policy invented a funding ceiling")
+	}
+	p.Routes.RequirePromotionalCredit = true
+	if _, err := NewPlanner([]Policy{p}, nil); err == nil {
+		t.Fatal("promotional policy missing credit ceiling admitted")
+	}
+	p.Limits.MaxFundingTier = ptr(contract.FundingTierCredit)
+	if _, err := NewPlanner([]Policy{p}, nil); err != nil {
+		t.Fatal(err)
+	}
+	p.Limits.MaxFundingTier = ptr(contract.FundingTier("invalid"))
+	if _, err := NewPlanner([]Policy{p}, nil); err == nil {
+		t.Fatal("invalid funding ceiling admitted")
 	}
 }

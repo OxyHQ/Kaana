@@ -33,5 +33,5 @@ func buildNativeAPI(deps publicAPIDependencies, getenv func(string) string) (*pu
 	if err != nil {
 		return nil, nil, err
 	}
-	return &publicapi.NativeConfig{Identity: identity, Store: store, Policies: policies, Promotions: publicapi.NativeFunding{Source: deps.store, Registry: deps.registry}}, closePool, nil
+	return &publicapi.NativeConfig{Commercial: deps.commercial, Identity: identity, Store: store, Policies: policies, Promotions: publicapi.NativeFunding{Source: deps.store, Registry: deps.registry}}, closePool, nil
 }

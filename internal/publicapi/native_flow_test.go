@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -100,7 +101,16 @@ func nativeFixture(t *testing.T) (*publicapi.NativeConfig, *nativeMemory, *publi
 		t.Fatal(err)
 	}
 	store := &nativeMemory{}
-	return &publicapi.NativeConfig{Identity: identity, Store: store, Policies: []nativeadmission.Policy{policy}}, store, catalogue
+	declarations := []map[string]any{}
+	for _, id := range []string{"dep_realtime", "dep_speech", "dep_stub_b", "dep_whisper"} {
+		declarations = append(declarations, map[string]any{"deploymentId": id, "commercial": map[string]any{"availabilityScope": "platform_internal", "commercialPermission": "standard_application_use"}})
+	}
+	commercialJSON, _ := json.Marshal(map[string]any{"$comment": "Synthetic reviewed fixture", "schemaVersion": 1, "deployments": declarations})
+	commercialTable, err := commercial.Parse(commercialJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &publicapi.NativeConfig{Commercial: commercialTable, Identity: identity, Store: store, Policies: []nativeadmission.Policy{policy}}, store, catalogue
 }
 
 func TestNativeTextHTTPUsesDurableAdmissionWithoutEconomicProxy(t *testing.T) {
@@ -300,7 +310,7 @@ func nativeAudioFixture(t *testing.T) (*publicapi.NativeConfig, *nativeMemory, *
 	return config, store, catalogue
 }
 func TestNativeSpeechAndTranscriptionUseServedAdapterCapabilities(t *testing.T) {
-	for _, operation := range []string{"speech", "transcriptions"} {
+	for _, operation := range []string{"speech", "speech_stream", "transcriptions"} {
 		t.Run(operation, func(t *testing.T) {
 			config, store, catalogue := nativeAudioFixture(t)
 			h := newHarness(t, harnessOptions{native: config, catalogue: catalogue})
@@ -308,7 +318,13 @@ func TestNativeSpeechAndTranscriptionUseServedAdapterCapabilities(t *testing.T) 
 			if operation == "transcriptions" {
 				body = map[string]any{"model": "stub/whisper", "audio": map[string]any{"mediaType": "audio/wav", "data": base64.StdEncoding.EncodeToString(wav(1500))}}
 			}
-			response := h.post("/v1/audio/"+operation, validKey, body)
+			endpoint := operation
+			if operation == "speech_stream" {
+				endpoint = "speech"
+				body["stream"] = true
+				body["stream_format"] = "sse"
+			}
+			response := h.post("/v1/audio/"+endpoint, validKey, body)
 			if response.StatusCode != 200 {
 				t.Fatalf("voice request failed %d %s", response.StatusCode, response.Body)
 			}
@@ -337,5 +353,57 @@ func TestNativeSpeechAndTranscriptionUseServedAdapterCapabilities(t *testing.T) 
 				t.Fatal("unsupported voice route reached admission/provider/old authority")
 			}
 		})
+	}
+}
+
+func TestNativeBackendOutputDefaultsUseEffectivePolicyBound(t *testing.T) {
+	for _, requested := range []int{2560, 8192, 16384} {
+		config, store, catalogue := nativeFixture(t)
+		h := newHarness(t, harnessOptions{native: config, catalogue: catalogue})
+		response := h.post("/v1/responses", validKey, map[string]any{"model": "auto", "input": "hello", "maxOutputTokens": requested})
+		if response.StatusCode != 200 {
+			t.Fatalf("requested %d: status %d: %s", requested, response.StatusCode, response.Body)
+		}
+		call := h.adapter.lastCall()
+		if call == nil || call.MaxOutputTokens == nil || *call.MaxOutputTokens != min(requested, 8192) {
+			t.Fatal("provider escaped effective allowance")
+		}
+		store.mu.Lock()
+		completed := store.staged == 1 && store.settled == 1
+		store.mu.Unlock()
+		if !completed {
+			t.Fatal("normalized request missed durable completion")
+		}
+	}
+}
+
+func TestNativeCommercialDeclarationRequiredBeforeAdmission(t *testing.T) {
+	for _, scope := range []string{"absent", "enterprise", "byok_only"} {
+		config, store, catalogue := nativeFixture(t)
+		entries := []map[string]any{}
+		if scope != "absent" {
+			permission := "standard_application_use"
+			if scope == "byok_only" {
+				permission = "customer_byok"
+			}
+			entries = append(entries, map[string]any{"deploymentId": "dep_stub_b", "commercial": map[string]any{"availabilityScope": scope, "commercialPermission": permission}})
+		}
+		raw, _ := json.Marshal(map[string]any{"$comment": "Synthetic excluded declaration", "schemaVersion": 1, "deployments": entries})
+		table, err := commercial.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config.Commercial = table
+		h := newHarness(t, harnessOptions{native: config, catalogue: catalogue})
+		response := h.post("/v1/responses", validKey, map[string]any{"model": "auto", "input": "hello"})
+		if response.StatusCode == 200 || h.adapter.lastCall() != nil {
+			t.Fatal("unapproved commercial scope executed")
+		}
+		store.mu.Lock()
+		admitted := store.admission != nil
+		store.mu.Unlock()
+		if admitted {
+			t.Fatal("commercial refusal happened after durable admission")
+		}
 	}
 }

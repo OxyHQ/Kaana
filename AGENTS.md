@@ -40,6 +40,7 @@ bun run lint:fix                                 # apply Biome fixes
   - public dialects: [anthropic-messages](docs/anthropic-messages.md), [json-repair](docs/json-repair.md), [decisions](docs/decisions.md)
   - providers: [adapters](docs/adapters.md), [provider-onboarding](docs/provider-onboarding.md) ([dated reviews](docs/provider-onboarding-log.md)), [realtime](docs/realtime.md) ([findings](docs/realtime-findings.md)), [openai-audio](docs/openai-audio.md), [elevenlabs](docs/elevenlabs.md), [deepgram](docs/deepgram.md)
   - rollout records (history, not rules): [schema-0013](docs/schema-0013-cutover-2026-09-24.md), [credential-id cutover](docs/provider-credential-id-cutover.md), [first-party-producer](docs/first-party-producer.md), [first-party-transport](docs/first-party-transport.md), [platform-activity](docs/platform-activity.md), [groq-token-capacity](docs/groq-token-capacity-2026-09-13.md), [scoped-attempt-claims](docs/scoped-attempt-claims.md)
+  - native authority rollout: [native-admission-cutover](docs/native-admission-cutover.md)
   - decisions: [docs/adr/](docs/adr/); reproducibility claims: [determinism](docs/determinism.md)
 
 ## Conventions that differ from defaults

@@ -46,6 +46,7 @@ on:
       - 'configs/provider-rates.json'
       - 'configs/public-catalogue.json'
       - 'configs/deployment-commercial.json'
+      - 'configs/native-admission/alia-kaana-v1.json'
       - '.github/credential-admin-operations.json'
       - '.github/workflows/deploy-aws.yml'
       - '.github/scripts/realtime-peer-vpc.py'

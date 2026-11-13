@@ -86,8 +86,8 @@ func TestWriteWireFixtures(t *testing.T) {
 	if len(valid) != 125 {
 		t.Fatalf("expected 125 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 59 {
-		t.Fatalf("expected 59 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 60 {
+		t.Fatalf("expected 60 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 
 	}
 
@@ -108,7 +108,7 @@ func fixtureOutputRoot(t *testing.T) string {
 	} else if !filepath.IsAbs(root) {
 		t.Fatalf("%s must be an absolute path, got %q", fixtureOutputEnv, root)
 	}
-	if err := os.Mkdir(root, 0o759); err != nil {
+	if err := os.Mkdir(root, 0o760); err != nil {
 		t.Fatalf("creating fresh fixture root %s: %v", root, err)
 	}
 	return root
@@ -116,7 +116,7 @@ func fixtureOutputRoot(t *testing.T) string {
 
 func writeFixtures(t *testing.T, dir string, fixtures []fixture) {
 	t.Helper()
-	if err := os.Mkdir(dir, 0o759); err != nil {
+	if err := os.Mkdir(dir, 0o760); err != nil {
 		t.Fatalf("creating %s: %v", dir, err)
 	}
 	for index, item := range fixtures {

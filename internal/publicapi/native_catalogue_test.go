@@ -109,16 +109,18 @@ func TestReviewedReasoningOutputFitsDeclaredTariffAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := contract.AccountID("reviewed-owner")
-	principal := contract.IdentityPrincipal{OwnerAccountID: &owner, ApplicationID: "reviewed-app", CredentialID: "reviewed-workload", Environment: contract.EnvironmentProduction, Lane: contract.IdentityLaneService, Authority: contract.IdentityAuthorityFirstParty, ApplicationClass: "internal", ApplicationIsInternal: true}
-	tier := contract.FundingTierPaid
-	p := nativeadmission.Policy{ID: "reviewed-output-budget", Version: 1, Enabled: true, CredentialIDs: []contract.CredentialID{principal.CredentialID}, OwnerAccountID: owner, ApplicationID: principal.ApplicationID, Environment: principal.Environment, Lane: principal.Lane, Authority: contract.AuthorityFirstParty, ApplicationClass: principal.ApplicationClass, ApplicationIsInternal: true, Audience: contract.AudiencePlatformInternal, AllowedLevels: []contract.PowerLevel{contract.PowerAuto, contract.PowerHigh, contract.PowerXHigh}, Routes: nativeadmission.RouteScope{Mode: "exact", Deployments: []nativeadmission.RoutePermission{{DeploymentID: "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_09_01", ModelReference: reference, Provider: "openrouter"}}}, Limits: contract.GrantStepLimits{MaxPricePerRequest: &contract.Money{Amount: "0.05", Currency: "USD"}, MaxFundingTier: &tier, RequireZeroDataRetention: true, ProhibitTrainingOnCustomerData: true}, MaxInputTokens: 126976, MaxOutputTokens: 8192, DefaultOutputTokens: 8192, MaxTools: 128, MaxConcurrent: 32, MaxPerUTCDay: 5000, ExecutionTimeout: time.Minute}
+	policies, err := nativeadmission.LoadPolicyFile("../../configs/native-admission/alia-kaana-v1.json", "682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2")
+	if err != nil || len(policies) != 1 {
+		t.Fatal("reviewed policy file invalid")
+	}
+	p := policies[0]
+	principal := contract.IdentityPrincipal{OwnerAccountID: &p.OwnerAccountID, ApplicationID: p.ApplicationID, CredentialID: p.CredentialIDs[0], Environment: p.Environment, Lane: p.Lane, Authority: contract.IdentityAuthority(p.Authority), ApplicationClass: p.ApplicationClass, ApplicationIsInternal: p.ApplicationIsInternal}
 	planner, err := nativeadmission.NewPlanner([]nativeadmission.Policy{p}, models)
 	if err != nil {
 		t.Fatal(err)
 	}
 	target := contract.LevelTarget(contract.PowerAuto)
-	input, output := 126976, 8192
+	input, output := 126976, 16384
 	request := nativeadmission.Request{Operation: contract.GrantResponses, Target: &target, Facts: contract.GrantRequestFacts{EstimatedInputTokens: &input, MaxOutputTokens: &output}, StructuredOutput: true}
 	plan, err := planner.Plan(principal, request)
 	if err != nil {
@@ -139,7 +141,7 @@ func TestReviewedReasoningOutputFitsDeclaredTariffAndContext(t *testing.T) {
 		t.Fatal("price bound did not refuse larger output")
 	}
 	p.Limits.MaxPricePerRequest = &contract.Money{Amount: "0.05", Currency: "USD"}
-	models[0].MaxContextTokens = input + output - 1
+	models[0].MaxContextTokens = input + p.MaxOutputTokens - 1
 	planner, err = nativeadmission.NewPlanner([]nativeadmission.Policy{p}, models)
 	if err != nil {
 		t.Fatal(err)

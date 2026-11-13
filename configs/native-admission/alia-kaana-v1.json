@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 1,
+  "policies": [
+    {
+      "economicTreatment": "internal_metered",
+      "credentialIds": [
+        "wl_d50a0056191d0448024900b4"
+      ],
+      "id": "alia-kaana-native",
+      "version": 1,
+      "enabled": true,
+      "ownerAccountId": "01a0369b-1222-712f-8df6-f8ffeb78ccc2",
+      "applicationId": "6a2f851751b784a86fd0e934",
+      "environment": "production",
+      "lane": "service_token",
+      "authority": "first_party",
+      "applicationClass": "internal",
+      "applicationIsInternal": true,
+      "audience": "platform_internal",
+      "allowedLevels": [
+        "auto",
+        "instant",
+        "medium",
+        "high",
+        "xhigh",
+        "pro",
+        "ultra"
+      ],
+      "allowedModels": [
+        "anthropic/claude-haiku-4.5",
+        "anthropic/claude-sonnet-5",
+        "deepseek/deepseek-v4-flash-0731",
+        "openai/gpt-5.4-nano",
+        "openai/gpt-oss-120b",
+        "x-ai/text-to-speech"
+      ],
+      "routes": {
+        "mode": "exact",
+        "requirePromotionalCredit": false,
+        "deployments": [
+          {
+            "deploymentId": "dep_cerebras_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "cerebras"
+          },
+          {
+            "deploymentId": "dep_groq_openai_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "groq"
+          },
+          {
+            "deploymentId": "dep_openrouter_openai_gpt_oss_120b_observed_2026_09_01",
+            "modelReference": "openai/gpt-oss-120b@observed-2026-09-01",
+            "provider": "openrouter"
+          },
+          {
+            "deploymentId": "dep_openrouter_deepseek_deepseek_v4_flash_0731_observed_2026_09_01",
+            "modelReference": "deepseek/deepseek-v4-flash-0731@observed-2026-09-01",
+            "provider": "openrouter"
+          }
+        ]
+      },
+      "imageInput": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.15",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "exact",
+          "requirePromotionalCredit": false,
+          "deployments": [
+            {
+              "deploymentId": "dep_openrouter_openai_gpt_5_4_nano_observed_2026_09_01",
+              "modelReference": "openai/gpt-5.4-nano@observed-2026-09-01",
+              "provider": "openrouter"
+            },
+            {
+              "deploymentId": "dep_openrouter_anthropic_claude_haiku_4_5_observed_2026_09_01",
+              "modelReference": "anthropic/claude-haiku-4.5@observed-2026-09-01",
+              "provider": "openrouter"
+            },
+            {
+              "deploymentId": "dep_openrouter_anthropic_claude_sonnet_5_observed_2026_09_01",
+              "modelReference": "anthropic/claude-sonnet-5@observed-2026-09-01",
+              "provider": "openrouter"
+            }
+          ]
+        },
+        "maxImages": 16
+      },
+      "promotional": {
+        "levels": [
+          "pro",
+          "ultra"
+        ],
+        "fallbackLevel": "xhigh",
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "1.00",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true,
+          "maxFundingTier": "credit"
+        },
+        "routes": {
+          "mode": "eligible",
+          "requirePromotionalCredit": true
+        }
+      },
+      "speech": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.25",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "exact",
+          "requirePromotionalCredit": false,
+          "deployments": [
+            {
+              "deploymentId": "dep_xai_tts_observed_2026_09_24",
+              "modelReference": "x-ai/text-to-speech@observed-2026-09-24",
+              "provider": "xai"
+            }
+          ]
+        },
+        "maxInput": 15000,
+        "allowCatalogueModels": false
+      },
+      "transcription": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.05",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "eligible",
+          "requirePromotionalCredit": false
+        },
+        "maxInput": 300000,
+        "allowCatalogueModels": true
+      },
+      "realtime": {
+        "limits": {
+          "providerAllowlist": [],
+          "providerDenylist": [],
+          "allowedRegions": [],
+          "deniedRegions": [],
+          "requireZeroDataRetention": false,
+          "prohibitTrainingOnCustomerData": false,
+          "allowedLicenseIds": [],
+          "requireCommercialUseRights": false,
+          "maxPricePerRequest": {
+            "amount": "0.25",
+            "currency": "USD"
+          },
+          "admittedModelLines": [],
+          "sameModelFailover": true
+        },
+        "routes": {
+          "mode": "eligible",
+          "requirePromotionalCredit": false
+        },
+        "maxInput": 126976,
+        "allowCatalogueModels": true,
+        "sessionKinds": [
+          "conversation",
+          "transcription"
+        ],
+        "maxSessionDuration": 1800000000000,
+        "maxSessionResponses": 500
+      },
+      "limits": {
+        "providerAllowlist": [],
+        "providerDenylist": [],
+        "allowedRegions": [],
+        "deniedRegions": [],
+        "requireZeroDataRetention": false,
+        "prohibitTrainingOnCustomerData": false,
+        "allowedLicenseIds": [],
+        "requireCommercialUseRights": false,
+        "maxPricePerRequest": {
+          "amount": "0.05",
+          "currency": "USD"
+        },
+        "admittedModelLines": [],
+        "sameModelFailover": true
+      },
+      "maxInputTokens": 126976,
+      "maxOutputTokens": 8192,
+      "defaultOutputTokens": 8192,
+      "maxTools": 128,
+      "maxConcurrent": 32,
+      "maxPerUtcDay": 5000,
+      "executionTimeout": 900000000000
+    }
+  ]
+}

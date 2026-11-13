@@ -97,8 +97,8 @@ func (p Policy) validate() error {
 	if len(p.AllowedLevels)+len(p.AllowedModels) == 0 {
 		return errors.New("nativeadmission: policy requires explicit models or levels and deployments")
 	}
-	if p.Limits.MaxPricePerRequest == nil || p.Limits.MaxFundingTier == nil || !p.Limits.MaxFundingTier.Valid() || len(p.Limits.AdmittedModelLines) != 0 {
-		return errors.New("nativeadmission: policy requires price/funding bounds and cannot pre-admit models")
+	if p.Limits.MaxPricePerRequest == nil || (p.Limits.MaxFundingTier != nil && !p.Limits.MaxFundingTier.Valid()) || len(p.Limits.AdmittedModelLines) != 0 {
+		return errors.New("nativeadmission: policy requires price bounds and valid optional funding ceilings and cannot pre-admit models")
 	}
 	if _, err := moneyRat(*p.Limits.MaxPricePerRequest); err != nil {
 		return err
@@ -220,8 +220,8 @@ type OperationPolicy struct {
 }
 
 func validateTerms(limits contract.GrantStepLimits, routes RouteScope) error {
-	if limits.MaxPricePerRequest == nil || limits.MaxFundingTier == nil || !limits.MaxFundingTier.Valid() || len(limits.AdmittedModelLines) != 0 {
-		return errors.New("nativeadmission: terms require explicit price/funding limits")
+	if limits.MaxPricePerRequest == nil || (limits.MaxFundingTier != nil && !limits.MaxFundingTier.Valid()) || len(limits.AdmittedModelLines) != 0 {
+		return errors.New("nativeadmission: terms require explicit price limits and valid optional funding ceilings")
 	}
 	if _, err := moneyRat(*limits.MaxPricePerRequest); err != nil {
 		return err
@@ -243,7 +243,7 @@ func validateTerms(limits contract.GrantStepLimits, routes RouteScope) error {
 	default:
 		return errors.New("nativeadmission: route scope must be explicit")
 	}
-	if routes.RequirePromotionalCredit && *limits.MaxFundingTier != contract.FundingTierCredit {
+	if routes.RequirePromotionalCredit && (limits.MaxFundingTier == nil || *limits.MaxFundingTier != contract.FundingTierCredit) {
 		return errors.New("nativeadmission: promotional scope requires credit ceiling")
 	}
 	return nil

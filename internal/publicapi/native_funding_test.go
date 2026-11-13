@@ -68,3 +68,19 @@ func TestNativeFundingUsesActualBindingAndLocalEvidenceOnly(t *testing.T) {
 		t.Fatal("read failure created funding evidence")
 	}
 }
+
+func TestOrdinaryNativeFundingWithoutCeilingPreservesEveryExistingTier(t *testing.T) {
+	for _, category := range []provider.Funding{provider.FundingFree, provider.FundingPrepaid, provider.FundingPaid, provider.FundingUnstated} {
+		pool, err := provider.NewKeyPool("stub", []provider.KeyDeclaration{{KeyID: "fixture", Secret: "synthetic-only", Funding: category}}, provider.KeyPolicy{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		registry, err := provider.NewRegistry(&stubAdapter{pool: pool})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := (publicapi.RegistryFunding{Registry: registry}).CheapestTier(provider.Route{DeploymentID: "fixture", Provider: "stub"}, provider.FundingTierNone); !ok {
+			t.Fatalf("ordinary ceiling excluded %s", category)
+		}
+	}
+}

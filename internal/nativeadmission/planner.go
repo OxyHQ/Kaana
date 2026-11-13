@@ -200,11 +200,12 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 	if request.Facts.MaxOutputTokens != nil {
 		output = *request.Facts.MaxOutputTokens
 	}
-	if output <= 0 || output > policy.MaxOutputTokens {
-		return Plan{}, fmt.Errorf("%w: output exceeds policy", ErrInvalidRequest)
+	if output <= 0 {
+		return Plan{}, fmt.Errorf("%w: output must be positive", ErrInvalidRequest)
 	}
-	// Do not silently shrink a declared output allowance. It is both a reasoning
-	// budget and an economic request; a smaller value changes the caller's task.
+	// Preserve the previous edge's admission normalization: the policy ceiling
+	// bounds classification, quoting and execution of a larger caller allowance.
+	output = min(output, policy.MaxOutputTokens)
 	if request.SessionMaxDuration != 0 || request.SessionMaxResponses != 0 {
 		return Plan{}, ErrInvalidRequest
 	}
@@ -373,7 +374,7 @@ func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy
 	input := 0
 	switch r.Operation {
 	case contract.GrantAudioSpeech:
-		if r.Facts.InputCharacters == nil || r.Facts.AudioInputMilliseconds != nil || r.Facts.RealtimeSessionKind != nil || r.Facts.Stream || r.Facts.DeclaredTools != 0 || r.Facts.EstimatedInputTokens != nil {
+		if r.Facts.InputCharacters == nil || r.Facts.AudioInputMilliseconds != nil || r.Facts.RealtimeSessionKind != nil || r.Facts.DeclaredTools != 0 || r.Facts.EstimatedInputTokens != nil {
 			return Plan{}, ErrInvalidRequest
 		}
 		input = *r.Facts.InputCharacters

@@ -34,12 +34,49 @@ fees, rather than treating a per-minute amount as a session hold.
 The new output ceiling of 8,192 is the reviewed implementation choice addressing
 observed reasoning exhaustion under the former 2,048 clamp. It can increase actual
 usage within unchanged monetary caps; the catalogue's price/context bounds still
-qualify each request. It is not evidence that the user selected a token amount.
+qualify each request. As in the previous edge, a positive caller allowance is
+normalized to `min(requested, policy ceiling)` before auto classification, quotation
+and execution. Backend defaults of 16,384 become 8,192; utility requests of 2,560
+remain 2,560. Nonpositive allowances are refused. It is not evidence that the user selected a token amount.
 Promotional availability is checked against local current credential economics;
-execution retains the existing free → credit → paid ordering and credit ceiling,
-including prepaid within that ceiling. Unknown or unavailable promotional evidence
+execution retains the existing free → credit → paid ordering. Only promotional
+steps impose the existing credit ceiling, including prepaid within that ceiling.
+Ordinary text and voice preserve the absence of a funding ceiling, including
+unknown funding after known tiers. Unknown or unavailable promotional evidence
 cannot admit that step. No provider secret or Oxy economic authorization is needed
 for this local check.
+
+## Initial policy evidence
+
+The inactive image artifact is `configs/native-admission/alia-kaana-v1.json`,
+policy `alia-kaana-native` version 1. Its file SHA256 is
+`682ee01191981e4ceaff0ec163061ef99ac02b8598c34977da18ce293b56bfa2`;
+its canonical policy digest is
+`94bc525a54452211cdeb1b8257d0bf616c35139e180b2fdc60272deaa77d27b1`.
+It contains the one live eligible workload handle, not all historical credential
+rows. Registration and configuration still do not activate it.
+
+The 2026-11-13 read-only probes used the deployed Oxy source
+`b8294d61f5f44b9f7fdc9cfb343bd93a55b3f2ff` for the effective-policy double read.
+The private principal artifact SHA256 is
+`dec5b62496e182dd4cac62c4e0d0689efd5c02b4bb8315d8a4a7eb6c8bb62c36`;
+the effective-policy artifact SHA256 is
+`bb68585cece783281509cc5773b32833488eb0be64a571202895257ed31e617c`.
+Both probes confirmed their deployed image and stopped successfully without
+inference or financial writes. The effective routing policy is absent, all seven
+power levels have profiles, allowed-profile restrictions and default target are
+absent, same-model failover is enabled, and Console capacity overrides are null.
+Provider/region/license lists are empty; ZDR, no-training, commercial-use-rights
+and hosted-only requirements are false; BYOK and dedicated capacity are disabled.
+The native policy preserves these facts rather than adding privacy or funding
+restrictions. Its exact routes retain Kaana's reviewed commercial declarations;
+missing declarations and enterprise/BYOK-only routes are refused before admission.
+
+The packaged policy is tested against the real declared tariff: 126,976 input
+units plus the normalized 8,192 output allowance on the reviewed DeepSeek 0731
+route quotes USD 0.007274496000, below USD 0.05. Lower monetary ceilings and an
+insufficient context window still refuse it. These are deterministic price and
+admission checks, not live provider inference or proof of deployment.
 
 ## Database authority and artifact
 
@@ -67,8 +104,10 @@ bounded status/digests, not database errors or credentials.
 
 ## Ordered activation
 
-1. Deploy Gemies' direct Kaana transport first and verify its exact served image.
-   Before this cutover Kaana still uses the old content-free financial grant lane.
+1. Keep Gemies on its compatible pre-cutover transport until native activation.
+   The old public grant lane refuses the backend's ordinary 16,384-token default;
+   deploying direct transport against that lane is not a compatible staging step.
+   Prepare the reviewed direct-transport image for the bounded maintenance window.
 2. Deploy native-capable Kaana code with native configuration absent. Verify the
    exact fleet image and identity-only endpoint from Kaana's real workload. That
    canary verifies a signed identity assertion without provider execution,
@@ -93,7 +132,8 @@ bounded status/digests, not database errors or credentials.
    manifest on stdin. One transaction verifies and inserts every permanent old
    key/request alias, records immutable import evidence, and activates the exact
    policy pointer. Any mismatch or write failure rolls back the whole operation.
-8. Verify exact live source/image/config hashes, native generation records,
+8. Deploy Gemies' reviewed direct transport only after native activation, then
+   verify exact live source/image/config hashes, native generation records,
    all Gemies text and voice operations, completion replay after process loss,
    policy/capacity refusal, and no old financial authorization or settlement for
    new native admissions. A failure never retries inference through Oxy.

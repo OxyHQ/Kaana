@@ -49,3 +49,7 @@
 # builder on every build.
 **/*_test.go
 internal/contract/testdata/**
+
+# Reviewed native policies, inactive without explicit runtime configuration.
+!configs/native-admission/
+!configs/native-admission/alia-kaana-v1.json

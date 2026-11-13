@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/commercial"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
@@ -26,16 +27,17 @@ import (
 
 // publicAPIDependencies is what the public API is built from.
 type publicAPIDependencies struct {
-	catalogue *publicapi.PublicCatalogue
-	costs     *providercost.Cards
-	executor  *kaana.Executor
-	inventory *inventory.Store
-	registry  *provider.Registry
-	rotation  *rotation.Registry
-	metrics   emf.Recorder
-	sessions  *realtime.Manager
-	store     *credentialstore.Postgres
-	keys      map[string]ed25519.PublicKey
+	commercial *commercial.Table
+	catalogue  *publicapi.PublicCatalogue
+	costs      *providercost.Cards
+	executor   *kaana.Executor
+	inventory  *inventory.Store
+	registry   *provider.Registry
+	rotation   *rotation.Registry
+	metrics    emf.Recorder
+	sessions   *realtime.Manager
+	store      *credentialstore.Postgres
+	keys       map[string]ed25519.PublicKey
 	// oxy is Kaana's access to Oxy's /internal/kaana/v1/*: the token for it
 	// (audience oxy-api:kaana-control; an oxy-api token is refused there with
 	// 401) and each route on the Oxy origin KAANA_OXY_API_BASE_URL names.
