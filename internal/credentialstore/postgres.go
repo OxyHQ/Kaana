@@ -97,6 +97,13 @@ type Postgres struct {
 	databaseIdentity postgresDatabaseIdentity
 }
 
+// MigrateDatabase applies the credential/cost schema on an explicitly supplied
+// administrative connection. It opens no connection and is never a serving
+// constructor; coordinated database migrations can share one verified pool.
+func MigrateDatabase(ctx context.Context, pool *pgxpool.Pool) error {
+	return (&Postgres{pool: pool}).Migrate(ctx)
+}
+
 type postgresDatabaseIdentity struct {
 	host     string
 	port     uint16

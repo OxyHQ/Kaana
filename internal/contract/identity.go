@@ -199,6 +199,13 @@ func (a IdentityAssertion) Validate() error {
 	return a.Principal.Validate()
 }
 
+// Current uses the same timestamp grammar as the signed contract validator.
+func (a IdentityAssertion) Current(now time.Time) bool {
+	issued, issuedErr := identityTime(a.IssuedAt)
+	expires, expiresErr := identityTime(a.ExpiresAt)
+	return issuedErr == nil && expiresErr == nil && !now.Before(issued) && now.Before(expires)
+}
+
 func identityDecode(data []byte, v any) error {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()

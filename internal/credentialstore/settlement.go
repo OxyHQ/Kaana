@@ -51,6 +51,26 @@ var ErrSettlementConflict = errors.New("credential store: settlement identity co
 
 var settlementFailurePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
+// RecordProviderCostsInTransaction keeps the one cost encoding and atomicity
+// when a native Kaana admission owns settlement instead of the legacy outbox.
+func RecordProviderCostsInTransaction(ctx context.Context, tx pgx.Tx, events []providercost.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	payload, err := encodeProviderCostEvents(events)
+	if err != nil {
+		return err
+	}
+	var recorded int
+	if err := tx.QueryRow(ctx, `SELECT kaana_record_provider_attempt_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
+		return fmt.Errorf("credential store: recording provider costs: %w", err)
+	}
+	if recorded != len(events) {
+		return errors.New("credential store: provider cost batch was incomplete")
+	}
+	return nil
+}
+
 // RecordSettlement writes a request's provider cost events and its settlement
 // in ONE transaction. Either both are durable or neither is; a retried call
 // with the same bytes is a replay, not a second row.
@@ -63,18 +83,8 @@ func (p *Postgres) RecordSettlement(ctx context.Context, events []providercost.E
 		return fmt.Errorf("credential store: beginning settlement transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if len(events) > 0 {
-		payload, err := encodeProviderCostEvents(events)
-		if err != nil {
-			return err
-		}
-		var recorded int
-		if err := tx.QueryRow(ctx, `SELECT kaana_record_provider_attempt_events($1::jsonb)`, payload).Scan(&recorded); err != nil {
-			return fmt.Errorf("credential store: recording the settlement's provider cost events: %w", err)
-		}
-		if recorded != len(events) {
-			return fmt.Errorf("credential store: provider cost event batch recorded %d of %d attempts", recorded, len(events))
-		}
+	if err := RecordProviderCostsInTransaction(ctx, tx, events); err != nil {
+		return err
 	}
 	var outcome string
 	if err := tx.QueryRow(ctx, `SELECT kaana_enqueue_settlement($1, $2, $3, $4)`,
