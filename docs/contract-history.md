@@ -5,6 +5,20 @@
 > in [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md); this file also carries
 > sets 3.8.0 to 7.0.0, which that changelog never recorded, and the longer reasoning behind each set.
 
+## Contract set 8.13.0: identity assertions without economic authority
+
+MINOR, `@kaana.ai/contracts` 8.13.0. Adds `kaanaIdentityRequestSchema`,
+`kaanaIdentityPrincipalSchema` and `kaanaIdentityAssertionSchema` to the internal
+entry. Oxy asserts live workload or external-key identity under the separate
+`oxy-kaana-identity:v1` signature domain; assertions bind the exact authentication
+request and expire within 60 seconds. They contain no inference content, model,
+route, spending policy or reservation. User attribution is not person authority.
+Product sessions are not admitted by this identity contract.
+
+Existing grants, settlements and public request/response shapes are unchanged.
+This foundation does not activate native Kaana admissions or migrate balances;
+those require their own implementation and reviewed enrollment.
+
 ## Contract set 8.12.0: image generation controls in the envelope
 
 MINOR, `@kaana.ai/contracts` 8.12.0. Additive; everything 8.11.0 parses still

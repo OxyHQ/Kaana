@@ -20,6 +20,7 @@ export * from './internal/embeddings.js';
 export * from './internal/errors.js';
 export * from './internal/grant.js';
 export * from './internal/identifiers.js';
+export * from './internal/identity.js';
 export * from './internal/realtime.js';
 export * from './internal/request.js';
 export * from './internal/routing.js';

@@ -83,6 +83,9 @@ func loadDescriptor(t *testing.T) descriptorFile {
 // TestEveryPublishedShapeIsAccountedFor, which is what stops a new contract
 // shape from arriving unnoticed.
 var goShapes = map[string]reflect.Type{
+	"kaanaIdentityRequestSchema":             reflect.TypeOf(IdentityRequest{}),
+	"kaanaIdentityPrincipalSchema":           reflect.TypeOf(IdentityPrincipal{}),
+	"kaanaIdentityAssertionSchema":           reflect.TypeOf(IdentityAssertion{}),
 	"decisionInputSchema":                    reflect.TypeOf(DecisionInput{}),
 	"decisionQuestionSchema":                 reflect.TypeOf(DecisionQuestion{}),
 	"decisionAnswerSchema":                   reflect.TypeOf(DecisionAnswer{}),
@@ -240,6 +243,8 @@ var goShapes = map[string]reflect.Type{
 // ordered list: a member added upstream and not here is an unhandled value, and
 // a member here and not upstream is a value Kaana could emit that Oxy rejects.
 var goEnums = map[string]enumBinding{
+	"kaanaIdentityLaneSchema":                     bindEnum(identityLaneValues),
+	"kaanaIdentityApplicationClassSchema":         bindEnum(identityApplicationClassValues),
 	"decisionEffortSchema":                        bindEnum(decisionEffortValues),
 	"inferenceEnvironmentSchema":                  bindEnum(environmentValues),
 	"inferenceFundingTierSchema":                  bindEnum(fundingTierValues),
@@ -682,6 +687,7 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 	// that differ by one letter is every read refused as unsigned, which is what
 	// the reconciliation read was until 2026-10-15.
 	for constant, got := range map[string]string{
+		"IDENTITY_SIGNATURE_DOMAIN":        IdentitySignatureDomain,
 		"GRANT_SIGNATURE_DOMAIN":           GrantSignatureDomain,
 		"SETTLEMENT_SIGNATURE_DOMAIN":      SettlementSignatureDomain,
 		"SETTLEMENT_READ_SIGNATURE_DOMAIN": SettlementReadSignatureDomain,

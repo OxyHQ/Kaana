@@ -164,6 +164,11 @@ func NewGrantVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) 
 	return newVerifier(keys, maxSkew, grantDomainSeparator)
 }
 
+// NewIdentityVerifier accepts identity assertions, never economic grants.
+func NewIdentityVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
+	return newVerifier(keys, maxSkew, contract.IdentitySignatureDomain)
+}
+
 // NewSettlementReadVerifier builds the verifier for Oxy's reconciliation read
 // of the settlement outbox.
 func NewSettlementReadVerifier(keys map[string]ed25519.PublicKey, maxSkew time.Duration) (*Verifier, error) {
@@ -260,6 +265,11 @@ func ProviderTelemetrySigningInput(keyID string, timestampMillis int64, body []b
 // GrantSigningInput is the exact input Oxy signs for a grant body.
 func GrantSigningInput(keyID string, timestampMillis int64, body []byte) []byte {
 	return signingInput(grantDomainSeparator, keyID, timestampMillis, body)
+}
+
+// IdentitySigningInput separates identity facts from spending authorizations.
+func IdentitySigningInput(keyID string, timestampMillis int64, body []byte) []byte {
+	return signingInput(contract.IdentitySignatureDomain, keyID, timestampMillis, body)
 }
 
 // SettlementReadSigningInput is the exact input Oxy signs to read the
