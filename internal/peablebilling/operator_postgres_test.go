@@ -186,3 +186,36 @@ func TestPostgresOperatorRejectsDirectFinancialFunction(t *testing.T) {
 	}
 	closePool()
 }
+
+func TestPostgresOperatorRejectsCrossActionSessionFunction(t *testing.T) {
+	f := database(t)
+	for _, tc := range []struct{ role, action, signature string }{
+		{"kaana_peable_billing_runtime", "inspect", "kaana_peable_billing.prepare_draft(text,text,text[],integer)"},
+		{"kaana_peable_billing_admin", "prepare", "kaana_peable_billing.claim_step(text,text)"},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			cfg, login := operatorLogin(t, f, tc.role)
+			revoke := "REVOKE EXECUTE ON FUNCTION " + tc.signature + " FROM " + pgx.Identifier{login}.Sanitize()
+			if _, err := f.ownerDB.Exec(f.ctx, "GRANT EXECUTE ON FUNCTION "+tc.signature+" TO "+pgx.Identifier{login}.Sanitize()); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _, _ = f.ownerDB.Exec(f.ctx, revoke) }()
+			var granted bool
+			if err := f.ownerDB.QueryRow(f.ctx, `SELECT has_function_privilege($1,$2,'EXECUTE')`, login, tc.signature).Scan(&granted); err != nil || !granted {
+				t.Fatal("no actual excess grant", err)
+			}
+			if _, closePool, err := openOperatorConfig(f.ctx, cfg, tc.action); err == nil {
+				closePool()
+				t.Fatal("cross-action login execution accepted")
+			}
+			if _, err := f.ownerDB.Exec(f.ctx, revoke); err != nil {
+				t.Fatal(err)
+			}
+			_, closePool, err := openOperatorConfig(f.ctx, cfg, tc.action)
+			if err != nil {
+				t.Fatal(err)
+			}
+			closePool()
+		})
+	}
+}
