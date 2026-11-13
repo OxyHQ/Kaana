@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -38,7 +39,12 @@ type Policy struct {
 	Audience              contract.CatalogueAudience        `json:"audience"`
 	AllowedLevels         []contract.PowerLevel             `json:"allowedLevels"`
 	AllowedModels         []contract.ModelID                `json:"allowedModels"`
-	AllowedDeploymentIDs  []contract.DeploymentID           `json:"allowedDeploymentIds"`
+	Routes                RouteScope                        `json:"routes"`
+	ImageInput            *ImageInputPolicy                 `json:"imageInput,omitempty"`
+	Promotional           *PromotionalPolicy                `json:"promotional,omitempty"`
+	Speech                *OperationPolicy                  `json:"speech,omitempty"`
+	Transcription         *OperationPolicy                  `json:"transcription,omitempty"`
+	Realtime              *OperationPolicy                  `json:"realtime,omitempty"`
 	Limits                contract.GrantStepLimits          `json:"limits"`
 	MaxInputTokens        int                               `json:"maxInputTokens"`
 	MaxOutputTokens       int                               `json:"maxOutputTokens"`
@@ -67,7 +73,7 @@ func (p Policy) validate() error {
 	if p.Audience == contract.AudiencePlatformInternal && (!p.ApplicationIsInternal || p.Authority != contract.AuthorityFirstParty) {
 		return errors.New("nativeadmission: internal catalogue requires an enrolled internal workload")
 	}
-	if len(p.AllowedDeploymentIDs) == 0 || len(p.AllowedLevels)+len(p.AllowedModels) == 0 {
+	if len(p.AllowedLevels)+len(p.AllowedModels) == 0 {
 		return errors.New("nativeadmission: policy requires explicit models or levels and deployments")
 	}
 	if p.Limits.MaxPricePerRequest == nil || p.Limits.MaxFundingTier == nil || !p.Limits.MaxFundingTier.Valid() || len(p.Limits.AdmittedModelLines) != 0 {
@@ -86,11 +92,53 @@ func (p Policy) validate() error {
 			return errors.New("nativeadmission: invalid policy model")
 		}
 	}
-	for _, id := range p.AllowedDeploymentIDs {
-		if id == "" {
-			return errors.New("nativeadmission: empty deployment permission")
+	if err := validateTerms(p.Limits, p.Routes); err != nil {
+		return err
+	}
+	if p.ImageInput != nil {
+		if p.ImageInput.MaxImages <= 0 || p.ImageInput.MaxImages > 128 {
+			return errors.New("nativeadmission: invalid image bound")
+		}
+		if err := validateTerms(p.ImageInput.Limits, p.ImageInput.Routes); err != nil {
+			return err
 		}
 	}
+	if p.Promotional != nil {
+		promo := p.Promotional
+		if len(promo.Levels) == 0 || !promo.FallbackLevel.Valid() || promo.FallbackLevel == contract.PowerAuto || !promo.Routes.RequirePromotionalCredit {
+			return errors.New("nativeadmission: invalid promotional policy")
+		}
+		for _, level := range promo.Levels {
+			if level != contract.PowerPro && level != contract.PowerUltra {
+				return errors.New("nativeadmission: promotion requires explicit premium level")
+			}
+		}
+		if err := validateTerms(promo.Limits, promo.Routes); err != nil {
+			return err
+		}
+	}
+	for _, op := range []*OperationPolicy{p.Speech, p.Transcription, p.Realtime} {
+		if op == nil {
+			continue
+		}
+		if op.MaxInput <= 0 {
+			return errors.New("nativeadmission: operation input bound required")
+		}
+		if err := validateTerms(op.Limits, op.Routes); err != nil {
+			return err
+		}
+	}
+	if p.Realtime != nil {
+		if p.Realtime.MaxSessionDuration <= 0 || p.Realtime.MaxSessionDuration > time.Hour || p.Realtime.MaxSessionResponses <= 0 || len(p.Realtime.SessionKinds) == 0 {
+			return errors.New("nativeadmission: realtime bounds required")
+		}
+		for _, kind := range p.Realtime.SessionKinds {
+			if kind != "conversation" && kind != "transcription" && kind != "translation" {
+				return errors.New("nativeadmission: invalid realtime kind")
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -114,4 +162,86 @@ func admittedAudience(policy Policy, audience contract.CatalogueAudience) bool {
 
 func containsLevel(policy Policy, level contract.PowerLevel) bool {
 	return slices.Contains(policy.AllowedLevels, level)
+}
+
+// Exact permissions bind the complete reviewed deployment tuple, not a mutable
+// deployment ID alone. Eligible scope is an explicit policy choice and still
+// requires current commercial/funding/region checks in route resolution.
+type RoutePermission struct {
+	DeploymentID   contract.DeploymentID   `json:"deploymentId"`
+	ModelReference contract.ModelReference `json:"modelReference"`
+	Provider       contract.ProviderSlug   `json:"provider"`
+}
+type RouteScope struct {
+	Mode                     string            `json:"mode"`
+	Deployments              []RoutePermission `json:"deployments,omitempty"`
+	RequirePromotionalCredit bool              `json:"requirePromotionalCredit"`
+}
+type ImageInputPolicy struct {
+	Limits    contract.GrantStepLimits `json:"limits"`
+	Routes    RouteScope               `json:"routes"`
+	MaxImages int                      `json:"maxImages"`
+}
+type PromotionalPolicy struct {
+	Levels        []contract.PowerLevel    `json:"levels"`
+	FallbackLevel contract.PowerLevel      `json:"fallbackLevel"`
+	Limits        contract.GrantStepLimits `json:"limits"`
+	Routes        RouteScope               `json:"routes"`
+}
+type OperationPolicy struct {
+	Limits               contract.GrantStepLimits       `json:"limits"`
+	Routes               RouteScope                     `json:"routes"`
+	MaxInput             int                            `json:"maxInput"`
+	AllowCatalogueModels bool                           `json:"allowCatalogueModels"`
+	SessionKinds         []contract.RealtimeSessionKind `json:"sessionKinds,omitempty"`
+	MaxSessionDuration   time.Duration                  `json:"maxSessionDuration,omitempty"`
+	MaxSessionResponses  int                            `json:"maxSessionResponses,omitempty"`
+}
+
+func validateTerms(limits contract.GrantStepLimits, routes RouteScope) error {
+	if limits.MaxPricePerRequest == nil || limits.MaxFundingTier == nil || !limits.MaxFundingTier.Valid() || len(limits.AdmittedModelLines) != 0 {
+		return errors.New("nativeadmission: terms require explicit price/funding limits")
+	}
+	if _, err := moneyRat(*limits.MaxPricePerRequest); err != nil {
+		return err
+	}
+	switch routes.Mode {
+	case "exact":
+		if len(routes.Deployments) == 0 {
+			return errors.New("nativeadmission: exact scope cannot be empty")
+		}
+		for _, d := range routes.Deployments {
+			if d.DeploymentID == "" || !d.ModelReference.Valid() || !strings.Contains(string(d.ModelReference), "@") || !d.Provider.Valid() {
+				return errors.New("nativeadmission: exact deployment tuple invalid")
+			}
+		}
+	case "eligible":
+		if len(routes.Deployments) != 0 {
+			return errors.New("nativeadmission: eligible scope cannot carry exact permissions")
+		}
+	default:
+		return errors.New("nativeadmission: route scope must be explicit")
+	}
+	if routes.RequirePromotionalCredit && *limits.MaxFundingTier != contract.FundingTierCredit {
+		return errors.New("nativeadmission: promotional scope requires credit ceiling")
+	}
+	return nil
+}
+
+// Allows applies this step's extra permissions after the ordinary live
+// commercial, provider, region and funding filters. PromotionalEligible must
+// come from current available key-grant evidence, never a model's price class.
+func (s RouteScope) Allows(id contract.DeploymentID, model contract.ModelReference, provider contract.ProviderSlug, promotionalEligible bool) bool {
+	if s.RequirePromotionalCredit && !promotionalEligible {
+		return false
+	}
+	if s.Mode == "eligible" {
+		return true
+	}
+	if s.Mode != "exact" {
+		return false
+	}
+	return slices.ContainsFunc(s.Deployments, func(d RoutePermission) bool {
+		return d.DeploymentID == id && d.ModelReference == model && d.Provider == provider
+	})
 }

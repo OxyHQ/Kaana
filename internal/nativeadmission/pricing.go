@@ -107,6 +107,12 @@ func textQuote(price ModelPrice, input, output int) (contract.Money, error) {
 	if !ok {
 		return contract.Money{}, ErrUnpriced
 	}
+	if _, ok := rates[contract.UnitCachedInputTokens]; !ok {
+		return contract.Money{}, ErrUnpriced
+	}
+	if _, ok := rates[contract.UnitReasoningTokens]; !ok {
+		return contract.Money{}, ErrUnpriced
+	}
 	requests, ok := rates[contract.UnitRequests]
 	if !ok {
 		return contract.Money{}, ErrUnpriced
@@ -125,4 +131,69 @@ func textQuote(price ModelPrice, input, output int) (contract.Money, error) {
 	total.Add(total, new(big.Rat).Mul(in, new(big.Rat).SetInt64(int64(input))))
 	total.Add(total, new(big.Rat).Mul(out, new(big.Rat).SetInt64(int64(output))))
 	return roundedMoney(total), nil
+}
+
+// Non-token operations declare every billable axis. A non-zero rate on an
+// unbounded axis makes the model ineligible; no guessed transcript/audio size.
+func operationQuote(price ModelPrice, request Request) (quote, qualification contract.Money, err error) {
+	rates, err := unitRates(price)
+	if err != nil {
+		return quote, qualification, err
+	}
+	units := []contract.UsageQuantity{}
+	allowed := map[contract.UsageUnit]bool{contract.UnitRequests: true}
+	switch request.Operation {
+	case contract.GrantAudioSpeech:
+		allowed[contract.UnitCharacters] = true
+		if _, ok := rates[contract.UnitCharacters]; !ok {
+			return quote, qualification, ErrUnpriced
+		}
+		units = append(units, contract.UsageQuantity{Unit: contract.UnitCharacters, Quantity: value(request.Facts.InputCharacters)})
+	case contract.GrantAudioTranscriptions:
+		allowed[contract.UnitAudioInputMilliseconds] = true
+		if _, ok := rates[contract.UnitAudioInputMilliseconds]; !ok {
+			return quote, qualification, ErrUnpriced
+		}
+		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: value(request.Facts.AudioInputMilliseconds)})
+	case contract.GrantRealtimeSession:
+		for _, unit := range []contract.UsageUnit{contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitSessionMilliseconds} {
+			allowed[unit] = true
+			if _, ok := rates[unit]; !ok {
+				return quote, qualification, ErrUnpriced
+			}
+			units = append(units, contract.UsageQuantity{Unit: unit, Quantity: 60000})
+		}
+		allowed[contract.UnitInputTranscriptionMilliseconds] = true
+		if _, ok := rates[contract.UnitInputTranscriptionMilliseconds]; ok {
+			units = append(units, contract.UsageQuantity{Unit: contract.UnitInputTranscriptionMilliseconds, Quantity: 60000})
+		}
+	default:
+		return quote, qualification, ErrInvalidRequest
+	}
+	for unit, rate := range rates {
+		if !allowed[unit] && rate.Sign() > 0 {
+			return quote, qualification, ErrUnpriced
+		}
+	}
+	if request.Operation == contract.GrantRealtimeSession {
+		qualification, err = RateUnits(price, units)
+		if err != nil {
+			return quote, qualification, err
+		}
+		// Build the whole-session bound from exact unit rates, not the rounded
+		// per-minute quote, and include any per-response fee under maxResponses.
+		for i := range units {
+			units[i].Quantity = int(request.SessionMaxDuration.Milliseconds())
+		}
+		if _, ok := rates[contract.UnitRequests]; ok {
+			units = append(units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: request.SessionMaxResponses})
+		}
+		quote, err = RateUnits(price, units)
+		return quote, qualification, err
+	}
+	if _, ok := rates[contract.UnitRequests]; ok {
+		units = append(units, contract.UsageQuantity{Unit: contract.UnitRequests, Quantity: 1})
+	}
+	quote, err = RateUnits(price, units)
+	return quote, quote, err
 }
