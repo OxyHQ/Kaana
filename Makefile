@@ -168,6 +168,7 @@ dockerignore:
 # ignore `git status`.
 cloudflare:
 	python3 -B .github/scripts/credential_admin_workflow_test.py
+	python3 -B .github/scripts/native_policy_deploy_guard_test.py
 	python3 -B .github/scripts/cloudflare_rate_limit_test.py
 	python3 -B .github/scripts/cloudflare_dns_test.py
 
