@@ -120,3 +120,23 @@ func TestManifestFileRejectsMissingDirectoryAndOversize(t *testing.T) {
 		t.Fatal("manifest silently ignored")
 	}
 }
+
+func TestInspectReusesPolicyReviewAndRejectsArbitraryInputs(t *testing.T) {
+	args, _ := validateFixture(t)
+	args = append([]string{"inspect"}, args[1:11]...)
+	var output bytes.Buffer
+	if err := run(args, forbiddenManifestStdin{}, &output, func(key string) string {
+		if key != "DATABASE_URL" {
+			t.Fatal("unexpected environment input")
+		}
+		return "private malformed database value"
+	}); err == nil || output.Len() != 0 || bytes.Contains([]byte(err.Error()), []byte("private malformed")) {
+		t.Fatal("invalid DSN accepted or exposed")
+	}
+	for _, extra := range [][]string{{"--sql", "select 1"}, {"--manifest-file", "private.json"}, {"--policy-sha256", "changed"}} {
+		altered := append(append([]string{}, args...), extra...)
+		if err := run(altered, forbiddenManifestStdin{}, io.Discard, func(string) string { t.Fatal("invalid review reached database"); return "" }); err == nil {
+			t.Fatal("invalid inspection arguments accepted")
+		}
+	}
+}
