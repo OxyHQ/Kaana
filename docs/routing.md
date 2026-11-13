@@ -199,8 +199,8 @@ cost row is `failed`, and the deployment's stats count it as failed. If it is
 the last attempt the customer receives that retryable `provider_error`.
 
 It applies only when ALL hold: the request is `responses` or `chat_completions`
-(never embeddings, decisions, speech, transcription, images, rerank, batches or
-realtime); the adapter returned no error; nothing was delivered (no text,
+(never embeddings, decisions, speech, transcription, images, rerank, batches
+([ADR 0011](adr/0011-batch-api-out-of-scope.md)) or realtime); the adapter returned no error; nothing was delivered (no text,
 reasoning, refusal, tool call or audio); the attempt reported no `output_tokens`
 and no `reasoning_tokens` above zero; and the finish reason is empty or `stop`.
 `length`, `tool_calls`, `content_filter`, `refusal` and `cancelled` explain an
