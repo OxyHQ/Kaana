@@ -8,7 +8,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/OxyHQ/Kaana/internal/billing"
 	"github.com/OxyHQ/Kaana/internal/commercial"
+	"github.com/OxyHQ/Kaana/internal/commercialadmission"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/provider"
@@ -39,6 +41,9 @@ type NativeConfig struct {
 	Store      NativeStore
 	Policies   []nativeadmission.Policy
 	Promotions NativePromotionSource
+	// Recover includes commercial hold expiry when explicitly configured. An
+	// internal-only server continues its existing completion replay path.
+	Recover func(context.Context, int) error
 }
 
 func (c *NativeConfig) validate() error {
@@ -49,6 +54,9 @@ func (c *NativeConfig) validate() error {
 		return err
 	}
 	for _, policy := range c.Policies {
+		if policy.EconomicTreatment == nativeadmission.Commercial && c.Recover == nil {
+			return errors.New("publicapi: commercial admission requires durable economic recovery")
+		}
 		requires := policy.Promotional != nil || policy.Routes.RequirePromotionalCredit
 		if policy.ImageInput != nil {
 			requires = requires || policy.ImageInput.Routes.RequirePromotionalCredit
@@ -79,6 +87,14 @@ func (c *NativeConfig) selects(identity contract.IdentityPrincipal) bool {
 func nativeFailure(id contract.RequestID, err error) *contract.PublicError {
 	code := contract.PublicErrorCode("service_unavailable")
 	switch {
+	case errors.Is(err, billing.ErrFunds):
+		code = "insufficient_balance"
+	case errors.Is(err, billing.ErrBudget):
+		code = "spending_limit_exceeded"
+	case errors.Is(err, billing.ErrDisabled), errors.Is(err, billing.ErrNotFound), errors.Is(err, commercialadmission.ErrHoldLifetime):
+		code = "policy_violation"
+	case errors.Is(err, billing.ErrConflict):
+		code = "idempotency_conflict"
 	case errors.Is(err, nativeadmission.ErrCapacity):
 		code = "rate_limited"
 	case errors.Is(err, nativeadmission.ErrReplay), errors.Is(err, nativeadmission.ErrLegacy):

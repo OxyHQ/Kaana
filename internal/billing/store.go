@@ -54,6 +54,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	sum := sha256.Sum256([]byte(migration))
 	checksum := hex.EncodeToString(sum[:])
+	var unknown bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.kaana_billing_migrations WHERE version<>'0001')`).Scan(&unknown); err != nil {
+		return wrap(err)
+	}
+	if unknown {
+		return fmt.Errorf("%w: unknown billing migration", ErrConflict)
+	}
 	var previous string
 	err = tx.QueryRow(ctx, `SELECT checksum FROM public.kaana_billing_migrations WHERE version='0001'`).Scan(&previous)
 	if err == nil {

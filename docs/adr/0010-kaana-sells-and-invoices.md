@@ -106,6 +106,13 @@ reused with changed rates, and missing prices never mean zero. Corrections use
 compensating entries. An in-flight hold or ambiguous processor result must be
 reconciled, not charged again.
 
+The optional commercial serving constructor and fixed `migrate-commercial` operator
+command are source wiring, not activation. See the [coordinator configuration and
+recovery contract](../../internal/commercialadmission/README.md). Explicit runtime
+configuration, least-privilege role/schema readiness, reviewed policy enrollment
+and enabled funded accounts remain independent gates; seller, payment and invoice
+readiness are not implied by their implementation.
+
 ## Rollout and retirement
 
 1. Publish compatible identity contracts and deploy the verified identity
