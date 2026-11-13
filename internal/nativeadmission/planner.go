@@ -44,20 +44,24 @@ type Request struct {
 	RequestedEffort                       *contract.ReasoningEffort
 }
 type Plan struct {
-	RequiredParameters map[contract.ModelID][]provider.RequestParameter `json:"requiredParameters,omitempty"`
-	PolicyID           string                                           `json:"policyId"`
-	PolicyVersion      int                                              `json:"policyVersion"`
-	PolicyDigest       string                                           `json:"policyDigest"`
-	Steps              []contract.GrantStep                             `json:"steps"`
-	RoutingPolicy      contract.RoutingPolicyReference                  `json:"routingPolicy"`
-	Prices             []ModelPrice                                     `json:"prices"`
-	StepRoutes         []RouteScope                                     `json:"stepRoutes"`
-	MaxConcurrent      int                                              `json:"maxConcurrent"`
-	MaxPerUTCDay       int                                              `json:"maxPerUtcDay"`
-	ExecutionTimeout   time.Duration                                    `json:"executionTimeout"`
-	InputTokens        int                                              `json:"inputTokens"`
-	OutputTokens       int                                              `json:"outputTokens"`
-	Quote              contract.Money                                   `json:"quote"`
+	Operation           contract.GrantOperation                          `json:"operation"`
+	SessionMaxDuration  time.Duration                                    `json:"sessionMaxDuration,omitempty"`
+	SessionMaxResponses int                                              `json:"sessionMaxResponses,omitempty"`
+	SessionKind         *contract.RealtimeSessionKind                    `json:"sessionKind,omitempty"`
+	RequiredParameters  map[contract.ModelID][]provider.RequestParameter `json:"requiredParameters,omitempty"`
+	PolicyID            string                                           `json:"policyId"`
+	PolicyVersion       int                                              `json:"policyVersion"`
+	PolicyDigest        string                                           `json:"policyDigest"`
+	Steps               []contract.GrantStep                             `json:"steps"`
+	RoutingPolicy       contract.RoutingPolicyReference                  `json:"routingPolicy"`
+	Prices              []ModelPrice                                     `json:"prices"`
+	StepRoutes          []RouteScope                                     `json:"stepRoutes"`
+	MaxConcurrent       int                                              `json:"maxConcurrent"`
+	MaxPerUTCDay        int                                              `json:"maxPerUtcDay"`
+	ExecutionTimeout    time.Duration                                    `json:"executionTimeout"`
+	InputTokens         int                                              `json:"inputTokens"`
+	OutputTokens        int                                              `json:"outputTokens"`
+	Quote               contract.Money                                   `json:"quote"`
 }
 type Planner struct {
 	policies []Policy
@@ -176,7 +180,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 	if policy == nil {
 		return Plan{}, ErrNotEnrolled
 	}
-	if identity.Authority == contract.AuthorityExternal && !slices.Contains(identity.Scopes, contract.ScopeInvoke) {
+	if identity.Authority == contract.IdentityAuthorityExternal && !slices.Contains(identity.Scopes, contract.ScopeInvoke) {
 		return Plan{}, ErrNotEnrolled
 	}
 	if request.Operation != contract.GrantResponses && request.Operation != contract.GrantChatCompletions {
@@ -231,7 +235,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			targets = append(targets, contract.LevelTarget(policy.Promotional.FallbackLevel))
 		}
 	}
-	plan := Plan{PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
+	plan := Plan{Operation: request.Operation, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
 	maxQuote := new(big.Rat)
 	seen := map[contract.ModelID]bool{}
 	for _, target := range targets {
@@ -429,7 +433,7 @@ func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy
 		if r.Operation == contract.GrantRealtimeSession {
 			timeout = r.SessionMaxDuration
 		}
-		return Plan{PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}, nil
+		return Plan{Operation: r.Operation, SessionMaxDuration: r.SessionMaxDuration, SessionMaxResponses: r.SessionMaxResponses, SessionKind: r.Facts.RealtimeSessionKind, PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}, nil
 	}
 	return Plan{}, ErrNoRoute
 }

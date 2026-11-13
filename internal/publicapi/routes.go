@@ -74,10 +74,23 @@ func resolveGrant(grant *contract.Grant, snapshot *inventory.Inventory, funding 
 	return resolveGrantFor(grant, snapshot, funding, performance, serves, needs.hardOnly(), at)
 }
 
+// routeAuthorization is the internal execution boundary shared by verified legacy
+// grants and Kaana's native admissions. It is never an invented Oxy grant.
+type routeAuthorization struct {
+	requestID          contract.RequestID
+	steps              []contract.GrantStep
+	customerCredential *contract.CustomerProviderCredential
+	permits            func(int, provider.Route) bool
+}
+
 func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, funding FundingRanker, performance PerformanceReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
+	return resolveAuthorizedFor(routeAuthorization{requestID: grant.RequestID, steps: grant.Steps, customerCredential: grant.CustomerProviderCredential}, snapshot, funding, performance, serves, needs, at)
+}
+
+func resolveAuthorizedFor(authorization routeAuthorization, snapshot *inventory.Inventory, funding FundingRanker, performance PerformanceReader, serves func(provider.Route) bool, needs requestNeeds, at time.Time) (*plan, *contract.PublicError) {
 	resolved := &plan{steps: make(map[contract.DeploymentID]int)}
 	revisionOf := make(map[contract.ModelID]contract.ModelReference)
-	for stepIndex, step := range grant.Steps {
+	for stepIndex, step := range authorization.steps {
 		type candidate struct {
 			route provider.Route
 			rank  int
@@ -121,7 +134,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 				continue
 			}
 			for position, route := range set.Candidates() {
-				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) {
+				if !admitsRoute(step.Limits, route) || (serves != nil && !serves(route)) || (authorization.permits != nil && !authorization.permits(stepIndex, route)) {
 					continue
 				}
 				if needs.refusedBy(route) || needs.prefs.excludes(route, needs.parameters) {
@@ -135,7 +148,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 					ceiling = provider.FundingTier(*step.Limits.MaxFundingTier)
 				}
 				rank := fundingRankUnknown
-				if grant.CustomerProviderCredential == nil && funding != nil {
+				if authorization.customerCredential == nil && funding != nil {
 					cheapest, admissible := funding.CheapestTier(route, ceiling)
 					if !admissible {
 						continue
@@ -206,7 +219,7 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 				Provider:                   route.Provider,
 				Regions:                    append([]contract.Region{}, route.Regions...),
 				MaxFundingTier:             step.Limits.MaxFundingTier,
-				CustomerProviderCredential: grant.CustomerProviderCredential,
+				CustomerProviderCredential: authorization.customerCredential,
 			}
 			if len(resolved.routes) > 0 && line != resolved.routes[0].ModelReference.ModelID() {
 				// Oxy admitted this line in the grant: the substitution is
@@ -223,9 +236,9 @@ func resolveGrantFor(grant *contract.Grant, snapshot *inventory.Inventory, fundi
 		resolved.routes = keepOneProvider(resolved.routes, needs.prefs)
 	}
 	if len(resolved.routes) == 0 {
-		return nil, contract.NewPublicError(grant.RequestID, "no_route_available", contract.PublicMessage("no_route_available"))
+		return nil, contract.NewPublicError(authorization.requestID, "no_route_available", contract.PublicMessage("no_route_available"))
 	}
-	first := grant.Steps[0].Target
+	first := authorization.steps[0].Target
 	switch {
 	case first.Kind == contract.GrantTargetModel && allOnLine(resolved.routes, *first.ModelLine):
 		reference := first.Reference()

@@ -65,6 +65,12 @@ func (v *OxyIdentityVerifier) Verify(ctx context.Context, request contract.Ident
 	if assertion.RequestID != request.RequestID || assertion.RequestSHA256 != bodyDigest(raw) || assertion.Audience != request.Audience || !assertion.Current(v.transport.now()) {
 		return unavailable()
 	}
+	if assertion.Principal.Authority == contract.IdentityAuthoritySession {
+		if request.OnBehalfOfUserID != nil && (assertion.UserID == nil || *request.OnBehalfOfUserID != *assertion.UserID) {
+			return unavailable()
+		}
+		return assertion, nil
+	}
 	if (assertion.UserID == nil) != (request.OnBehalfOfUserID == nil) || (assertion.UserID != nil && *assertion.UserID != *request.OnBehalfOfUserID) {
 		return unavailable()
 	}

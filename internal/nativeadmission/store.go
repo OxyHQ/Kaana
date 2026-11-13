@@ -154,11 +154,12 @@ func (s *Store) Admit(ctx context.Context, request AdmissionRequest) (*Admission
 		return nil, err
 	}
 	var enrollment, policyID string
+	var activePolicy *string
 	var enabled, fenced bool
 	var activation *time.Time
 	var now time.Time
 	var policyBytes []byte
-	err = tx.QueryRow(ctx, `SELECT e.id,e.enabled,e.legacy_fence_complete,e.activation_at,p.id,p.document,clock_timestamp() FROM kaana_admission.enrollments e JOIN kaana_admission.policy_versions p ON p.enrollment_id=e.id WHERE e.application_id=$1 AND e.environment=$2 AND p.policy_key=$3 AND p.version=$4 AND p.digest=$5`, request.Principal.ApplicationID, request.Principal.Environment, request.Plan.PolicyID, request.Plan.PolicyVersion, request.Plan.PolicyDigest).Scan(&enrollment, &enabled, &fenced, &activation, &policyID, &policyBytes, &now)
+	err = tx.QueryRow(ctx, `SELECT e.id,e.enabled,e.legacy_fence_complete,e.activation_at,p.id,p.document,e.active_policy_id,clock_timestamp() FROM kaana_admission.enrollments e JOIN kaana_admission.policy_versions p ON p.enrollment_id=e.id WHERE e.application_id=$1 AND e.environment=$2 AND p.policy_key=$3 AND p.version=$4 AND p.digest=$5`, request.Principal.ApplicationID, request.Principal.Environment, request.Plan.PolicyID, request.Plan.PolicyVersion, request.Plan.PolicyDigest).Scan(&enrollment, &enabled, &fenced, &activation, &policyID, &policyBytes, &activePolicy, &now)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotEnrolled
 	}
@@ -168,11 +169,14 @@ func (s *Store) Admit(ctx context.Context, request AdmissionRequest) (*Admission
 	if !enabled || !fenced || activation == nil || now.Before(*activation) {
 		return nil, ErrDisabled
 	}
+	if activePolicy == nil || *activePolicy != policyID {
+		return nil, ErrNotEnrolled
+	}
 	var policy Policy
 	if err = json.Unmarshal(policyBytes, &policy); err != nil {
 		return nil, err
 	}
-	if !policy.matches(request.Principal) || policy.MaxConcurrent != request.Plan.MaxConcurrent || policy.MaxPerUTCDay != request.Plan.MaxPerUTCDay || policy.ExecutionTimeout != request.Plan.ExecutionTimeout {
+	if !policy.matches(request.Principal) || policy.MaxConcurrent != request.Plan.MaxConcurrent || policy.MaxPerUTCDay != request.Plan.MaxPerUTCDay || !policy.admitsExecution(request.Operation, request.Plan) {
 		return nil, ErrNotEnrolled
 	}
 	scope, key := idempotencyIdentity(request.Principal.CredentialID, request.IdempotencyKey, request.RequestID)
@@ -188,9 +192,10 @@ func (s *Store) Admit(ctx context.Context, request AdmissionRequest) (*Admission
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
-		err = tx.QueryRow(ctx, `SELECT body_digest FROM kaana_admission.legacy_fences WHERE idempotency_scope=$1 AND idempotency_key=$2`, scope, key).Scan(&body)
+		var legacyBody *string
+		err = tx.QueryRow(ctx, `SELECT body_digest FROM kaana_admission.legacy_fences WHERE idempotency_scope=$1 AND idempotency_key=$2`, scope, key).Scan(&legacyBody)
 		if err == nil {
-			if body != request.BodyDigest {
+			if legacyBody != nil && *legacyBody != request.BodyDigest {
 				return nil, ErrConflict
 			}
 			return nil, ErrLegacy
@@ -216,7 +221,7 @@ func (s *Store) Admit(ctx context.Context, request AdmissionRequest) (*Admission
 	if result.RowsAffected() != 1 {
 		return nil, ErrCapacity
 	}
-	a := &Admission{ID: newID("kad_"), RequestID: request.RequestID, Principal: request.Principal, UserID: request.UserID, Operation: request.Operation, Plan: request.Plan, AdmittedAt: now, LeaseUntil: now.Add(policy.ExecutionTimeout)}
+	a := &Admission{ID: newID("kad_"), RequestID: request.RequestID, Principal: request.Principal, UserID: request.UserID, Operation: request.Operation, Plan: request.Plan, AdmittedAt: now, LeaseUntil: now.Add(request.Plan.ExecutionTimeout)}
 	principal, err := json.Marshal(a.Principal)
 	if err != nil {
 		return nil, err
