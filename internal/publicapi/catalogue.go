@@ -530,6 +530,9 @@ func (s *Server) catalogueAccess(r *http.Request, requestID contract.RequestID) 
 				return &catalogueView{Audience: policy.Audience, AllowedLevels: policy.AllowedLevels}, nil
 			}
 		}
+		if s.native.selects(identity.Principal) {
+			return nil, contract.NewPublicError(requestID, "policy_violation", contract.PublicMessage("policy_violation"))
+		}
 	}
 	access, failure := s.authorizer.Catalogue(r.Context(), contract.CatalogueAuthorizationRequest{
 		SchemaVersion: contract.AuthorizationSchemaVersion, Kind: contract.AuthorizationKindCatalogue,

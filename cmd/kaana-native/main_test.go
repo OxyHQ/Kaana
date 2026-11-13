@@ -36,7 +36,7 @@ func TestValidateUsesReviewedArtifactsWithoutOpeningDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"validate", "--policy-file", path, "--policy-file-sha256", hash, "--policy-id", p.ID, "--policy-version", "1", "--policy-sha256", policyHash, "--manifest-sha256", "7a85bf15e61fa6e9ad56a1326053f2c8bd8e4a9b5edd99478d7594eb3c81cf3d", "--fence-id", "01900000-0000-7000-8000-000000000001", "--activated-at", "2026-11-13T00:00:00.000Z"}
+	args := []string{"validate", "--policy-file", path, "--policy-file-sha256", hash, "--policy-id", p.ID, "--policy-version", "1", "--policy-sha256", policyHash, "--manifest-sha256", "16b2a1a47aa61785150b6e3fce72e8e10aa306c5f7fca842f4b4d9fca65fe5c8", "--fence-id", "01900000-0000-7000-8000-000000000001", "--activated-at", "2026-11-13T00:00:00.000Z"}
 	var out bytes.Buffer
 	if err = run(args, bytes.NewReader(manifest), &out, func(string) string { t.Fatal("validation accessed environment/database"); return "" }); err != nil {
 		t.Fatal(err)

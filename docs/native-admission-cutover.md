@@ -141,17 +141,26 @@ bounded status/digests, not database errors or credentials.
    the fleet converges. Before fencing, removing configuration can restore the
    old authority if a prerequisite fails. Never enable native admission here.
 5. Confirm the exact steady fleet, then activate Oxy's permanent admission fence
-   for the exact workload population. Drain old admitted grants and holds.
+   for the entire reviewed application/environment. Native policy still authorizes
+   only its explicit credential subset; a different owner, handle or credential
+   lane cannot escape to Oxy under that application/environment. Drain all old
+   admitted grants and holds in the fenced scope.
    Existing old settlement remains Oxy-owned. Export the canonical manifest only
    when unresolved admissions, grants and holds are all zero.
 6. Independently review the exported manifest hash, fence ID, exact activatedAt,
-   live credential roster, policy digest and population. Keep the artifact in a
+   live credential roster, policy digest and population. Manifest version 2 includes
+   `dailyUsage` for `application_environment`: the export UTC day, all admitted
+   requests in that day, and the positive effective daily limit. The policy limit
+   must equal that reviewed limit. Eligible roster entries do not automatically
+   become authorized; historical aliases remain fenced even for retired handles.
+   Keep the artifact in a
    private location. `kaana-native validate` accepts the same review flags as
    import and reads the manifest on stdin; it performs no database operation.
 7. Run `kaana-native import` with the registration flags plus
    `--manifest-sha256 HASH --fence-id ID --activated-at EXACT_TIMESTAMP`, with the
    manifest on stdin. One transaction verifies and inserts every permanent old
-   key/request alias, records immutable import evidence, and activates the exact
+   key/request alias, carries the legacy daily consumption, records immutable
+   import evidence, and activates the exact
    policy pointer. Any mismatch or write failure rolls back the whole operation.
 8. Deploy Gemies' reviewed direct transport only after native activation, then
    verify exact live source/image/config hashes, native generation records,
@@ -172,7 +181,15 @@ Oxy manifest under the **same permanent fence ID and activatedAt**. A changed
 manifest hash requires a strictly higher version of the same policy ID and a
 nondecreasing export time. Every previous tombstone must remain present and
 unchanged. Imports retain immutable audit records. Omission, rollback or a new
-fence epoch refuses activation; an exact replay is idempotent.
+fence epoch refuses activation. New imports require a snapshot for the current
+PostgreSQL UTC day. Daily consumption has a separate legacy component: refresh
+adds only its nonnegative increase to the combined counter, preserving native
+admissions. Consumption above the reviewed limit is retained and blocks new
+admissions until the next UTC day. The enrollment row lock serializes import
+and admission. An exact completed replay for the active policy is a read-only
+acknowledgement, including after midnight; it cannot reset quota or re-enable a
+disabled enrollment. Migration `0002` adds this accounting without changing the
+published `0001` checksum.
 
 The importer uses Oxy's canonical serializer semantics: UTF-16 key ordering,
 JSON.stringify escaping, and no HTML/U+2028 rewriting. Real cross-language fixtures

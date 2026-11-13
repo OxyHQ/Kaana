@@ -19,6 +19,9 @@ import (
 //go:embed migrations/0001_admissions.sql
 var admissionMigration string
 
+//go:embed migrations/0002_legacy_daily_usage.sql
+var legacyDailyMigration string
+
 var (
 	ErrCapacity = errors.New("nativeadmission: capacity exhausted")
 	ErrDisabled = errors.New("nativeadmission: enrollment is disabled or unfenced")
@@ -59,22 +62,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.kaana_admission_migrations(version TEXT PRIMARY KEY,checksum TEXT NOT NULL); REVOKE ALL ON public.kaana_admission_migrations FROM PUBLIC`); err != nil {
 		return err
 	}
-	var previous string
-	err = tx.QueryRow(ctx, `SELECT checksum FROM public.kaana_admission_migrations WHERE version='0001'`).Scan(&previous)
-	if err == nil {
-		if previous != digest([]byte(admissionMigration)) {
-			return errors.New("nativeadmission: migration checksum mismatch")
+	for _, migration := range []struct{ version, sql string }{{"0001", admissionMigration}, {"0002", legacyDailyMigration}} {
+		var previous string
+		err = tx.QueryRow(ctx, `SELECT checksum FROM public.kaana_admission_migrations WHERE version=$1`, migration.version).Scan(&previous)
+		if err == nil {
+			if previous != digest([]byte(migration.sql)) {
+				return errors.New("nativeadmission: migration checksum mismatch")
+			}
+			continue
 		}
-		return tx.Commit(ctx)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("nativeadmission: migration ledger: %w", err)
-	}
-	if _, err = tx.Exec(ctx, admissionMigration); err != nil {
-		return fmt.Errorf("nativeadmission: applying migration: %w", err)
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.kaana_admission_migrations VALUES('0001',$1)`, digest([]byte(admissionMigration))); err != nil {
-		return err
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("nativeadmission: migration ledger: %w", err)
+		}
+		if _, err = tx.Exec(ctx, migration.sql); err != nil {
+			return fmt.Errorf("nativeadmission: applying migration: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO public.kaana_admission_migrations VALUES($1,$2)`, migration.version, digest([]byte(migration.sql))); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
