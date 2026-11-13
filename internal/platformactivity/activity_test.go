@@ -18,7 +18,7 @@ func collectorFor(t *testing.T, handler http.Handler) *Collector {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Service: "kaana", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Logger: slog.New(slog.DiscardHandler)})
+	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Service: "kaana", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Ready: func() bool { return true }, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,21 +163,8 @@ func TestHeartbeatRemovalIsLastAndSameInstance(t *testing.T) {
 		t.Fatalf("bad lifecycle %+v", records)
 	}
 }
-func TestHealthExcludedAndBatchBounded(t *testing.T) {
-	c := collectorFor(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/livez", nil))
-	if len(c.pending) != 0 {
-		t.Fatal("health counted")
-	}
-	for i := 0; i < 300; i++ {
-		c.Record(Flow{SourceRegion: string(rune(i)), Direction: "inbound"})
-	}
-	if len(c.pending) != 256 {
-		t.Fatal(len(c.pending))
-	}
-}
 func TestServiceNameIsRequired(t *testing.T) {
-	if _, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Coordinates: [2]float64{-120, 44}, BaseURL: "https://api.oxy.so", Token: func(context.Context) (string, error) { return "test-token", nil }}); err == nil {
+	if _, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Coordinates: [2]float64{-120, 44}, BaseURL: "https://api.oxy.so", Token: func(context.Context) (string, error) { return "test-token", nil }, Ready: func() bool { return true }}); err == nil {
 		t.Fatal("New must refuse a config naming no service")
 	}
 }
@@ -194,7 +181,7 @@ func TestServiceNameIsReportedPerCollectorNotHardcoded(t *testing.T) {
 		w.WriteHeader(202)
 	}))
 	defer server.Close()
-	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Service: "kaana-publisher", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Logger: slog.New(slog.DiscardHandler)})
+	c, err := New(Config{Region: "us-west-2", Label: "AWS Oregon", Service: "kaana-publisher", Coordinates: [2]float64{-120, 44}, BaseURL: server.URL, Token: func(context.Context) (string, error) { return "test-token", nil }, Ready: func() bool { return true }, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}

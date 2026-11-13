@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	mrand "math/rand/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -20,10 +21,13 @@ import (
 	"time"
 )
 
+// oxyAPIService is Oxy's service name in a flow, as in Oxy's own collector.
+const oxyAPIService = "oxy-api"
+
 type Flow struct {
 	Region        string `json:"region"`
-	SourceRegion  string `json:"sourceRegion"`
-	TargetRegion  string `json:"targetRegion"`
+	SourceRegion  string `json:"sourceRegion,omitempty"`
+	TargetRegion  string `json:"targetRegion,omitempty"`
 	SourceService string `json:"sourceService,omitempty"`
 	TargetService string `json:"targetService,omitempty"`
 	Service       string `json:"service"`
@@ -37,6 +41,36 @@ type Aggregate struct {
 	WindowStartedAt string `json:"windowStartedAt"`
 	EmittedAt       string `json:"emittedAt"`
 }
+
+// Collection bounds, matching Oxy's collector (packages/telemetry/src/collector.ts):
+// maxPendingFlows distinct flows are held between flushes, and each publish
+// carries at most publishChunk, the collector's batch limit.
+const (
+	maxPendingFlows = 512
+	publishChunk    = 256
+)
+
+// Publish backoff, matching Oxy's createEcosystemTraffic. A refusal will not
+// change in two seconds, and a fixed fast retry loop once produced tens of
+// refusals a minute on both sides (tnp-relay). The wait after the Nth
+// consecutive failure is half of min(max, base*2^(N-1)) plus up to half again
+// at random, so a fleet refused at once does not retry in lockstep. A success
+// resets it.
+const (
+	publishBackoffBase = 2 * time.Second
+	publishBackoffMax  = 10 * time.Minute
+)
+
+// publishBackoff is the wait before the next attempt after failures
+// consecutive failures; random returns a value in [0, 1).
+func publishBackoff(failures int, random func() float64) time.Duration {
+	ceiling := publishBackoffMax
+	if exponent := max(0, failures-1); exponent < 30 {
+		ceiling = min(publishBackoffMax, publishBackoffBase<<exponent)
+	}
+	return time.Duration(float64(ceiling)/2 + random()*float64(ceiling)/2).Truncate(time.Millisecond)
+}
+
 type Config struct {
 	Region string
 	Label  string
@@ -45,10 +79,15 @@ type Config struct {
 	// is never inferred from the credential, which several services share.
 	Service     string
 	Coordinates [2]float64
-	BaseURL     string
-	Token       func(context.Context) (string, error)
-	Client      *http.Client
-	Logger      *slog.Logger
+	// Ready reports whether this process can serve. A heartbeat says `online`
+	// only while it returns true and `unknown` otherwise, so the dashboard
+	// never shows an instance as serving merely because the process runs. It
+	// is required: no default is honest for every binary.
+	Ready   func() bool
+	BaseURL string
+	Token   func(context.Context) (string, error)
+	Client  *http.Client
+	Logger  *slog.Logger
 }
 type Collector struct {
 	config   Config
@@ -58,6 +97,14 @@ type Collector struct {
 	stop     chan struct{}
 	done     chan struct{}
 	once     sync.Once
+
+	// now and random are the clock and jitter source, replaced in tests.
+	now    func() time.Time
+	random func() float64
+	// failures and retryAt are the publish backoff. Only the worker in Run (or
+	// a test driving publish directly) touches them.
+	failures int
+	retryAt  time.Time
 }
 
 var regionPattern = regexp.MustCompile(`^[a-z]{2}(?:-[a-z]+)+-\d$`)
@@ -67,8 +114,8 @@ func New(config Config) (*Collector, error) {
 	if math.IsNaN(config.Coordinates[0]) || math.IsNaN(config.Coordinates[1]) || math.Abs(config.Coordinates[0]) > 180 || math.Abs(config.Coordinates[1]) > 90 {
 		return nil, errors.New("platform activity: invalid infrastructure coordinates")
 	}
-	if !regionPattern.MatchString(config.Region) || config.Label == "" || config.Service == "" || config.Token == nil {
-		return nil, errors.New("platform activity: region, location, service name and service token are required")
+	if !regionPattern.MatchString(config.Region) || config.Label == "" || config.Service == "" || config.Token == nil || config.Ready == nil {
+		return nil, errors.New("platform activity: region, location, service name, service token and readiness are required")
 	}
 	origin, err := url.Parse(config.BaseURL)
 	if err != nil || origin.User != nil || origin.RawQuery != "" || origin.Fragment != "" || (origin.String() != "https://api.oxy.so" && (origin.Scheme != "http" || (origin.Hostname() != "127.0.0.1" && origin.Hostname() != "localhost"))) {
@@ -89,7 +136,7 @@ func New(config Config) (*Collector, error) {
 	}
 	id[6] = id[6]&0x0f | 0x40
 	id[8] = id[8]&0x3f | 0x80
-	c := &Collector{config: config, pending: make(map[Flow]Aggregate), instance: fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:]), stop: make(chan struct{}), done: make(chan struct{})}
+	c := &Collector{config: config, pending: make(map[Flow]Aggregate), instance: fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:]), stop: make(chan struct{}), done: make(chan struct{}), now: time.Now, random: mrand.Float64}
 	return c, nil
 }
 func (c *Collector) Record(flow Flow) {
@@ -98,11 +145,11 @@ func (c *Collector) Record(flow Flow) {
 	flow.Service = c.config.Service
 	flow.Region = c.config.Region
 	previous, exists := c.pending[flow]
-	if !exists && len(c.pending) >= 256 {
+	if !exists && len(c.pending) >= maxPendingFlows {
 		return
 	}
 	if !exists {
-		previous = Aggregate{Flow: flow, WindowStartedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+		previous = Aggregate{Flow: flow, WindowStartedAt: c.now().UTC().Format(time.RFC3339Nano)}
 	}
 	if previous.Requests < 1_000_000 {
 		previous.Requests++
@@ -138,19 +185,26 @@ func (c *Collector) post(ctx context.Context, path string, payload any) error {
 func (c *Collector) Flush(ctx context.Context) error {
 	c.mu.Lock()
 	batch := make([]Aggregate, 0, len(c.pending))
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	emittedAt := c.now().UTC().Format(time.RFC3339Nano)
 	for _, event := range c.pending {
-		event.EmittedAt = now
+		event.EmittedAt = emittedAt
 		batch = append(batch, event)
 	}
 	clear(c.pending)
 	c.mu.Unlock()
-	if len(batch) == 0 {
-		return nil
+	// A failed chunk drops itself and the rest: there is no durable retry queue.
+	for offset := 0; offset < len(batch); offset += publishChunk {
+		if err := c.post(ctx, "/internal/activity", batch[offset:min(offset+publishChunk, len(batch))]); err != nil {
+			return err
+		}
 	}
-	return c.post(ctx, "/internal/activity", batch)
+	return nil
 }
 func (c *Collector) heartbeat(ctx context.Context, removed bool) error {
+	status := "unknown"
+	if c.config.Ready() {
+		status = "online"
+	}
 	return c.post(ctx, "/internal/activity/infrastructure", struct {
 		InstanceID  string     `json:"instanceId"`
 		Service     string     `json:"service"`
@@ -159,20 +213,40 @@ func (c *Collector) heartbeat(ctx context.Context, removed bool) error {
 		Coordinates [2]float64 `json:"coordinates"`
 		Status      string     `json:"status"`
 		Removed     bool       `json:"removed"`
-	}{c.instance, c.config.Service, c.config.Region, c.config.Label, c.config.Coordinates, "online", removed})
+	}{c.instance, c.config.Service, c.config.Region, c.config.Label, c.config.Coordinates, status, removed})
+}
+
+// publish runs one flush or heartbeat unless an earlier failure still has the
+// collector backing off (force overrides that, for the final flush and the
+// removal, which must be attempted). The collector keeps aggregating, bounded,
+// while it waits. The first failure of a streak is logged and so is the
+// recovery; the failures between are not.
+func (c *Collector) publish(action func(context.Context) error, force bool) {
+	if !force && c.failures > 0 && c.now().Before(c.retryAt) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	if action(ctx) != nil {
+		c.failures++
+		c.retryAt = c.now().Add(publishBackoff(c.failures, c.random))
+		if c.failures == 1 {
+			c.config.Logger.Warn("platform activity publisher unavailable; backing off", "maxBackoff", publishBackoffMax.String())
+		}
+		return
+	}
+	if c.failures > 0 {
+		c.failures = 0
+		c.config.Logger.Info("platform activity publisher recovered")
+	}
 }
 
 // Run starts after the listener opens. One worker orders heartbeats and removal.
 func (c *Collector) Run() {
 	defer close(c.done)
-	perform := func(action func(context.Context) error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		defer cancel()
-		if action(ctx) != nil {
-			c.config.Logger.Warn("platform activity publisher unavailable")
-		}
-	}
-	perform(func(ctx context.Context) error { return c.heartbeat(ctx, false) })
+	beat := func(ctx context.Context) error { return c.heartbeat(ctx, false) }
+	remove := func(ctx context.Context) error { return c.heartbeat(ctx, true) }
+	c.publish(beat, false)
 	flush := time.NewTicker(2 * time.Second)
 	defer flush.Stop()
 	heartbeat := time.NewTicker(10 * time.Second)
@@ -180,12 +254,12 @@ func (c *Collector) Run() {
 	for {
 		select {
 		case <-flush.C:
-			perform(c.Flush)
+			c.publish(c.Flush, false)
 		case <-heartbeat.C:
-			perform(func(ctx context.Context) error { return c.heartbeat(ctx, false) })
+			c.publish(beat, false)
 		case <-c.stop:
-			perform(c.Flush)
-			perform(func(ctx context.Context) error { return c.heartbeat(ctx, true) })
+			c.publish(c.Flush, true)
+			c.publish(remove, true)
 			return
 		}
 	}
@@ -212,7 +286,8 @@ func MarkVerified(ctx context.Context) {
 func (c *Collector) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Oxy-Region", c.config.Region)
-		if r.URL.Path == "/livez" || r.URL.Path == "/internal/v1/health" {
+		path := r.URL.Path
+		if Excluded(path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -220,12 +295,17 @@ func (c *Collector) Middleware(next http.Handler) http.Handler {
 		r = r.WithContext(context.WithValue(r.Context(), admissionKey{}, state))
 		response := &responseWriter{ResponseWriter: w}
 		defer func() {
-			peer := "unknown"
+			// An unlocated peer stays unlocated: the field is omitted, as in Oxy's collector.
+			peer := ""
 			scope := "external"
 			source := ""
 			if state.verified {
 				scope = "internal"
-				source = "oxy-api"
+				// The verified envelope proves a signature by an Oxy-held key
+				// id and carries no service name, and Oxy is the only signer
+				// of every route that calls MarkVerified, so the source of an
+				// internal call is always oxy-api.
+				source = oxyAPIService
 				if value := r.Header.Get("X-Oxy-Source-Region"); regionPattern.MatchString(value) {
 					peer = value
 				}
@@ -235,7 +315,7 @@ func (c *Collector) Middleware(next http.Handler) http.Handler {
 					peer = "edge-" + strings.ToLower(parts[1])
 				}
 			}
-			flow := Flow{SourceRegion: peer, TargetRegion: c.config.Region, SourceService: source, TargetService: c.config.Service, Scope: scope, Direction: "inbound", ActivityType: "ai"}
+			flow := Flow{SourceRegion: peer, TargetRegion: c.config.Region, SourceService: source, TargetService: c.config.Service, Scope: scope, Direction: "inbound", ActivityType: activityType(path)}
 			c.Record(flow)
 			if response.wrote {
 				flow.SourceRegion, flow.TargetRegion = flow.TargetRegion, flow.SourceRegion
@@ -273,18 +353,50 @@ func (w *responseWriter) Flush() {
 type transport struct {
 	collector *Collector
 	base      http.RoundTripper
+	// peer names the Oxy service a call goes to; empty means an upstream
+	// provider.
+	peer string
 }
 
+// Transport observes upstream provider calls: external, `ai`, and with no
+// provider location, which is never inferred from a hostname or address.
 func (c *Collector) Transport(base http.RoundTripper) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return &transport{c, base}
+	return &transport{collector: c, base: base}
 }
+
+// OxyTransport observes Kaana's calls to Oxy (the grant, settlement delivery):
+// internal flows to oxy-api. The destination region is the peer's own
+// X-Oxy-Region answer, never a guess, and Kaana's region travels to it in
+// X-Oxy-Source-Region. Only the request path decides the type; no path, query
+// or body is kept.
+func (c *Collector) OxyTransport(base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &transport{collector: c, base: base, peer: oxyAPIService}
+}
+
 func (t *transport) RoundTrip(r *http.Request) (*http.Response, error) {
-	flow := Flow{SourceRegion: t.collector.config.Region, TargetRegion: "unknown", SourceService: t.collector.config.Service, Scope: "external", Direction: "outbound", ActivityType: "ai"}
+	path := r.URL.Path
+	if Excluded(path) {
+		return t.base.RoundTrip(r)
+	}
+	flow := Flow{SourceRegion: t.collector.config.Region, SourceService: t.collector.config.Service, Scope: "external", Direction: "outbound", ActivityType: typeAI}
+	if t.peer != "" {
+		flow.Scope, flow.TargetService, flow.ActivityType = "internal", t.peer, activityType(path)
+		// A RoundTripper must not modify the request it is given.
+		r = r.Clone(r.Context())
+		r.Header.Set("X-Oxy-Source-Region", t.collector.config.Region)
+	}
 	response, err := t.base.RoundTrip(r)
-	// A provider location is not inferred from its hostname, IP, or a user header.
+	if response != nil && t.peer != "" {
+		if region := response.Header.Get("X-Oxy-Region"); regionPattern.MatchString(region) {
+			flow.TargetRegion = region
+		}
+	}
 	t.collector.Record(flow)
 	if response != nil {
 		flow.SourceRegion, flow.TargetRegion = flow.TargetRegion, flow.SourceRegion

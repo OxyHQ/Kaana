@@ -182,7 +182,7 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 	var activity *platformactivity.Collector
-	var providerBase http.RoundTripper
+	var providerBase, oxyBase http.RoundTripper
 	// Gated on the infrastructure coordinates being present rather than a
 	// separate OXY_ECOSYSTEM_ACTIVITY_ENABLED flag: unlike this process's Oxy
 	// identity (resolved unconditionally above for BYOK validation regardless of
@@ -198,11 +198,14 @@ func run(logger *slog.Logger) error {
 		if lonErr != nil || latErr != nil {
 			return errors.New("kaana activity requires infrastructure coordinates")
 		}
-		activity, err = platformactivity.New(platformactivity.Config{Region: os.Getenv("AWS_REGION"), Label: location, Service: "kaana", Coordinates: [2]float64{longitude, latitude}, BaseURL: envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"), Token: validationReporter.ServiceToken, Logger: logger})
+		activity, err = platformactivity.New(platformactivity.Config{Region: os.Getenv("AWS_REGION"), Label: location, Service: "kaana", Coordinates: [2]float64{longitude, latitude}, BaseURL: envOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"), Token: validationReporter.ServiceToken, Logger: logger,
+			// Serving needs a loaded snapshot that is not past its staleness horizon.
+			Ready: func() bool { return inventoryStore.Status().ServesUnpinnedReferences }})
 		if err != nil {
 			return err
 		}
 		providerBase = activity.Transport(nil)
+		oxyBase = activity.OxyTransport(nil)
 	}
 	// Every provider call gets a header deadline, whether or not ecosystem
 	// activity is enabled. It used to be the other way round: the client was
@@ -361,7 +364,7 @@ func run(logger *slog.Logger) error {
 		commercial: deploymentCommercial,
 		metrics:    metrics,
 		catalogue:  declaredCatalogue, costs: costs, executor: executor, inventory: inventoryStore, registry: registry, rotation: rotationRegistry, sessions: sessions,
-		store: credentialDatabase, keys: keys, oxy: validationReporter, logger: logger,
+		store: credentialDatabase, keys: keys, oxy: validationReporter, oxyBase: oxyBase, logger: logger,
 	})
 	if err != nil {
 		return err

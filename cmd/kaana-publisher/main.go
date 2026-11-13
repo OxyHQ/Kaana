@@ -123,6 +123,8 @@ func run(logger *slog.Logger) error {
 			Coordinates: [2]float64{longitude, latitude},
 			BaseURL:     environmentOr("KAANA_OXY_API_BASE_URL", "https://api.oxy.so"),
 			Token:       validationReporter.ServiceToken, Logger: logger,
+			// Run starts once the process is serving; it has no snapshot to wait on.
+			Ready: func() bool { return true },
 		})
 		if err != nil {
 			return err
