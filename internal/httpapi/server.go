@@ -8,6 +8,7 @@
 //	POST /internal/v1/inference     signed envelope in, normalized event stream out
 //	GET  /internal/v1/realtime      WebSocket; signed first frame opens or resumes a session
 //	GET  /internal/v1/health        signed, the customer-safe provider projection
+//	GET  /internal/v1/metrics       signed, Prometheus text exposition of the health projection
 //	GET  /internal/v1/models        signed, the model catalogue Oxy may publish
 //	POST /internal/v1/deployments/query signed, exact operator-safe route identities
 //	GET  /livez                     unsigned liveness, carrying no provider detail
@@ -50,6 +51,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/metricsexport"
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/rotation"
@@ -210,6 +212,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/inference", s.handleInference)
 	mux.Handle("GET /internal/v1/realtime", s.realtime)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /internal/v1/metrics", s.handleMetrics)
 	mux.HandleFunc("GET /internal/v1/models", s.handleModels)
 	mux.HandleFunc("POST /internal/v1/deployments/query", s.handleDeployments)
 	mux.HandleFunc("POST /internal/v1/customer-provider-credentials/validations", s.handleCredentialValidation)
@@ -508,6 +511,88 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		response.Deployments = append(response.Deployments, entry)
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Metrics                                                                   */
+/* -------------------------------------------------------------------------- */
+
+// handleMetrics serves the health projection as Prometheus text exposition.
+//
+// It is signed exactly like /internal/v1/health, so a vanilla Prometheus scrape
+// is refused: a scraper must hold an Oxy edge signing key. It reads the same
+// sources as handleHealth and adds nothing to the request path; every value is
+// sampled at scrape time. The metric set and its label vocabulary are closed in
+// internal/metricsexport.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if _, failure := s.readSignedBody(w, r); failure != nil {
+		s.writeRejection(w, http.StatusUnauthorized, failure)
+		return
+	}
+
+	status := s.inventory.Status()
+	input := metricsexport.Input{
+		ContractVersion: contract.ContractVersion,
+		Snapshot: metricsexport.Snapshot{
+			AgeSeconds:               status.AgeSeconds,
+			MaxAgeSeconds:            status.MaxAgeSeconds,
+			ServesUnpinnedReferences: status.ServesUnpinnedReferences,
+		},
+	}
+	for _, adapter := range s.registry.All() {
+		health := adapter.Health(r.Context())
+		entry := metricsexport.Provider{Slug: string(health.Provider), Status: string(health.Status)}
+		if health.Credentials != nil {
+			entry.Credentials = &metricsexport.KeyPool{Declared: health.Credentials.Declared, Usable: health.Credentials.Usable}
+		}
+		input.Providers = append(input.Providers, entry)
+	}
+
+	endpoints := s.inventory.Current().Deployments()
+	ids := make([]contract.DeploymentID, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		ids = append(ids, endpoint.DeploymentID)
+	}
+	recent := s.stats.Project(ids)
+	for index, health := range s.rotation.Project(ids) {
+		entry := metricsexport.Deployment{
+			ID:                  string(health.DeploymentID),
+			Provider:            string(endpoints[index].Provider),
+			State:               string(health.State),
+			Score:               health.Score,
+			ConsecutiveFailures: health.ConsecutiveFailures,
+		}
+		if index < len(recent) {
+			for _, window := range recent[index].Windows {
+				entry.Windows = append(entry.Windows, metricsWindow(window))
+			}
+		}
+		input.Deployments = append(input.Deployments, entry)
+	}
+
+	w.Header().Set("Content-Type", metricsexport.ContentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(metricsexport.Render(input))
+}
+
+func metricsWindow(window deploymentstats.Window) metricsexport.Window {
+	out := metricsexport.Window{
+		Seconds:          window.Seconds,
+		Attempts:         window.Attempts,
+		Succeeded:        window.Succeeded,
+		Throttled:        window.Throttled,
+		ToolCallAttempts: window.ToolCallAttempts,
+		ToolCallErrors:   window.ToolCallErrors,
+		Uptime:           window.Uptime,
+	}
+	if p := window.TimeToFirstOutputMs; p != nil {
+		out.TimeToFirstOutputMs = &metricsexport.Percentiles{P50: p.P50, P75: p.P75, P90: p.P90, P99: p.P99}
+	}
+	if p := window.TokensPerSecond; p != nil {
+		out.TokensPerSecond = &metricsexport.Percentiles{P50: p.P50, P75: p.P75, P90: p.P90, P99: p.P99}
+	}
+	return out
 }
 
 /* -------------------------------------------------------------------------- */
