@@ -15,7 +15,7 @@ func principal() contract.IdentityPrincipal {
 }
 func policy() Policy {
 	i := principal()
-	return Policy{ID: "native-test", Version: 1, Enabled: true, OwnerAccountID: i.OwnerAccountID, ApplicationID: i.ApplicationID, Environment: i.Environment, Lane: i.Lane, Authority: i.Authority, ApplicationClass: i.ApplicationClass, ApplicationIsInternal: i.ApplicationIsInternal, Audience: contract.AudiencePlatformInternal, AllowedLevels: []contract.PowerLevel{contract.PowerAuto, contract.PowerInstant, contract.PowerMedium, contract.PowerHigh, contract.PowerXHigh, contract.PowerPro}, AllowedModels: []contract.ModelID{"fixture/medium"}, AllowedDeploymentIDs: []contract.DeploymentID{"deployment-reviewed"}, Limits: contract.GrantStepLimits{MaxPricePerRequest: &contract.Money{Amount: "0.05", Currency: "USD"}, MaxFundingTier: ptr(contract.FundingTierCredit), RequireZeroDataRetention: true, ProhibitTrainingOnCustomerData: true}, MaxInputTokens: 126976, MaxOutputTokens: 8192, DefaultOutputTokens: 2048, MaxTools: 128, MaxConcurrent: 32, MaxPerUTCDay: 5000, ExecutionTimeout: time.Minute}
+	return Policy{ID: "native-test", Version: 1, Enabled: true, OwnerAccountID: i.OwnerAccountID, ApplicationID: i.ApplicationID, Environment: i.Environment, Lane: i.Lane, Authority: i.Authority, ApplicationClass: i.ApplicationClass, ApplicationIsInternal: i.ApplicationIsInternal, Audience: contract.AudiencePlatformInternal, AllowedLevels: []contract.PowerLevel{contract.PowerAuto, contract.PowerInstant, contract.PowerMedium, contract.PowerHigh, contract.PowerXHigh, contract.PowerPro}, AllowedModels: []contract.ModelID{"fixture/medium"}, Routes: RouteScope{Mode: "exact", Deployments: []RoutePermission{{DeploymentID: "deployment-reviewed", ModelReference: "fixture/medium@immutable", Provider: "fixture"}}}, Limits: contract.GrantStepLimits{MaxPricePerRequest: &contract.Money{Amount: "0.05", Currency: "USD"}, MaxFundingTier: ptr(contract.FundingTierCredit), RequireZeroDataRetention: true, ProhibitTrainingOnCustomerData: true}, MaxInputTokens: 126976, MaxOutputTokens: 8192, DefaultOutputTokens: 2048, MaxTools: 128, MaxConcurrent: 32, MaxPerUTCDay: 5000, ExecutionTimeout: time.Minute}
 }
 func price(id contract.ModelID) ModelPrice {
 	return ModelPrice{ModelLine: id, PriceVersionID: string(id) + "-v1", Currency: "USD", UnitPrices: []UnitPrice{{contract.UnitInputTokens, "1", 1000000, "USD"}, {contract.UnitCachedInputTokens, "0.1", 1000000, "USD"}, {contract.UnitCacheWriteInputTokens, "1.25", 1000000, "USD"}, {contract.UnitOutputTokens, "2", 1000000, "USD"}, {contract.UnitReasoningTokens, "2", 1000000, "USD"}, {contract.UnitRequests, "0", 1, "USD"}}}
@@ -121,7 +121,7 @@ func TestExactPinAndBoundedImmutableSnapshot(t *testing.T) {
 	original := policy()
 	m := model("medium")
 	p := planner(t, original, m)
-	original.AllowedDeploymentIDs[0] = "unreviewed"
+	original.Routes.Deployments[0].DeploymentID = "unreviewed"
 	m.Price.UnitPrices[0].Amount = "0"
 	r := request()
 	r.Target = ptr(contract.ModelTarget("fixture/medium@immutable"))
@@ -129,7 +129,7 @@ func TestExactPinAndBoundedImmutableSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Steps[0].Target.Reference() != "fixture/medium@immutable" || len(plan.Prices) != 1 || plan.Prices[0].UnitPrices[0].Amount != "1" || plan.AllowedDeploymentIDs[0] != "deployment-reviewed" {
+	if plan.Steps[0].Target.Reference() != "fixture/medium@immutable" || len(plan.Prices) != 1 || plan.Prices[0].UnitPrices[0].Amount != "1" || plan.StepRoutes[0].Deployments[0].DeploymentID != "deployment-reviewed" {
 		t.Fatalf("snapshot changed: %+v", plan)
 	}
 	if plan.OutputTokens != 8192 || plan.MaxConcurrent != 32 || plan.MaxPerUTCDay != 5000 || plan.PolicyDigest == "" {
@@ -197,7 +197,9 @@ func TestMalformedOrUnsupportedRequestsNeverFallBack(t *testing.T) {
 func TestImageBoundsAndDeclaredPrices(t *testing.T) {
 	r := request()
 	r.Facts.InputImages = ptr(2)
-	plan, err := planner(t, policy(), model("medium")).Plan(principal(), r)
+	p := policy()
+	p.ImageInput = &ImageInputPolicy{Limits: clone(p.Limits), Routes: clone(p.Routes), MaxImages: 16}
+	plan, err := planner(t, p, model("medium")).Plan(principal(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,17 +208,17 @@ func TestImageBoundsAndDeclaredPrices(t *testing.T) {
 	}
 	m := model("medium")
 	m.MaxInputTokensPerImage = 0
-	if _, err = planner(t, policy(), m).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
+	if _, err = planner(t, p, m).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
 		t.Fatal(err)
 	}
 	r.Facts.InputImages = ptr(int(^uint(0) >> 1))
-	if _, err = planner(t, policy(), model("medium")).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
+	if _, err = planner(t, p, model("medium")).Plan(principal(), r); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatal("image multiplication overflow admitted")
 	}
 }
 func TestPolicyMustBeExplicitAndUnambiguous(t *testing.T) {
 	p := policy()
-	for _, change := range []func(*Policy){func(p *Policy) { p.AllowedDeploymentIDs = nil }, func(p *Policy) { p.Limits.MaxFundingTier = nil }, func(p *Policy) { p.Limits.MaxPricePerRequest = nil }, func(p *Policy) { p.MaxOutputTokens = 0 }, func(p *Policy) { p.ExecutionTimeout = 24 * time.Hour }} {
+	for _, change := range []func(*Policy){func(p *Policy) { p.Routes.Deployments = nil }, func(p *Policy) { p.Limits.MaxFundingTier = nil }, func(p *Policy) { p.Limits.MaxPricePerRequest = nil }, func(p *Policy) { p.MaxOutputTokens = 0 }, func(p *Policy) { p.ExecutionTimeout = 24 * time.Hour }} {
 		bad := clone(p)
 		change(&bad)
 		if _, err := NewPlanner([]Policy{bad}, nil); err == nil {

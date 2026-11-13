@@ -14,6 +14,8 @@ import (
 // Model is a projection of Kaana's validated declared catalogue, not a second
 // catalogue. Deployment eligibility remains the existing executor's decision.
 type Model struct {
+	APIFormats                                                        []string
+	RealtimeSessionKinds                                              []contract.RealtimeSessionKind
 	ID                                                                contract.ModelID
 	PowerClass                                                        string
 	Audience                                                          contract.CatalogueAudience
@@ -28,6 +30,8 @@ type Model struct {
 	Price                                                             ModelPrice
 }
 type Request struct {
+	SessionMaxDuration                    time.Duration
+	SessionMaxResponses                   int
 	Operation                             contract.GrantOperation
 	Target                                *contract.GrantTarget
 	Facts                                 contract.GrantRequestFacts
@@ -35,19 +39,19 @@ type Request struct {
 	RequestedEffort                       *contract.ReasoningEffort
 }
 type Plan struct {
-	PolicyID             string                          `json:"policyId"`
-	PolicyVersion        int                             `json:"policyVersion"`
-	PolicyDigest         string                          `json:"policyDigest"`
-	Steps                []contract.GrantStep            `json:"steps"`
-	RoutingPolicy        contract.RoutingPolicyReference `json:"routingPolicy"`
-	Prices               []ModelPrice                    `json:"prices"`
-	AllowedDeploymentIDs []contract.DeploymentID         `json:"allowedDeploymentIds"`
-	MaxConcurrent        int                             `json:"maxConcurrent"`
-	MaxPerUTCDay         int                             `json:"maxPerUtcDay"`
-	ExecutionTimeout     time.Duration                   `json:"executionTimeout"`
-	InputTokens          int                             `json:"inputTokens"`
-	OutputTokens         int                             `json:"outputTokens"`
-	Quote                contract.Money                  `json:"quote"`
+	PolicyID         string                          `json:"policyId"`
+	PolicyVersion    int                             `json:"policyVersion"`
+	PolicyDigest     string                          `json:"policyDigest"`
+	Steps            []contract.GrantStep            `json:"steps"`
+	RoutingPolicy    contract.RoutingPolicyReference `json:"routingPolicy"`
+	Prices           []ModelPrice                    `json:"prices"`
+	StepRoutes       []RouteScope                    `json:"stepRoutes"`
+	MaxConcurrent    int                             `json:"maxConcurrent"`
+	MaxPerUTCDay     int                             `json:"maxPerUtcDay"`
+	ExecutionTimeout time.Duration                   `json:"executionTimeout"`
+	InputTokens      int                             `json:"inputTokens"`
+	OutputTokens     int                             `json:"outputTokens"`
+	Quote            contract.Money                  `json:"quote"`
 }
 type Planner struct {
 	policies []Policy
@@ -170,7 +174,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 		return Plan{}, ErrNotEnrolled
 	}
 	if request.Operation != contract.GrantResponses && request.Operation != contract.GrantChatCompletions {
-		return Plan{}, fmt.Errorf("%w: operation is not yet supported", ErrInvalidRequest)
+		return p.planNonText(identity, *policy, request)
 	}
 	if request.Target == nil || request.Target.Validate() != nil || request.Facts.EstimatedInputTokens == nil || value(request.Facts.EstimatedInputTokens) < 0 || value(request.Facts.EstimatedInputTokens) > policy.MaxInputTokens || request.Facts.DeclaredTools < 0 || request.Facts.DeclaredTools > policy.MaxTools || value(request.Facts.InputImages) < 0 {
 		return Plan{}, ErrInvalidRequest
@@ -190,6 +194,12 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 	}
 	// Do not silently shrink a declared output allowance. It is both a reasoning
 	// budget and an economic request; a smaller value changes the caller's task.
+	if request.SessionMaxDuration != 0 || request.SessionMaxResponses != 0 {
+		return Plan{}, ErrInvalidRequest
+	}
+	if value(request.Facts.InputImages) > 0 && (policy.ImageInput == nil || value(request.Facts.InputImages) > policy.ImageInput.MaxImages) {
+		return Plan{}, ErrInvalidRequest
+	}
 	normalized := request
 	normalized.Facts.MaxOutputTokens = &output
 	targets := []contract.GrantTarget{}
@@ -211,12 +221,25 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 		}
 	} else if containsLevel(*policy, *request.Target.Level) {
 		targets = append(targets, *request.Target)
+		if policy.Promotional != nil && slices.Contains(policy.Promotional.Levels, *request.Target.Level) && containsLevel(*policy, policy.Promotional.FallbackLevel) {
+			targets = append(targets, contract.LevelTarget(policy.Promotional.FallbackLevel))
+		}
 	}
-	plan := Plan{PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, AllowedDeploymentIDs: clone(policy.AllowedDeploymentIDs), MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
-	ceiling, _ := moneyRat(*policy.Limits.MaxPricePerRequest)
+	plan := Plan{PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(*policy), RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: policy.ExecutionTimeout, InputTokens: value(request.Facts.EstimatedInputTokens), OutputTokens: output}
 	maxQuote := new(big.Rat)
 	seen := map[contract.ModelID]bool{}
 	for _, target := range targets {
+		effective := *policy
+		routes := policy.Routes
+		if value(request.Facts.InputImages) > 0 {
+			effective.Limits = policy.ImageInput.Limits
+			routes = policy.ImageInput.Routes
+		}
+		if policy.Promotional != nil && target.Kind == contract.GrantTargetLevel && request.Target.Kind == contract.GrantTargetLevel && *target.Level == *request.Target.Level && slices.Contains(policy.Promotional.Levels, *target.Level) {
+			effective.Limits = policy.Promotional.Limits
+			routes = policy.Promotional.Routes
+		}
+		ceiling, _ := moneyRat(*effective.Limits.MaxPricePerRequest)
 		type candidate struct {
 			model Model
 			quote *big.Rat
@@ -224,7 +247,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 		}
 		var candidates []candidate
 		for _, model := range p.models {
-			if seen[model.ID] || !eligible(*policy, model, normalized) {
+			if seen[model.ID] || !eligible(effective, model, normalized) {
 				continue
 			}
 			if target.Kind == contract.GrantTargetModel && model.ID != *target.ModelLine {
@@ -236,12 +259,12 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			input := value(request.Facts.EstimatedInputTokens)
 			images := value(request.Facts.InputImages)
 			if images > 0 {
-				if model.MaxInputTokensPerImage <= 0 || images > (policy.MaxInputTokens-input)/model.MaxInputTokensPerImage {
+				if model.MaxInputTokensPerImage <= 0 || model.MaxContextTokens-output-input < 0 || images > (model.MaxContextTokens-output-input)/model.MaxInputTokensPerImage {
 					continue
 				}
 				input += images * model.MaxInputTokensPerImage
 			}
-			if input > policy.MaxInputTokens || model.MaxContextTokens <= 0 || model.MaxOutputTokens <= 0 || output > model.MaxOutputTokens || input > model.MaxContextTokens-output {
+			if model.MaxContextTokens <= 0 || model.MaxOutputTokens <= 0 || output > model.MaxOutputTokens || input > model.MaxContextTokens-output {
 				continue
 			}
 			quoted, err := textQuote(model.Price, input, output)
@@ -260,7 +283,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 			}
 			return candidates[i].model.ID < candidates[j].model.ID
 		})
-		limits := clone(policy.Limits)
+		limits := clone(effective.Limits)
 		for _, c := range candidates {
 			seen[c.model.ID] = true
 			limits.AdmittedModelLines = append(limits.AdmittedModelLines, contract.AdmittedModelLine{ModelLine: c.model.ID, PriceVersionID: c.model.Price.PriceVersionID})
@@ -274,6 +297,7 @@ func (p *Planner) Plan(identity contract.IdentityPrincipal, request Request) (Pl
 		}
 		if len(limits.AdmittedModelLines) > 0 {
 			plan.Steps = append(plan.Steps, contract.GrantStep{Target: target, Limits: limits})
+			plan.StepRoutes = append(plan.StepRoutes, clone(routes))
 		}
 	}
 	if len(plan.Steps) == 0 {
@@ -303,4 +327,104 @@ func eligible(policy Policy, model Model, r Request) bool {
 		return false
 	}
 	return len(policy.Limits.AllowedLicenseIDs) == 0 || slices.Contains(policy.Limits.AllowedLicenseIDs, model.LicenseID)
+}
+
+func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy, r Request) (Plan, error) {
+	var terms *OperationPolicy
+	switch r.Operation {
+	case contract.GrantAudioSpeech:
+		terms = policy.Speech
+	case contract.GrantAudioTranscriptions:
+		terms = policy.Transcription
+	case contract.GrantRealtimeSession:
+		terms = policy.Realtime
+	default:
+		return Plan{}, ErrInvalidRequest
+	}
+	if terms == nil || r.Target == nil || r.Target.Validate() != nil || r.Target.Kind != contract.GrantTargetModel {
+		return Plan{}, ErrInvalidRequest
+	}
+	if !terms.AllowCatalogueModels && !slices.Contains(policy.AllowedModels, *r.Target.ModelLine) {
+		return Plan{}, ErrNoRoute
+	}
+	if r.StructuredOutput || r.JSONMode || r.Reasoning || r.RequestedEffort != nil || r.Facts.MaxOutputTokens != nil || r.Facts.EmbeddingInputs != nil || r.Facts.Images != nil || r.Facts.InputImages != nil {
+		return Plan{}, ErrInvalidRequest
+	}
+	if r.Facts.DeclaredTools < 0 || r.Facts.DeclaredTools > policy.MaxTools {
+		return Plan{}, ErrInvalidRequest
+	}
+	input := 0
+	switch r.Operation {
+	case contract.GrantAudioSpeech:
+		if r.Facts.InputCharacters == nil || r.Facts.AudioInputMilliseconds != nil || r.Facts.RealtimeSessionKind != nil || r.Facts.Stream || r.Facts.DeclaredTools != 0 || r.Facts.EstimatedInputTokens != nil {
+			return Plan{}, ErrInvalidRequest
+		}
+		input = *r.Facts.InputCharacters
+	case contract.GrantAudioTranscriptions:
+		if r.Facts.AudioInputMilliseconds == nil || r.Facts.InputCharacters != nil || r.Facts.RealtimeSessionKind != nil || r.Facts.DeclaredTools != 0 || r.Facts.EstimatedInputTokens != nil {
+			return Plan{}, ErrInvalidRequest
+		}
+		input = *r.Facts.AudioInputMilliseconds
+	case contract.GrantRealtimeSession:
+		if r.Facts.RealtimeSessionKind == nil || !slices.Contains(terms.SessionKinds, *r.Facts.RealtimeSessionKind) || r.Facts.InputCharacters != nil || r.Facts.AudioInputMilliseconds != nil || r.SessionMaxDuration < time.Millisecond || r.SessionMaxDuration%time.Millisecond != 0 || r.SessionMaxDuration > terms.MaxSessionDuration || r.SessionMaxResponses <= 0 || r.SessionMaxResponses > terms.MaxSessionResponses {
+			return Plan{}, ErrInvalidRequest
+		}
+		input = value(r.Facts.EstimatedInputTokens)
+	}
+	if input < 0 || input > terms.MaxInput || ((r.Operation == contract.GrantAudioSpeech || r.Operation == contract.GrantAudioTranscriptions) && input == 0) {
+		return Plan{}, ErrInvalidRequest
+	}
+	if r.Operation != contract.GrantRealtimeSession && (r.SessionMaxDuration != 0 || r.SessionMaxResponses != 0) {
+		return Plan{}, ErrInvalidRequest
+	}
+	ceiling, _ := moneyRat(*terms.Limits.MaxPricePerRequest)
+	for _, m := range p.models {
+		if m.ID != *r.Target.ModelLine || !m.Active || !admittedAudience(policy, m.Audience) || !privacyEligible(terms.Limits, m) {
+			continue
+		}
+		switch r.Operation {
+		case contract.GrantAudioSpeech:
+			if !slices.Contains(m.APIFormats, "audio_speech") || !slices.Contains(m.InputModalities, "text") || !slices.Contains(m.OutputModalities, "audio") {
+				continue
+			}
+		case contract.GrantAudioTranscriptions:
+			if !slices.Contains(m.APIFormats, "audio_transcriptions") || !slices.Contains(m.InputModalities, "audio") || !slices.Contains(m.OutputModalities, "text") {
+				continue
+			}
+		case contract.GrantRealtimeSession:
+			if !slices.Contains(m.RealtimeSessionKinds, *r.Facts.RealtimeSessionKind) || !slices.Contains(m.InputModalities, "audio") || r.Facts.DeclaredTools > 0 && !m.Tools || m.MaxContextTokens <= 0 || input > m.MaxContextTokens {
+				continue
+			}
+			output := "audio"
+			if *r.Facts.RealtimeSessionKind == "transcription" {
+				output = "text"
+			}
+			if !slices.Contains(m.OutputModalities, output) {
+				continue
+			}
+		}
+		quote, qualification, err := operationQuote(m.Price, r)
+		if err != nil {
+			continue
+		}
+		amount, _ := moneyRat(qualification)
+		if amount.Cmp(ceiling) > 0 {
+			continue
+		}
+		limits := clone(terms.Limits)
+		limits.AdmittedModelLines = []contract.AdmittedModelLine{{ModelLine: m.ID, PriceVersionID: m.Price.PriceVersionID}}
+		timeout := policy.ExecutionTimeout
+		if r.Operation == contract.GrantRealtimeSession {
+			timeout = r.SessionMaxDuration
+		}
+		return Plan{PolicyID: policy.ID, PolicyVersion: policy.Version, PolicyDigest: policyDigest(policy), Steps: []contract.GrantStep{{Target: *r.Target, Limits: limits}}, StepRoutes: []RouteScope{clone(terms.Routes)}, RoutingPolicy: contract.RoutingPolicyReference{RoutingPolicyID: policy.ID, PolicyVersion: policy.Version}, Prices: []ModelPrice{clone(m.Price)}, MaxConcurrent: policy.MaxConcurrent, MaxPerUTCDay: policy.MaxPerUTCDay, ExecutionTimeout: timeout, InputTokens: value(r.Facts.EstimatedInputTokens), Quote: quote}, nil
+	}
+	return Plan{}, ErrNoRoute
+}
+
+func privacyEligible(limits contract.GrantStepLimits, m Model) bool {
+	if limits.RequireZeroDataRetention && (m.RetainsPayloads || !m.ZeroDataRetentionAvailable) || limits.ProhibitTrainingOnCustomerData && m.TrainsOnCustomerData || limits.RequireCommercialUseRights && !m.CommercialUseAllowed {
+		return false
+	}
+	return len(limits.AllowedLicenseIDs) == 0 || slices.Contains(limits.AllowedLicenseIDs, m.LicenseID)
 }
