@@ -23,6 +23,9 @@ func main() {
 	}
 }
 func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) error {
+	if len(args) > 0 && args[0] == "peable-billing" {
+		return runPeableBilling(args[1:], stdin, stdout, getenv, openPeableOperator, openPeableClient)
+	}
 	if len(args) > 0 && args[0] == "identity-check" {
 		return runIdentityCheck(args[1:], stdout, getenv, openIdentityCheck)
 	}

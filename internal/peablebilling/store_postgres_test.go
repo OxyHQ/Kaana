@@ -27,6 +27,8 @@ type fixture struct {
 	admin, runtime, migrator   *Store
 	ledgerAdmin, ledgerRuntime *billing.Store
 	runtimeDB                  *pgxpool.Pool
+	ownerDB                    *pgxpool.Pool
+	config                     *pgxpool.Config
 }
 
 func database(t *testing.T) *fixture {
@@ -112,7 +114,7 @@ func database(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	runtime := pool("kaana_peable_billing_runtime")
-	return &fixture{ctx: ctx, admin: NewStore(pool("kaana_peable_billing_admin")), runtime: NewStore(runtime), migrator: s, ledgerAdmin: billing.NewStore(pool("kaana_billing_admin")), ledgerRuntime: billing.NewStore(pool("kaana_billing_runtime")), runtimeDB: runtime}
+	return &fixture{ctx: ctx, admin: NewStore(pool("kaana_peable_billing_admin")), runtime: NewStore(runtime), migrator: s, ledgerAdmin: billing.NewStore(pool("kaana_billing_admin")), ledgerRuntime: billing.NewStore(pool("kaana_billing_runtime")), runtimeDB: runtime, ownerDB: db, config: own}
 }
 func (f *fixture) account(t *testing.T) billing.Account {
 	t.Helper()
