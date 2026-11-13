@@ -20,8 +20,8 @@ tools) plus the TypeScript workspace that defines the wire contract and the SDK:
 | `tools/contract` | generates `internal/contract/descriptor.json` and `packages/contracts/openapi.json` |
 | `configs/` | the declared catalogue, deployment commercial facts, rate cards, model attribution |
 
-Alia remains the agent runtime. Kaana executes model requests; conversations,
-tools, memory and approvals belong to Alia.
+Gemies owns the agent runtime, including the Alia gemie. Conversations, tools,
+memory and approvals remain there.
 
 ## How a request reaches a provider
 
@@ -50,28 +50,28 @@ New to Oxy inference? The concepts (exact model, power level, app default) and
 the product-side request paths are in the
 [Oxy inference developer guide](https://github.com/OxyHQ/oxy/blob/main/docs/inference/README.md).
 
-## Who owns what
+## Ownership and migration status
 
-| Kaana (this repository) | Oxy |
+The owner accepted [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md):
+Kaana owns inference policy, spend authorization, accounting and invoices;
+Oxy supplies identity only. The request paths above describe the existing
+execution lanes, whose Oxy grants remain authoritative during migration.
+
+| Kaana | Oxy |
 |---|---|
-| request normalization and the provider adapters | accounts, organizations, projects, applications |
-| the public API, the grant resolution, routing execution, failover, streaming, cancellation | authentication of `oxy_sk_` keys and sessions, scopes, routing policy |
-| model deployments, provider health, circuit breakers, the inventory | the Console, where applications and keys are managed |
-| provider keys: KMS ciphertext custody, key pools, customer BYOK | provider-connection metadata and policy |
-| the declared catalogue and its list prices | the spend hold, rating, ledger, receipts, payments and invoices |
-| metering (exact units) and upstream provider cost | what a customer is charged |
+| inference API, catalogue, power levels, provider selection and execution | accounts, organizations, applications, credentials and verified person/workload identity |
+| capacity, routing/economic policy, pricing, holds, ledger, receipts and invoices under the accepted migration | existing financial grants and records only for their original legacy operations until drained |
+| encrypted provider keys, BYOK custody, technical usage and upstream cost | Console identity/key management and product interfaces that may consume Kaana's financial API |
 
-Two notes on the right-hand column:
+The identity contract is source-implemented; native admission and commercial
+billing have separate delivery gates. No balance transfer, seller setup or
+production native enrollment follows from this README. ADR 0010 records the
+verified current backend principal, absent Kaana merchant, implementation
+inventory and authority-preserving cutover sequence.
 
-- It is how production works today. The owner has decided that **Kaana will sell
-  and invoice, with Oxy keeping identity**; the proposal, its phases and its open
-  questions are [ADR 0010](docs/adr/0010-kaana-sells-and-invoices.md). Nothing
-  moves until it is accepted and its first phase ships.
-- Upstream provider keys are never in environment variables, the repository or a
-  product database: they are KMS ciphertext in Kaana's PostgreSQL store, including
-  customer BYOK. Customer BYOK in source is not a production enablement claim; it
-  stays ungrantable until its fee schedule and gates exist
-  ([docs/customer-provider-credentials.md](docs/customer-provider-credentials.md)).
+Upstream keys never live in environment variables, the repository or product
+databases. Customer BYOK remains ungrantable until its reviewed fee schedule
+and gates exist ([customer-provider-credentials](docs/customer-provider-credentials.md)).
 
 ## Quick start
 
