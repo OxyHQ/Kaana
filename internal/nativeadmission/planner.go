@@ -32,7 +32,11 @@ type Model struct {
 	CommercialUseAllowed                                              bool
 	RetainsPayloads, TrainsOnCustomerData, ZeroDataRetentionAvailable bool
 	MaxInputTokensPerImage                                            int
-	Price                                                             ModelPrice
+	// MinimumBilledAudioMilliseconds is the largest per-request minimum any
+	// route serving the line's file transcription bills (Groq: 10 s), from the
+	// adapters' reviewed statements. A quote never assumes less audio.
+	MinimumBilledAudioMilliseconds int
+	Price                          ModelPrice
 }
 type Request struct {
 	SessionMaxDuration                    time.Duration
@@ -451,7 +455,7 @@ func (p *Planner) planNonText(identity contract.IdentityPrincipal, policy Policy
 				continue
 			}
 		}
-		quote, qualification, err := operationQuote(m.Price, r)
+		quote, qualification, err := operationQuote(m.Price, r, m.MinimumBilledAudioMilliseconds)
 		if err != nil {
 			continue
 		}

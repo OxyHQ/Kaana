@@ -94,6 +94,9 @@ func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Tim
 					model.APIFormats = append(model.APIFormats, string(format))
 				}
 			}
+			if nativeFormatServed(formats, route, contract.APIFormatAudioTranscriptions) {
+				model.MinimumBilledAudioMilliseconds = max(model.MinimumBilledAudioMilliseconds, transcriptionMinimum(formats, route.Provider))
+			}
 			if route.AcceptedParameters == nil {
 				continue
 			}
@@ -116,6 +119,22 @@ func (c *PublicCatalogue) nativeModels(current *inventory.Inventory, at time.Tim
 		return 0
 	})
 	return result, nil
+}
+
+// transcriptionMinimum is the least one file transcription on a slug bills,
+// from its adapter's reviewed statement; zero when the slug states none.
+func transcriptionMinimum(formats FormatKinds, slug contract.ProviderSlug) int {
+	stater, ok := formats.(interface {
+		TranscriptionStatement(contract.ProviderSlug) (providerconfig.TranscriptionStatement, bool)
+	})
+	if !ok {
+		return 0
+	}
+	statement, stated := stater.TranscriptionStatement(slug)
+	if !stated {
+		return 0
+	}
+	return statement.MinimumBilledMilliseconds
 }
 
 func nativeFormatServed(formats FormatKinds, route provider.Route, format contract.APIFormat) bool {

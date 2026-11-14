@@ -48,7 +48,13 @@ func New(config Config) (*Adapter, error) {
 	}
 	return &Adapter{base: config.BaseURL, client: provider.RefuseRedirects(config.HTTPClient), credentials: pool}, nil
 }
-func (a *Adapter) Provider() contract.ProviderSlug        { return Slug }
+func (a *Adapter) Provider() contract.ProviderSlug { return Slug }
+
+// TranscriptionStatement is provider.TranscriptionStater: the same statement
+// this adapter reads and bills its uploads by.
+func (a *Adapter) TranscriptionStatement() (providerconfig.TranscriptionStatement, bool) {
+	return providerconfig.TranscriptionCapabilities(Slug, providerconfig.ProtocolDeepgramVoice)
+}
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
 func (a *Adapter) APIFormats() []contract.APIFormat {
 	return providerconfig.ExecutableAPIFormats(Slug, providerconfig.ProtocolDeepgramVoice)

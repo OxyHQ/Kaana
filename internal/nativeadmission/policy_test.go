@@ -125,6 +125,20 @@ func TestSpeechCharacterCeilingAndBatchTranscriptionDuration(t *testing.T) {
 	if err != nil || plan.Quote.Amount != "0.008333333334" {
 		t.Fatalf("transcription quote: %+v %v", plan, err)
 	}
+	// A line whose route bills at least 10 s a request (Groq) is quoted at that
+	// minimum for a shorter clip, and at the measured audio above it.
+	batch.MinimumBilledAudioMilliseconds = 10_000
+	short := r
+	short.Facts.AudioInputMilliseconds = ptr(1_008)
+	plan, err = planner(t, p, batch).Plan(principal(), short)
+	if err != nil || plan.Quote.Amount != "0.000277777778" {
+		t.Fatalf("short transcription quoted below its billing minimum: %+v %v", plan, err)
+	}
+	plan, err = planner(t, p, batch).Plan(principal(), r)
+	if err != nil || plan.Quote.Amount != "0.008333333334" {
+		t.Fatalf("billing minimum changed a longer clip's quote: %+v %v", plan, err)
+	}
+	batch.MinimumBilledAudioMilliseconds = 0
 	batch.Price.UnitPrices = append(batch.Price.UnitPrices, UnitPrice{contract.UnitOutputTokens, "1", 1000000, "USD"})
 	if _, err = planner(t, p, batch).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
 		t.Fatal("unbounded priced transcript admitted")

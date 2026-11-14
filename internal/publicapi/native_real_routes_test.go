@@ -139,3 +139,43 @@ func TestNativeTextDialectDoesNotAuthorizeOtherModelFamilies(t *testing.T) {
 		t.Fatal("missing adapter registry invented capability")
 	}
 }
+
+// The native catalogue carries each file transcription line's per-request
+// billing minimum from its serving adapter's reviewed statement, so the quote
+// bounds what the route settles at (Groq bills at least 10 s; xAI states none).
+func TestNativeTranscriptionLinesCarryTheirRoutesBillingMinimum(t *testing.T) {
+	registry := reviewedNativeRegistry(t)
+	catalogue, err := LoadPublicCatalogue("../../configs/public-catalogue.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	deployments := []map[string]any{
+		{"deploymentId": "dep_groq_whisper_large_v3_turbo_fixture", "provider": "groq", "modelReference": "openai/whisper-large-v3-turbo@observed-2026-10-16", "upstreamModelId": "whisper-large-v3-turbo", "current": true},
+		{"deploymentId": "dep_xai_grok_voice_transcribe_fixture", "provider": "xai", "modelReference": "x-ai/grok-voice-transcribe-2.0@observed-2026-10-16", "upstreamModelId": "grok-voice-transcribe-2.0", "current": true},
+	}
+	raw, _ := json.Marshal(map[string]any{"snapshotId": "native-transcription-minimum", "issuedAt": contract.NewTimestamp(now), "deployments": deployments})
+	current, err := inventory.Parse(raw, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := catalogue.nativeModels(current, now, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minimum := map[contract.ModelID]int{}
+	for _, model := range models {
+		if slices.Contains(model.APIFormats, string(contract.APIFormatAudioTranscriptions)) {
+			minimum[model.ID] = model.MinimumBilledAudioMilliseconds
+		}
+	}
+	if got, ok := minimum["openai/whisper-large-v3-turbo"]; !ok || got != 10_000 {
+		t.Fatalf("Groq whisper minimum = %d (served %v), want 10000", got, ok)
+	}
+	if got, ok := minimum["x-ai/grok-voice-transcribe-2.0"]; !ok || got != 0 {
+		t.Fatalf("xAI transcription minimum = %d (served %v), want 0", got, ok)
+	}
+	if statement, stated := registry.TranscriptionStatement("cerebras"); stated || statement.MinimumBilledMilliseconds != 0 {
+		t.Fatal("a slug that transcribes no file states a statement")
+	}
+}

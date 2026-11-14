@@ -532,6 +532,29 @@ func (r *Registry) ServingKinds(slug contract.ProviderSlug) (sessions []contract
 	return nil, false, false
 }
 
+// TranscriptionStater is a request adapter that transcribes files under a
+// reviewed statement (providerconfig.TranscriptionCapabilities): the uploads it
+// takes and what one request costs at least (MinimumBilledMilliseconds).
+type TranscriptionStater interface {
+	TranscriptionStatement() (providerconfig.TranscriptionStatement, bool)
+}
+
+// TranscriptionStatement is the reviewed file transcription statement of the
+// request adapter registered for a slug; stated is false for a slug this
+// registry does not serve or that transcribes no file.
+func (r *Registry) TranscriptionStatement(slug contract.ProviderSlug) (statement providerconfig.TranscriptionStatement, stated bool) {
+	if r == nil {
+		return providerconfig.TranscriptionStatement{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	stater, ok := r.adapters[slug].(TranscriptionStater)
+	if !ok {
+		return providerconfig.TranscriptionStatement{}, false
+	}
+	return stater.TranscriptionStatement()
+}
+
 // ExecutesFormat reports whether the request adapter registered for a slug
 // declares a request family. known is false for a slug with no request
 // adapter (including one served only as realtime sessions).
