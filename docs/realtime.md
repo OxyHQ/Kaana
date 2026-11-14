@@ -213,7 +213,8 @@ session that measured nothing and ended normally settles as cancelled.
    and labelled `oxy_measured` on `session.closed` and the report; for a
    provider that reports the whole session's usage once, at its end
    (`provider.RealtimeFinalUsage`, GPT-Live), that report, read once here
-   with the source the adapter could confirm;
+   with the source the adapter could confirm, after the trailing events only
+   that end produces (the `transcript.done` of an item still open);
 3. the provider session is closed;
 4. `SettleSession` builds the usage report and prices and records the operator
    cost: one `provider_cost_events` row per attempt — each failed open with its
@@ -338,7 +339,7 @@ classified like a refused request. Each stage is bounded at 20 s. Everything is 
 
 **Commands.**
 
-| Contract command | GPT-Live client event (`event_id` = `commandId`; a later chunk `commandId#n`) |
+| Contract command | GPT-Live client event (`event_id` minted by Kaana, `kaana-<n>`, and mapped back to its command for an `error`) |
 |---|---|
 | `input_audio.append` | `session.input_audio.append {audio}` (not acknowledged by OpenAI); PCM16 that is not whole 16-bit samples is refused (`data`) |
 | `delegation.reply` | `session.commentary.append {delegation_id, content}`, spoken (paraphrased): the text with each `verbatim` span between `⟦ ⟧` (`provider.WrapVerbatim`), cut into appends of at most 500 bytes at the last sentence end that fits, else the last space, never inside a span |
@@ -361,7 +362,7 @@ the bound is an append of its own.
 | `session.delegation.created` | the input item's `transcript.done` (its whole text), then `delegation.requested` with that text and OpenAI's delegation id (1–128 units, unique; target `client`) |
 | `session.output_transcript.delta` | `transcript.delta`, `source: output_audio`, item `output_<n>`, response `response_<n>` |
 | `session.output_audio.delta` | `output_audio.delta`, split into frames of at most `provider.MaxAudioChunkBytes`, in the open utterance |
-| (an utterance ends) | its `transcript.done`: a fragment starting 1.5 s or more after the last one ended on OpenAI's session clock, 1.5 s with no output on Kaana's, or the session's end. No `output_audio.done`: GPT-Live has none |
+| (an utterance ends) | its `transcript.done`: a fragment starting 1.5 s or more after the last one ended on OpenAI's session clock, 1.5 s with no output on Kaana's, or the session's end, where it and the caller's open item are trailing events emitted before `session.closed`. No `output_audio.done`: GPT-Live has none |
 | `error` | `error{fatal:false}`, `commandId` from `client_event_id`; a failure other than `invalid_request_error` is the session's own and is how it ends if the connection then closes |
 | `session.closed` | the end: `close_requested`, `expired`, `remote_hangup` → `upstream_closed`; `content` → `upstream_error` (`upstream_content_filtered`); `connection_lost` → `upstream_error` (`provider_error`) |
 | `session.started` (after open), `session.updated`, `*.appended`, `session.input_audio.muted`/`unmuted`, `session.usage.updated`, `info`, Responses and Decisions events | dropped: the contract has no event for them, and Kaana configures neither delegation type |

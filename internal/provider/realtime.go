@@ -132,7 +132,19 @@ type RealtimeMeter interface {
 // carry no units, so nothing is counted twice. ctx carries no cancellation the
 // settlement must obey; the adapter bounds the wait itself.
 type RealtimeFinalUsage interface {
-	FinalUsage(ctx context.Context) ([]contract.UsageQuantity, contract.UsageSource)
+	FinalUsage(ctx context.Context) RealtimeFinal
+}
+
+// RealtimeFinal is how a RealtimeFinalUsage session ended.
+type RealtimeFinal struct {
+	Units  []contract.UsageQuantity
+	Source contract.UsageSource
+	// Trailing are the events that end what the session was carrying when it
+	// settled, which only the provider's end produces: the transcript.done of
+	// an item still open (GPT-Live has no event that ends an utterance). The
+	// session emits them, unstamped and in order, before session.closed; Next
+	// never returns them.
+	Trailing []contract.RealtimeServerEvent
 }
 
 // ErrRealtimeUpstreamClosed reports that the provider ended a session without

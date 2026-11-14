@@ -138,7 +138,7 @@ func TestTheSessionStartIsTheWholeSession(t *testing.T) {
 			if err := s.Send(context.Background(), &contract.RealtimeInputAudioAppendCommand{CommandID: "cmd_audio", Data: "AAAAAA=="}); err != nil {
 				t.Fatal(err)
 			}
-			if got := conn.Expect("session.input_audio.append"); got["audio"] != "AAAAAA==" || got["event_id"] != "cmd_audio" {
+			if got := conn.Expect("session.input_audio.append"); got["audio"] != "AAAAAA==" || !strings.HasPrefix(got["event_id"].(string), "kaana-") {
 				t.Errorf("audio append = %v", got)
 			}
 		}
@@ -385,7 +385,7 @@ func TestTheDelegationCommandsAreGPTLivesAppends(t *testing.T) {
 	if err := s.Send(context.Background(), &contract.RealtimeDelegationContextCommand{CommandID: "cmd_context", DelegationID: "del_1", Text: "still ⟦checking⟧"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := conn.Expect("session.thinking.append"); got["content"] != "still checking" || got["delegation_id"] != "del_1" || got["event_id"] != "cmd_context" {
+	if got := conn.Expect("session.thinking.append"); got["content"] != "still checking" || got["delegation_id"] != "del_1" || !strings.HasPrefix(got["event_id"].(string), "kaana-") {
 		t.Fatalf("context = %v", got)
 	}
 	if err := s.Send(context.Background(), &contract.RealtimeDelegationCancelCommand{CommandID: "cmd_cancel", DelegationID: "del_1"}); err != nil {
@@ -424,7 +424,8 @@ func TestWhatTheVoiceDoesNotTakeIsRefusedUnwritten(t *testing.T) {
 }
 
 // TestAnInBandErrorNamesTheCommandItRefuses, a later chunk's included, and a
-// failure about the session itself is how the session ends.
+// failure about the session itself is how the session ends. Every event id is
+// Kaana's, so a client command id spelled like one is never confused with it.
 func TestAnInBandErrorNamesTheCommandItRefuses(t *testing.T) {
 	upstream := fake.New(t)
 	s := open(t, newAdapter(t, upstream, nil), liveConfig(contract.RealtimePCM16, contract.RealtimeAcknowledgementAuto))
@@ -435,12 +436,31 @@ func TestAnInBandErrorNamesTheCommandItRefuses(t *testing.T) {
 	if err := s.Send(context.Background(), &contract.RealtimeDelegationReplyCommand{CommandID: "cmd_reply", DelegationID: "del_1", Text: long, Final: true}); err != nil {
 		t.Fatal(err)
 	}
-	conn.Expect("session.commentary.append")
-	conn.Expect("session.commentary.append")
-	conn.Error("invalid_request_error", "content_too_long", "cmd_reply#1")
+	parts := len(splitAppend(long))
+	if parts < 2 {
+		t.Fatalf("the reply is %d append(s); this test needs a later chunk", parts)
+	}
+	var chunk string
+	for range parts {
+		chunk, _ = conn.Expect("session.commentary.append")["event_id"].(string)
+	}
+	// A command whose id is the chunk's event id is a different command.
+	if err := s.Send(context.Background(), &contract.RealtimeInputAudioAppendCommand{CommandID: contract.RealtimeCommandID(chunk), Data: "AAAAAA=="}); err != nil {
+		t.Fatal(err)
+	}
+	audio, _ := conn.Expect("session.input_audio.append")["event_id"].(string)
+	conn.Error("invalid_request_error", "content_too_long", chunk)
 	event, err := next(t, s)
 	if err != nil || event.CommandID == nil || *event.CommandID != "cmd_reply" {
 		t.Fatalf("error event = %+v, %v; want it to name cmd_reply", event, err)
+	}
+	conn.Error("invalid_request_error", "invalid_audio", audio)
+	if event, err := next(t, s); err != nil || event.CommandID == nil || string(*event.CommandID) != chunk {
+		t.Fatalf("error event = %+v, %v; want it to name the audio command %s", event, err, chunk)
+	}
+	conn.Error("invalid_request_error", "unknown_parameter", "kaana-999999")
+	if event, err := next(t, s); err != nil || event.CommandID != nil {
+		t.Fatalf("an error naming no event Kaana wrote named a command: %+v, %v", event, err)
 	}
 	if failure := event.Event.(*contract.RealtimeErrorEvent); failure.Fatal || failure.Error.Code != contract.CodeInvalidRequest {
 		t.Fatalf("error = %+v", failure)
@@ -486,7 +506,8 @@ func TestTheSessionSettlesOpenAIsSecondsOrKaanasClock(t *testing.T) {
 		conn := upstream.Accept(t)
 		conn.Usage("3.5")
 		conn.Bill("12.3001")
-		units, source := s.FinalUsage(context.Background())
+		final := s.FinalUsage(context.Background())
+		units, source := final.Units, final.Source
 		if !reflect.DeepEqual(units, []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 12_301}}) || source != contract.UsageProviderReported {
 			t.Fatalf("final usage = %v %s", units, source)
 		}
@@ -510,7 +531,8 @@ func TestTheSessionSettlesOpenAIsSecondsOrKaanasClock(t *testing.T) {
 		if done, ok := events[len(events)-1].(*contract.RealtimeTranscriptDoneEvent); !ok || done.Transcript != "Goodbye." {
 			t.Fatalf("the voice's last utterance was not finished: %#v", events)
 		}
-		units, source := s.FinalUsage(context.Background())
+		final := s.FinalUsage(context.Background())
+		units, source := final.Units, final.Source
 		if !reflect.DeepEqual(units, []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 3_600_000}}) || source != contract.UsageProviderReported {
 			t.Fatalf("final usage = %v %s", units, source)
 		}
@@ -527,8 +549,8 @@ func TestTheSessionSettlesOpenAIsSecondsOrKaanasClock(t *testing.T) {
 		if !errors.As(err, &failure) || failure.Code != contract.CodeUpstreamContentFiltered {
 			t.Fatalf("the session ended with %v", err)
 		}
-		if units, source := s.FinalUsage(context.Background()); units[0].Quantity != 2_000 || source != contract.UsageProviderReported {
-			t.Fatalf("final usage = %v %s", units, source)
+		if final := s.FinalUsage(context.Background()); final.Units[0].Quantity != 2_000 || final.Source != contract.UsageProviderReported {
+			t.Fatalf("final usage = %+v", final)
 		}
 	})
 	t.Run("no session.closed", func(t *testing.T) {
@@ -538,11 +560,38 @@ func TestTheSessionSettlesOpenAIsSecondsOrKaanasClock(t *testing.T) {
 		conn := upstream.Accept(t)
 		conn.WithholdClosed()
 		now.advance(61*time.Second + 400*time.Microsecond)
-		units, source := s.FinalUsage(context.Background())
+		final := s.FinalUsage(context.Background())
+		units, source := final.Units, final.Source
 		if !reflect.DeepEqual(units, []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 61_001}}) || source != contract.UsageOxyMeasured {
 			t.Fatalf("final usage = %v %s", units, source)
 		}
 	})
+}
+
+// TestTheItemsOpenAtSettlementAreEnded: a session settled right after the
+// voice's last words, before its silence gap, ends that utterance and the
+// person's open words with their transcript.done, as trailing events the
+// session emits before session.closed; Next never returns them.
+func TestTheItemsOpenAtSettlementAreEnded(t *testing.T) {
+	upstream := fake.New(t)
+	s := open(t, newAdapter(t, upstream, nil), liveConfig(contract.RealtimePCM16, contract.RealtimeAcknowledgementAuto))
+	conn := upstream.Accept(t)
+	conn.Say("Goodbye.", 100, 600)
+	conn.Hear("Bye", 700, 900)
+	nextEvent(t, s)
+	nextEvent(t, s)
+	final := s.FinalUsage(context.Background())
+	response := contract.RealtimeResponseID("response_1")
+	want := []contract.RealtimeServerEvent{
+		&contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptInput, ItemID: "input_1", Transcript: "Bye"},
+		&contract.RealtimeTranscriptDoneEvent{Source: contract.RealtimeTranscriptOutput, ItemID: "output_1", ResponseID: &response, Transcript: "Goodbye."},
+	}
+	if !reflect.DeepEqual(final.Trailing, want) || final.Source != contract.UsageProviderReported {
+		t.Fatalf("final = %+v, want trailing %v", final, want)
+	}
+	if events, err := drain(t, s); len(events) != 0 || !errors.Is(err, provider.ErrRealtimeUpstreamClosed) {
+		t.Fatalf("after settlement Next returned %v, %v", events, err)
+	}
 }
 
 func TestSplitAppend(t *testing.T) {

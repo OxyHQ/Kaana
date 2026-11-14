@@ -34,9 +34,9 @@ const writeTimeout = 10 * time.Second
 // closeEventID names the session.close Kaana sends at settlement.
 const closeEventID = "kaana-session-close"
 
-// acknowledgementEventPrefix names the empty thinking append that suppresses
-// a delegation's automatic acknowledgement: no client command caused it.
-const acknowledgementEventPrefix = "kaana-acknowledgement-"
+// rememberedEvents bounds the client events whose command an error may still
+// name: OpenAI answers an event it refuses at once, so the newest are enough.
+const rememberedEvents = 4096
 
 // session is one open GPT-Live session.
 //
@@ -80,9 +80,17 @@ type session struct {
 	finalMs *int
 	// delegations are the delegation ids OpenAI has opened.
 	delegations map[contract.RealtimeDelegationID]bool
-	// commands is the command each later chunk of a multi-append command was
-	// written for; every other event is written with its command's id.
+	// written numbers the client events Kaana mints ids for; commands is the
+	// command each of the most recent was written for, sent their ids in
+	// order. Every event id is Kaana's (`kaana-<n>`), so none can be mistaken
+	// for a client's command id.
+	written  int
 	commands map[string]contract.RealtimeCommandID
+	sent     []string
+	// settling is FinalUsage having begun: nothing more reaches Next, and the
+	// items it ends are trailing, emitted by the session before it closes.
+	settling bool
+	trailing []contract.RealtimeServerEvent
 	input    turn
 	output   turn
 	// outputTimer ends the open utterance after the gap; generation tells a
@@ -139,7 +147,7 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 			// "PCM chunks must contain complete 16-bit samples".
 			return refused("data", "pcm16_24khz audio is whole 16-bit samples")
 		}
-		return s.write(ctx, clientEvent{Type: "session.input_audio.append", EventID: string(commandID), Audio: c.Data})
+		return s.write(ctx, clientEvent{Type: "session.input_audio.append", EventID: s.eventID(commandID), Audio: c.Data})
 	case *contract.RealtimeDelegationReplyCommand:
 		// Spoken (paraphrased), each verbatim span between Kaana's marks.
 		return s.appends(ctx, "session.commentary.append", commandID, c.DelegationID, splitAppend(provider.WrapVerbatim(c.Text, c.Verbatim)))
@@ -152,23 +160,34 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 	return refused("type", "a live session's voice takes no "+string(command.CommandType()))
 }
 
-// appends writes one append event per part, in order: the first under the
-// command's own id, the rest under ids that name it.
+// appends writes one append event per part, in order, each under its own id
+// naming the command.
 func (s *session) appends(ctx context.Context, eventType string, commandID contract.RealtimeCommandID, delegationID contract.RealtimeDelegationID, parts []string) error {
 	id := string(delegationID)
-	for index, part := range parts {
-		eventID := string(commandID)
-		if index > 0 {
-			eventID = fmt.Sprintf("%s#%d", commandID, index)
-			s.mu.Lock()
-			s.commands[eventID] = commandID
-			s.mu.Unlock()
-		}
-		if err := s.write(ctx, clientEvent{Type: eventType, EventID: eventID, DelegationID: &id, Content: &part}); err != nil {
+	for _, part := range parts {
+		if err := s.write(ctx, clientEvent{Type: eventType, EventID: s.eventID(commandID), DelegationID: &id, Content: &part}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// eventID mints the id of one client event and remembers the command it was
+// written for (none: an event of Kaana's own).
+func (s *session) eventID(commandID contract.RealtimeCommandID) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.written++
+	id := fmt.Sprintf("kaana-%d", s.written)
+	if commandID != "" {
+		s.commands[id] = commandID
+		s.sent = append(s.sent, id)
+		if len(s.sent) > rememberedEvents {
+			delete(s.commands, s.sent[0])
+			s.sent = s.sent[1:]
+		}
+	}
+	return id
 }
 
 // write sends one client event. A provider that stops reading must not stall
@@ -281,8 +300,8 @@ func (s *session) connectionEnded(err error) error {
 func (s *session) stop(end error) {
 	s.mu.Lock()
 	if s.end == nil {
-		s.queue = append(s.queue, s.finishInput()...)
-		s.queue = append(s.queue, s.finishOutput()...)
+		s.push(s.finishInput()...)
+		s.push(s.finishOutput()...)
 		s.end, s.endedAt = end, s.now()
 		close(s.stopped)
 	}
@@ -290,9 +309,19 @@ func (s *session) stop(end error) {
 	s.signal()
 }
 
-// push queues events for Next. Called with s.mu held.
+// push queues events for Next. Once the session is settling, only the end of
+// an item is kept, as trailing; the rest arrived after the session ended for
+// its client. Called with s.mu held.
 func (s *session) push(events ...provider.RealtimeUpstreamEvent) {
-	s.queue = append(s.queue, events...)
+	if !s.settling {
+		s.queue = append(s.queue, events...)
+		return
+	}
+	for _, event := range events {
+		if done, ends := event.Event.(*contract.RealtimeTranscriptDoneEvent); ends {
+			s.trailing = append(s.trailing, done)
+		}
+	}
 }
 
 func event(value contract.RealtimeServerEvent) provider.RealtimeUpstreamEvent {
@@ -392,18 +421,12 @@ func (s *session) errorEvent(value wireError) provider.RealtimeUpstreamEvent {
 	return result
 }
 
-// commandFor is the command a client event id was written for: its own id, or
-// the id a later chunk was recorded under. Kaana's own events (the start, the
-// close, an acknowledgement suppression) answer no command.
+// commandFor is the command a client event id was written for. Kaana's own
+// events (the start, the close, an acknowledgement suppression) answer none.
+// Called with s.mu held.
 func (s *session) commandFor(eventID string) (contract.RealtimeCommandID, bool) {
-	if commandID, chunk := s.commands[eventID]; chunk {
-		return commandID, true
-	}
-	if eventID == "" || eventID == startEventID || eventID == closeEventID || len(eventID) > 128 ||
-		len(eventID) >= len(acknowledgementEventPrefix) && eventID[:len(acknowledgementEventPrefix)] == acknowledgementEventPrefix {
-		return "", false
-	}
-	return contract.RealtimeCommandID(eventID), true
+	commandID, named := s.commands[eventID]
+	return commandID, named
 }
 
 // delegated hands one turn over: the person's transcript since the previous
@@ -441,7 +464,7 @@ func (s *session) delegated(value serverEvent) (translated, error) {
 // one (live-delegation guide, "Automatic acknowledgments").
 func (s *session) suppressAcknowledgement(id contract.RealtimeDelegationID) error {
 	delegationID, empty := string(id), ""
-	return s.write(s.ctx, clientEvent{Type: "session.thinking.append", EventID: acknowledgementEventPrefix + delegationID,
+	return s.write(s.ctx, clientEvent{Type: "session.thinking.append", EventID: s.eventID(""),
 		DelegationID: &delegationID, Content: &empty})
 }
 
@@ -591,9 +614,19 @@ func ceilMilliseconds(seconds json.Number) (int, bool) {
 // Kaana's own wall clock, from the accepted handshake to the end of the
 // connection, rounded up once and labelled oxy_measured: the clock bounds
 // what OpenAI can bill.
-func (s *session) FinalUsage(ctx context.Context) ([]contract.UsageQuantity, contract.UsageSource) {
+//
+// The items the session ends — the person's words since the last delegation,
+// the voice's utterance not yet ended by its silence gap — are trailing: their
+// transcript.done, which the session emits before session.closed, so a
+// session closed right after the voice's last words still ends them.
+func (s *session) FinalUsage(ctx context.Context) provider.RealtimeFinal {
 	s.mu.Lock()
 	running := s.end == nil
+	// What Next has not returned no longer reaches the client except the end
+	// of an item.
+	queued := s.queue
+	s.queue, s.settling = nil, true
+	s.push(queued...)
 	s.mu.Unlock()
 	if running {
 		if err := s.write(ctx, clientEvent{Type: "session.close", EventID: closeEventID}); err == nil {
@@ -607,15 +640,21 @@ func (s *session) FinalUsage(ctx context.Context) ([]contract.UsageQuantity, con
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.push(s.finishInput()...)
+	s.push(s.finishOutput()...)
+	final := provider.RealtimeFinal{Trailing: s.trailing}
+	s.trailing = nil
 	if s.finalMs != nil {
-		return sessionMilliseconds(*s.finalMs), contract.UsageProviderReported
+		final.Units, final.Source = sessionMilliseconds(*s.finalMs), contract.UsageProviderReported
+		return final
 	}
 	end := s.endedAt
 	if end.IsZero() {
 		end = s.now()
 	}
 	elapsed := max(end.Sub(s.handshakeAt), 0)
-	return sessionMilliseconds(int((elapsed + time.Millisecond - 1) / time.Millisecond)), contract.UsageOxyMeasured
+	final.Units, final.Source = sessionMilliseconds(int((elapsed+time.Millisecond-1)/time.Millisecond)), contract.UsageOxyMeasured
+	return final
 }
 
 // sessionMilliseconds is the session's one unit; a session that lasted no

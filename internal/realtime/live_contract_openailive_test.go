@@ -136,3 +136,28 @@ func (w *openAILiveWire) Cancelled(id contract.RealtimeDelegationID) bool {
 func (w *openAILiveWire) Settles() ([]contract.UsageQuantity, contract.UsageSource) {
 	return []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 42_001}}, contract.UsageProviderReported
 }
+
+// TestAGPTLiveSessionClosedRightAfterTheVoiceStillEndsItsUtterance: GPT-Live
+// has no event that ends what the voice says, so an utterance the caller
+// closes on before its silence gap is ended at settlement: its transcript.done
+// precedes session.closed. Without it the call's last line would be lost.
+func TestAGPTLiveSessionClosedRightAfterTheVoiceStillEndsItsUtterance(t *testing.T) {
+	bench := openAILiveBench(t)
+	const id = contract.RequestID("req_live_trailing")
+	gate := &liveGate{request: liveContractRequest(id, bench)}
+	h := serve(t, options{gate: gate}, bench.served)
+	ws := publicConnect(t, h, "Bearer synthetic-live-trailing", []byte(`{"type":"session.open"}`))
+	if created := read(t, ws); created.kind() != "session.created" {
+		t.Fatalf("session.created = %v", created)
+	}
+	wire := bench.wire(t).(*openAILiveWire)
+	start, end := wire.advance(800)
+	wire.conn.Say("Goodbye.", start, end)
+	readUntilMatch(t, ws, "the voice's words", func(f frame) bool { return f.kind() == "transcript.delta" && f["source"] == "output_audio" })
+	command(t, ws, closeCommand(id, "cmd_close"))
+	tail := readUntil(t, ws, "session.closed")
+	_, done, dones := transcriptOf(tail, "output_audio")
+	if done != "Goodbye." || dones != 1 || tail[len(tail)-2].kind() != "transcript.done" {
+		t.Fatalf("the voice's last utterance was not ended before session.closed: %s", describe(tail))
+	}
+}

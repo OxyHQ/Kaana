@@ -152,6 +152,23 @@ func textQuote(price ModelPrice, input, output int) (contract.Money, error) {
 	return roundedMoney(total), nil
 }
 
+// clockOnly is a realtime price that bills the session's clock and nothing
+// else: `session_milliseconds` priced, and no unit but it and `requests`
+// (bounded by the session's maxResponses) priced above zero. It mirrors Oxy's
+// clock-only session plan, which refuses such a line if any other unit costs
+// anything.
+func clockOnly(rates map[contract.UsageUnit]*big.Rat) bool {
+	if _, ok := rates[contract.UnitSessionMilliseconds]; !ok {
+		return false
+	}
+	for unit, rate := range rates {
+		if unit != contract.UnitSessionMilliseconds && unit != contract.UnitRequests && rate.Sign() > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // Non-token operations declare every billable axis. A non-zero rate on an
 // unbounded axis makes the model ineligible; no guessed transcript/audio size.
 func operationQuote(price ModelPrice, request Request) (quote, qualification contract.Money, err error) {
@@ -175,6 +192,14 @@ func operationQuote(price ModelPrice, request Request) (quote, qualification con
 		}
 		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: value(request.Facts.AudioInputMilliseconds)})
 	case contract.GrantRealtimeSession:
+		if clockOnly(rates) {
+			// A line billed by the session's clock alone (GPT-Live, Kaana
+			// ADR 0012 §5): its minute is 60 000 session milliseconds, as
+			// Oxy quotes a clock-only plan.
+			allowed[contract.UnitSessionMilliseconds] = true
+			units = append(units, contract.UsageQuantity{Unit: contract.UnitSessionMilliseconds, Quantity: 60000})
+			break
+		}
 		for _, unit := range []contract.UsageUnit{contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitSessionMilliseconds} {
 			allowed[unit] = true
 			if _, ok := rates[unit]; !ok {
