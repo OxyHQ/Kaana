@@ -21,12 +21,13 @@ import (
 // OperatorConfig is non-secret reviewed deployment configuration. It neither
 // selects a payer nor grants permission to create a merchant or a billing account.
 type OperatorConfig struct {
-	Enabled             bool   `json:"enabled"`
-	FinalizationEnabled bool   `json:"finalizationEnabled,omitempty"`
-	ApplicationID       string `json:"applicationId"`
-	OwnerAccountID      string `json:"ownerAccountId"`
-	MerchantID          string `json:"merchantId"`
-	Environment         string `json:"environment"`
+	Enabled                      bool   `json:"enabled"`
+	FinalizationEnabled          bool   `json:"finalizationEnabled,omitempty"`
+	PaymentReconciliationEnabled bool   `json:"paymentReconciliationEnabled,omitempty"`
+	ApplicationID                string `json:"applicationId"`
+	OwnerAccountID               string `json:"ownerAccountId"`
+	MerchantID                   string `json:"merchantId"`
+	Environment                  string `json:"environment"`
 }
 
 func (c OperatorConfig) ClientConfig() Config {
@@ -99,7 +100,7 @@ func ReadOperation(input io.Reader) (Operation, error) {
 func (o Operation) Validate() error {
 	var expected Operation
 	switch o.Action {
-	case "migrate", "migrate-close":
+	case "migrate", "migrate-close", "migrate-payments":
 		expected = Operation{Action: o.Action}
 	case "bind":
 		if !operatorID(o.AccountID) || !operatorID(o.CustomerID) {
@@ -123,6 +124,11 @@ func (o Operation) Validate() error {
 			return ErrMismatch
 		}
 		expected = Operation{Action: o.Action, DraftID: o.DraftID}
+	case "reconcile-payment":
+		if !operatorID(o.DraftID) || !operatorID(o.Key) {
+			return ErrMismatch
+		}
+		expected = Operation{Action: o.Action, DraftID: o.DraftID, Key: o.Key}
 	case "close":
 		if !operatorID(o.DraftID) || !operatorID(o.Key) || !revisionPattern.MatchString(o.Revision) {
 			return ErrMismatch
@@ -200,12 +206,14 @@ func OpenOperator(ctx context.Context, databaseURL string, op Operation) (*Store
 }
 func operatorRole(action string) string {
 	switch action {
-	case "migrate", "migrate-close":
+	case "migrate", "migrate-close", "migrate-payments":
 		return "kaana_billing_migrator"
 	case "bind", "prepare":
 		return "kaana_peable_billing_admin"
 	case "review-close", "close":
 		return "kaana_peable_billing_closer"
+	case "reconcile-payment":
+		return "kaana_peable_billing_reconciler"
 	default:
 		return "kaana_peable_billing_runtime"
 	}
@@ -249,6 +257,9 @@ func verifyOperator(ctx context.Context, pool *pgxpool.Pool, role string) error 
 		}
 		if role == "kaana_peable_billing_closer" {
 			allowed = []string{"kaana_peable_billing.read_draft(text)", "kaana_peable_billing.read_close(text,text)", "kaana_peable_billing.claim_close(text,text,text)", "kaana_peable_billing.record_close(text,text,jsonb)"}
+		}
+		if role == "kaana_peable_billing_reconciler" {
+			allowed = []string{"kaana_peable_billing.read_draft(text)", "kaana_peable_billing.read_close(text,text)", "kaana_peable_billing.record_payment(text,jsonb)"}
 		}
 		err = pool.QueryRow(ctx, `SELECT has_schema_privilege(current_user,'kaana_peable_billing','USAGE')
  AND NOT has_schema_privilege(current_user,'kaana_peable_billing','CREATE')

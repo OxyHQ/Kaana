@@ -152,3 +152,46 @@ execute billing-admin functions, or delegate grants. Current/session permissions
 are checked against exact function signatures. The CLI refuses a close operation
 before opening DB or identity unless its separately hashed configuration enables
 finalization. There is no production config or financial activation in this PR.
+
+## Observed card payment reconciliation (separate opt-in)
+
+`paymentReconciliationEnabled:true` and a separately provisioned NOLOGIN
+`kaana_peable_billing_reconciler` group enable an explicit `reconcile-payment`
+operation. This is not a collection command: the client performs only
+merchant-authenticated GETs. It never creates/captures a payment, sends an invoice,
+refunds, or credits a wallet. `migrate-payments` explicitly applies checksummed
+migration0003 after the billing, draft and close migrations; constructors and
+serving do not run it. Existing runtime/closer grants do not acquire this role.
+
+The operation document is `{"action":"reconcile-payment","draftId":"<draft>",
+"key":"<existing-close-key>"}`. The key identifies the already durable close;
+no new issue attempt is created. The worker verifies its accepted finalization
+revision, merchant/customer, immutable issued totals and line, then reads the
+actual invoice, payment intent and charge. This first slice accepts only a fully
+paid direct card invoice with full captured amounts, matching customer/currency,
+no manual payment, no connected/delegated transfer, no customer-balance
+application, no credit note, and no observed refund or dispute. Missing proof or
+an unsupported case stays unresolved; an invoice's `paid` label alone never
+clears the receivable. Responses, client secrets and customer profiles are not
+persisted; evidence contains the exact scoped references and amounts needed to
+reconcile the observation.
+
+One PostgreSQL transaction takes the same account-first lock as issue/usage/
+compensation, checks the durable close and evidence, and records a unique receipt
+for the draft, payment intent and charge. It posts the already rounded Kaana
+principal from `external_settlement` to `invoice_credit` and reduces only the
+existing invoiced receivable. Peable's tax amount is not minted as Kaana credit.
+Purchased/promotional balances and consumed inference budgets remain unchanged.
+Insufficient recorded debt refuses instead of clamping to zero. Concurrent workers
+or a lost DB response converge on the same receipt/journal; changed evidence or
+reuse of the payment for another invoice is refused. No direct table write or
+billing-admin function is available to the reconciler, including through the
+original login after RESET ROLE.
+
+This records an authenticated payment observation, not an assertion of irreversible
+settlement. Later refunds, disputes, credit notes, partial payments, other rails,
+customer-balance allocations, signed webhook delivery and periodic reconciliation
+still require their own explicit evidence and compensating operations. They are
+not silently treated as new debt, automatic credits, zero charges or permission
+to retry a financial POST. This slice remains source-only with no production
+config, grant, migration or financial action.
