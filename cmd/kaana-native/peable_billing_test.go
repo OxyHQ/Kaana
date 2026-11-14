@@ -221,3 +221,39 @@ func TestPeableCloseRequiresSeparateOptInBeforeDatabase(t *testing.T) {
 		t.Fatalf("migration positive control: %v %v", err, store.calls)
 	}
 }
+
+func (s *operatorFakeStore) MigratePayments(context.Context) error {
+	return s.result("migrate-payments")
+}
+func (s *operatorFakeStore) RecordPayment(context.Context, string, peablebilling.PaymentEvidence) (peablebilling.PaymentReceipt, error) {
+	return peablebilling.PaymentReceipt{}, s.result("record-payment")
+}
+func TestPeablePaymentOperatorOptInBeforeDatabase(t *testing.T) {
+	for _, operation := range []string{`{"action":"migrate-payments"}`, `{"action":"reconcile-payment","draftId":"d","key":"close"}`} {
+		err := runPeableBilling(peableArgs(t), strings.NewReader(operation), io.Discard, func(string) string { t.Fatal("disabled payment operator read DB configuration"); return "" }, nil, nil)
+		if err == nil {
+			t.Fatal("payment operator enabled by default")
+		}
+	}
+	args := peableArgs(t)
+	raw, err := os.ReadFile(args[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = bytes.Replace(raw, []byte(`"enabled":true`), []byte(`"enabled":true,"paymentReconciliationEnabled":true`), 1)
+	if err = os.WriteFile(args[1], raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	args[3] = hex.EncodeToString(sum[:])
+	store := &operatorFakeStore{}
+	err = runPeableBilling(args, strings.NewReader(`{"action":"migrate-payments"}`), io.Discard, func(string) string { return "private-db" }, func(context.Context, string, peablebilling.Operation) (peableOperatorStore, func(), error) {
+		return store, func() {}, nil
+	}, func(context.Context, peablebilling.OperatorConfig) (*peablebilling.Client, error) {
+		t.Fatal("migration requested provider identity")
+		return nil, nil
+	})
+	if err != nil || len(store.calls) != 1 || store.calls[0] != "migrate-payments" {
+		t.Fatalf("migration action %v %v", store.calls, err)
+	}
+}

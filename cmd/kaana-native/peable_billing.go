@@ -19,6 +19,8 @@ import (
 type peableOperatorStore interface {
 	peablebilling.DraftStore
 	peablebilling.CloseStore
+	peablebilling.PaymentStore
+	MigratePayments(context.Context) error
 	MigrateClose(context.Context) error
 	Migrate(context.Context) error
 	BindCustomer(context.Context, string, string, string) error
@@ -69,6 +71,9 @@ func runPeableBilling(args []string, input io.Reader, output io.Writer, getenv f
 	if (op.Action == "migrate-close" || op.Action == "review-close" || op.Action == "close") && !cfg.FinalizationEnabled {
 		return errors.New("peable invoice finalization is disabled")
 	}
+	if (op.Action == "migrate-payments" || op.Action == "reconcile-payment") && !cfg.PaymentReconciliationEnabled {
+		return errors.New("peable payment reconciliation is disabled")
+	}
 	databaseURL := strings.TrimSpace(getenv("DATABASE_URL"))
 	if databaseURL == "" {
 		return errors.New("peable billing database configuration required")
@@ -82,12 +87,25 @@ func runPeableBilling(args []string, input io.Reader, output io.Writer, getenv f
 	defer closePool()
 	var draft peablebilling.Draft
 	var closeAttempt peablebilling.CloseAttempt
+	var payment peablebilling.PaymentReceipt
 	var reviewRevision string
 	switch op.Action {
 	case "migrate":
 		err = store.Migrate(ctx)
 	case "migrate-close":
 		err = store.MigrateClose(ctx)
+	case "migrate-payments":
+		err = store.MigratePayments(ctx)
+	case "reconcile-payment":
+		var client *peablebilling.Client
+		client, err = clientOpen(ctx, cfg)
+		if err == nil {
+			var worker *peablebilling.PaymentWorker
+			worker, err = peablebilling.NewPaymentWorker(cfg.PaymentReconciliationEnabled, store, client)
+			if err == nil {
+				payment, err = worker.Reconcile(ctx, op.DraftID, op.Key)
+			}
+		}
 	case "bind":
 		err = store.BindCustomer(ctx, op.AccountID, cfg.MerchantID, op.CustomerID)
 	case "prepare":
@@ -130,6 +148,14 @@ func runPeableBilling(args []string, input io.Reader, output io.Writer, getenv f
 		return errors.New("peable billing seller mismatch")
 	}
 	// No upstream error bodies, credentials, customer profile or invoice contents.
+	if op.Action == "reconcile-payment" {
+		return json.NewEncoder(output).Encode(struct {
+			Operation string `json:"operation"`
+			Complete  bool   `json:"complete"`
+			DraftID   string `json:"draftId"`
+			PaymentID string `json:"paymentId"`
+		}{op.Action, true, op.DraftID, payment.ID})
+	}
 	if op.Action == "review-close" || op.Action == "close" {
 		return json.NewEncoder(output).Encode(struct {
 			Operation string `json:"operation"`
