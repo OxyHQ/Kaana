@@ -29,7 +29,11 @@ named promotional Pro/Ultra USD 1.00 with XHigh fallback; speech 15,000 characte
 and USD 0.25; transcription 300,000 ms and USD 0.05; realtime qualification USD
 0.25/minute. Exact deployment/model/provider tuples come from the reviewed prior
 policy. Realtime admission also quotes the complete bounded session and response
-fees, rather than treating a per-minute amount as a session hold.
+fees, rather than treating a per-minute amount as a session hold. A file
+transcription is quoted at the measured audio or the line's per-request billing
+minimum, whichever is larger: the largest `MinimumBilledMilliseconds` of the
+adapters serving it (Groq bills at least 10 s a request), so a short clip settles
+within its quote instead of as `admission_quote_exceeded`.
 
 A `live` session (Kaana ADR 0012) is admitted by kind like any other realtime kind,
 and a line priced only by its clock (`session_milliseconds`, with `requests` at most

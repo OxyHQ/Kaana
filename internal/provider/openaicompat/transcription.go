@@ -52,6 +52,12 @@ func (a *Adapter) transcriptionStatement() (providerconfig.TranscriptionStatemen
 	return providerconfig.TranscriptionCapabilities(a.config.Provider, providerconfig.ProtocolOpenAICompatible)
 }
 
+// TranscriptionStatement is provider.TranscriptionStater: the same statement
+// this adapter reads and bills its uploads by.
+func (a *Adapter) TranscriptionStatement() (providerconfig.TranscriptionStatement, bool) {
+	return a.transcriptionStatement()
+}
+
 // isTranscriptionModel reports a deployment of this slug that only
 // transcribes.
 func isTranscriptionModel(slug contract.ProviderSlug, upstreamModelID string) bool {

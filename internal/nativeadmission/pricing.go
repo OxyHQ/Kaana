@@ -171,7 +171,9 @@ func clockOnly(rates map[contract.UsageUnit]*big.Rat) bool {
 
 // Non-token operations declare every billable axis. A non-zero rate on an
 // unbounded axis makes the model ineligible; no guessed transcript/audio size.
-func operationQuote(price ModelPrice, request Request) (quote, qualification contract.Money, err error) {
+// A transcription is quoted at the measured audio or the line's per-request
+// billing minimum, whichever is larger, because that is what it settles at.
+func operationQuote(price ModelPrice, request Request, minimumBilledAudioMs int) (quote, qualification contract.Money, err error) {
 	rates, err := unitRates(price)
 	if err != nil {
 		return quote, qualification, err
@@ -190,7 +192,7 @@ func operationQuote(price ModelPrice, request Request) (quote, qualification con
 		if _, ok := rates[contract.UnitAudioInputMilliseconds]; !ok {
 			return quote, qualification, ErrUnpriced
 		}
-		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: value(request.Facts.AudioInputMilliseconds)})
+		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: max(value(request.Facts.AudioInputMilliseconds), minimumBilledAudioMs)})
 	case contract.GrantRealtimeSession:
 		if clockOnly(rates) {
 			// A line billed by the session's clock alone (GPT-Live, Kaana

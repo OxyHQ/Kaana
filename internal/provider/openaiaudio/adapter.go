@@ -92,6 +92,12 @@ func (a *Adapter) Translate(r *contract.Request, route provider.Route) (*provide
 	return openaitranscription.Call(route, a.base+"/audio/transcriptions", upload)
 }
 
+// TranscriptionStatement is provider.TranscriptionStater: the same statement
+// this adapter reads and bills its uploads by.
+func (a *Adapter) TranscriptionStatement() (providerconfig.TranscriptionStatement, bool) {
+	return transcriptionStatement(), true
+}
+
 // transcriptionStatement is what this slug transcribes.
 func transcriptionStatement() providerconfig.TranscriptionStatement {
 	statement, _ := providerconfig.TranscriptionCapabilities(Slug, providerconfig.ProtocolOpenAIAudio)
