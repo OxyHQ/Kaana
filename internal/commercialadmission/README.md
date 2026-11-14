@@ -30,7 +30,7 @@ The actual serving connection selects the separately provisioned `kaana_commerci
 
 Run `make check`, then `make test-integration` with an owned `KAANA_POSTGRES_TEST_URL`. The coordinator PG tests cover reserve rollback, ownership, fences/idempotency, restart without hooks, concurrent completion replay, financial/native commit failure, malformed or substituted charge rollback, failed/cancelled/partial/zero/rating-error outcomes, unknown expiry, late evidence and lifetime rejection. They use no production policies or balances.
 
-Before commercial activation: provision and verify the reviewed roles, schemas and serving configuration; configure seller/legal entity, merchant/payment integration, verified funding, currencies, tax/invoice governance and retention; establish reconciliation and alerts; and review the authority cutover. No payment, invoice, cash refund, account migration or commercial activation is performed by these packages. Usage compensation in `billing` remains distinct from external refunds and cannot convert promotional funds into cash.
+Before commercial activation: provision and verify the reviewed roles, schemas and serving configuration; link Kaana through its own first-party merchant to the existing approved Peable platform/Oxy fiscal configuration using supported authority, complete payment integration, verified funding, currencies, tax/invoice governance and retention; establish reconciliation and alerts; and review the authority cutover. No payment, invoice, cash refund, account migration or commercial activation is performed by these packages. Usage compensation in `billing` remains distinct from external refunds and cannot convert promotional funds into cash.
 
 ## Explicit serving configuration and offline preparation
 

@@ -50,7 +50,7 @@ Before commercial traffic can use this library, the following work remains:
 
 1. Bind trusted authenticated accounts to an explicit authority/cutover policy, with legacy-key fencing and no double billing. Keep first-party metered enrollment distinct from commercial balances.
 2. Provision and review the optional serving constructor, runtime roles, offline migrations and recovery scheduler described in the coordinator README. Its transactional hooks bind native planning/rating, reserve-before-execution and durable settlement retries, with authenticated native receipt reads. Production configuration and activation remain absent.
-3. Configure the seller/legal entity, supported currencies, merchant workspace, pricing/discount governance, tax treatment, invoice numbering and applicable retention. None is selected here.
+3. Use the existing approved Peable platform/Oxy legal entity through Kaana's own authorized merchant mapping. Verify supported currencies, pricing/discount governance, tax treatment, invoice numbering and applicable retention without inventing terms or copying fiscal approval records. This library activates none of those settings.
 4. Integrate verified payment/grant events and reconciliation through the approved payment system. Implement cash refunds, disputes, invoice collection and credit notes separately; this package does not send money or issue invoices.
 5. Add operational metrics/alerts for stuck holds, failed rating/settlement, evidence conflicts and reconciliation drift, then run reviewed cutover and reconciliation checks.
 

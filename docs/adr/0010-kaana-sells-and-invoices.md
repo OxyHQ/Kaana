@@ -51,7 +51,7 @@ fallback to an older economic endpoint.
 | Kaana-owned internal metered admission | `internal/nativeadmission` candidate implements reviewed policy, exact pricing, PostgreSQL capacity/idempotency and settlement work. It is not commercial customer balance or invoice delivery, and source presence does not enroll any workload. |
 | Current public execution | Existing Oxy grants and settlement delivery remain authoritative until each population's verified cutover. |
 | Retention and observability | Already implemented in #299: migration 0024 and bounded purge tooling, signed metrics and CloudWatch EMF. Operational scheduling/alarms and financial-record retention still need their own configuration. |
-| Commercial seller | The approved read-only Peable lookup found zero production merchants for Kaana's exact application. No merchant, fiscal settings or payment setup was created. |
+| Commercial seller | The owner's confirmed choice is the existing Peable platform and Oxy legal entity. A broader read-only lookup verified the central first-party merchant and approved platform fiscal configuration; Kaana's own application merchant is still absent. No merchant or fiscal settings were created. |
 
 The Gemies backend retains the former Alia immutable application ID in
 `packages/server/src/identity.ts`. A read-only production check confirmed its
@@ -95,7 +95,7 @@ These are concrete remaining deliverables, not unresolved ownership questions:
 | Holds, spending policy and settlement | Oxy `usage_reservations`, per-app spending limits and `inferenceLedger.service.ts`. Implement transactional reserve/settle/refund, expiry, funding restrictions and concurrent-budget enforcement in Kaana. Preserve immutable prices and body/idempotency conflicts. |
 | Funded-population inventory | A bounded read-only census of nonzero purchased/promotional/invoiced buckets, expiries, open holds, debts, shared funding accounts and processor references is required before choosing a transfer boundary. No such production census or monetary transfer is claimed here. |
 | Historical receipts and invoices | Keep original Oxy authority/read access and invoice associations. Reconcile old holds/outbox before a uniquely keyed transfer; never make one receipt billable in both systems. The public Kaana receipt relay currently reads Oxy's existing records, so changing transport alone needs no duplicate receipt ledger. |
-| Seller and payments | Create Kaana's Peable merchant only after the owner identifies its legal entity and approved fiscal configuration. Oxy inference top-ups still call the actual Stripe SDK; Oxy One's native Peable merchant is a separate product and must not be borrowed. Implement signed/idempotent payment webhooks, recharge, refunds, disputes and processor reconciliation in Kaana. |
+| Seller and payments | Reuse the existing Peable platform and approved Oxy legal entity through Kaana's own first-party application merchant. Supported person-authorized merchant creation and fiscal approval remain necessary; do not impersonate the central merchant or copy approval records. Oxy inference top-ups still call the actual Stripe SDK; Oxy One's native Peable merchant is a separate product and must not be borrowed. Implement signed/idempotent payment webhooks, recharge, refunds, disputes and processor reconciliation in Kaana. |
 | Invoices and commercial terms | Implement invoice close, tax configuration, credit notes and receipt linkage. Preserve existing reviewed allowances, promotions, limits and discounts until a concrete replacement is approved; ownership migration does not invent prices. |
 | Deployment permissions | Catalogue list prices do not establish resale rights. Review commercial permission for each enabled deployment before public selling; internal availability is not `public_sell`. Customer BYOK platform fees remain subject to their existing fail-closed gate. |
 | Operations and acceptance | Distinct serving/migration financial DB roles; accounting retention and migration readbacks; alerts for stuck holds, settlement lag, rating failures and reconciliation drift; concurrent/retry/expiry/late-settlement acceptance and actual invoice reconciliation. |
@@ -131,8 +131,10 @@ readiness are not implied by their implementation.
    drained and historical reads remain available. Report transport, identity,
    internal metering, commercial accounting and invoice readiness separately.
 
-The owner has already decided who owns economic policy. The outstanding seller
-input is the legal entity/fiscal configuration; configuration and financial
-writes wait for that concrete answer. This does not block identity or bounded
-internal admission implementation. Production source state and release state
+The owner has already decided both economic ownership and reuse of the existing
+Peable platform and approved Oxy legal entity. The remaining seller gate is the
+supported Kaana application mapping and fiscal approval under an authorized
+person session, not another legal-entity question. Financial activation still
+requires reviewed configuration and reconciliation. This does not block identity
+or bounded internal admission implementation. Production source state and release state
 remain distinct under [the inference rules](../inference-rules.md#source-state-is-not-production-state).
