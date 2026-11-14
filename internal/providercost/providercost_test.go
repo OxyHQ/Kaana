@@ -530,7 +530,7 @@ func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 		t.Fatalf("the production rate card is not loadable: %v", err)
 	}
 	observation, loaded := cards.Observation()
-	if !loaded || observation.VersionID != "rc_xai_realtime_2026_11_14" || observation.Source != providercost.RateCardProviderDocumentation {
+	if !loaded || observation.VersionID != "rc_live_voice_2026_11_14" || observation.Source != providercost.RateCardProviderDocumentation {
 		t.Fatalf("production observation = %+v", observation)
 	}
 	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
@@ -549,6 +549,24 @@ func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 	text := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}})
 	if len(text.UnpricedUnits) != 0 || text.Cost.Amount != 4_000_000_000 {
 		t.Errorf("one text item = %+v, want USD 0.004", text)
+	}
+}
+
+// GPT-Live is priced at OpenAI's list price per second of session, $0.05 a
+// minute (833334 x 1e-12 USD per ms, rounded up), and nothing else: a token
+// or audio unit on its deployment is unpriced (Kaana ADR 0012 §5).
+func TestTheProductionRateCardPricesGPTLiveByTheSessionClock(t *testing.T) {
+	cards, err := providercost.Load("../../configs/provider-rates.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const deployment = contract.DeploymentID("dep_openai_live_gpt_live_1_observed_2026_11_14")
+	minute := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 60_000}})
+	if len(minute.UnpricedUnits) != 0 || minute.Cost.Currency != "USD" || minute.Cost.Amount != 50_000_040_000 {
+		t.Errorf("one minute of a GPT-Live session = %+v, want USD 0.05000004", minute)
+	}
+	if tokens := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitAudioOutputTokens, Quantity: 1}}); len(tokens.UnpricedUnits) != 1 {
+		t.Errorf("a token unit on GPT-Live = %+v, want it unpriced", tokens)
 	}
 }
 
