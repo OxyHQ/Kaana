@@ -1115,7 +1115,10 @@ pins the set and proves each row publishable there and nowhere else.
   observation on the day the card ships, the same id
   `configs/deployment-commercial.json` sells (it replaced
   `rc_xai_realtime_2026_09_30`, whose 2.0 deployment xAI stopped serving) — read by the
-  serving task through `KAANA_PROVIDER_RATES_PATH=/etc/kaana-rates/provider-rates.json`. Oxy's price
+  serving task through `KAANA_PROVIDER_RATES_PATH=/etc/kaana-rates/provider-rates.json`. The
+  publisher re-observed the line as `dep_xai_realtime_grok_voice_3_0_observed_2026_10_26`, which is
+  what production serves; it was sold from 2026-11-10 but unpriced until rate-card version
+  `rc_live_voice_2026_11_14` gave it the same rates. Oxy's price
   version for the route must price `session_milliseconds` too (Oxy holds it for
   every realtime session and refuses a route that leaves it unpriced).
 - xAI speaks whatever it is asked, so a text-only session is served from its
@@ -1220,6 +1223,9 @@ charge within the wall-clock figure.
   rounded up, ADR 0012 §5) and the `configs/deployment-commercial.json` entry for that id, read by the
   serving task through `KAANA_PROVIDER_RATES_PATH`. Without the card every session's operator cost is
   unknown.
+  Done on 2026-11-14: the publisher minted `dep_openai_live_gpt_live_1_observed_2026_11_14` (snapshot
+  `snap_e58d195534fc191b`); its card is in rate-card version `rc_live_voice_2026_11_14`, and
+  `configs/deployment-commercial.json` sells it `platform_internal` / `standard_application_use`.
 - Publish it: the `openai/gpt-live-1` entry of `configs/public-catalogue.json` declares
   `capabilities.realtime.defaultKinds: ["live"]` and its price version, which prices
   `session_milliseconds` for the customer: `01a1d9d6-cdbb-79aa-96ee-335708a286fe`, $0.05 per 60 000 ms

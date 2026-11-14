@@ -521,34 +521,58 @@ func TestTheExampleRateCardFileParses(t *testing.T) {
 	}
 }
 
-// The production rate card prices the xAI realtime deployment at xAI's
-// published list price: a minute of audio either way, or of a server_vad
-// session, is $0.08 (truncated per millisecond), and a text item $0.004.
+// The production rate card prices both xAI realtime deployments of
+// grok-voice-3.0 (the 2026-10-16 observation and its 2026-10-26
+// re-observation) at xAI's published list price: a minute of audio either
+// way, or of a server_vad session, is $0.08 (truncated per millisecond), and a
+// text item $0.004.
 func TestTheProductionRateCardPricesXAIRealtimeAtItsListPrice(t *testing.T) {
 	cards, err := providercost.Load("../../configs/provider-rates.json")
 	if err != nil {
 		t.Fatalf("the production rate card is not loadable: %v", err)
 	}
 	observation, loaded := cards.Observation()
-	if !loaded || observation.VersionID != "rc_decisions_2026_10_19" || observation.Source != providercost.RateCardProviderDocumentation {
+	if !loaded || observation.VersionID != "rc_live_voice_2026_11_14" || observation.Source != providercost.RateCardProviderDocumentation {
 		t.Fatalf("production observation = %+v", observation)
 	}
-	const deployment = contract.DeploymentID("dep_xai_realtime_grok_voice_3_0_observed_2026_10_16")
-	if !cards.Priced(deployment) {
-		t.Fatalf("%s is not priced", deployment)
-	}
 	const minute = 60_000
-	for _, unit := range []contract.UsageUnit{
-		contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitSessionMilliseconds,
+	for _, deployment := range []contract.DeploymentID{
+		"dep_xai_realtime_grok_voice_3_0_observed_2026_10_16",
+		"dep_xai_realtime_grok_voice_3_0_observed_2026_10_26",
 	} {
-		measured := cards.Measure(deployment, []contract.UsageQuantity{{Unit: unit, Quantity: minute}})
-		if len(measured.UnpricedUnits) != 0 || measured.Cost.Currency != "USD" || measured.Cost.Amount != 79_999_980_000 {
-			t.Errorf("one minute of %s = %+v, want USD 0.07999998", unit, measured)
+		if !cards.Priced(deployment) {
+			t.Fatalf("%s is not priced", deployment)
+		}
+		for _, unit := range []contract.UsageUnit{
+			contract.UnitAudioInputMilliseconds, contract.UnitAudioOutputMilliseconds, contract.UnitSessionMilliseconds,
+		} {
+			measured := cards.Measure(deployment, []contract.UsageQuantity{{Unit: unit, Quantity: minute}})
+			if len(measured.UnpricedUnits) != 0 || measured.Cost.Currency != "USD" || measured.Cost.Amount != 79_999_980_000 {
+				t.Errorf("%s: one minute of %s = %+v, want USD 0.07999998", deployment, unit, measured)
+			}
+		}
+		text := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}})
+		if len(text.UnpricedUnits) != 0 || text.Cost.Amount != 4_000_000_000 {
+			t.Errorf("%s: one text item = %+v, want USD 0.004", deployment, text)
 		}
 	}
-	text := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitRequests, Quantity: 1}})
-	if len(text.UnpricedUnits) != 0 || text.Cost.Amount != 4_000_000_000 {
-		t.Errorf("one text item = %+v, want USD 0.004", text)
+}
+
+// GPT-Live is priced at OpenAI's list price per second of session, $0.05 a
+// minute (833334 x 1e-12 USD per ms, rounded up), and nothing else: a token
+// or audio unit on its deployment is unpriced (Kaana ADR 0012 §5).
+func TestTheProductionRateCardPricesGPTLiveByTheSessionClock(t *testing.T) {
+	cards, err := providercost.Load("../../configs/provider-rates.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const deployment = contract.DeploymentID("dep_openai_live_gpt_live_1_observed_2026_11_14")
+	minute := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitSessionMilliseconds, Quantity: 60_000}})
+	if len(minute.UnpricedUnits) != 0 || minute.Cost.Currency != "USD" || minute.Cost.Amount != 50_000_040_000 {
+		t.Errorf("one minute of a GPT-Live session = %+v, want USD 0.05000004", minute)
+	}
+	if tokens := cards.Measure(deployment, []contract.UsageQuantity{{Unit: contract.UnitAudioOutputTokens, Quantity: 1}}); len(tokens.UnpricedUnits) != 1 {
+		t.Errorf("a token unit on GPT-Live = %+v, want it unpriced", tokens)
 	}
 }
 
