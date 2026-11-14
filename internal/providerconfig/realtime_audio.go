@@ -308,7 +308,7 @@ var openAIRealtimeVoices = []Voice{
 // owner's decision of 2026-11-14 (Kaana ADR 0012 §3): `marin` is the female
 // product voice and `cedar` the male one; every other voice's gender stays
 // unknown, never inferred from its name.
-var openAILiveVoices = []RealtimeVoice{
+var openAILiveVoices = []Voice{
 	{ID: "alloy", Name: "Alloy"}, {ID: "ash", Name: "Ash"}, {ID: "ballad", Name: "Ballad"},
 	{ID: "beacon", Name: "Beacon"}, {ID: "bossa", Name: "Bossa"}, {ID: "brise", Name: "Brise"},
 	{ID: "calandria", Name: "Calandria"}, {ID: "cedar", Name: "Cedar", Gender: "male"}, {ID: "cinder", Name: "Cinder"},
