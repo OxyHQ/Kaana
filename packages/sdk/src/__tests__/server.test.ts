@@ -244,6 +244,42 @@ describe('own Oxy workload transport', () => {
     ).toThrow('destination');
     expect(constructed).toBe(false);
   });
+  it('forwards a snapshot of actingFor to the shared transport, exclusive of attribution', async () => {
+    const received: unknown[] = [];
+    const actingFor = { accountId: 'organization-A', requesterAccountId: 'person-A' };
+    client.dispose();
+    client = kaanaForOxyService(
+      {
+        createServiceClient(options) {
+          received.push(options);
+          return oxy.createServiceClient(options);
+        },
+      },
+      { baseURL: fake.baseURL, actingFor },
+    );
+    actingFor.accountId = 'mutated';
+    expect(received).toEqual([
+      {
+        baseURL: fake.baseURL,
+        audience: 'kaana.ai',
+        actingFor: { accountId: 'organization-A', requesterAccountId: 'person-A' },
+      },
+    ]);
+    fake.on('GET /models', () => json('req_acting_for', { data: [] }));
+    await client.models.list();
+    expect(fake.requests[0]?.headers.get('x-oxy-user-id')).toBe('organization-A');
+    expect(fake.requests[0]?.headers.get('x-oxy-requester-id')).toBe('person-A');
+    await expect(client.models.list({ onBehalfOfUserId: 'other' })).rejects.toThrow(
+      'attribution differs',
+    );
+    expect(() =>
+      kaanaForOxyService(oxy, {
+        baseURL: fake.baseURL,
+        actingFor: { accountId: 'A' },
+        attribution: { accountId: 'A' },
+      } as never),
+    ).toThrow('unambiguous');
+  });
   it('does not follow an authenticated HTTP redirect to another origin', async () => {
     let leaked = 0;
     const other = Bun.serve({

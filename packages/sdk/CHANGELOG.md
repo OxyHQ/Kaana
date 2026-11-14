@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.0
+
+Breaking: `kaanaForOxyService` drops `requester: { accountId, token | taskId |
+requesterContext }` and the `KaanaRequester` type. An Oxy service that acts for
+a person passes `actingFor: { accountId, requesterAccountId? }` (type
+`KaanaActingFor`, oxy ADR 0066), forwarded to
+`OxyServer.createServiceClient({ actingFor })`; it needs `@oxy.so/core` 7.52.0
+or later. `attribution: { accountId }` is unchanged, and the two stay
+exclusive.
+
 ## 3.17.0
 
 Depend on contracts 8.16.0: `realtime.connect` opens the `live` session kind

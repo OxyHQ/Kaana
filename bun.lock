@@ -19,7 +19,7 @@
     },
     "packages/sdk": {
       "name": "@kaana.ai/sdk",
-      "version": "3.17.0",
+      "version": "4.0.0",
       "dependencies": {
         "@kaana.ai/contracts": "workspace:*",
       },
