@@ -169,10 +169,18 @@ func clockOnly(rates map[contract.UsageUnit]*big.Rat) bool {
 	return true
 }
 
+// wholeSeconds rounds a duration in milliseconds up to the next whole second.
+func wholeSeconds(milliseconds int) int {
+	return (milliseconds + 999) / 1000 * 1000
+}
+
 // Non-token operations declare every billable axis. A non-zero rate on an
 // unbounded axis makes the model ineligible; no guessed transcript/audio size.
-// A transcription is quoted at the measured audio or the line's per-request
-// billing minimum, whichever is larger, because that is what it settles at.
+// A transcription is quoted at the measured audio rounded up to a whole second,
+// or the line's per-request billing minimum, whichever is larger. Providers
+// report the duration they decoded, which can run a few milliseconds past the
+// container's (Groq reported 60 001 ms for a 60 000 ms WAV); a second bounds
+// that, and the minimum is what a short clip settles at.
 func operationQuote(price ModelPrice, request Request, minimumBilledAudioMs int) (quote, qualification contract.Money, err error) {
 	rates, err := unitRates(price)
 	if err != nil {
@@ -192,7 +200,7 @@ func operationQuote(price ModelPrice, request Request, minimumBilledAudioMs int)
 		if _, ok := rates[contract.UnitAudioInputMilliseconds]; !ok {
 			return quote, qualification, ErrUnpriced
 		}
-		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: max(value(request.Facts.AudioInputMilliseconds), minimumBilledAudioMs)})
+		units = append(units, contract.UsageQuantity{Unit: contract.UnitAudioInputMilliseconds, Quantity: max(wholeSeconds(value(request.Facts.AudioInputMilliseconds)), minimumBilledAudioMs)})
 	case contract.GrantRealtimeSession:
 		if clockOnly(rates) {
 			// A line billed by the session's clock alone (GPT-Live, Kaana
