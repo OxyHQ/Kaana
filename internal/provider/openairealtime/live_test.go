@@ -246,7 +246,7 @@ func TestALiveTurnIsHandedOverAndItsAnswerSpoken(t *testing.T) {
 			send(t, session, reply("call_1", "Son las 10:45.", false, "10:45"))
 			send(t, session, &contract.RealtimeDelegationContextCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_context", DelegationID: "call_1", Text: "Checked the clock."})
 			send(t, session, reply("call_1", "Buen día.", true))
-			if output := <-outputs; output != liveContextLabel+" Checked the clock.\n\nSon las ⟦10:45⟧. Buen día." {
+			if output := <-outputs; output != LiveContextLabel+" Checked the clock.\n\nSon las ⟦10:45⟧. Buen día." {
 				t.Errorf("the call's output = %q", output)
 			}
 
@@ -367,7 +367,7 @@ func TestACancelledDelegationIsClosedUnspoken(t *testing.T) {
 			liveRelayed(t, session, contract.RealtimeEventDelegationRequestedType)
 			send(t, session, reply("call_1", "Never sent.", false))
 			send(t, session, &contract.RealtimeDelegationCancelCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_cancel", DelegationID: "call_1"})
-			if output := <-outputs; output != liveDroppedOutput {
+			if output := <-outputs; output != LiveDroppedOutput {
 				t.Errorf("the cancelled call's output = %q", output)
 			}
 			send(t, session, &contract.RealtimeInputAudioAppendCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_audio", Data: base64.StdEncoding.EncodeToString(make([]byte, 480))})
@@ -560,7 +560,7 @@ func TestAnAnswerSurvivesReadingTheNextCall(t *testing.T) {
 			close(second)
 			liveRelayed(t, session, contract.RealtimeEventDelegationRequestedType)
 			send(t, session, reply("call_1", "for tomorrow.", true))
-			if output := <-outputs; output != liveContextLabel+" Booked.\n\nYour booking is confirmed for tomorrow." {
+			if output := <-outputs; output != LiveContextLabel+" Booked.\n\nYour booking is confirmed for tomorrow." {
 				t.Errorf("the open delegation's output = %q", output)
 			}
 		})

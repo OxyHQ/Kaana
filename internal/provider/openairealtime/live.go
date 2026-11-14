@@ -34,17 +34,17 @@ func delegateDescription(acknowledgement contract.RealtimeDelegationAcknowledgem
 		before = "Call it without saying anything first."
 	}
 	return "Hands the person's request over to be answered. Call it for every request the person makes, with the request in the person's own words. " +
-		before + " Its result is the answer to speak. A result that begins with \"" + liveContextLabel + "\" holds context for you to know and never say, " +
+		before + " Its result is the answer to speak. A result that begins with \"" + LiveContextLabel + "\" holds context for you to know and never say, " +
 		"and the answer to speak follows it after a blank line. A result saying the request was dropped is never spoken."
 }
 
-// liveContextLabel opens a function output that carries delegation.context.
-const liveContextLabel = "Context, not to be said:"
+// LiveContextLabel opens a function output that carries delegation.context.
+const LiveContextLabel = "Context, not to be said:"
 
-// liveDroppedOutput is the output a cancelled delegation's call is given: it
+// LiveDroppedOutput is the output a cancelled delegation's call is given: it
 // closes the call so the voice does not wait on it, and no response.create
 // follows it, so nothing is spoken for it.
-const liveDroppedOutput = "This request was dropped. Say nothing about it."
+const LiveDroppedOutput = "This request was dropped. Say nothing about it."
 
 // delegateTool is the delegate tool definition.
 func delegateTool(acknowledgement contract.RealtimeDelegationAcknowledgement) contract.RealtimeToolDefinition {
@@ -313,7 +313,7 @@ func (s *session) liveCommands(command contract.RealtimeCommand) ([]clientEvent,
 		s.mu.Lock()
 		s.live.answer = liveAnswer{}
 		s.mu.Unlock()
-		return s.callOutput(commandID, c.DelegationID, liveDroppedOutput, false)
+		return s.callOutput(commandID, c.DelegationID, LiveDroppedOutput, false)
 	}
 	return nil, refused("type", "a live session takes no "+string(command.CommandType()))
 }
@@ -344,7 +344,7 @@ func (s *session) addReply(c *contract.RealtimeDelegationReplyCommand) (string, 
 	context := strings.Join(answer.context, "\n")
 	framing := 0
 	if context != "" {
-		framing = len(utf16.Encode([]rune(liveContextLabel + " " + context + "\n\n")))
+		framing = len(utf16.Encode([]rune(LiveContextLabel + " " + context + "\n\n")))
 	}
 	if framing+answer.units+units > contract.MaxRealtimeItemTextChars {
 		return "", false, refused("text", "the reply is longer than one answer can carry")
@@ -356,7 +356,7 @@ func (s *session) addReply(c *contract.RealtimeDelegationReplyCommand) (string, 
 	}
 	output := answer.reply.String()
 	if context != "" {
-		output = liveContextLabel + " " + context + "\n\n" + output
+		output = LiveContextLabel + " " + context + "\n\n" + output
 	}
 	s.live.answer = liveAnswer{}
 	return output, true, nil

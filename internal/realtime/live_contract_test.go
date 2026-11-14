@@ -44,6 +44,8 @@ func TestLiveContract(t *testing.T) {
 // liveFixtures are the adapters TestLiveContract proves.
 var liveFixtures = []liveFixture{
 	{name: "openai-live", start: openAILiveBench},
+	{name: "openai-realtime", start: openAIRealtimeLiveBench},
+	{name: "xai-realtime", start: xAIRealtimeLiveBench},
 }
 
 // liveFixture starts one live adapter on its fake.

@@ -373,7 +373,11 @@ reports (the call's response and the spoken answer's) and the transcription mode
 `response.create` are not billed by xAI and add no `requests` (`meter.measure` names neither).
 The emulation adds no unit.
 
-**Tests** (`live_test.go`, both dialects): the configuring `session.update`, one whole turn with a
+**Tests.** Both dialects pass `TestLiveContract` (`internal/realtime`), as the fixtures
+`openai-realtime` and `xai-realtime` (`live_contract_openairealtime_test.go`): the voice's turns
+committed by its server_vad and transcribed in each provider's spelling, its `delegate` call, and the
+function outputs read back; OpenAI settles its reported tokens and transcription minutes, xAI its
+session clock, `oxy_measured`. In the package (`live_test.go`, both dialects): the configuring `session.update`, one whole turn with a
 two-part reply, context and a verbatim span (output, relayed events and units exact), the wait for a
 turn's transcript, an untranscribed turn, a call with no turn, the release when the caller talks on,
 cancel without `response.create`, a newer call's own answer, the refused conversation commands, and a
