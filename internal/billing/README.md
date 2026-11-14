@@ -55,3 +55,8 @@ Before commercial traffic can use this library, the following work remains:
 5. Add operational metrics/alerts for stuck holds, failed rating/settlement, evidence conflicts and reconciliation drift, then run reviewed cutover and reconciliation checks.
 
 Until these are complete and reviewed, the opt-in remains unactivated: no real financial population is enrolled by this package.
+
+The explicit [account operator](../billingaccounts/README.md) provisions empty
+accounts, inspects scoped state and applies reviewed budget/credit configuration
+with durable replay and compare-and-set. It exposes no funding or refunds and is
+not activated by deployment.

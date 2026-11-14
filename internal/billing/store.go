@@ -275,3 +275,18 @@ func AccountForOwnerInTransaction(ctx context.Context, tx pgx.Tx, owner, currenc
 	err := tx.QueryRow(ctx, `SELECT a.id,a.currency_id,a.enabled FROM kaana_billing.accounts a JOIN kaana_billing.currencies c ON c.id=a.currency_id WHERE a.oxy_owner=$1 AND c.code=$2`, owner, currency).Scan(&a.ID, &a.CurrencyID, &a.Enabled)
 	return a, wrap(err)
 }
+
+// VerifyMigration checks the packaged ledger prerequisite without installing or
+// repairing it. Explicit downstream operator migrations use the same checksum.
+func VerifyMigration(ctx context.Context, tx pgx.Tx) error {
+	sum := sha256.Sum256([]byte(migration))
+	var actual string
+	var count int
+	if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(max(checksum) FILTER(WHERE version='0001'),'') FROM public.kaana_billing_migrations`).Scan(&count, &actual); err != nil {
+		return wrap(err)
+	}
+	if count != 1 || actual != hex.EncodeToString(sum[:]) {
+		return ErrConflict
+	}
+	return nil
+}
