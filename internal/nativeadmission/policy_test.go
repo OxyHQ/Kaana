@@ -122,8 +122,8 @@ func TestSpeechCharacterCeilingAndBatchTranscriptionDuration(t *testing.T) {
 	batch.Price = nonTextPrice(batch.ID, UnitPrice{contract.UnitAudioInputMilliseconds, "0.1", 3600000, "USD"})
 	r = Request{Operation: contract.GrantAudioTranscriptions, Target: ptr(contract.ModelTarget("fixture/transcribe")), Facts: contract.GrantRequestFacts{AudioInputMilliseconds: ptr(300000)}}
 	plan, err = planner(t, p, batch).Plan(principal(), r)
-	if err != nil || plan.Quote.Amount != "0.008333333334" {
-		t.Fatalf("transcription quote: %+v %v", plan, err)
+	if err != nil || plan.Quote.Amount != "0.008361111112" {
+		t.Fatalf("transcription quote (300 s + 1 s headroom): %+v %v", plan, err)
 	}
 	// A line whose route bills at least 10 s a request (Groq) is quoted at that
 	// minimum for a shorter clip, and at the measured audio above it.
@@ -135,16 +135,23 @@ func TestSpeechCharacterCeilingAndBatchTranscriptionDuration(t *testing.T) {
 		t.Fatalf("short transcription quoted below its billing minimum: %+v %v", plan, err)
 	}
 	plan, err = planner(t, p, batch).Plan(principal(), r)
-	if err != nil || plan.Quote.Amount != "0.008333333334" {
+	if err != nil || plan.Quote.Amount != "0.008361111112" {
 		t.Fatalf("billing minimum changed a longer clip's quote: %+v %v", plan, err)
 	}
 	// A provider's decoded duration can run past the container's by a few
-	// milliseconds (60 001 ms for a 60 000 ms WAV); the quote covers a second.
+	// milliseconds even for a whole second (60 001 ms for a 60 000 ms WAV), so
+	// the quote reaches one second past the measurement, in whole seconds.
 	batch.MinimumBilledAudioMilliseconds = 0
+	whole := r
+	whole.Facts.AudioInputMilliseconds = ptr(60_000)
+	plan, err = planner(t, p, batch).Plan(principal(), whole)
+	if err != nil || plan.Quote.Amount != "0.001694444445" {
+		t.Fatalf("a whole-second clip is quoted without decoder headroom: %+v %v", plan, err)
+	}
 	odd := r
 	odd.Facts.AudioInputMilliseconds = ptr(60_001)
 	plan, err = planner(t, p, batch).Plan(principal(), odd)
-	if err != nil || plan.Quote.Amount != "0.001694444445" {
+	if err != nil || plan.Quote.Amount != "0.001722222223" {
 		t.Fatalf("transcription quote not rounded up to a whole second: %+v %v", plan, err)
 	}
 	batch.Price.UnitPrices = append(batch.Price.UnitPrices, UnitPrice{contract.UnitOutputTokens, "1", 1000000, "USD"})
