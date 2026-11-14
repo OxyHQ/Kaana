@@ -30,7 +30,7 @@ type RealtimeStatement struct {
 	// Voices are the provider's documented built-in voices. Every voice speaks
 	// every one of Languages (both providers document voice and language as
 	// independent).
-	Voices []RealtimeVoice
+	Voices []Voice
 	// Languages are the BCP 47 tags the provider documents the model
 	// conversing in, and exactly what config.inputAudioTranscription.language
 	// may name. Empty: the provider documents none, which is published as an
@@ -57,8 +57,8 @@ func (s RealtimeStatement) LanguageFor(tag string) (string, bool) {
 	return NormalizeLanguage(tag, s.Languages, s.LanguageDefaults)
 }
 
-// RealtimeVoice is one documented voice.
-type RealtimeVoice struct {
+// Voice is one documented voice.
+type Voice struct {
 	ID   string
 	Name string
 	// Gender is "female" or "male" where it has been reviewed; empty is
@@ -226,8 +226,8 @@ func xAISTTStatement(kinds []contract.RealtimeSessionKind) RealtimeStatement {
 // whose languages are the line's file transcription's to state.
 func (s RealtimeStatement) PublishesAudio() bool { return len(s.Voices) > 0 }
 
-func cloneVoices(voices []RealtimeVoice) []RealtimeVoice {
-	return append([]RealtimeVoice(nil), voices...)
+func cloneVoices(voices []Voice) []Voice {
+	return append([]Voice(nil), voices...)
 }
 
 // openAIRealtimeVoices is OpenAI's documented Realtime voice list, read
@@ -242,7 +242,7 @@ func cloneVoices(voices []RealtimeVoice) []RealtimeVoice {
 // https://developers.openai.com/api/docs/guides/speech-to-text, which names
 // only the code formats), so none is published and a session names none: the
 // model detects the language (DetectsLanguage).
-var openAIRealtimeVoices = []RealtimeVoice{
+var openAIRealtimeVoices = []Voice{
 	{ID: "alloy", Name: "Alloy"}, {ID: "ash", Name: "Ash"}, {ID: "ballad", Name: "Ballad"},
 	{ID: "coral", Name: "Coral"}, {ID: "echo", Name: "Echo"}, {ID: "sage", Name: "Sage"},
 	{ID: "shimmer", Name: "Shimmer"}, {ID: "verse", Name: "Verse"},
@@ -256,9 +256,9 @@ var openAIRealtimeVoices = []RealtimeVoice{
 // table"; ids are lowercase, displayed capitalised: "e.g. Eve, Ara"). xAI
 // publishes no gender for a built-in voice. The two published here are Kaana's
 // existing reviewed product voices for xAI — `female` is eve and `male` is rex
-// (internal/provider/openaicompat/speech.go) — and every other voice's gender
-// stays unknown.
-var xAIRealtimeVoices = []RealtimeVoice{
+// (xAISpeechAliases) — and every other voice's gender stays unknown. The
+// speech statement (xAISpeech) takes its voices from this table.
+var xAIRealtimeVoices = []Voice{
 	{ID: "altair", Name: "Altair"}, {ID: "ara", Name: "Ara"}, {ID: "atlas", Name: "Atlas"},
 	{ID: "carina", Name: "Carina"}, {ID: "castor", Name: "Castor"}, {ID: "celeste", Name: "Celeste"},
 	{ID: "cosmo", Name: "Cosmo"}, {ID: "eve", Name: "Eve", Gender: "female"}, {ID: "helios", Name: "Helios"},

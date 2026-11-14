@@ -142,7 +142,9 @@ type Observed struct {
 	// ReasoningEfforts they come from the adapter's reviewed statement
 	// (providerconfig.RealtimeCapabilities), not from a model list, because
 	// the session adapter enforces exactly that statement. Absent: not a
-	// realtime deployment, or one nobody has stated.
+	// realtime deployment, or one nobody has stated. A transcription or
+	// speech deployment carries Audio alone, from its adapter's statement
+	// (providerconfig.TranscriptionCapabilities, SpeechCapabilities).
 	Realtime *RealtimeObservation `json:"realtime,omitempty"`
 	Audio    *AudioObservation    `json:"audio,omitempty"`
 }

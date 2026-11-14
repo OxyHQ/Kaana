@@ -157,6 +157,7 @@ hand and nothing is defaulted — an absent field means the provider did not say
 | `acceptedParameters` | `supported_parameters`, mapped onto Kaana's request-path vocabulary (below); OpenRouter's per-endpoint `supports_tool_choice` for the tool-choice values; Anthropic: the Messages adapter's own per-model statement (`anthropic.AcceptedParameters`), less `reasoning.effort` where `capabilities.effort` is unsupported |
 | `listPrice` | OpenRouter `pricing.prompt`/`completion` only, USD per token → per million (`cost.md`) |
 | `realtime`, `audio` | never a model list (no provider's says anything about sessions): for a session model under `openai-realtime` or `xai-realtime`, the adapter's reviewed statement (`providerconfig.RealtimeCapabilities`) — transports, session kinds, `inputAudioTranscription`, the realtime encodings in and out, and the provider's documented voices (gender only where reviewed) and languages (`[]` where none is documented). Sorted, each value once; `inventory.Parse` holds them to the contract's bounds and BCP 47 grammar (`realtime.md`, "What the catalogue says about a realtime model") |
+| `audio` (speech) | never a model list (xAI's `/models` does not even list its speech endpoint): for a speech deployment, the adapter's reviewed statement (`providerconfig.SpeechCapabilities`) — the voices a request may name (gender only where reviewed; a product alias such as `female` is accepted by the adapter and never published), `languages` (`[]` where none is documented), `outputMediaTypes`, `speed` and `maxInputCharacters`, which the catalogue serves as `audio.audioFormats.output`, `audio.speed` and `audio.maxInputCharacters`. The adapter refuses exactly what the statement does not serve, and the public API checks a speech request against the published audio before the grant |
 
 A PRESENT `supported_parameters` list is a complete statement, so a parameter it
 omits is reported unsupported; an absent list leaves `supportsTools`,
@@ -274,7 +275,9 @@ provider said nothing ABSTAINS; one that reported can only narrow:
 true only if every reporter says so, `listPrices` one entry per pricing
 deployment, never combined, and `realtime`/`audio` the intersection of the
 routes' statements (transcription only if every route transcribes; a voice
-only if every route offers it, its gender only if every route agrees).
+only if every route offers it, its gender only if every route agrees; the
+output media types every speech route produces, the speeds every one takes
+(none if they do not meet) and the lowest input ceiling).
 `reasoningEfforts: []` means a provider reported the model takes no effort;
 absent means nobody said. An entry:
 
@@ -638,7 +641,8 @@ reasoning; these are the lines a reviewer holds a change to.
   inventory preference.
 - **`observed` is what the provider's model list said, never curated, never
   defaulted** — except where the adapter itself states what `Translate`
-  enforces (xAI's efforts, Anthropic's accepted controls), which is published
+  enforces (xAI's efforts, Anthropic's accepted controls, the realtime,
+  transcription and speech statements), which is published
   verbatim so the catalogue and the request path cannot disagree. Absent is unknown. It never enters `snapshotId`, and an
   unreadable field is dropped rather than failing discovery. Aggregation lets a
   silent deployment abstain and a reporting one only narrow. Only
@@ -677,7 +681,9 @@ Neither the discovered identity nor attribution grants Oxy routing authority.
 
 Specification: https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
 The reviewed 2026-09-13 real `/tts/voices` response contained both identities.
-This publisher change is not yet promoted to production.
+The deployment carries the speech adapter's statement as its `audio` (the
+table above), so `x-ai/text-to-speech` publishes the voices, MP3, speed range
+and input ceiling `translateSpeech` enforces.
 
 ## xAI voice discovery
 

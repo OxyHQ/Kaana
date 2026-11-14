@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/inventory"
 )
 
 // AudioCapabilities is what a speech or transcription model publishes about
@@ -32,6 +33,35 @@ type AudioCatalogue interface {
 	Audio(model contract.ModelReference) (*AudioCapabilities, bool)
 }
 
+// servedAudio is the AudioCatalogue of what GET /v1/models publishes: a
+// line's audio is the inventory's where the publisher wrote its adapter's
+// statement (render publishes it over a declared one), else the declared
+// file's. So the check before a grant is the published audio, and the
+// published audio is what the adapter enforces.
+type servedAudio struct {
+	inventory *inventory.Store
+	catalogue *PublicCatalogue
+}
+
+func (a servedAudio) Audio(model contract.ModelReference) (*AudioCapabilities, bool) {
+	for _, entry := range a.inventory.Current().Catalogue() {
+		if entry.Model != model.ModelID() || entry.Audio == nil {
+			continue
+		}
+		stated := entry.Audio
+		capabilities := &AudioCapabilities{Languages: stated.Languages, InputMediaTypes: stated.InputMediaTypes,
+			OutputMediaTypes: stated.OutputMediaTypes, MaxInputCharacters: stated.MaxInputCharacters}
+		if stated.Speed != nil {
+			capabilities.Speed = &SpeedRange{Min: stated.Speed.Min, Max: stated.Speed.Max}
+		}
+		for _, voice := range stated.Voices {
+			capabilities.Voices = append(capabilities.Voices, voice.ID)
+		}
+		return capabilities, true
+	}
+	return a.catalogue.Audio(model)
+}
+
 // speechIssue is checkSpeechRequest's issue: the field at fault and why.
 type speechIssue struct {
 	param   string
@@ -52,7 +82,7 @@ func checkSpeech(request contract.SpeechRequest, audio *AudioCapabilities) []spe
 		issues = append(issues, speechIssue{"voice", "this model has no voice " + request.Voice})
 	}
 	format := speechFormatOf(request)
-	if !slices.Contains(audio.OutputMediaTypes, speechMediaType(format)) {
+	if !slices.Contains(audio.OutputMediaTypes, format.MediaType()) {
 		issues = append(issues, speechIssue{"response_format", fmt.Sprintf("this model does not produce %s", format)})
 	}
 	if request.Speed != nil {
@@ -71,21 +101,4 @@ func speechFormatOf(request contract.SpeechRequest) contract.SpeechFormat {
 		return "mp3"
 	}
 	return *request.ResponseFormat
-}
-
-// speechMediaType is `speechMediaType` of the contract.
-func speechMediaType(format contract.SpeechFormat) contract.AudioMediaType {
-	switch format {
-	case "mp3":
-		return "audio/mpeg"
-	case "opus":
-		return "audio/ogg"
-	case "aac":
-		return "audio/aac"
-	case "flac":
-		return "audio/flac"
-	case "wav":
-		return "audio/wav"
-	}
-	return "audio/pcm"
 }

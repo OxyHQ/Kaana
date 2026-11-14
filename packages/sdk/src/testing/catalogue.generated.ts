@@ -1191,6 +1191,49 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
     "schemaVersion": 1
   },
   {
+    "audio": {
+      "audioFormats": {
+        "input": [],
+        "output": [
+          "audio/mpeg"
+        ]
+      },
+      "languages": [],
+      "maxInputCharacters": 15000,
+      "speed": {
+        "min": 0.7,
+        "max": 1.5
+      },
+      "voices": [
+        {
+          "id": "ara",
+          "languages": [],
+          "name": "Ara"
+        },
+        {
+          "gender": "female",
+          "id": "eve",
+          "languages": [],
+          "name": "Eve"
+        },
+        {
+          "id": "leo",
+          "languages": [],
+          "name": "Leo"
+        },
+        {
+          "gender": "male",
+          "id": "rex",
+          "languages": [],
+          "name": "Rex"
+        },
+        {
+          "id": "sal",
+          "languages": [],
+          "name": "Sal"
+        }
+      ]
+    },
     "availableRevisions": [
       "observed-2026-09-24"
     ],
@@ -1211,6 +1254,9 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "promptCaching": false,
       "maxContextTokens": 15008,
       "maxOutputTokens": 1,
+      "apiFormats": [
+        "audio_speech"
+      ],
       "unreported": [
         "tools",
         "parallelToolCalls",

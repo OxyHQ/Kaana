@@ -14,6 +14,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 type speechCapture struct {
@@ -259,3 +260,52 @@ func TestSpeechCannotCrossAnAuthorizedDeploymentModality(t *testing.T) {
 }
 
 func (*speechCapture) ReasoningBlock(int, string) error { return nil }
+
+// TestTheSpeechAdapterServesExactlyItsStatement crosses the adapter with the
+// statement the catalogue publishes (providerconfig.SpeechCapabilities): every
+// published voice is sent as itself, a voice outside it — even one of xAI's
+// own — is refused naming speech.voice before anything is sent, and the
+// statement's bounds are the adapter's.
+func TestTheSpeechAdapterServesExactlyItsStatement(t *testing.T) {
+	statement, stated := providerconfig.SpeechCapabilities("xai", providerconfig.ProtocolOpenAICompatible, providerconfig.XAISpeechEndpoint)
+	if !stated || len(statement.Voices) == 0 {
+		t.Fatal("the xAI speech endpoint states no voices")
+	}
+	a := speechAdapter(t, "https://upstream.invalid/v1")
+	for _, voice := range statement.Voices {
+		r, route := speechFixture()
+		r.Speech.Voice = voice.ID
+		call, err := a.Translate(r, route)
+		if err != nil {
+			t.Fatalf("published voice %s was refused: %v", voice.ID, err)
+		}
+		var body speechRequest
+		if err := json.Unmarshal(call.Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Voice != voice.ID {
+			t.Errorf("voice %s was sent as %s", voice.ID, body.Voice)
+		}
+	}
+	refusals := map[string]func(*contract.Request){
+		"speech.voice":          func(r *contract.Request) { r.Speech.Voice = "altair" },
+		"speech.responseFormat": func(r *contract.Request) { r.Speech.ResponseFormat = "wav" },
+		"speech.speed":          func(r *contract.Request) { *r.Speech.Speed = statement.Speed.Max + 0.01 },
+		"input":                 func(r *contract.Request) { *r.Input.Text = strings.Repeat("a", statement.MaxInputCharacters+1) },
+	}
+	for param, mutate := range refusals {
+		r, route := speechFixture()
+		mutate(r)
+		_, err := a.Translate(r, route)
+		var refusal provider.ErrUnsupported
+		if !errors.As(err, &refusal) || refusal.Param != param || refusal.Code != contract.CodeInvalidRequest {
+			t.Errorf("%s: got %v", param, err)
+		}
+	}
+	r, route := speechFixture()
+	*r.Input.Text = strings.Repeat("a", statement.MaxInputCharacters)
+	*r.Speech.Speed = statement.Speed.Min
+	if _, err := a.Translate(r, route); err != nil {
+		t.Errorf("a request at the statement's bounds was refused: %v", err)
+	}
+}

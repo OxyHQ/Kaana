@@ -84,3 +84,47 @@ func TestTheCatalogueNarrowsARealtimeLineToWhatEveryRouteServes(t *testing.T) {
 		t.Errorf("a single route = %+v %+v", alone.Realtime, alone.Audio)
 	}
 }
+
+// A speech statement is held to the contract's speech bounds, and a speech
+// line publishes what every route serves: the output media types both
+// produce, the speeds both take, the lower input ceiling. Speeds that do not
+// meet leave no speed control, since a request naming one could reach a
+// route that refuses it.
+func TestTheCatalogueNarrowsASpeechLineToWhatEveryRouteServes(t *testing.T) {
+	now := time.Now()
+	for name, observed := range map[string]string{
+		"no output media type":       `{"audio":{"languages":[],"voices":[],"outputMediaTypes":[]}}`,
+		"an unknown output":          `{"audio":{"languages":[],"voices":[],"outputMediaTypes":["audio/x-midi"]}}`,
+		"unsorted outputs":           `{"audio":{"languages":[],"voices":[],"outputMediaTypes":["audio/wav","audio/mpeg"]}}`,
+		"a speed below the contract": `{"audio":{"languages":[],"voices":[],"outputMediaTypes":["audio/mpeg"],"speed":{"min":0.1,"max":1}}}`,
+		"an inverted speed range":    `{"audio":{"languages":[],"voices":[],"outputMediaTypes":["audio/mpeg"],"speed":{"min":1.5,"max":0.7}}}`,
+		"no input allowed":           `{"audio":{"languages":[],"voices":[],"outputMediaTypes":["audio/mpeg"],"maxInputCharacters":0}}`,
+	} {
+		if _, err := inventory.Parse(issued(now, deploymentWith("d", "xai", observed)), time.Hour); err == nil || !strings.Contains(err.Error(), "observed") {
+			t.Errorf("%s: accepted or refused for another reason: %v", name, err)
+		}
+	}
+	wide := `{"audio":{"languages":[],"voices":[{"id":"eve","name":"Eve","languages":[],"gender":"female"}],
+	  "outputMediaTypes":["audio/mpeg","audio/wav"],"speed":{"min":0.7,"max":1.5},"maxInputCharacters":15000}}`
+	narrow := `{"audio":{"languages":[],"voices":[{"id":"eve","name":"Eve","languages":[],"gender":"female"}],
+	  "outputMediaTypes":["audio/mpeg"],"speed":{"min":1,"max":2},"maxInputCharacters":5000}}`
+	apart := `{"audio":{"languages":[],"voices":[{"id":"eve","name":"Eve","languages":[],"gender":"female"}],
+	  "outputMediaTypes":["audio/mpeg"],"speed":{"min":2,"max":3}}}`
+	entry := parse(t, issued(now, deploymentWith("dep_a", "xai", wide)+","+deploymentWith("dep_b", "other", narrow))).Catalogue()[0]
+	characters := 5000
+	want := &inventory.AudioObservation{
+		Languages: []string{}, Voices: []inventory.VoiceObservation{{ID: "eve", Name: "Eve", Languages: []string{}, Gender: "female"}},
+		OutputMediaTypes: []contract.AudioMediaType{"audio/mpeg"}, Speed: &contract.NumberRange{Min: 1, Max: 1.5}, MaxInputCharacters: &characters,
+	}
+	if !reflect.DeepEqual(entry.Audio, want) {
+		t.Errorf("audio = %+v, want %+v", entry.Audio, want)
+	}
+	if apartEntry := parse(t, issued(now, deploymentWith("dep_a", "xai", wide)+","+deploymentWith("dep_b", "other", apart))).Catalogue()[0]; apartEntry.Audio.Speed != nil {
+		t.Errorf("speeds that do not meet published %+v", apartEntry.Audio.Speed)
+	}
+	// Control: one route publishes its whole statement.
+	alone := parse(t, issued(now, deploymentWith("dep_a", "xai", wide))).Catalogue()[0]
+	if alone.Audio == nil || len(alone.Audio.OutputMediaTypes) != 2 || alone.Audio.Speed == nil || *alone.Audio.MaxInputCharacters != 15000 {
+		t.Errorf("a single route = %+v", alone.Audio)
+	}
+}

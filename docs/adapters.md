@@ -505,8 +505,14 @@ changes, and the distinction matters:
 The `openaicompat` adapter also translates the typed `audio_speech` request
 for xAI's `POST /v1/tts`. The exact authorized deployment must carry upstream
 endpoint identity `tts`; a chat deployment cannot be used for speech, and the
-speech endpoint cannot be used for chat. It currently supports MP3, speed
-0.7–1.5, and the reviewed voice IDs; product female/male map to eve/rex.
+speech endpoint cannot be used for chat. What it takes is one reviewed
+statement, `providerconfig.SpeechCapabilities`: MP3, speed 0.7–1.5, at most
+15 000 characters and the voices `ara`, `eve`, `leo`, `rex` and `sal`
+(names and genders from the reviewed xAI voice table, gender for eve and rex
+only). The publisher writes the same statement into the deployment's `audio`,
+so the catalogue publishes exactly what `translateSpeech` enforces. Product
+`female`/`male`, which Gemies still sends through Oxy's signed lane, map to
+eve/rex in the adapter and are not published as voices.
 The provider requires `language`, supplied as automatic language detection.
 
 Audio is bounded to 20 MiB, checked for MP3 framing, then emitted in independently

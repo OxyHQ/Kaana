@@ -208,7 +208,7 @@ func xAIFamily(upstreamModelID string) ModelFamily {
 		return ModelFamily{Format: contract.APIFormatAudioTranscriptions}
 	case strings.HasPrefix(id, "grok-voice"):
 		return ModelFamily{Session: contract.RealtimeConversation}
-	case id == "tts":
+	case id == XAISpeechEndpoint:
 		return ModelFamily{Format: contract.APIFormatAudioSpeech}
 	}
 	return ModelFamily{Format: contract.APIFormatChatCompletions}

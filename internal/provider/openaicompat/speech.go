@@ -12,6 +12,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
 const maxSpeechAudioBytes = 20 * 1024 * 1024
@@ -39,32 +40,22 @@ func (a *Adapter) translateSpeech(request *contract.Request, route provider.Rout
 	if request.Modality != contract.ModalityAudio || request.Input.Format != contract.InputText || request.Input.Text == nil || request.Speech == nil || request.Stream {
 		return refuse("speech", "speech requires audio modality, text input, parameters and non-streaming output")
 	}
-	if route.UpstreamModelID != "tts" {
+	// What this deployment takes is its reviewed statement, the same one the
+	// catalogue publishes as the model's audio: one source, so the catalogue
+	// cannot list a voice, format or speed this route refuses.
+	statement, stated := providerconfig.SpeechCapabilities(route.Provider, providerconfig.ProtocolOpenAICompatible, route.UpstreamModelID)
+	if !stated {
 		return refuse("model", "this deployment is not a speech endpoint")
 	}
 	text := *request.Input.Text
-	// Oxy's declared character ceiling is JavaScript UTF-16 length. Use the same
-	// measured unit, including two units for supplementary Unicode characters.
+	// The statement's character ceiling is JavaScript UTF-16 length. Use the
+	// same measured unit, including two units for supplementary characters.
 	characters := len(utf16.Encode([]rune(text)))
-	if characters == 0 || characters > 15000 {
-		return refuse("input", "speech input must contain 1 to 15000 characters")
+	if param, detail, refused := statement.Refusal(characters, *request.Speech); refused {
+		return refuse(param, detail)
 	}
-	if request.Speech.ResponseFormat != "mp3" {
-		return refuse("speech.responseFormat", "this speech deployment supports mp3 output")
-	}
-	if request.Speech.Speed != nil && (*request.Speech.Speed < 0.7 || *request.Speech.Speed > 1.5) {
-		return refuse("speech.speed", "this speech deployment supports speeds from 0.7 to 1.5")
-	}
-	voice := request.Speech.Voice
-	switch voice {
-	case "female":
-		voice = "eve"
-	case "male":
-		voice = "rex"
-	case "eve", "rex", "ara", "sal", "leo":
-	default:
-		return refuse("speech.voice", "this speech deployment does not support the requested voice")
-	}
+	voice, _ := statement.VoiceFor(request.Speech.Voice)
+	// The statement's one output is MP3, which is the only codec asked for.
 	body, err := json.Marshal(speechRequest{Text: text, Voice: voice, Language: "auto", OutputFormat: speechFormat{Codec: "mp3", SampleRate: 24000, BitRate: 128000}, Speed: request.Speech.Speed})
 	if err != nil {
 		return nil, fmt.Errorf("openaicompat: encoding speech request: %w", err)

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -355,6 +356,54 @@ func TestTheCatalogueJoinsTheDeclarationWithWhatIsServed(t *testing.T) {
 	failure := publicError(t, h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel", "speed": 1.5}), http.StatusBadRequest)
 	if *failure.Param != "speed" {
 		t.Errorf("speech against the declared catalogue = %+v", failure)
+	}
+}
+
+// A speech line whose adapter states its audio (the publisher's speech
+// statement, in the inventory) is published with THAT audio over any declared
+// one, and speech is checked before the grant against what is published: a
+// voice the catalogue does not list holds no money.
+func TestTheStatedSpeechAudioIsPublishedAndCheckedBeforeTheGrant(t *testing.T) {
+	stated := json.RawMessage(`{"audio":{"voices":[{"id":"nova","name":"Nova","languages":[],"gender":"female"}],"languages":[],
+  "outputMediaTypes":["audio/mpeg"],"speed":{"min":0.8,"max":1},"maxInputCharacters":20}}`)
+	h := newHarness(t, harnessOptions{catalogue: loadDeclared(t), speechObserved: stated})
+	one := h.get("/v1/models/stub/voice", validKey)
+	var model struct {
+		Audio json.RawMessage `json:"audio"`
+	}
+	if one.StatusCode != http.StatusOK || json.Unmarshal(one.Body, &model) != nil {
+		t.Fatalf("%d %s", one.StatusCode, one.Body)
+	}
+	var got, want any
+	_ = json.Unmarshal(model.Audio, &got)
+	_ = json.Unmarshal([]byte(`{"voices":[{"id":"nova","name":"Nova","languages":[],"gender":"female"}],"languages":[],
+  "audioFormats":{"input":[],"output":["audio/mpeg"]},"speed":{"min":0.8,"max":1},"maxInputCharacters":20}`), &want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("published audio = %s", model.Audio)
+	}
+	before := len(h.oxy.authorizationBodies())
+	for _, test := range []struct {
+		body  map[string]any
+		param string
+	}{
+		// rachel is the declared voice, which the stated audio replaces.
+		{map[string]any{"model": "stub/voice", "input": "Hola", "voice": "rachel"}, "voice"},
+		{map[string]any{"model": "stub/voice", "input": "Hola", "voice": "nova", "speed": 1.1}, "speed"},
+		{map[string]any{"model": "stub/voice", "input": strings.Repeat("a", 21), "voice": "nova"}, "input"},
+		{map[string]any{"model": "stub/voice", "input": "Hola", "voice": "nova", "response_format": "pcm"}, "response_format"},
+	} {
+		failure := publicError(t, h.post("/v1/audio/speech", validKey, test.body), http.StatusBadRequest)
+		if failure.Code != "invalid_request" || failure.Param == nil || *failure.Param != test.param {
+			t.Errorf("%v: %+v", test.body, failure)
+		}
+	}
+	if asked := len(h.oxy.authorizationBodies()) - before; asked != 0 {
+		t.Errorf("%d authorizations were asked for requests the published audio refuses", asked)
+	}
+	// Positive control: a request inside the published audio is granted.
+	response := h.post("/v1/audio/speech", validKey, map[string]any{"model": "stub/voice", "input": "Hola", "voice": "nova", "speed": 0.9})
+	if readAll(t, response); response.StatusCode != http.StatusOK {
+		t.Fatalf("a request inside the published audio got %d", response.StatusCode)
 	}
 }
 
