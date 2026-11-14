@@ -348,13 +348,14 @@ func parsePublishableProviders(getenv func(string) string) ([]publisher.Provider
 			// is served only as `elevenlabs`.
 			return nil, fmt.Errorf("provider %q pairs protocol %s with discovery profile %q; only the elevenlabs slug speaks %s and reads ElevenLabs' model list", slug, protocol, known.Discovery, providerconfig.ProtocolElevenLabsSpeech)
 		}
-		if !anthropicMessages && !elevenLabsSpeech && protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime && protocol != providerconfig.ProtocolXAIRealtime && protocol != providerconfig.ProtocolXAISTT {
+		if !anthropicMessages && !elevenLabsSpeech && protocol != providerconfig.ProtocolOpenAICompatible && protocol != providerconfig.ProtocolOpenAIAudio && protocol != providerconfig.ProtocolOpenAIRealtime && protocol != providerconfig.ProtocolOpenAILive && protocol != providerconfig.ProtocolXAIRealtime && protocol != providerconfig.ProtocolXAISTT {
 			// Every other discovery profile registered here belongs to a
 			// provider served through the OpenAI-compatible adapter, or to
-			// OpenAI's own audio and realtime slugs and xAI's realtime slug,
-			// which read the same account list as their request slug. The list
-			// itself may be native (Alibaba, Cohere) or OpenAI-shaped; neither
-			// fact is inferred from protocol compatibility.
+			// OpenAI's own audio, realtime and GPT-Live slugs and xAI's
+			// realtime slug, which read the same account list as their
+			// request slug. The list itself may be native (Alibaba, Cohere)
+			// or OpenAI-shaped; neither fact is inferred from protocol
+			// compatibility.
 			return nil, fmt.Errorf("provider %q speaks %s, which publishes no model list this command can read; remove it from %s, or its models have to be declared by something that measured them", slug, protocol, providerSetVariable)
 		}
 		if known.Discovery == providerconfig.DiscoveryNotAvailable {

@@ -38,6 +38,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider/elevenlabs"
 	"github.com/OxyHQ/Kaana/internal/provider/openaiaudio"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
+	"github.com/OxyHQ/Kaana/internal/provider/openailive"
 	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	"github.com/OxyHQ/Kaana/internal/provider/xaistt"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
@@ -925,6 +926,12 @@ func buildAdaptersWithClient(configs []providerConfig, client *http.Client) ([]p
 				return nil, err
 			}
 			adapters = append(adapters, adapter)
+		case providerconfig.ProtocolOpenAILive:
+			adapter, err := openailive.New(openailive.Config{HTTPClient: client, Declarations: config.Declarations, Keys: config.Keys})
+			if err != nil {
+				return nil, err
+			}
+			adapters = append(adapters, adapter)
 		case providerconfig.ProtocolXAISTT:
 			adapter, err := xaistt.New(xaistt.Config{HTTPClient: client, Declarations: config.Declarations, Keys: config.Keys})
 			if err != nil {
@@ -1083,6 +1090,10 @@ func validateProvider(config *providerConfig, source string) error {
 		if config.Slug != openairealtime.Slug {
 			return fmt.Errorf("%s: OpenAI Realtime protocol requires the %s slug", source, openairealtime.Slug)
 		}
+	case providerconfig.ProtocolOpenAILive:
+		if config.Slug != openailive.Slug {
+			return fmt.Errorf("%s: OpenAI GPT-Live protocol requires the %s slug", source, openailive.Slug)
+		}
 	case providerconfig.ProtocolXAIRealtime:
 		if config.Slug != openairealtime.XAISlug {
 			return fmt.Errorf("%s: xAI Realtime protocol requires the %s slug", source, openairealtime.XAISlug)
@@ -1103,7 +1114,7 @@ func validateProvider(config *providerConfig, source string) error {
 	case "":
 		return fmt.Errorf("%s: provider %q declares no protocol and this build has no default for that slug", source, config.Slug)
 	default:
-		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s, %s, %s, %s, %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice, providerconfig.ProtocolElevenLabsSpeech, providerconfig.ProtocolOpenAIAudio, providerconfig.ProtocolOpenAIRealtime, providerconfig.ProtocolXAIRealtime, providerconfig.ProtocolXAISTT)
+		return fmt.Errorf("%s: provider %q declares protocol %q; this build speaks %s, %s, %s, %s, %s, %s, %s, %s and %s", source, config.Slug, config.Protocol, providerconfig.ProtocolOpenAICompatible, providerconfig.ProtocolAnthropicMessages, providerconfig.ProtocolDeepgramVoice, providerconfig.ProtocolElevenLabsSpeech, providerconfig.ProtocolOpenAIAudio, providerconfig.ProtocolOpenAIRealtime, providerconfig.ProtocolOpenAILive, providerconfig.ProtocolXAIRealtime, providerconfig.ProtocolXAISTT)
 	}
 
 	if config.BaseURL == "" {

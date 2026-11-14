@@ -15,7 +15,8 @@ Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 Voice mode moves to the `live` session kind, whose turns the caller's backend answers
 (native delegation on OpenAI GPT-Live, emulated on the speech-to-speech providers below):
 [ADR 0012](adr/0012-live-voice-sessions-with-delegation.md). Its contract and the session's half are
-built (contract set 8.16.0, "Live sessions" below); no adapter serves it yet.
+built (contract set 8.16.0, "Live sessions" below), and its native adapter is OpenAI GPT-Live
+("OpenAI GPT-Live: `openai-live`").
 
 | Piece | Where |
 |---|---|
@@ -25,6 +26,9 @@ built (contract set 8.16.0, "Live sessions" below); no adapter serves it yet.
 | OpenAI Realtime (GA) | `internal/provider/openairealtime`, slug `openai-realtime` |
 | xAI Voice Agent (the same adapter, xAI's dialect) | `internal/provider/openairealtime` (`dialect.go`, `meter.go`), slug `xai-realtime` |
 | The real-wire fake upstreams | `internal/provider/openairealtime/openairealtimetest` (`New`, `NewXAI`) |
+| OpenAI GPT-Live, the native `live` voice | `internal/provider/openailive`, slug `openai-live`; fake `openailivetest` |
+| OpenAI's error vocabulary, shared by both OpenAI wires | `internal/provider/openaierror` |
+| The `live` contract every live adapter passes | `TestLiveContract` (`internal/realtime`) |
 
 ## The wire between the edge and Kaana
 
@@ -206,7 +210,10 @@ session that measured nothing and ended normally settles as cancelled.
    opened) and the session's units: the sum of every unit the provider
    reported, each unit once — or, for a provider billed by what Kaana
    measures (`provider.RealtimeMeter`, xAI), that measurement, read once here
-   and labelled `oxy_measured` on `session.closed` and the report;
+   and labelled `oxy_measured` on `session.closed` and the report; for a
+   provider that reports the whole session's usage once, at its end
+   (`provider.RealtimeFinalUsage`, GPT-Live), that report, read once here
+   with the source the adapter could confirm;
 3. the provider session is closed;
 4. `SettleSession` builds the usage report and prices and records the operator
    cost: one `provider_cost_events` row per attempt — each failed open with its
@@ -286,12 +293,112 @@ other delegation is refused, unacknowledged, param `delegationId`; one for the o
 acknowledged and sent upstream like any command, and an upstream that cannot express it answers
 `provider.ErrUnsupported`, a non-fatal refusal that leaves the delegation open.
 
-**What phases K2 and K3 add.** No adapter lists `live` in `RealtimeSessionKinds`, so no line serves it
-and `configs/public-catalogue.json` names no `live` line and no default. K2 adds the native GPT-Live
-adapter (`openai-live`), K3 the emulation on `openai-realtime` and `xai-realtime`; each implements the
-provider side documented on `provider.RealtimeUpstream` and passes `TestLiveContract` before its
-statement lists `live`. Until then `TestALiveSessionHandsItsTurnsOverAndRefusesWhatItsVoiceOwns` runs
-the session's half against a scripted upstream.
+**Who serves it.** Phase K2 adds the native GPT-Live adapter (`openai-live`, below), phase K3 the
+emulation on `openai-realtime` and `xai-realtime`. Each implements the provider side documented on
+`provider.RealtimeUpstream` and passes `TestLiveContract` (`internal/realtime`), which runs the whole
+canonical contract against every live adapter on its own real-wire fake, through the data plane on
+kaana.ai/v1: open, audio both ways, transcripts both ways, a delegation answered in two replies with a
+verbatim span, supersession, cancel, the refusals above, close and exactly-once settlement in the
+adapter's own units. An adapter joins it by one entry in `liveFixtures` and its fixture beside it.
+`TestALiveSessionHandsItsTurnsOverAndRefusesWhatItsVoiceOwns` still runs the session's half against a
+scripted upstream. `configs/public-catalogue.json` names no `live` line and no default yet: the
+`openai/gpt-live-1` entry waits for its consumers (Oxy, Gemies) to parse contract set 8.16.0
+("Operating `openai-live`").
+
+## OpenAI GPT-Live: `openai-live`
+
+GPT-Live is a full-duplex voice that listens, speaks, decides when a turn ends and hands every turn to
+its client ("client delegation"). It is the native adapter of the `live` kind ([ADR 0012](adr/0012-live-voice-sessions-with-delegation.md)
+§2), under its own slug for the reason `openai-realtime` is one: its protocol is neither a request nor
+the Realtime API, and a slug resolves to exactly one adapter.
+
+| | |
+|---|---|
+| Protocol | `openai_live` (only under the `openai-live` slug; refused under any other at startup) |
+| Configured root | `https://api.openai.com/v1`, locked; the publisher reads the account's `GET /v1/models` there, which lists `gpt-live-1` for the production key (2026-11-14) |
+| Session endpoint | `wss://api.openai.com/v1/live/sessions`, no query parameters, fixed in `providerconfig` |
+| Authentication | `Authorization: Bearer <key>` on the handshake |
+| Session kinds | `live` only |
+| Model | `gpt-live-1`, its only snapshot |
+
+**Opening.** Dial (a non-101 handshake is classified from its status and OpenAI's error body), send
+`session.start` as the first frame (`event_id: kaana-session-start`), and wait for `session.started`;
+only then is audio sent. An `error` before it is OpenAI's answer about this session on this key and is
+classified like a refused request. Each stage is bounded at 20 s. Everything is fixed at start:
+
+| Contract | GPT-Live `session.start.session` |
+|---|---|
+| (the route) | `model`: the signed upstream id |
+| `instructions` | `instructions`: `provider.LivePreamble`, then the persona (`provider.LiveInstructions`) |
+| `inputAudioFormat` = `outputAudioFormat` | `audio.format`: `pcm16_24khz` → `{type: "audio/pcm", rate: 24000}`; `g711_ulaw` → `{type: "audio/pcmu", rate: 8000}`; `g711_alaw` → `{type: "audio/pcma", rate: 8000}` (GPT-Live's 16 kHz PCM has no contract format) |
+| `voice` | `audio.output.voice`: one of the 38 built-in ids; any other is refused (`config.voice`) before dialling |
+| `delegation.acknowledgement` | `delegation: {type: "client", acknowledgement_delay_ms}`: `auto` 400, `none` 0 |
+| (always) | `store: false`: no recording is kept for forking |
+| `turnDetection`, its thresholds, `inputAudioTranscription.language` | not sent: the voice detects the turns, and GPT-Live documents no setting for either |
+
+**Commands.**
+
+| Contract command | GPT-Live client event (`event_id` = `commandId`; a later chunk `commandId#n`) |
+|---|---|
+| `input_audio.append` | `session.input_audio.append {audio}` (not acknowledged by OpenAI); PCM16 that is not whole 16-bit samples is refused (`data`) |
+| `delegation.reply` | `session.commentary.append {delegation_id, content}`, spoken (paraphrased): the text with each `verbatim` span between `⟦ ⟧` (`provider.WrapVerbatim`), cut into appends of at most 500 bytes at the last sentence end that fits, else the last space, never inside a span |
+| `delegation.context` | `session.thinking.append {delegation_id, content}`, silent, cut the same way |
+| `delegation.cancel` | `session.instructions.append {delegation_id, content}`: the turn is dropped and nothing more is said about it (an instructions append "can interrupt current speech") |
+| (each delegation of an `acknowledgement: none` session) | an empty `session.thinking.append` naming it, which cancels the pending acknowledgement |
+| `session.close` | answered by the session; at settlement Kaana sends `session.close` and waits for `session.closed` |
+| anything else | refused (`type`), nothing written |
+
+GPT-Live bounds each append at 500 tokens and documents no tokenizer. A token is never shorter than one
+byte of UTF-8, so 500 bytes is at most 500 tokens in any script: a bound that is certain where a
+characters-per-token estimate is not. A span (at most 256 UTF-16 units) is never cut; one longer than
+the bound is an append of its own.
+
+**Events.**
+
+| GPT-Live server event | Contract event |
+|---|---|
+| `session.input_transcript.delta` | `transcript.delta`, `source: input_audio`, item `input_<n>`: relayed whether or not transcription was asked for, as the `live` kind requires |
+| `session.delegation.created` | the input item's `transcript.done` (its whole text), then `delegation.requested` with that text and OpenAI's delegation id (1–128 units, unique; target `client`) |
+| `session.output_transcript.delta` | `transcript.delta`, `source: output_audio`, item `output_<n>`, response `response_<n>` |
+| `session.output_audio.delta` | `output_audio.delta`, split into frames of at most `provider.MaxAudioChunkBytes`, in the open utterance |
+| (an utterance ends) | its `transcript.done`: a fragment starting 1.5 s or more after the last one ended on OpenAI's session clock, 1.5 s with no output on Kaana's, or the session's end. No `output_audio.done`: GPT-Live has none |
+| `error` | `error{fatal:false}`, `commandId` from `client_event_id`; a failure other than `invalid_request_error` is the session's own and is how it ends if the connection then closes |
+| `session.closed` | the end: `close_requested`, `expired`, `remote_hangup` → `upstream_closed`; `content` → `upstream_error` (`upstream_content_filtered`); `connection_lost` → `upstream_error` (`provider_error`) |
+| `session.started` (after open), `session.updated`, `*.appended`, `session.input_audio.muted`/`unmuted`, `session.usage.updated`, `info`, Responses and Decisions events | dropped: the contract has no event for them, and Kaana configures neither delegation type |
+
+`⟦` and `⟧` are never relayed: they are stripped from every transcript, the caller's and the voice's.
+GPT-Live has no items, responses or turn ends, so Kaana numbers them: the caller's words since the
+previous delegation are one item, and each utterance of the voice is one item and one response.
+
+**Usage.** GPT-Live bills the session's seconds, $0.05 a minute, per second, never rounded up to the
+minute. `session.usage.updated` is a cumulative snapshot ("do not sum across events") and is not
+settled; `session.closed.usage.seconds` is the final figure, read as an exact decimal and rounded up
+once to whole `session_milliseconds`, `provider_reported`. A session Kaana ends asks for it
+(`session.close`, then up to 10 s for `session.closed`); a session OpenAI ends sends it. Without
+`session.closed` the usage is unconfirmed (OpenAI: "If the transport fails before session.closed, final
+usage is unconfirmed"), so the session settles Kaana's own wall clock, from the accepted handshake to
+the end of the connection, rounded up once, `oxy_measured`: the clock bounds what OpenAI can bill. The
+adapter is a `provider.RealtimeFinalUsage`: its events carry no units, and the session reads the final
+usage once, at settlement.
+
+**Errors.** By OpenAI's own type and code through `internal/provider/openaierror`, the one table both
+OpenAI wires read: handshake 401/403 → `provider_credential_invalid`; 402, or 429 with the quota
+vocabulary → `provider_billing_refused`; 429 → `rate_limited`; 404 → `model_not_found`; 408/504 →
+timeout; 503 → overloaded; 5xx → `provider_error`. Every message is stripped of the key by exact match
+before `contract.SafeErrorText`. No prompt, persona, transcript, reply or audio enters a log line.
+
+**Not verified** (the documentation does not say, so the fake cannot know; marked UNVERIFIED in the
+code): the handshake's refusal statuses and bodies; GPT-Live's in-band error vocabulary beyond
+`invalid_request_error` / `unknown_parameter`; whether an acknowledgement delay of 0 requests one at once
+or none (the empty thinking append covers either); and whether a turn's input transcript always
+arrives before its `session.delegation.created` (a fragment after it is the next turn's).
+
+Sources, read 2026-11-14:
+[live conversations](https://developers.openai.com/api/docs/guides/live-conversations),
+[live delegation](https://developers.openai.com/api/docs/guides/live-delegation),
+[WebSocket](https://developers.openai.com/api/docs/guides/voice-websockets?api=live),
+[primary WebSocket reference](https://developers.openai.com/api/reference/resources/live/primary-websocket),
+[gpt-live-1](https://developers.openai.com/api/docs/models/gpt-live-1).
 
 ## OpenAI Realtime (GA): `openai-realtime`
 
@@ -757,6 +864,13 @@ yet.
 | Voices | the 10 documented (`alloy` … `marin`, `cedar`), no gender | the 26 built-in ids xAI documents; gender only for `eve` (female) and `rex` (male), Kaana's reviewed product voices |
 | Languages | none: OpenAI documents no language list for its Realtime models | xAI's 20 documented codes; every voice speaks every one |
 
+GPT-Live (`openai-live`) states `websocket` and `live` only, `inputAudioTranscription: true` (a
+`live` session always relays the caller's words), the three encodings in and out, the 38 voices of its
+reference with a gender only for `marin` (female) and `cedar` (male), the owner's reviewed product
+voices (ADR 0012 §3), and no languages. Its internal statement names `server_vad` and `semantic_vad`,
+each metered in `session_milliseconds` alone, and no output modality, tool choice or output cap: the
+caller's backend owns the answer.
+
 `gender` is never inferred from a name, and an empty language list is
 published rather than guessed. A model's `languages` describe it; a session
 names the client's own tag whatever the list says.
@@ -830,10 +944,11 @@ model page lists the id as its own only snapshot, the rule `openai-audio`'s
 `gpt-transcribe` already follows. The publisher classifies OpenAI's ids by what
 they require (`internal/publisher/families.go`): Realtime ids are conversation,
 transcription (`gpt-live-transcribe`, `gpt-realtime-whisper`) or translation
-(`gpt-realtime-translate`) sessions; `gpt-live-1` is the separate GPT-Live
-protocol and is inexpressible. A session model is attached only to a slug whose
-adapter opens its kind, so today only Realtime conversation models, only under
-`openai-realtime`. `TestOpenAIRealtimeIsAttributedOnlyToTheRealtimeAdapter`
+(`gpt-realtime-translate`) sessions, and `gpt-live-1` is a `live` session on its
+own protocol. A session model is attached only to a slug whose adapter opens its
+kind, so Realtime conversation models only under `openai-realtime` and
+`gpt-live-1` only under `openai-live`
+(`TestGPTLiveIsAttributedOnlyToTheLiveAdapter`). `TestOpenAIRealtimeIsAttributedOnlyToTheRealtimeAdapter`
 pins the set and proves each row publishable there and nowhere else.
 
 ## Operating it
@@ -998,6 +1113,39 @@ wait for `transcript.done`, close. Check: `transcript.interim` and
 is `session_milliseconds` ≈ 60–65 s, and xAI's console shows the session's
 charge within the wall-clock figure.
 
+### Operating `openai-live`
+
+- Serve it: add `openai-live` to the serving task's `KAANA_PROVIDERS`. Protocol and root are locked;
+  a `_BASE_URL` other than `https://api.openai.com/v1`, or `openai_live` under another slug, is refused
+  at startup. A `live` session is served on kaana.ai/v1 only.
+- Its key: a key row belongs to exactly one slug, so the OpenAI key is imported once more under
+  `openai-live`, from stdin, with the reviewed key id `.github/credential-admin-operations.json` names
+  for discovery, `ac291e20-2c8e-4036-8bad-0e956f9af69f` (the row exists since 2026-11-14, the same
+  OpenAI project as the `openai` row; ADR 0012 §9.1). The account must be on a paid tier (GPT-Live does
+  not serve the free tier). With exactly one key the provider default serves every deployment; bind
+  explicitly with `kaana-credentials bind-deployment --provider openai-live` once there are two.
+- Order: the credential row exists before the switch, because the serving process refuses a
+  `KAANA_PROVIDERS` slug with no enabled credential and the publisher one whose discovery key id names
+  no enabled row. The switch is oxy-infra's `kaana_openai_live_enabled` (OxyHQ/oxy-infra#464), which
+  adds `openai-live` to the serving task's `KAANA_PROVIDERS` and the publisher's
+  `KAANA_DISCOVERY_PROVIDERS`; the deploy workflow already writes
+  `KAANA_PROVIDER_OPENAI_LIVE_DISCOVERY_KEY_ID` from the reviewed id map and reads it back, and a key id
+  for a slug the publisher does not discover is ignored.
+- Price it, once the publisher has minted the deployment
+  (`dep_openai_live_gpt_live_1_observed_<date>`, the date it first observed the line): in one reviewed
+  commit, a rate card pricing `session_milliseconds` at `833334` (10⁻¹² USD per ms: $0.05 / 60 000 ms,
+  rounded up, ADR 0012 §5) and the `configs/deployment-commercial.json` entry for that id, read by the
+  serving task through `KAANA_PROVIDER_RATES_PATH`. Without the card every session's operator cost is
+  unknown.
+- Publish it: the `openai/gpt-live-1` entry of `configs/public-catalogue.json` declares
+  `capabilities.realtime.defaultKinds: ["live"]` and its price version, which prices
+  `session_milliseconds` for the customer. It merges only once every consumer that parses the catalogue
+  strictly (Oxy, the Gemies SDK) reads contract set 8.16.0: a line with `sessionKinds: ["live"]` or
+  `defaultKinds` fails an older parse of the whole list.
+- Health never opens a session and stays `degraded` until a signed canary session has been validated
+  (ADR 0012 phase K5): a `live` session on the catalogue default, a spoken turn, a delegation answered
+  with a verbatim span, and a close whose `session_milliseconds` matches OpenAI's usage for it.
+
 ## Findings, refusals and what is not verified
 
 The findings, the refusals by name and the list of what is not verified are a dated record, kept in
@@ -1114,6 +1262,11 @@ replay admission or fabricate an empty settlement.
   contract offers is translated or emulated, and only what `Unservable` says
   is impossible is refused, with the contract's `param` and a message that
   names no provider. Nothing of a dialect's statement is published.
+- **A provider that reports the session's usage once, at its end, settles through
+  `provider.RealtimeFinalUsage`**: read once at settlement, `provider_reported` when the provider
+  confirmed it, Kaana's wall clock `oxy_measured` when it never came, and never a cumulative snapshot
+  summed (GPT-Live's `session.usage.updated`).
+- **Every adapter that serves `live` passes `TestLiveContract`**, on its own real-wire fake.
 - **A `live` session's delegation state is the session's, never an adapter's**: the session
   supersedes, refuses a command for any delegation but the open one, and refuses the commands a
   `live` session does not take before they are acknowledged. An adapter returns

@@ -562,10 +562,19 @@ func (s *session) finish(ctx context.Context, reason contract.RealtimeSessionClo
 	opened := s.opening != nil && s.opening.Opened()
 	source := contract.UsageProviderReported
 	if opened {
-		if meter, metered := s.opening.Upstream.(provider.RealtimeMeter); metered {
+		switch upstream := s.opening.Upstream.(type) {
+		case provider.RealtimeFinalUsage:
+			// A provider that reports the whole session's usage once, at its
+			// end: read once, here, with the source the adapter could confirm.
+			var final []contract.UsageQuantity
+			final, source = upstream.FinalUsage(context.WithoutCancel(ctx))
+			for _, quantity := range final {
+				s.units[quantity.Unit] += quantity.Quantity
+			}
+		case provider.RealtimeMeter:
 			// A provider billed by what Kaana measured: its measurement is
 			// read once, here, and is the session's usage.
-			for _, quantity := range meter.Measured() {
+			for _, quantity := range upstream.Measured() {
 				s.units[quantity.Unit] += quantity.Quantity
 			}
 			source = contract.UsageOxyMeasured

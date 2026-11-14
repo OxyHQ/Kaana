@@ -132,6 +132,36 @@ func newHarness(t *testing.T, opts options) *harness {
 		build, keys = openairealtime.NewXAI, []string{fake.XAIKey, fake.XAISecondKey}
 		rates = `{"unit":"audio_input_milliseconds","amountPerUnit":2},{"unit":"audio_output_milliseconds","amountPerUnit":3},{"unit":"requests","amountPerUnit":5},{"unit":"session_milliseconds","amountPerUnit":7}`
 	}
+	adapter, err := build(openairealtime.Config{
+		Declarations: []provider.KeyDeclaration{{KeyID: "key_a", Secret: keys[0]}, {KeyID: "key_b", Secret: keys[1]}},
+		HTTPClient:   upstream.Client(),
+		Now:          opts.now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := serve(t, opts, served{adapter: adapter, slug: slug, upstreamModel: upstreamModel, modelReference: modelReference, rates: rates})
+	h.upstream, h.adapter = upstream, adapter
+	return h
+}
+
+// served is the session adapter a harness serves: its slug, the upstream model
+// and model line its two deployments name, and the rates of the first one's
+// card. The adapter declares the keys `key_a` and `key_b`, which the two
+// deployments are bound to.
+type served struct {
+	adapter        provider.RealtimeAdapter
+	slug           contract.ProviderSlug
+	upstreamModel  string
+	modelReference contract.ModelReference
+	rates          string
+}
+
+// serve runs the whole data plane around one session adapter: the inventory,
+// the registry beside a text adapter, the rate card, the executor and the
+// session manager on a real server.
+func serve(t *testing.T, opts options, adapter served) *harness {
+	t.Helper()
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -146,10 +176,11 @@ func newHarness(t *testing.T, opts options) *harness {
 		t.Fatal(err)
 	}
 
+	slug := adapter.slug
 	deployments := []map[string]any{
-		{"deploymentId": primary, "provider": slug, "modelReference": modelReference, "upstreamModelId": upstreamModel, "current": true},
-		{"deploymentId": secondary, "provider": slug, "modelReference": modelReference, "upstreamModelId": upstreamModel, "current": true},
-		{"deploymentId": textRoute, "provider": "openai", "modelReference": modelReference, "upstreamModelId": "gpt-realtime-2.1", "current": true},
+		{"deploymentId": primary, "provider": slug, "modelReference": adapter.modelReference, "upstreamModelId": adapter.upstreamModel, "current": true},
+		{"deploymentId": secondary, "provider": slug, "modelReference": adapter.modelReference, "upstreamModelId": adapter.upstreamModel, "current": true},
+		{"deploymentId": textRoute, "provider": "openai", "modelReference": adapter.modelReference, "upstreamModelId": adapter.upstreamModel, "current": true},
 	}
 	document, _ := json.Marshal(map[string]any{"snapshotId": "snap_realtime", "issuedAt": contract.NewTimestamp(time.Now()), "deployments": deployments})
 	path := filepath.Join(t.TempDir(), "inventory.json")
@@ -163,30 +194,22 @@ func newHarness(t *testing.T, opts options) *harness {
 		t.Fatal(err)
 	}
 
-	adapter, err := build(openairealtime.Config{
-		Declarations: []provider.KeyDeclaration{{KeyID: "key_a", Secret: keys[0]}, {KeyID: "key_b", Secret: keys[1]}},
-		HTTPClient:   upstream.Client(),
-		Now:          opts.now,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	textPool, err := provider.NewKeyPool("openai", provider.DeclareKeys([]string{"sk-text-synthetic-not-valid"}), provider.KeyPolicy{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := provider.NewRegistry(adapter, textAdapter{pool: textPool})
+	registry, err := provider.NewRegistry(adapter.adapter, textAdapter{pool: textPool})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.ReplaceGeneration([]provider.CredentialBinding{
 		{DeploymentID: primary, Provider: slug, KeyID: "key_a"},
 		{DeploymentID: secondary, Provider: slug, KeyID: "key_b"},
-	}, adapter, textAdapter{pool: textPool}); err != nil {
+	}, adapter.adapter, textAdapter{pool: textPool}); err != nil {
 		t.Fatal(err)
 	}
 	cards, err := providercost.Parse([]byte(`{"schemaVersion":1,"rateCardVersionId":"rc_realtime_v1","source":"operator","sourceVersion":"test","observedAt":"2026-01-01T00:00:00Z","effectiveAt":"2026-01-01T00:00:00Z","rateCards":[
-		{"deploymentId":"dep_realtime_a","currency":"USD","rates":[` + rates + `]}]}`))
+		{"deploymentId":"dep_realtime_a","currency":"USD","rates":[` + adapter.rates + `]}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +242,7 @@ func newHarness(t *testing.T, opts options) *harness {
 		_ = manager.Shutdown(ctx)
 		server.Close()
 	})
-	return &harness{t: t, upstream: upstream, server: server, manager: manager, adapter: adapter, private: private, keyID: keyID, costs: costs, logs: logs}
+	return &harness{t: t, server: server, manager: manager, private: private, keyID: keyID, costs: costs, logs: logs}
 }
 
 func pointer[T any](value T) *T { return &value }
