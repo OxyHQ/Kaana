@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { RealtimeServerEvent } from '@kaana.ai/contracts';
+import { INFERENCE_CONTRACT_VERSION, type RealtimeServerEvent } from '@kaana.ai/contracts';
 import {
   KaanaConnectionError,
   KaanaInvalidRequestError,
@@ -54,7 +54,9 @@ describe('@kaana.ai/sdk/testing', () => {
     const { kaana, server } = createFakeKaana();
     const models = await kaana.models.list();
     // The client states the set it parses, which Kaana renders the catalogue in.
-    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('8.16.0');
+    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe(
+      INFERENCE_CONTRACT_VERSION,
+    );
     expect(models.map((model) => model.modelId)).toEqual(
       voiceCatalogue.map((model) => model.modelId),
     );

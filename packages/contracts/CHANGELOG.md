@@ -1,5 +1,18 @@
 # Changelog
 
+## 8.17.0
+
+The catalogue in the caller's contract set. No shape, field or member changes:
+everything 8.16.0 parses still parses.
+
+- `CATALOGUE_ADDITIONS`: each value `GET /v1/models` gained after a set, with the
+  set that introduced it (`capabilities.unreported` and the unit price
+  `cache_write_input_tokens` in 8.4.0; the session kind `live` and
+  `capabilities.realtime.defaultKinds` in 8.16.0). Kaana renders the catalogue in
+  the set a request states in `Kaana-Contract-Version`, leaving out every value
+  that set lacks, so a reader pinned to an older set keeps parsing the whole list.
+  A request that states no set receives none of them.
+
 ## 8.16.0
 
 Live voice sessions with delegation (Kaana ADR 0012). Additive: everything

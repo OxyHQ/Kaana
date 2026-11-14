@@ -121,25 +121,32 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "observed-2026-10-16"
     ],
     "capabilities": {
-      "apiFormats": [
-        "audio_transcriptions"
-      ],
       "inputModalities": [
         "audio"
       ],
-      "jsonMode": false,
-      "maxContextTokens": 1,
-      "maxOutputTokens": 1,
       "outputModalities": [
         "text"
       ],
+      "tools": false,
       "parallelToolCalls": false,
-      "promptCaching": false,
+      "structuredOutput": false,
+      "jsonMode": false,
       "reasoning": false,
       "reasoningEfforts": [],
       "streaming": false,
-      "structuredOutput": false,
-      "tools": false
+      "promptCaching": false,
+      "maxContextTokens": 1,
+      "maxOutputTokens": 1,
+      "apiFormats": [
+        "audio_transcriptions"
+      ],
+      "unreported": [
+        "tools",
+        "parallelToolCalls",
+        "structuredOutput",
+        "jsonMode",
+        "promptCaching"
+      ]
     },
     "currentRevision": "observed-2026-10-16",
     "dataPolicy": {
@@ -949,7 +956,13 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "reasoningEfforts": [],
       "streaming": true,
       "structuredOutput": false,
-      "tools": true
+      "tools": true,
+      "unreported": [
+        "parallelToolCalls",
+        "structuredOutput",
+        "jsonMode",
+        "promptCaching"
+      ]
     },
     "currentRevision": "observed-2026-10-16",
     "dataPolicy": {
@@ -1093,25 +1106,32 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "observed-2026-10-16"
     ],
     "capabilities": {
-      "apiFormats": [
-        "audio_transcriptions"
-      ],
       "inputModalities": [
         "audio"
       ],
-      "jsonMode": false,
-      "maxContextTokens": 1,
-      "maxOutputTokens": 1,
       "outputModalities": [
         "text"
       ],
+      "tools": false,
       "parallelToolCalls": false,
-      "promptCaching": false,
+      "structuredOutput": false,
+      "jsonMode": false,
       "reasoning": false,
       "reasoningEfforts": [],
       "streaming": false,
-      "structuredOutput": false,
-      "tools": false
+      "promptCaching": false,
+      "maxContextTokens": 1,
+      "maxOutputTokens": 1,
+      "apiFormats": [
+        "audio_transcriptions"
+      ],
+      "unreported": [
+        "tools",
+        "parallelToolCalls",
+        "structuredOutput",
+        "jsonMode",
+        "promptCaching"
+      ]
     },
     "currentRevision": "observed-2026-10-16",
     "dataPolicy": {
@@ -1178,19 +1198,26 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
       "inputModalities": [
         "text"
       ],
-      "jsonMode": false,
-      "maxContextTokens": 15008,
-      "maxOutputTokens": 1,
       "outputModalities": [
         "audio"
       ],
+      "tools": false,
       "parallelToolCalls": false,
-      "promptCaching": false,
+      "structuredOutput": false,
+      "jsonMode": false,
       "reasoning": false,
       "reasoningEfforts": [],
       "streaming": false,
-      "structuredOutput": false,
-      "tools": false
+      "promptCaching": false,
+      "maxContextTokens": 15008,
+      "maxOutputTokens": 1,
+      "unreported": [
+        "tools",
+        "parallelToolCalls",
+        "structuredOutput",
+        "jsonMode",
+        "promptCaching"
+      ]
     },
     "currentRevision": "observed-2026-09-24",
     "dataPolicy": {

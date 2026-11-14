@@ -224,10 +224,10 @@ func TestTheCheckedInImageBoundsParse(t *testing.T) {
 	}
 }
 
-// `capabilities.unreported` reaches Oxy on the declared document and never the
-// public catalogue: a reader on a contract before 8.4.0 parses capabilities
-// strictly and would refuse the whole list.
-func TestUnreportedCapabilitiesAreInternal(t *testing.T) {
+// `capabilities.unreported` reaches Oxy on the declared document, and the
+// public catalogue only of a reader on contract set 8.4.0 or later: an earlier
+// reader parses capabilities strictly and would refuse the whole list.
+func TestUnreportedCapabilitiesReachOnlyReadersThatParseThem(t *testing.T) {
 	var file struct {
 		SchemaVersion int              `json:"schemaVersion"`
 		Models        []map[string]any `json:"models"`
@@ -252,11 +252,18 @@ func TestUnreportedCapabilitiesAreInternal(t *testing.T) {
 		t.Errorf("the declared document lacks unreported: %s", catalogue.Document())
 	}
 	h := newHarness(t, harnessOptions{catalogue: catalogue})
-	listed := h.get("/v1/models", validKey)
-	if listed.StatusCode != http.StatusOK || !strings.Contains(string(listed.Body), `"modelId":"stub/model"`) {
-		t.Fatalf("%d %s", listed.StatusCode, listed.Body)
-	}
-	if strings.Contains(string(listed.Body), "unreported") {
-		t.Errorf("GET /v1/models serves unreported: %s", listed.Body)
+	for stated, sent := range map[string]bool{"": false, "8.3.0": false, "8.4.0": true, contract.ContractVersion: true} {
+		request, _ := http.NewRequest(http.MethodGet, h.server.URL+"/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer "+validKey)
+		if stated != "" {
+			request.Header.Set(publicapi.HeaderContractVersion, stated)
+		}
+		listed := h.do(request)
+		if listed.StatusCode != http.StatusOK || !strings.Contains(string(listed.Body), `"modelId":"stub/model"`) {
+			t.Fatalf("%d %s", listed.StatusCode, listed.Body)
+		}
+		if strings.Contains(string(listed.Body), `"unreported":["parallelToolCalls","promptCaching"]`) != sent {
+			t.Errorf("a reader on %q: unreported sent is %v, want %v: %s", stated, !sent, sent, listed.Body)
+		}
 	}
 }

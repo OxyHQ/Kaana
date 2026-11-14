@@ -82,7 +82,10 @@ package contract
 // 8.16.0 adds the realtime session kind `live` with its delegation config,
 // commands and events, and the catalogue's `capabilities.realtime.defaultKinds`
 // (Kaana ADR 0012); no line serves `live` yet.
-const ContractVersion = "8.16.0"
+// 8.17.0 publishes CATALOGUE_ADDITIONS (CatalogueAdditions): GET /v1/models is
+// rendered in the set a request states in Kaana-Contract-Version, without the
+// values that set lacks; no shape changes.
+const ContractVersion = "8.17.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set
