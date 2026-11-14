@@ -71,6 +71,10 @@ type session struct {
 	expiry        *time.Timer
 	resumeTimer   *time.Timer
 	closed        bool
+	// delegation is the one delegation of a live session its commands may
+	// name: the newest, until its final reply or its cancel. Empty when none
+	// is open. A newer delegation supersedes it (Kaana ADR 0012 §1).
+	delegation contract.RealtimeDelegationID
 
 	// public marks a session opened on https://kaana.ai/v1: its events are
 	// projected onto the public shapes, it sends no usage report frame, and
@@ -333,6 +337,13 @@ func (s *session) receive(ctx context.Context, frame inbound) {
 			"session.resume is only ever the first frame of a new connection")}, &commandID)
 		return
 	}
+	if !s.request.Kind.Takes(command.CommandType()) {
+		// Refused before it is acknowledged: the session's kind has no such
+		// command, so nothing is applied (Kaana ADR 0012 §1).
+		message := fmt.Sprintf("a %s session takes no %s", s.request.Kind, command.CommandType())
+		s.emit(ctx, &contract.RealtimeErrorEvent{Fatal: false, Error: *contract.NewError(s.requestID, contract.CodeInvalidRequest, message).WithParam("type")}, &commandID)
+		return
+	}
 	if update, ok := command.(*contract.RealtimeSessionUpdateCommand); ok && update.Config.InputAudioTranscription != nil && !s.public {
 		// Refused like a frame this lane cannot take, before it is
 		// acknowledged: nothing is applied (kaana.EnvelopeInputTranscriptionRefused).
@@ -341,6 +352,13 @@ func (s *session) receive(ctx context.Context, frame inbound) {
 	}
 	if _, duplicate := s.seen[commandID]; duplicate {
 		s.emit(ctx, &contract.RealtimeCommandAcceptedEvent{Duplicate: true}, &commandID)
+		return
+	}
+	if delegation, names := contract.DelegationOf(command); names && delegation != s.delegation {
+		// Unknown, superseded, cancelled or already final: nothing more is
+		// spoken for it, so nothing is applied.
+		s.emit(ctx, &contract.RealtimeErrorEvent{Fatal: false, Error: *contract.NewError(s.requestID, contract.CodeInvalidRequest,
+			"delegationId names no open delegation of this session").WithParam("delegationId")}, &commandID)
 		return
 	}
 
@@ -382,6 +400,21 @@ func (s *session) receive(ctx context.Context, frame inbound) {
 		return
 	}
 	s.inputBytes += inputAudio
+	if endsDelegation(command) {
+		s.delegation = ""
+	}
+}
+
+// endsDelegation reports whether an applied command was the last one its
+// delegation takes: its final reply, or its cancel.
+func endsDelegation(command contract.RealtimeCommand) bool {
+	switch c := command.(type) {
+	case *contract.RealtimeDelegationReplyCommand:
+		return c.Final
+	case *contract.RealtimeDelegationCancelCommand:
+		return true
+	}
+	return false
 }
 
 // commandInputAudio is the decoded audio a command carries into the session.
@@ -441,6 +474,19 @@ func (s *session) upstream(ctx context.Context, result upstreamResult) {
 		s.markOutput()
 	case *contract.RealtimeTextDeltaEvent, *contract.RealtimeTranscriptDeltaEvent, *contract.RealtimeTranscriptInterimEvent, *contract.RealtimeToolCallEvent:
 		s.markOutput()
+	case *contract.RealtimeDelegationRequestedEvent:
+		// The session, not the adapter, supersedes: a newer delegation before
+		// the open one's final reply ends that one, whichever provider serves.
+		if s.delegation != "" {
+			s.emit(ctx, &contract.RealtimeDelegationSupersededEvent{DelegationID: s.delegation}, nil)
+		}
+		s.delegation = e.DelegationID
+		s.markOutput()
+	case *contract.RealtimeDelegationSupersededEvent:
+		// Only the session supersedes (above); an adapter that sends one is
+		// not relayed, so the client never reads two answers about one turn.
+		s.manager.logger.Error("a realtime adapter sent delegation.superseded", "requestId", s.requestID, "provider", s.opening.Route.Provider)
+		return
 	case *contract.RealtimeResponseDoneEvent:
 		e.DeploymentID = s.opening.Route.DeploymentID
 	}

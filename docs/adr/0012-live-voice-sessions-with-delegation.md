@@ -85,7 +85,7 @@ session:
 | Command | Fields | Meaning |
 |---|---|---|
 | `input_audio.append` | `data` | As today. `input_audio.commit` and `.clear` are refused for `live`: the voice detects turns |
-| `delegation.reply` | `delegationId`, `text` (1–8 192 UTF-16 units), `verbatim?` (≤ 32 strings, each an exact substring of `text`, ≤ 256 units), `final` | Speak this part of the answer. A client streams sentence by sentence; Kaana splits to the provider's bound. `verbatim` marks spans the voice must say exactly: numbers, addresses, names, codes |
+| `delegation.reply` | `delegationId`, `text` (1–8 192 UTF-16 units), `verbatim?` (≤ 32 strings, each an exact substring of `text`, 1–256 units), `final` | Speak this part of the answer. A client streams sentence by sentence; Kaana splits to the provider's bound. `verbatim` marks spans the voice must say exactly: numbers, addresses, names, codes |
 | `delegation.context` | `delegationId`, `text` (1–8 192) | Silent context the voice may use, for example "still checking your calendar" |
 | `delegation.cancel` | `delegationId` | The client dropped the turn: nothing more is spoken for it |
 | `session.close`, `session.resume` | | As today |
@@ -104,8 +104,18 @@ each `verbatim` span in those marks on the wire and never relays them back in `t
 | `output_audio.delta` | as today | Kaana numbers frames; GPT-Live has no done event, so `output_audio.done` is not sent for `live` |
 | `session.created`, `session.closed`, `error`, `command.accepted` | as today | |
 
-A reply to an unknown, superseded or already-final `delegationId` is refused with a non-fatal
-`invalid_request` naming `delegationId`.
+A `delegation.*` command naming a delegation that is not the open one (unknown, superseded, cancelled
+or already final) is refused with a non-fatal `invalid_request` naming `delegationId`, before it is
+acknowledged; a repeated `commandId` is still answered `duplicate: true`. The open delegation is the
+newest, until its `final` reply or its `cancel`. The three `delegation.*` commands on any other kind are
+refused with `invalid_request`, `param: type`, like `session.update` on a `live` session
+(`realtimeSessionTakes` in the contract). The session, not the adapter, emits `delegation.superseded`
+when a newer delegation opens before the open one's `final` reply, so every adapter of §2 shares that
+rule and only returns `delegation.requested`.
+
+(K1, 2026-11-14: the verbatim span's lower bound of 1 unit, the refusal of `context` and `cancel` as
+well as `reply`, and the session as the one place that supersedes were settled while building the
+contract; none changes what a client sends or reads for a valid turn.)
 
 **Catalogue.** A line that serves `live` lists it in `capabilities.realtime.sessionKinds`.
 `capabilities.realtime.defaultKinds` (new, optional) lists the session kinds for which the line is

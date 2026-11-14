@@ -5,6 +5,22 @@
 > in [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md); this file also carries
 > sets 3.8.0 to 7.0.0, which that changelog never recorded, and the longer reasoning behind each set.
 
+## Contract set 8.16.0: live sessions with delegation (ADR 0012)
+
+MINOR, `@kaana.ai/contracts` 8.16.0. Additive; everything 8.15.0 parses still
+parses. The realtime session kind `live` is a spoken conversation whose turns the
+caller's backend answers, so a call has the tools, memory and model of a typed
+turn and changing the voice provider is a catalogue change. Its
+`config.delegation` (`acknowledgement: auto | none`) is required for `live` and
+refused elsewhere; the commands `delegation.reply`, `delegation.context` and
+`delegation.cancel` answer the events `delegation.requested` and
+`delegation.superseded`. `capabilities.realtime.defaultKinds` names the line a
+client opens for a kind, at most one active line per kind. MINOR rather than
+PATCH because a closed enum and two discriminated unions gain members: a consumer
+on 8.15.0 refuses a `live` session, its commands and events and a catalogue
+naming a default. No line lists `live` until its adapters (ADR 0012 phases K2,
+K3) pass `TestLiveContract`.
+
 ## Contract set 8.14.0: verified product session identity
 
 MINOR, `@kaana.ai/contracts` 8.14.0. Adds a distinct `session` identity

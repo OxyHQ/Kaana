@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Kaana API",
-    "version": "8.15.0",
+    "version": "8.16.0",
     "description": "Kaana inference API. Generated from @kaana.ai/contracts; the Zod source is the authority. Accounts, applications, oxy_sk_ keys, limits and billing are managed in Oxy Console: https://console.oxy.so"
   },
   "servers": [
@@ -5203,6 +5203,13 @@
               "$ref": "#/components/schemas/RealtimeSessionKind"
             }
           },
+          "defaultKinds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RealtimeSessionKind"
+            }
+          },
           "inputAudioTranscription": {
             "type": "boolean"
           },
@@ -5734,6 +5741,15 @@
           },
           {
             "$ref": "#/components/schemas/RealtimeSessionCloseCommand"
+          },
+          {
+            "$ref": "#/components/schemas/RealtimeDelegationReplyCommand"
+          },
+          {
+            "$ref": "#/components/schemas/RealtimeDelegationContextCommand"
+          },
+          {
+            "$ref": "#/components/schemas/RealtimeDelegationCancelCommand"
           }
         ]
       },
@@ -5957,6 +5973,214 @@
             ],
             "additionalProperties": false
           }
+        ]
+      },
+      "RealtimeDelegationAcknowledgement": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "none"
+        ]
+      },
+      "RealtimeDelegationCancelCommand": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/RequestId"
+          },
+          "commandId": {
+            "$ref": "#/components/schemas/RealtimeCommandId"
+          },
+          "type": {
+            "type": "string",
+            "const": "delegation.cancel"
+          },
+          "delegationId": {
+            "$ref": "#/components/schemas/RealtimeDelegationId"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "commandId",
+          "type",
+          "delegationId"
+        ]
+      },
+      "RealtimeDelegationConfig": {
+        "type": "object",
+        "properties": {
+          "acknowledgement": {
+            "$ref": "#/components/schemas/RealtimeDelegationAcknowledgement"
+          }
+        },
+        "required": [
+          "acknowledgement"
+        ],
+        "additionalProperties": false
+      },
+      "RealtimeDelegationContextCommand": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/RequestId"
+          },
+          "commandId": {
+            "$ref": "#/components/schemas/RealtimeCommandId"
+          },
+          "type": {
+            "type": "string",
+            "const": "delegation.context"
+          },
+          "delegationId": {
+            "$ref": "#/components/schemas/RealtimeDelegationId"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "commandId",
+          "type",
+          "delegationId",
+          "text"
+        ]
+      },
+      "RealtimeDelegationId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "RealtimeDelegationReplyCommand": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/RequestId"
+          },
+          "commandId": {
+            "$ref": "#/components/schemas/RealtimeCommandId"
+          },
+          "type": {
+            "type": "string",
+            "const": "delegation.reply"
+          },
+          "delegationId": {
+            "$ref": "#/components/schemas/RealtimeDelegationId"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "verbatim": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "final": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "commandId",
+          "type",
+          "delegationId",
+          "text",
+          "final"
+        ]
+      },
+      "RealtimeDelegationRequestedEvent": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/RequestId"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "commandId": {
+            "$ref": "#/components/schemas/RealtimeCommandId"
+          },
+          "type": {
+            "type": "string",
+            "const": "delegation.requested"
+          },
+          "delegationId": {
+            "$ref": "#/components/schemas/RealtimeDelegationId"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "sequence",
+          "type",
+          "delegationId",
+          "text"
+        ]
+      },
+      "RealtimeDelegationSupersededEvent": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/RequestId"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "commandId": {
+            "$ref": "#/components/schemas/RealtimeCommandId"
+          },
+          "type": {
+            "type": "string",
+            "const": "delegation.superseded"
+          },
+          "delegationId": {
+            "$ref": "#/components/schemas/RealtimeDelegationId"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "sequence",
+          "type",
+          "delegationId"
         ]
       },
       "RealtimeInputAudioAppendCommand": {
@@ -6682,6 +6906,12 @@
             "$ref": "#/components/schemas/RealtimeToolCallEvent"
           },
           {
+            "$ref": "#/components/schemas/RealtimeDelegationRequestedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RealtimeDelegationSupersededEvent"
+          },
+          {
             "$ref": "#/components/schemas/RealtimePublicResponseDoneEvent"
           },
           {
@@ -7019,6 +7249,9 @@
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991
+          },
+          "delegation": {
+            "$ref": "#/components/schemas/RealtimeDelegationConfig"
           }
         },
         "required": [
@@ -7071,7 +7304,8 @@
         "enum": [
           "conversation",
           "transcription",
-          "translation"
+          "translation",
+          "live"
         ]
       },
       "RealtimeSessionLimits": {

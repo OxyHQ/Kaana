@@ -82,12 +82,16 @@ func TestWriteWireFixtures(t *testing.T) {
 	// adds 3 fixtures (a budget with exclude, an opt-in, a block token) and 4
 	// controls (reasoning on a user message, an effort beside a budget, an empty
 	// reasoning part, a zero budget). Contract set 8.12.0 adds 1 fixture (image
-	// parameters) and 1 control (image parameters on a text request).
-	if len(valid) != 125 {
-		t.Fatalf("expected 125 valid fixtures, built %d; update the floor deliberately", len(valid))
+	// parameters) and 1 control (image parameters on a text request). Contract
+	// set 8.16.0 (live sessions) adds 6 fixtures (a live session, three
+	// delegation commands, two delegation events) and 19 controls (a delegation
+	// on a conversation, twelve broken live configurations, six broken
+	// delegation commands).
+	if len(valid) != 131 {
+		t.Fatalf("expected 131 valid fixtures, built %d; update the floor deliberately", len(valid))
 	}
-	if len(invalid) != 60 {
-		t.Fatalf("expected 60 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
+	if len(invalid) != 79 {
+		t.Fatalf("expected 79 invalid control fixtures, built %d; update the floor deliberately", len(invalid))
 
 	}
 

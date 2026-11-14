@@ -27,6 +27,10 @@ const (
 	RealtimeCommandResponseCancelType   RealtimeCommandType = "response.cancel"
 	RealtimeCommandSessionResumeType    RealtimeCommandType = "session.resume"
 	RealtimeCommandSessionCloseType     RealtimeCommandType = "session.close"
+	// The three commands of a live session (contract set 8.16.0).
+	RealtimeCommandDelegationReplyType   RealtimeCommandType = "delegation.reply"
+	RealtimeCommandDelegationContextType RealtimeCommandType = "delegation.context"
+	RealtimeCommandDelegationCancelType  RealtimeCommandType = "delegation.cancel"
 )
 
 var realtimeCommandTypeValues = []RealtimeCommandType{
@@ -41,6 +45,9 @@ var realtimeCommandTypeValues = []RealtimeCommandType{
 	RealtimeCommandResponseCancelType,
 	RealtimeCommandSessionResumeType,
 	RealtimeCommandSessionCloseType,
+	RealtimeCommandDelegationReplyType,
+	RealtimeCommandDelegationContextType,
+	RealtimeCommandDelegationCancelType,
 }
 
 // RealtimeCommand is one decoded client command.
@@ -214,6 +221,76 @@ func (c *RealtimeSessionCloseCommand) Identity() (RequestID, RealtimeCommandID) 
 	return c.RequestID, c.CommandID
 }
 
+// RealtimeDelegationReplyCommand speaks one part of a delegated turn's
+// answer; Final marks the last part. Each Verbatim span is a part of Text the
+// voice says exactly as written.
+type RealtimeDelegationReplyCommand struct {
+	SchemaVersion int                  `json:"schemaVersion"`
+	RequestID     RequestID            `json:"requestId"`
+	CommandID     RealtimeCommandID    `json:"commandId"`
+	Type          string               `json:"type"`
+	DelegationID  RealtimeDelegationID `json:"delegationId"`
+	Text          string               `json:"text"`
+	Verbatim      []string             `json:"verbatim,omitempty"`
+	Final         bool                 `json:"final"`
+}
+
+func (*RealtimeDelegationReplyCommand) CommandType() RealtimeCommandType {
+	return RealtimeCommandDelegationReplyType
+}
+func (c *RealtimeDelegationReplyCommand) Identity() (RequestID, RealtimeCommandID) {
+	return c.RequestID, c.CommandID
+}
+
+// RealtimeDelegationContextCommand is silent context the voice may use while a
+// delegated turn is answered.
+type RealtimeDelegationContextCommand struct {
+	SchemaVersion int                  `json:"schemaVersion"`
+	RequestID     RequestID            `json:"requestId"`
+	CommandID     RealtimeCommandID    `json:"commandId"`
+	Type          string               `json:"type"`
+	DelegationID  RealtimeDelegationID `json:"delegationId"`
+	Text          string               `json:"text"`
+}
+
+func (*RealtimeDelegationContextCommand) CommandType() RealtimeCommandType {
+	return RealtimeCommandDelegationContextType
+}
+func (c *RealtimeDelegationContextCommand) Identity() (RequestID, RealtimeCommandID) {
+	return c.RequestID, c.CommandID
+}
+
+// RealtimeDelegationCancelCommand drops a delegated turn: nothing more is
+// spoken for it.
+type RealtimeDelegationCancelCommand struct {
+	SchemaVersion int                  `json:"schemaVersion"`
+	RequestID     RequestID            `json:"requestId"`
+	CommandID     RealtimeCommandID    `json:"commandId"`
+	Type          string               `json:"type"`
+	DelegationID  RealtimeDelegationID `json:"delegationId"`
+}
+
+func (*RealtimeDelegationCancelCommand) CommandType() RealtimeCommandType {
+	return RealtimeCommandDelegationCancelType
+}
+func (c *RealtimeDelegationCancelCommand) Identity() (RequestID, RealtimeCommandID) {
+	return c.RequestID, c.CommandID
+}
+
+// DelegationOf names the delegation a live session's command answers, and
+// reports false for every other command.
+func DelegationOf(command RealtimeCommand) (RealtimeDelegationID, bool) {
+	switch c := command.(type) {
+	case *RealtimeDelegationReplyCommand:
+		return c.DelegationID, true
+	case *RealtimeDelegationContextCommand:
+		return c.DelegationID, true
+	case *RealtimeDelegationCancelCommand:
+		return c.DelegationID, true
+	}
+	return "", false
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Server events                                                             */
 /* -------------------------------------------------------------------------- */
@@ -242,9 +319,12 @@ const (
 	RealtimeEventTranscriptInterimType   RealtimeEventType = "transcript.interim"
 	RealtimeEventTextDeltaType           RealtimeEventType = "text.delta"
 	RealtimeEventToolCallType            RealtimeEventType = "tool_call"
-	RealtimeEventResponseDoneType        RealtimeEventType = "response.done"
-	RealtimeEventErrorType               RealtimeEventType = "error"
-	RealtimeEventSessionClosedType       RealtimeEventType = "session.closed"
+	// The two events of a live session (contract set 8.16.0).
+	RealtimeEventDelegationRequestedType  RealtimeEventType = "delegation.requested"
+	RealtimeEventDelegationSupersededType RealtimeEventType = "delegation.superseded"
+	RealtimeEventResponseDoneType         RealtimeEventType = "response.done"
+	RealtimeEventErrorType                RealtimeEventType = "error"
+	RealtimeEventSessionClosedType        RealtimeEventType = "session.closed"
 )
 
 var realtimeEventTypeValues = []RealtimeEventType{
@@ -268,6 +348,8 @@ var realtimeEventTypeValues = []RealtimeEventType{
 	RealtimeEventTranscriptInterimType,
 	RealtimeEventTextDeltaType,
 	RealtimeEventToolCallType,
+	RealtimeEventDelegationRequestedType,
+	RealtimeEventDelegationSupersededType,
 	RealtimeEventResponseDoneType,
 	RealtimeEventErrorType,
 	RealtimeEventSessionClosedType,
@@ -645,6 +727,43 @@ type RealtimeToolCallEvent struct {
 func (*RealtimeToolCallEvent) EventType() RealtimeEventType { return RealtimeEventToolCallType }
 func (e *RealtimeToolCallEvent) Stamp(h RealtimeEventHeader) {
 	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventToolCallType)
+}
+
+// RealtimeDelegationRequestedEvent hands one turn of a live session to its
+// caller: Text is the caller's words since the previous delegation.
+type RealtimeDelegationRequestedEvent struct {
+	SchemaVersion int                  `json:"schemaVersion"`
+	RequestID     RequestID            `json:"requestId"`
+	Sequence      int                  `json:"sequence"`
+	CommandID     *RealtimeCommandID   `json:"commandId,omitempty"`
+	Type          string               `json:"type"`
+	DelegationID  RealtimeDelegationID `json:"delegationId"`
+	Text          string               `json:"text"`
+}
+
+func (*RealtimeDelegationRequestedEvent) EventType() RealtimeEventType {
+	return RealtimeEventDelegationRequestedType
+}
+func (e *RealtimeDelegationRequestedEvent) Stamp(h RealtimeEventHeader) {
+	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventDelegationRequestedType)
+}
+
+// RealtimeDelegationSupersededEvent ends a delegation whose final reply had not
+// come when a newer one opened: its reply is no longer spoken.
+type RealtimeDelegationSupersededEvent struct {
+	SchemaVersion int                  `json:"schemaVersion"`
+	RequestID     RequestID            `json:"requestId"`
+	Sequence      int                  `json:"sequence"`
+	CommandID     *RealtimeCommandID   `json:"commandId,omitempty"`
+	Type          string               `json:"type"`
+	DelegationID  RealtimeDelegationID `json:"delegationId"`
+}
+
+func (*RealtimeDelegationSupersededEvent) EventType() RealtimeEventType {
+	return RealtimeEventDelegationSupersededType
+}
+func (e *RealtimeDelegationSupersededEvent) Stamp(h RealtimeEventHeader) {
+	e.SchemaVersion, e.RequestID, e.Sequence, e.CommandID, e.Type = h.SchemaVersion, h.RequestID, h.Sequence, h.CommandID, string(RealtimeEventDelegationSupersededType)
 }
 
 type RealtimeResponseDoneEvent struct {

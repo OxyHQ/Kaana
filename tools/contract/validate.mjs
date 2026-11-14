@@ -138,9 +138,79 @@ function validateDeclaredCatalogue() {
       );
     }
   }
+  problems.push(...defaultKindControls(schema, declared));
   process.stdout.write(
     `validated configs/public-catalogue.json: ${declared.models.length} declared models\n`,
   );
+  return problems;
+}
+
+/**
+ * Contract set 8.16.0 (Kaana ADR 0012): `capabilities.realtime.defaultKinds`
+ * names a kind the line holds, and at most one ACTIVE line is the default of a
+ * kind. The controls start from a realtime line of the file: one active default
+ * and a deprecated second default are accepted (so the rule refuses no default
+ * at all would fail here), two active defaults of one kind and a default of a
+ * kind the line does not hold are refused.
+ */
+function defaultKindControls(schema, declared) {
+  const problems = [];
+  const line = declared.models.find((model) => model.capabilities.realtime !== undefined);
+  if (line === undefined) return ['configs/public-catalogue.json declares no realtime line'];
+  const kind = line.capabilities.realtime.sessionKinds[0];
+  const defaulting = (suffix, defaultKinds, status) => ({
+    ...line,
+    modelId: `${line.modelId}-${suffix}`,
+    capabilities: {
+      ...line.capabilities,
+      realtime: { ...line.capabilities.realtime, defaultKinds },
+    },
+    deprecation: { status },
+  });
+  const catalogueOf = (...models) => ({ ...declared, models });
+  const held = line.capabilities.realtime.sessionKinds;
+  const outcomes = [
+    [catalogueOf(defaulting('a', [kind], 'active')), true, 'one active default line'],
+    [
+      catalogueOf(
+        defaulting('a', [kind], 'active'),
+        defaulting('b', [kind], 'deprecated'),
+        defaulting('c', [kind], 'retired'),
+      ),
+      true,
+      'an active default line beside a deprecated and a retired one',
+    ],
+    [
+      catalogueOf(defaulting('a', [kind], 'active'), defaulting('b', [kind], 'active')),
+      false,
+      'two active default lines of one kind',
+    ],
+    [
+      catalogueOf(defaulting('a', [kind, kind], 'active')),
+      false,
+      'a kind named twice as a default',
+    ],
+    [
+      catalogueOf(
+        defaulting(
+          'a',
+          ['conversation', 'transcription', 'translation', 'live'].filter(
+            (other) => !held.includes(other),
+          ),
+          'active',
+        ),
+      ),
+      false,
+      'a default of a kind the line does not hold',
+    ],
+  ];
+  for (const [catalogue, accepted, what] of outcomes) {
+    if (schema.safeParse(catalogue).success !== accepted) {
+      problems.push(
+        `${accepted ? 'REFUSED' : 'ACCEPTED'} ${what}; declaredCatalogueSchema does not hold the 8.16.0 default rule`,
+      );
+    }
+  }
   return problems;
 }
 

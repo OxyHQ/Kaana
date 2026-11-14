@@ -45,6 +45,7 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 
 	request, transcription := sampleRealtimeSessions(t)
 	config, limits := request.Config, request.Limits
+	live := sampleLiveSession(t)
 
 	commands := []RealtimeCommand{
 		&RealtimeSessionUpdateCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-update", Type: "session.update",
@@ -66,6 +67,13 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 		&RealtimeResponseCancelCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-cancel", Type: "response.cancel", ResponseID: pointerTo(RealtimeResponseID("resp_1"))},
 		&RealtimeSessionResumeCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-resume", Type: "session.resume", AfterSequence: -1},
 		&RealtimeSessionCloseCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-close", Type: "session.close"},
+		// Contract set 8.16.0: a live session's delegation commands.
+		&RealtimeDelegationReplyCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-reply", Type: "delegation.reply",
+			DelegationID: "del_1", Text: "Your table is booked for 19:30 at Casa Lola, Calle Mayor 12.",
+			Verbatim: []string{"19:30", "Calle Mayor 12"}, Final: true},
+		&RealtimeDelegationContextCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-context", Type: "delegation.context",
+			DelegationID: "del_1", Text: "still checking the calendar"},
+		&RealtimeDelegationCancelCommand{SchemaVersion: 1, RequestID: session, CommandID: "cmd-drop", Type: "delegation.cancel", DelegationID: "del_1"},
 	}
 
 	answering := pointerTo(RealtimeCommandID("cmd-respond"))
@@ -99,6 +107,8 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 		&RealtimeTranscriptInterimEvent{Source: RealtimeTranscriptInput, ItemID: "item_6", Text: "hello th"},
 		&RealtimeTextDeltaEvent{ResponseID: "resp_1", ItemID: "item_3", Text: "hi"},
 		&RealtimeToolCallEvent{ResponseID: "resp_1", ItemID: "item_4", ToolCallID: "call_1", Name: pointerTo("lookup"), ArgumentsDelta: pointerTo(`{"q":`), Complete: false},
+		&RealtimeDelegationRequestedEvent{DelegationID: "del_1", Text: "book me a table for tonight"},
+		&RealtimeDelegationSupersededEvent{DelegationID: "del_1"},
 		&RealtimeResponseDoneEvent{ResponseID: "resp_1", Status: RealtimeResponseCompleted, FinishReason: pointerTo(FinishStop),
 			DeploymentID: "dep_openai_realtime", Units: []UsageQuantity{{Unit: UnitAudioInputTokens, Quantity: 40}, {Unit: UnitAudioOutputTokens, Quantity: 80}},
 			UsageSource: UsageProviderReported},
@@ -121,6 +131,7 @@ func realtimeValidFixtures(t *testing.T) []fixture {
 		}},
 		{Schema: "realtimeSessionRequestSchema", Case: "conversation-with-every-optional-field", Value: request},
 		{Schema: "realtimeSessionRequestSchema", Case: "transcription-semantic-vad", Value: transcription},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-every-optional-field", Value: live},
 	}
 	for _, command := range commands {
 		encoded, err := json.Marshal(command)
@@ -170,6 +181,20 @@ func realtimeInvalidFixtures(t *testing.T) []fixture {
 	audioChat := sampleAudioChatRequest(t)
 	audioChat.AudioOutput = &AudioOutputParameters{Voice: "alloy", Format: "mp3"}
 
+	// Contract set 8.16.0: every rule of a live session, each broken once on
+	// the valid live fixture (Kaana ADR 0012 §1).
+	conversationDelegating := request
+	conversationDelegating.Config.Delegation = &RealtimeDelegationConfig{Acknowledgement: RealtimeAcknowledgementAuto}
+	liveBroken := func(breakIt func(*RealtimeSessionConfig)) RealtimeSessionRequest {
+		broken := sampleLiveSession(t)
+		breakIt(&broken.Config)
+		return broken
+	}
+	reply := func(text string, verbatim ...string) *RealtimeDelegationReplyCommand {
+		return &RealtimeDelegationReplyCommand{SchemaVersion: 1, RequestID: "req_01JQZABCDEF", CommandID: "cmd", Type: "delegation.reply",
+			DelegationID: "del_1", Text: text, Verbatim: verbatim, Final: false}
+	}
+
 	// The control beside the session-milliseconds fixture: the same report with
 	// a near-miss unit must be refused, so accepting the real one means the
 	// published vocabulary has it rather than that units go unchecked.
@@ -190,6 +215,41 @@ func realtimeInvalidFixtures(t *testing.T) []fixture {
 		{Schema: "normalizedUsageReportSchema", Case: "session-seconds-is-not-a-unit", Value: sessionSeconds},
 		{Schema: "realtimeClientCommandSchema", Case: "audio-frame-not-base64", Value: &RealtimeInputAudioAppendCommand{
 			SchemaVersion: 1, RequestID: "req_01JQZABCDEF", CommandID: "cmd", Type: "input_audio.append", Data: "not base64!",
+		}},
+		{Schema: "realtimeSessionRequestSchema", Case: "conversation-with-a-delegation", Value: conversationDelegating},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-without-delegation", Value: liveBroken(func(c *RealtimeSessionConfig) { c.Delegation = nil })},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-without-voice", Value: liveBroken(func(c *RealtimeSessionConfig) { c.Voice = nil })},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-without-output-format", Value: liveBroken(func(c *RealtimeSessionConfig) { c.OutputAudioFormat = nil })},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-two-formats", Value: liveBroken(func(c *RealtimeSessionConfig) { c.OutputAudioFormat = pointerTo(RealtimeULaw) })},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-without-turn-detection", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.TurnDetection = RealtimeTurnDetection{Type: TurnDetectionNone}
+		})},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-output-modalities", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.OutputModalities = []RealtimeOutputModality{RealtimeOutputAudio}
+		})},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-tools", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.Tools = []RealtimeToolDefinition{{Type: "function", Name: "lookup", Parameters: map[string]any{"type": "object"}}}
+		})},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-max-output-tokens", Value: liveBroken(func(c *RealtimeSessionConfig) { c.MaxOutputTokens = pointerTo(100) })},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-translation", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.Translation = &RealtimeTranslationTarget{TargetLanguage: "es"}
+		})},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-transcription-prompt", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.InputAudioTranscription.Prompt = pointerTo("names")
+		})},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-asking-interim-text", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.InputAudioTranscription.InterimResults = pointerTo(true)
+		})},
+		{Schema: "realtimeSessionRequestSchema", Case: "live-with-an-unknown-acknowledgement", Value: liveBroken(func(c *RealtimeSessionConfig) {
+			c.Delegation.Acknowledgement = "sometimes"
+		})},
+		{Schema: "realtimeClientCommandSchema", Case: "reply-verbatim-not-in-text", Value: reply("Your code is 4471.", "4417")},
+		{Schema: "realtimeClientCommandSchema", Case: "reply-empty-verbatim-span", Value: reply("Your code is 4471.", "")},
+		{Schema: "realtimeClientCommandSchema", Case: "reply-too-many-verbatim-spans", Value: reply("a", strings.Split(strings.Repeat("a", MaxRealtimeVerbatimSpans+1), "")...)},
+		{Schema: "realtimeClientCommandSchema", Case: "reply-empty-text", Value: reply("")},
+		{Schema: "realtimeClientCommandSchema", Case: "reply-text-too-long", Value: reply(strings.Repeat("a", MaxRealtimeDelegationTextChars+1))},
+		{Schema: "realtimeClientCommandSchema", Case: "cancel-without-delegation", Value: &RealtimeDelegationCancelCommand{
+			SchemaVersion: 1, RequestID: "req_01JQZABCDEF", CommandID: "cmd", Type: "delegation.cancel",
 		}},
 	}
 }
@@ -361,6 +421,36 @@ func sampleRealtimeSessions(t *testing.T) (RealtimeSessionRequest, RealtimeSessi
 	}
 
 	return request, transcription
+}
+
+// sampleLiveSession is a live session with every optional field, valid to
+// Kaana and the published schema (contract set 8.16.0).
+func sampleLiveSession(t *testing.T) RealtimeSessionRequest {
+	t.Helper()
+	conversation, _ := sampleRealtimeSessions(t)
+	live := conversation
+	live.Kind = RealtimeLive
+	live.ModelReference = "openai/gpt-live-1"
+	live.AuthorizedRoutes = []AuthorizedRoute{{
+		Substitution: SubstitutionSameModel, DeploymentID: "dep_openai_live",
+		ModelReference: "openai/gpt-live-1@2026-11-14", Provider: "openai-live", Regions: []Region{},
+	}}
+	live.Config = RealtimeSessionConfig{
+		Instructions:      pointerTo("You are Alia: warm, brief, in Spanish."),
+		Voice:             pointerTo("marin"),
+		InputAudioFormat:  RealtimePCM16,
+		OutputAudioFormat: pointerTo(RealtimePCM16),
+		TurnDetection: RealtimeTurnDetection{
+			Type: TurnDetectionServerVAD, Threshold: pointerTo(0.5), PrefixPaddingMs: pointerTo(300),
+			SilenceDurationMs: pointerTo(500), CreateResponse: pointerTo(true), InterruptResponse: pointerTo(true),
+		},
+		InputAudioTranscription: &RealtimeInputTranscription{Language: pointerTo("es")},
+		Delegation:              &RealtimeDelegationConfig{Acknowledgement: RealtimeAcknowledgementAuto},
+	}
+	if err := live.Validate(); err != nil {
+		t.Fatalf("the live session fixture does not satisfy Kaana's own validation: %v", err)
+	}
+	return live
 }
 
 // TestOnlyATranscriptionSessionSendsInterimText holds contract set 8.1.0's

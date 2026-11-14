@@ -37,6 +37,13 @@ const (
 	// MaxRealtimeItemTextChars bounds the text of one conversation item, in
 	// UTF-16 code units: an input_text part or a function_call_output.
 	MaxRealtimeItemTextChars = 1_048_576
+	// MaxRealtimeDelegationTextChars bounds the text of one delegation.reply or
+	// delegation.context, in UTF-16 code units (contract set 8.16.0).
+	MaxRealtimeDelegationTextChars = 8_192
+	// MaxRealtimeVerbatimSpans bounds the verbatim spans of one delegation.reply.
+	MaxRealtimeVerbatimSpans = 32
+	// MaxRealtimeVerbatimSpanChars bounds one verbatim span, in UTF-16 code units.
+	MaxRealtimeVerbatimSpanChars = 256
 
 	maxRealtimeInstructions = 32_768
 )
@@ -51,6 +58,10 @@ type RealtimeItemID string
 // RealtimeResponseID is a response's identity within one session.
 type RealtimeResponseID string
 
+// RealtimeDelegationID is a delegation's identity within one session: one turn
+// a live session handed to its caller (contract set 8.16.0).
+type RealtimeDelegationID string
+
 // RealtimeSessionKind is what a session does.
 type RealtimeSessionKind string
 
@@ -58,12 +69,33 @@ const (
 	RealtimeConversation  RealtimeSessionKind = "conversation"
 	RealtimeTranscription RealtimeSessionKind = "transcription"
 	RealtimeTranslation   RealtimeSessionKind = "translation"
+	// RealtimeLive is a spoken conversation whose turns the caller's backend
+	// answers (contract set 8.16.0, Kaana ADR 0012).
+	RealtimeLive RealtimeSessionKind = "live"
 )
 
-var realtimeSessionKindValues = []RealtimeSessionKind{RealtimeConversation, RealtimeTranscription, RealtimeTranslation}
+var realtimeSessionKindValues = []RealtimeSessionKind{RealtimeConversation, RealtimeTranscription, RealtimeTranslation, RealtimeLive}
 
 // Valid reports whether the kind is one the contract declares.
 func (k RealtimeSessionKind) Valid() bool { return isMember(k, realtimeSessionKindValues) }
+
+// refusedByLive are the commands a live session refuses (Kaana ADR 0012 §1):
+// its voice fixes the whole session at open and detects the turns itself.
+var refusedByLive = []RealtimeCommandType{
+	RealtimeCommandSessionUpdateType, RealtimeCommandInputAudioCommitType, RealtimeCommandInputAudioClearType,
+}
+
+// Takes reports whether a session of this kind takes a command: a live
+// session takes no session.update, input_audio.commit or input_audio.clear,
+// and only a live session takes the delegation commands. Anything else is
+// the provider's to serve or refuse.
+func (k RealtimeSessionKind) Takes(command RealtimeCommandType) bool {
+	if k == RealtimeLive {
+		return !isMember(command, refusedByLive)
+	}
+	return command != RealtimeCommandDelegationReplyType && command != RealtimeCommandDelegationContextType &&
+		command != RealtimeCommandDelegationCancelType
+}
 
 // RealtimeSessionTransport is how a session is carried.
 type RealtimeSessionTransport string
@@ -251,6 +283,24 @@ type RealtimeTranslationTarget struct {
 	TargetLanguage string `json:"targetLanguage"`
 }
 
+// RealtimeDelegationAcknowledgement is whether the voice of a live session
+// acknowledges a turn it handed over while the caller's backend works.
+type RealtimeDelegationAcknowledgement string
+
+const (
+	RealtimeAcknowledgementAuto RealtimeDelegationAcknowledgement = "auto"
+	RealtimeAcknowledgementNone RealtimeDelegationAcknowledgement = "none"
+)
+
+var realtimeDelegationAcknowledgementValues = []RealtimeDelegationAcknowledgement{RealtimeAcknowledgementAuto, RealtimeAcknowledgementNone}
+
+// RealtimeDelegationConfig is how a live session hands its turns to its
+// caller (contract set 8.16.0): required for live, refused for every other
+// kind, fixed at open.
+type RealtimeDelegationConfig struct {
+	Acknowledgement RealtimeDelegationAcknowledgement `json:"acknowledgement"`
+}
+
 // RealtimeToolDefinition is a function tool a session may call: the chat tool
 // without `strict`, which no realtime provider's session schema has
 // (realtimeToolDefinitionSchema, contract set 5.0.0).
@@ -276,10 +326,12 @@ type RealtimeSessionConfig struct {
 	Tools                   []RealtimeToolDefinition    `json:"tools,omitempty"`
 	ToolChoice              *ToolChoice                 `json:"toolChoice,omitempty"`
 	MaxOutputTokens         *int                        `json:"maxOutputTokens,omitempty"`
+	Delegation              *RealtimeDelegationConfig   `json:"delegation,omitempty"`
 }
 
 // RealtimeSessionConfigUpdate is what session.update may change. Kind, audio
-// formats and voice are fixed at open, so they are not fields here.
+// formats, voice and delegation are fixed at open, so they are not fields
+// here; a live session takes no update at all.
 type RealtimeSessionConfigUpdate struct {
 	Instructions            *string                     `json:"instructions,omitempty"`
 	OutputModalities        []RealtimeOutputModality    `json:"outputModalities,omitempty"`
@@ -500,6 +552,9 @@ func (c RealtimeSessionConfig) validate() error {
 	if c.Translation != nil && !boundedText(&c.Translation.TargetLanguage, 2, 35) {
 		return fmt.Errorf("config.translation.targetLanguage is a BCP 47 tag")
 	}
+	if c.Delegation != nil && !isMember(c.Delegation.Acknowledgement, realtimeDelegationAcknowledgementValues) {
+		return fmt.Errorf("config.delegation.acknowledgement is auto or none")
+	}
 	return validateSharedConfig(c.Tools, c.ToolChoice, c.MaxOutputTokens)
 }
 
@@ -590,6 +645,9 @@ func (r *RealtimeSessionRequest) ValidateSession() error {
 	if r.Kind != RealtimeTranscription && config.InputAudioTranscription.WantsInterim() {
 		return fmt.Errorf("contract: only a transcription session sends interim text")
 	}
+	if r.Kind != RealtimeLive && config.Delegation != nil {
+		return fmt.Errorf("contract: only a live session hands its turns over")
+	}
 	producesAudio := isMember(RealtimeOutputAudio, config.OutputModalities)
 	switch r.Kind {
 	case RealtimeConversation:
@@ -617,6 +675,24 @@ func (r *RealtimeSessionRequest) ValidateSession() error {
 		}
 		if config.Tools != nil || config.ToolChoice != nil {
 			return fmt.Errorf("contract: a translation session calls no tools")
+		}
+	case RealtimeLive:
+		// Kaana ADR 0012 §1: the voice speaks, detects turns and hands each
+		// one over; the caller's backend answers it, with its own tools.
+		switch {
+		case config.Voice == nil:
+			return fmt.Errorf("contract: a live session speaks in a voice")
+		case config.OutputAudioFormat == nil || *config.OutputAudioFormat != config.InputAudioFormat:
+			return fmt.Errorf("contract: a live session speaks the audio format it hears")
+		case config.TurnDetection.Type == TurnDetectionNone:
+			return fmt.Errorf("contract: the voice of a live session detects the turns")
+		case config.Delegation == nil:
+			return fmt.Errorf("contract: a live session hands its turns over")
+		case config.OutputModalities != nil || config.Tools != nil || config.ToolChoice != nil ||
+			config.MaxOutputTokens != nil || config.Translation != nil:
+			return fmt.Errorf("contract: a live session's answers and their tools are its caller's")
+		case config.InputAudioTranscription != nil && config.InputAudioTranscription.Prompt != nil:
+			return fmt.Errorf("contract: a live session transcribes with no prompt")
 		}
 	}
 
@@ -648,17 +724,20 @@ func (r *RealtimeSessionRequest) validateRoutes() error {
 // realtimeCommandConstructors maps each command discriminator to the type it
 // decodes into.
 var realtimeCommandConstructors = map[RealtimeCommandType]func() RealtimeCommand{
-	RealtimeCommandSessionUpdateType:    func() RealtimeCommand { return &RealtimeSessionUpdateCommand{} },
-	RealtimeCommandItemCreateType:       func() RealtimeCommand { return &RealtimeItemCreateCommand{} },
-	RealtimeCommandItemDeleteType:       func() RealtimeCommand { return &RealtimeItemDeleteCommand{} },
-	RealtimeCommandItemTruncateType:     func() RealtimeCommand { return &RealtimeItemTruncateCommand{} },
-	RealtimeCommandInputAudioAppendType: func() RealtimeCommand { return &RealtimeInputAudioAppendCommand{} },
-	RealtimeCommandInputAudioCommitType: func() RealtimeCommand { return &RealtimeInputAudioCommitCommand{} },
-	RealtimeCommandInputAudioClearType:  func() RealtimeCommand { return &RealtimeInputAudioClearCommand{} },
-	RealtimeCommandResponseCreateType:   func() RealtimeCommand { return &RealtimeResponseCreateCommand{} },
-	RealtimeCommandResponseCancelType:   func() RealtimeCommand { return &RealtimeResponseCancelCommand{} },
-	RealtimeCommandSessionResumeType:    func() RealtimeCommand { return &RealtimeSessionResumeCommand{} },
-	RealtimeCommandSessionCloseType:     func() RealtimeCommand { return &RealtimeSessionCloseCommand{} },
+	RealtimeCommandSessionUpdateType:     func() RealtimeCommand { return &RealtimeSessionUpdateCommand{} },
+	RealtimeCommandItemCreateType:        func() RealtimeCommand { return &RealtimeItemCreateCommand{} },
+	RealtimeCommandItemDeleteType:        func() RealtimeCommand { return &RealtimeItemDeleteCommand{} },
+	RealtimeCommandItemTruncateType:      func() RealtimeCommand { return &RealtimeItemTruncateCommand{} },
+	RealtimeCommandInputAudioAppendType:  func() RealtimeCommand { return &RealtimeInputAudioAppendCommand{} },
+	RealtimeCommandInputAudioCommitType:  func() RealtimeCommand { return &RealtimeInputAudioCommitCommand{} },
+	RealtimeCommandInputAudioClearType:   func() RealtimeCommand { return &RealtimeInputAudioClearCommand{} },
+	RealtimeCommandResponseCreateType:    func() RealtimeCommand { return &RealtimeResponseCreateCommand{} },
+	RealtimeCommandResponseCancelType:    func() RealtimeCommand { return &RealtimeResponseCancelCommand{} },
+	RealtimeCommandSessionResumeType:     func() RealtimeCommand { return &RealtimeSessionResumeCommand{} },
+	RealtimeCommandSessionCloseType:      func() RealtimeCommand { return &RealtimeSessionCloseCommand{} },
+	RealtimeCommandDelegationReplyType:   func() RealtimeCommand { return &RealtimeDelegationReplyCommand{} },
+	RealtimeCommandDelegationContextType: func() RealtimeCommand { return &RealtimeDelegationContextCommand{} },
+	RealtimeCommandDelegationCancelType:  func() RealtimeCommand { return &RealtimeDelegationCancelCommand{} },
 }
 
 // DecodeRealtimeCommand decodes and validates one client text frame. Unknown
@@ -779,9 +858,47 @@ func validateRealtimeCommand(command RealtimeCommand, session RequestID) error {
 		}
 	case *RealtimeSessionCloseCommand:
 		schemaVersion = c.SchemaVersion
+	case *RealtimeDelegationReplyCommand:
+		schemaVersion = c.SchemaVersion
+		if err := validateDelegationText(c.DelegationID, c.Text); err != nil {
+			return err
+		}
+		if len(c.Verbatim) > MaxRealtimeVerbatimSpans {
+			return fmt.Errorf("contract: verbatim marks at most %d spans", MaxRealtimeVerbatimSpans)
+		}
+		for index, span := range c.Verbatim {
+			if !boundedText(&span, 1, MaxRealtimeVerbatimSpanChars) {
+				return fmt.Errorf("contract: verbatim[%d] is 1 to %d characters", index, MaxRealtimeVerbatimSpanChars)
+			}
+			if !strings.Contains(c.Text, span) {
+				return fmt.Errorf("contract: verbatim[%d]: a verbatim span is a part of the reply text, exactly as written", index)
+			}
+		}
+	case *RealtimeDelegationContextCommand:
+		schemaVersion = c.SchemaVersion
+		if err := validateDelegationText(c.DelegationID, c.Text); err != nil {
+			return err
+		}
+	case *RealtimeDelegationCancelCommand:
+		schemaVersion = c.SchemaVersion
+		if !boundedID(string(c.DelegationID)) {
+			return fmt.Errorf("contract: delegationId is 1 to 128 characters")
+		}
 	}
 	if schemaVersion != 1 {
 		return fmt.Errorf("contract: realtime commands are schemaVersion 1")
+	}
+	return nil
+}
+
+// validateDelegationText holds what delegation.reply and delegation.context
+// share: the delegation they name and the bounds of their text.
+func validateDelegationText(delegation RealtimeDelegationID, text string) error {
+	if !boundedID(string(delegation)) {
+		return fmt.Errorf("contract: delegationId is 1 to 128 characters")
+	}
+	if !boundedText(&text, 1, MaxRealtimeDelegationTextChars) {
+		return fmt.Errorf("contract: text is 1 to %d characters", MaxRealtimeDelegationTextChars)
 	}
 	return nil
 }

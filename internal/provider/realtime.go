@@ -66,6 +66,22 @@ type RealtimeOpened struct {
 // Send and Next are called from different goroutines: the session applies
 // commands while a pump reads events. Close may be called from either, and more
 // than once.
+//
+// A `live` session (Kaana ADR 0012) is served by an adapter that lists
+// contract.RealtimeLive in RealtimeSessionKinds, natively or by emulation, on
+// this same interface. Next hands a turn over by returning a
+// *contract.RealtimeDelegationRequestedEvent: a delegation id unique in the
+// session, and the caller's words since the previous delegation. Send then
+// receives *contract.RealtimeDelegationReplyCommand,
+// *contract.RealtimeDelegationContextCommand and
+// *contract.RealtimeDelegationCancelCommand, only ever for the newest
+// delegation and only until its final reply or its cancel, and an upstream
+// that cannot express one returns ErrUnsupported like any other command. The
+// session owns the rest, so every adapter shares it: it numbers the events,
+// emits delegation.superseded when a newer delegation opens before the open
+// one's final reply (Next never returns one), refuses a command naming any
+// other delegation, and refuses session.update, input_audio.commit and
+// input_audio.clear before Send sees them.
 type RealtimeUpstream interface {
 	// Send applies one decoded command upstream, once. It never retries: a
 	// command whose write failed is gone, because resending it could apply it

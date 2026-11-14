@@ -14,7 +14,8 @@ Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 
 Voice mode moves to the `live` session kind, whose turns the caller's backend answers
 (native delegation on OpenAI GPT-Live, emulated on the speech-to-speech providers below):
-[ADR 0012](adr/0012-live-voice-sessions-with-delegation.md), accepted 2026-11-14, not yet built.
+[ADR 0012](adr/0012-live-voice-sessions-with-delegation.md). Its contract and the session's half are
+built (contract set 8.16.0, "Live sessions" below); no adapter serves it yet.
 
 | Piece | Where |
 |---|---|
@@ -117,6 +118,14 @@ This is fixed: the Oxy edge is built against it. It is reproduced exactly.
   (60 s by default on an AWS ALB) never drops a session that is only listening.
 - **A binary frame** ends the session with reason `client_closed` (the client
   broke the framing), the fatal error, the usage report, and close 1003.
+- **A command the session's kind does not take** (`session.update`,
+  `input_audio.commit` and `input_audio.clear` on a `live` session; a
+  `delegation.*` command on any other kind) is refused with a non-fatal
+  `invalid_request`, param `type`, before it is acknowledged: nothing is
+  applied and nothing reaches the provider (`contract.RealtimeSessionKind.Takes`).
+- **A `delegation.*` command naming a delegation that is not the open one** is
+  refused the same way, param `delegationId`, after the duplicate check ("Live
+  sessions").
 
 ## Opening: routing a session
 
@@ -237,6 +246,9 @@ type RealtimeUpstream interface {
 }
 ```
 
+A `live` session is served on the same two interfaces ("Live sessions"): `Next`
+returns `delegation.requested`, `Send` receives the `delegation.*` commands.
+
 It is not `provider.Adapter`, and a slug is exactly one of the two: the registry
 refuses a type that implements both, one that implements neither, and a session
 adapter that declares no kind (`TestASlugIsExactlyOneKindOfAdapter`, with its
@@ -247,6 +259,39 @@ positive controls). An adapter declares its kinds from
 What a session adapter does not do is Adapter's list: it allocates no id,
 numbers nothing, decides no terminality beyond reporting that its upstream
 ended, and never decides what a failure means for the key.
+
+## Live sessions
+
+Contract set 8.16.0 ([ADR 0012](adr/0012-live-voice-sessions-with-delegation.md) §1, phase K1)
+adds the `live` kind: the voice speaks, detects turns and hands each turn to the caller's backend,
+which answers it with its own model and tools. The contract is in `src/public/realtime.ts`
+(`realtimeConfigIssues`, `realtimeDelegation*`, `realtimeSessionTakes`); Go mirrors it in
+`internal/contract` (`RealtimeLive`, `RealtimeDelegationConfig`, `RealtimeDelegation*Command`,
+`RealtimeDelegation*Event`, `RealtimeSessionKind.Takes`, `DelegationOf`).
+
+| | |
+|---|---|
+| Configuration | `voice`, `outputAudioFormat` equal to `inputAudioFormat`, `turnDetection` other than `none`, and `delegation {acknowledgement: auto \| none}` are required; `outputModalities`, `tools`, `toolChoice`, `maxOutputTokens`, `translation` and an input transcription `prompt` or `interimResults` are refused. `delegation` is refused on every other kind |
+| Refused commands | `session.update`, `input_audio.commit`, `input_audio.clear` (param `type`, unacknowledged) |
+| Commands | `delegation.reply {delegationId, text, verbatim?, final}`, `delegation.context {delegationId, text}`, `delegation.cancel {delegationId}` |
+| Events | `delegation.requested {delegationId, text}`, `delegation.superseded {delegationId}` |
+| Catalogue | a line lists `live` in `capabilities.realtime.sessionKinds`; `defaultKinds` names the kinds it is Kaana's default for ("What the catalogue says about a realtime model") |
+
+**The session owns the delegation** (`internal/realtime`), so every adapter shares one rule. The
+open delegation is the newest `delegation.requested` an adapter returned, until its `final` reply or
+its `cancel` is applied. A `delegation.requested` while one is open is preceded by
+`delegation.superseded` for it, numbered by the session's one goroutine; an adapter never returns
+`delegation.superseded` (one that did is logged and not relayed). A `delegation.*` command naming any
+other delegation is refused, unacknowledged, param `delegationId`; one for the open delegation is
+acknowledged and sent upstream like any command, and an upstream that cannot express it answers
+`provider.ErrUnsupported`, a non-fatal refusal that leaves the delegation open.
+
+**What phases K2 and K3 add.** No adapter lists `live` in `RealtimeSessionKinds`, so no line serves it
+and `configs/public-catalogue.json` names no `live` line and no default. K2 adds the native GPT-Live
+adapter (`openai-live`), K3 the emulation on `openai-realtime` and `xai-realtime`; each implements the
+provider side documented on `provider.RealtimeUpstream` and passes `TestLiveContract` before its
+statement lists `live`. Until then `TestALiveSessionHandsItsTurnsOverAndRefusesWhatItsVoiceOwns` runs
+the session's half against a scripted upstream.
 
 ## OpenAI Realtime (GA): `openai-realtime`
 
@@ -693,8 +738,16 @@ model list says anything about sessions; `inventory.Parse` validates it and
 `GET /internal/v1/models` serves the line's intersection across its routes
 (`realtime`, `audio` on the catalogue entry). The public catalogue publishes
 product capabilities only (Kaana ADR 0003): `capabilities.realtime
-{transports, sessionKinds, inputAudioTranscription, audioFormats}`, `audio
+{transports, sessionKinds, inputAudioTranscription, audioFormats, defaultKinds}`, `audio
 {voices, languages}` and `pricePerMinute`.
+
+`defaultKinds` (contract set 8.16.0, ADR 0012 §4) is the one realtime field that is not the
+inventory's: it is declared in `configs/public-catalogue.json`, a reviewed catalogue decision naming
+the line a client opens for a kind. Each default kind is one of the line's `sessionKinds`, and at most
+one active line is the default of a kind (`declaredCatalogueSchema`, checked by `validate.mjs` with
+its controls, and by `publicapi.ParsePublicCatalogue` when Kaana loads the file). `GET /v1/models`
+publishes a declared default only for a kind the inventory serves on the line. No line declares one
+yet.
 
 | | OpenAI | xAI |
 |---|---|---|
@@ -1061,6 +1114,10 @@ replay admission or fabricate an empty settlement.
   contract offers is translated or emulated, and only what `Unservable` says
   is impossible is refused, with the contract's `param` and a message that
   names no provider. Nothing of a dialect's statement is published.
+- **A `live` session's delegation state is the session's, never an adapter's**: the session
+  supersedes, refuses a command for any delegation but the open one, and refuses the commands a
+  `live` session does not take before they are acknowledged. An adapter returns
+  `delegation.requested` and serves or refuses what `Send` hands it.
 - **A provider speaking the OpenAI Realtime shape is a dialect of
   `internal/provider/openairealtime`, not a copy**: its differences are
   `dialect` fields, each from the provider's documentation, and it gets its own
