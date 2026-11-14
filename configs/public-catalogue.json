@@ -9,7 +9,8 @@
     "DECISIONS (added 2026-10-18): typesafe/jev-1.13, TypeSafe's Jev, served only through OpenRouter's /systemone as POST /v1/decisions (docs/decisions.md). PRICE is OpenRouter's published list price for the TypeSafe endpoint of the dated weights typesafe/jev-1.13-20260917, read 2026-10-04 from https://openrouter.ai/api/v1/endpoints/zdr (prompt \"0.000000042\" USD per token = $0.042 per 1M input tokens, completion \"0\") and the same `pricing` on GET https://openrouter.ai/api/v1/models?output_modalities=decisions; OpenRouter publishes no per-request fee. ZERO DATA RETENTION: the same zero-retention list names the TypeSafe endpoint for the line, and every Kaana /systemone request sends `zdr: true` and `data_collection: \"deny\"` with TypeSafe as the only provider; whether OpenRouter enforces every preference on /systemone still lacks independent evidence. Context 32,000 tokens and 28,800 output tokens are OpenRouter's `top_provider` statement; the licence is the serving provider's terms, not individually reviewed. Audience platform_internal: Oxy's own products only.",
     "IMAGE INPUT (added 2026-10-28, Kaana ADR 0007): `imageInput.maxInputTokensPerImage` is the most input tokens the line's provider bills for ONE image the contract admits (inline PNG/JPEG/WebP/GIF, at most 3,750,000 bytes), at any `detail` the contract offers; images settle as input tokens at the line's `input_tokens` price. A line without it is refused every request carrying an image. ANTHROPIC, from https://platform.claude.com/docs/en/build-with-claude/vision (read 2026-10-28, 'Resolution and token cost'): an image costs ceil(width/28) x ceil(height/28) visual tokens and is downscaled to the model's tier, 'Claude 4.7 and later models' at most 4,784 visual tokens (2,576 px long edge) and 'All other models' at most 1,568 (1,568 px): 1,568 for claude-haiku-4.5, claude-opus-4.1/4.5/4.6 and claude-sonnet-4/4.5/4.6; 4,784 for claude-opus-4.7/4.8/5/5.5, claude-sonnet-5/5.5, claude-haiku-5.5 and claude-fable-5/5.1. OPENAI, from https://developers.openai.com/api/docs/guides/images-vision (read 2026-10-28, 'Model sizing behavior' and 'Patch-based image tokenization'; billing may differ from the estimate by one token, so each bound adds 1): gpt-5.4, gpt-5.4-mini and gpt-5.4-nano, `low` has a 6,144-patch budget (more than `high`'s 2,500; `auto` is `high`), x 1.2 = 7,373, bound 7,374; gpt-5.2, a 6,144-patch budget at every detail x 1.2, bound 7,374; gpt-4.1-mini, 6,144 x 1.62 = 9,953.28, bound 9,955; gpt-5.5, `auto` is `original`, up to 10,000 patches x 1.2, bound 12,001; gpt-5.6-sol/terra/luna, `auto` is `original`, which the API rejects past 30,000 patches, x 1.2, bound 36,001. BILLING: GET https://openrouter.ai/api/v1/models (read 2026-10-28) publishes no per-image price for any of these lines, so an image is its input tokens. Every other image-capable line is undeclared until its publisher's rule is reviewed (Google's Gemini lines among them).",
     "CACHE WRITES (added 2026-11-12, contract set 8.4.0): `cache_write_input_tokens` is priced on the six Anthropic lines that carry a price, at the 5-minute cache write rate Anthropic publishes as 1.25x the base input rate (https://platform.claude.com/docs/en/about-claude/pricing, 'Model pricing', read 2026-11-12: Fable 5 and 5.1 $12.50, Opus 4.1 $18.75, Sonnet 4 and 4.5 $3.75, Haiku 5.5 $0.625 per MTok; Haiku 5.5's price here is its over-100,000-token tier, the one its input price already is). Each of those lines carries a NEW priceVersionId because its prices changed; every other amount on them is unchanged. No other provider's line prices the unit: none has primary evidence for it. Kaana reports the unit only on a request whose granted price version prices it (kaana.FoldCacheWrite).",
-    "CACHE READS (corrected 2026-11-12): `cached_input_tokens` is the cache-hit price Anthropic publishes per model (https://platform.claude.com/docs/en/about-claude/pricing, 'Model pricing', 'Cache hits and refreshes', read 2026-11-12). It is 0.1x the base input price for most models, but 0.025x for Fable 5.1 and 5.2 and 0.05x for Opus 5.5 and Sonnet 5.5; Fable 5 ($1) and Haiku 5.5 ($0.05 in its over-100,000-token tier) already matched. Opus 4.1 ($1.50), Sonnet 4 and Sonnet 4.5 ($0.30) were declared at their full input price and are corrected, each under a NEW priceVersionId; every other amount on them is unchanged."
+    "CACHE READS (corrected 2026-11-12): `cached_input_tokens` is the cache-hit price Anthropic publishes per model (https://platform.claude.com/docs/en/about-claude/pricing, 'Model pricing', 'Cache hits and refreshes', read 2026-11-12). It is 0.1x the base input price for most models, but 0.025x for Fable 5.1 and 5.2 and 0.05x for Opus 5.5 and Sonnet 5.5; Fable 5 ($1) and Haiku 5.5 ($0.05 in its over-100,000-token tier) already matched. Opus 4.1 ($1.50), Sonnet 4 and Sonnet 4.5 ($0.30) were declared at their full input price and are corrected, each under a NEW priceVersionId; every other amount on them is unchanged.",
+    "GPT-LIVE (added 2026-11-14, Kaana ADR 0012 \u00a74, \u00a75): openai/gpt-live-1, OpenAI GPT-Live served as `live` realtime sessions under `openai-live` (docs/realtime.md, 'OpenAI GPT-Live'). It is the one line whose `capabilities.realtime.defaultKinds` names `live`: the line a client opens for voice mode, a catalogue decision rather than a client constant. PRICE is OpenAI's, read 2026-11-14 at https://developers.openai.com/api/docs/models/gpt-live-1 ('Voice sessions cost $0.05 per minute, billed per second', never rounded up to the minute), priced in `session_milliseconds`; the backend's turns are ordinary requests billed apart. LICENCE is the OpenAI Services Agreement; DATA POLICY is OpenAI's for /v1/live/sessions (https://developers.openai.com/api/docs/guides/your-data: 30-day abuse monitoring, zero data retention eligible, no training on API data). CONTEXT 128 000 tokens and KNOWLEDGE CUTOFF 2025-07-31 are OpenAI's own (live conversations guide, model page); `tools` is false because the caller's backend owns the answer and its tools."
   ],
   "schemaVersion": 1,
   "models": [
@@ -22426,6 +22427,98 @@
         "provenanceMarking": "none"
       },
       "modelCardUrl": "https://docs.x.ai/developers/models/speech-to-speech",
+      "audience": "platform_internal"
+    },
+    {
+      "modelId": "openai/gpt-live-1",
+      "publisher": {
+        "slug": "openai",
+        "displayName": "OpenAI",
+        "websiteUrl": "https://openai.com/"
+      },
+      "displayName": "GPT-Live-1",
+      "description": "Full-duplex voice that hands every turn to the caller's backend, served as live realtime sessions.",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "audio"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "tools": false,
+        "parallelToolCalls": false,
+        "structuredOutput": false,
+        "jsonMode": false,
+        "reasoning": false,
+        "reasoningEfforts": [],
+        "streaming": true,
+        "promptCaching": false,
+        "maxContextTokens": 128000,
+        "maxOutputTokens": 1,
+        "realtime": {
+          "transports": [
+            "websocket"
+          ],
+          "sessionKinds": [
+            "live"
+          ],
+          "defaultKinds": [
+            "live"
+          ]
+        },
+        "unreported": [
+          "parallelToolCalls",
+          "structuredOutput",
+          "jsonMode",
+          "promptCaching"
+        ]
+      },
+      "license": {
+        "licenseId": "OpenAI-Services-Agreement",
+        "displayName": "OpenAI Services Agreement",
+        "url": "https://openai.com/policies/services-agreement/",
+        "commercialUseAllowed": true,
+        "requiresAttribution": false,
+        "acceptableUsePolicyUrl": "https://openai.com/policies/usage-policies/"
+      },
+      "provenance": {
+        "releaseKind": "third_party_hosted",
+        "trainingOrganization": "OpenAI"
+      },
+      "knowledgeCutoff": "2025-07-31",
+      "regions": [],
+      "dataPolicy": {
+        "retainsPayloads": true,
+        "retentionDays": 30,
+        "trainsOnCustomerData": false,
+        "zeroDataRetentionAvailable": true,
+        "subprocessors": [],
+        "policyUrl": "https://developers.openai.com/api/docs/guides/your-data"
+      },
+      "pricing": {
+        "priceVersionId": "01a1d9d6-cdbb-79aa-96ee-335708a286fe",
+        "currency": "USD",
+        "unitPrices": [
+          {
+            "unit": "session_milliseconds",
+            "amount": "0.050000000000",
+            "per": 60000,
+            "currency": "USD"
+          }
+        ]
+      },
+      "deprecation": {
+        "status": "active"
+      },
+      "evaluations": [],
+      "safety": {
+        "contentFilteringDefault": "provider_default",
+        "knownLimitations": [],
+        "provenanceMarking": "none"
+      },
+      "modelCardUrl": "https://developers.openai.com/api/docs/models/gpt-live-1",
       "audience": "platform_internal"
     },
     {

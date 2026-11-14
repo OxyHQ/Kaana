@@ -1,5 +1,5 @@
 {
-  "$comment": "Capability booleans that are TRUE in configs/public-catalogue.json, with the source that evidences each. 'migration-2026-10-15' means the value came from the one-time export of Oxy's catalogue and no primary source is cited: it is grandfathered, not evidence. Replace it with the provider's URL when one is read. A new true needs an entry here with a primary source.",
+  "$comment": "Capability booleans that are TRUE in configs/public-catalogue.json, with the source that evidences each. 'migration-2026-10-15' means the value came from the one-time export of Oxy's catalogue and no primary source is cited: it is grandfathered, not evidence. Replace it with the provider's URL when one is read. A new true needs an entry here with a primary source. 'absent' names the source stating that a FALSE capability is absent, which is the only thing that lets a false stay off `unreported`.",
   "evidence": {
     "amazon/nova-2-lite-v1": {
       "tools": "migration-2026-10-15"
@@ -627,6 +627,11 @@
     },
     "z-ai/glm-5v-turbo": {
       "tools": "migration-2026-10-15"
+    }
+  },
+  "absent": {
+    "openai/gpt-live-1": {
+      "tools": "docs/adr/0012-live-voice-sessions-with-delegation.md (section 1: a live session refuses tools and toolChoice; the caller's backend owns the answer and its tools)"
     }
   }
 }
