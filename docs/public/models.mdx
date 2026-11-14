@@ -44,6 +44,14 @@ curl https://kaana.ai/v1/power-levels -H "Authorization: Bearer $KAANA_API_KEY"
 also shows which revisions are available. `GET /v1/models/publisher/model` returns
 one.
 
+The list is written in the contract set your client parses, which it states in the
+`Kaana-Contract-Version` request header (`@kaana.ai/sdk` sends it on every request).
+A value added to the catalogue in a later set, such as the `live` session kind or
+`capabilities.realtime.defaultKinds` (8.16.0), is left out for a client on an
+earlier one, so an older client keeps reading the whole list. A request without
+the header gets none of those values; send the version of `@kaana.ai/contracts`
+you validate against to receive them.
+
 ## Deprecated models
 
 When a model is on its way out, answers that name it carry `Deprecation`,

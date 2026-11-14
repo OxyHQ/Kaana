@@ -5,6 +5,39 @@
 > in [`packages/contracts/CHANGELOG.md`](../packages/contracts/CHANGELOG.md); this file also carries
 > sets 3.8.0 to 7.0.0, which that changelog never recorded, and the longer reasoning behind each set.
 
+## Contract set 8.17.0: the catalogue in the reader's set
+
+MINOR, `@kaana.ai/contracts` 8.17.0. No shape, field or member changes; every
+8.16.0 message parses the same. The catalogue's leaves are strict and its enums
+closed, so a reader refuses the WHOLE `GET /v1/models` list on the first value its
+set lacks: 8.16.0's `live` and `defaultKinds` would have refused every model to
+`@kaana.ai/sdk` 3.5.0 (contracts 8.2.0, Gemies and Mention), and the
+`cache_write_input_tokens` unit price (8.4.0), already declared on six
+platform-internal Anthropic lines, refuses it wherever such a line is listed with
+the declared price.
+
+`CATALOGUE_ADDITIONS` lists each value the catalogue gained after a set, with the
+set that introduced it: `capabilities.unreported` and the unit
+`cache_write_input_tokens` (8.4.0), the session kind `live` and
+`capabilities.realtime.defaultKinds` (8.16.0). Kaana renders the catalogue in the
+set the request states in `Kaana-Contract-Version`, which `@kaana.ai/sdk` has sent
+on every request since 2.0.0, leaving out every value that set lacks: a list
+element holding a withheld member, and the field the entry names when that
+empties a required list (a line holding only `live` lists no
+`capabilities.realtime` for an 8.2.0 reader). A request that states no set, or
+one that does not parse, receives none of them. The fix is on the server, so it
+covers every deployed reader with no client bump; a value reaches a reader once
+its SDK states a set that has it. `capabilities.unreported`, until now withheld
+from every public reader, is served to readers on 8.4.0 or later. MINOR because
+Kaana now answers by the stated set, not because any byte parses differently.
+
+The `@kaana.ai/sdk` compatibility suite holds `CATALOGUE_ADDITIONS` to the
+difference between `modelSchema` and each pinned release's (now also sdk 3.3.0,
+3.5.0, 3.16.0 and contracts 8.0.1, 8.2.0, 8.15.0, 8.16.0), and each release lists
+the catalogue as Kaana renders it for the set it states. The signed
+`GET /internal/v1/models` declared document is unchanged: Oxy parses it with its
+own pinned contracts and adopts a set before a declared value from it.
+
 ## Contract set 8.16.0: live sessions with delegation (ADR 0012)
 
 MINOR, `@kaana.ai/contracts` 8.16.0. Additive; everything 8.15.0 parses still

@@ -143,6 +143,13 @@ bun install --frozen-lockfile && (cd tools/contract && bun run generate)
   deliberately strict: unknown or duplicate authority members are refused by
   their separately negotiated codecs.
 - **A version is never inferred from the presence of a field.**
+- **A catalogue value an older set lacks goes in `CATALOGUE_ADDITIONS`.** A
+  member added to an enum `modelSchema` reaches, or a field added to one of its
+  strict objects, is appended there with its set in the same change, and
+  `contract.CatalogueAdditions` restates it (`descriptor_test.go`). `GET
+  /v1/models` leaves it out for a request whose `Kaana-Contract-Version` is
+  earlier, or absent; the `packages/sdk` compatibility suite compares the list
+  with each pinned release (contract set 8.17.0).
 
 [epic]: https://github.com/OxyHQ/oxy/issues/972
 [adr0005]: https://github.com/OxyHQ/OxyHQServices/blob/main/docs/adr/0005-oxy-is-the-single-control-plane.md

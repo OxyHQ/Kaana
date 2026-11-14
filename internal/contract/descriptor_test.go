@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -700,6 +701,27 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 		var want int
 		if err := json.Unmarshal(raw.Value, &want); err != nil || want != got {
 			t.Errorf("%s is %s upstream, its Go declaration is %d", constant, raw.Value, got)
+		}
+	}
+
+	// What GET /v1/models leaves out for a reader on an earlier set: a Go
+	// table that drifted from the contract's would send a pinned reader a
+	// value it refuses, its whole list with it.
+	if raw, present := file.Constants["CATALOGUE_ADDITIONS"]; !present {
+		t.Error("published constant CATALOGUE_ADDITIONS is gone")
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(raw.Value))
+		decoder.DisallowUnknownFields()
+		var want []CatalogueAddition
+		if err := decoder.Decode(&want); err != nil {
+			t.Errorf("CATALOGUE_ADDITIONS does not decode as CatalogueAddition: %v", err)
+		} else if !reflect.DeepEqual(want, CatalogueAdditions) {
+			t.Errorf("CATALOGUE_ADDITIONS is %s upstream; its Go declaration is %+v", raw.Value, CatalogueAdditions)
+		}
+		for _, addition := range CatalogueAdditions {
+			if since, ok := ParseContractSet(addition.Since); !ok || CurrentContractSet.Before(since) {
+				t.Errorf("%v is added in %q, which is not a set up to %s", addition.Path, addition.Since, ContractVersion)
+			}
 		}
 	}
 

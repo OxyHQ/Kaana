@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.16.0';
+export const INFERENCE_CONTRACT_VERSION = '8.17.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -282,6 +282,16 @@ export const INFERENCE_CONTRACT_VERSION = '8.16.0';
  * them before Kaana serves a `live` line.
  */
 
+/**
+ * Contract set 8.17.0 publishes `CATALOGUE_ADDITIONS`: the catalogue values a
+ * reader on an earlier set refuses, each with the set that introduced it, and
+ * makes the request's `Kaana-Contract-Version` the set `GET /v1/models` is
+ * rendered in. No shape, field or member changes, and every 8.16.0 message
+ * parses the same; MINOR because Kaana now answers a caller by the set it
+ * states, which is what keeps a value added to the catalogue from refusing a
+ * deployed reader's whole list.
+ */
+
 /** The public API's one origin and version. */
 export const KAANA_API_BASE_URL = 'https://kaana.ai/v1';
 
@@ -291,8 +301,9 @@ export const KAANA_REQUEST_ID_HEADER = 'Kaana-Request-Id';
 /**
  * The header that carries {@link INFERENCE_CONTRACT_VERSION}: on every
  * response, the set Kaana serves; on a request (`@kaana.ai/sdk` 2.0.0 and
- * later), the set the client parses. Every set since 4.0.0 parses the
- * catalogue Kaana serves.
+ * later), the set the client parses. `GET /v1/models` is rendered in the set
+ * a request states, without any value of {@link CATALOGUE_ADDITIONS} that set
+ * lacks; a request that states none receives none of them.
  */
 export const KAANA_CONTRACT_VERSION_HEADER = 'Kaana-Contract-Version';
 

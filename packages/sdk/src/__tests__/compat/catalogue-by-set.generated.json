@@ -1,0 +1,1352 @@
+{
+  "5.0.0": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "pcm16_24khz"
+              ],
+              "output": [
+                "pcm16_24khz"
+              ]
+            },
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "OpenAI",
+          "slug": "openai"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192,
+          "outputModalities": [
+            "text"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "currency": "USD",
+          "priceVersionId": "price-1",
+          "unitPrices": [
+            {
+              "amount": "0.000002",
+              "currency": "USD",
+              "per": 1,
+              "unit": "output_tokens"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "languages": [
+            "en"
+          ],
+          "maxInputCharacters": 5000,
+          "speed": {
+            "max": 1.2,
+            "min": 0.7
+          },
+          "voices": [
+            {
+              "id": "rachel",
+              "languages": [
+                "en"
+              ],
+              "name": "Rachel"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1,
+          "outputModalities": [
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": false
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  },
+  "8.0.0": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "pcm16_24khz"
+              ],
+              "output": [
+                "pcm16_24khz"
+              ]
+            },
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "OpenAI",
+          "slug": "openai"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192,
+          "outputModalities": [
+            "text"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "currency": "USD",
+          "priceVersionId": "price-1",
+          "unitPrices": [
+            {
+              "amount": "0.000002",
+              "currency": "USD",
+              "per": 1,
+              "unit": "output_tokens"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "languages": [
+            "en"
+          ],
+          "maxInputCharacters": 5000,
+          "speed": {
+            "max": 1.2,
+            "min": 0.7
+          },
+          "voices": [
+            {
+              "id": "rachel",
+              "languages": [
+                "en"
+              ],
+              "name": "Rachel"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1,
+          "outputModalities": [
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": false
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  },
+  "8.15.0": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "pcm16_24khz"
+              ],
+              "output": [
+                "pcm16_24khz"
+              ]
+            },
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "OpenAI",
+          "slug": "openai"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192,
+          "outputModalities": [
+            "text"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true,
+          "unreported": [
+            "parallelToolCalls",
+            "promptCaching"
+          ]
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "currency": "USD",
+          "priceVersionId": "price-1",
+          "unitPrices": [
+            {
+              "amount": "0.000002",
+              "currency": "USD",
+              "per": 1,
+              "unit": "output_tokens"
+            },
+            {
+              "amount": "0.00000375",
+              "currency": "USD",
+              "per": 1,
+              "unit": "cache_write_input_tokens"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "languages": [
+            "en"
+          ],
+          "maxInputCharacters": 5000,
+          "speed": {
+            "max": 1.2,
+            "min": 0.7
+          },
+          "voices": [
+            {
+              "id": "rachel",
+              "languages": [
+                "en"
+              ],
+              "name": "Rachel"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1,
+          "outputModalities": [
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": false
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  },
+  "8.16.0": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "pcm16_24khz"
+              ],
+              "output": [
+                "pcm16_24khz"
+              ]
+            },
+            "defaultKinds": [
+              "live"
+            ],
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation",
+              "live"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "OpenAI",
+          "slug": "openai"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192,
+          "outputModalities": [
+            "text"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true,
+          "unreported": [
+            "parallelToolCalls",
+            "promptCaching"
+          ]
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "currency": "USD",
+          "priceVersionId": "price-1",
+          "unitPrices": [
+            {
+              "amount": "0.000002",
+              "currency": "USD",
+              "per": 1,
+              "unit": "output_tokens"
+            },
+            {
+              "amount": "0.00000375",
+              "currency": "USD",
+              "per": 1,
+              "unit": "cache_write_input_tokens"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "languages": [
+            "en"
+          ],
+          "maxInputCharacters": 5000,
+          "speed": {
+            "max": 1.2,
+            "min": 0.7
+          },
+          "voices": [
+            {
+              "id": "rachel",
+              "languages": [
+                "en"
+              ],
+              "name": "Rachel"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1,
+          "outputModalities": [
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": false
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  },
+  "8.2.0": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "pcm16_24khz"
+              ],
+              "output": [
+                "pcm16_24khz"
+              ]
+            },
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "OpenAI",
+          "slug": "openai"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192,
+          "outputModalities": [
+            "text"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "currency": "USD",
+          "priceVersionId": "price-1",
+          "unitPrices": [
+            {
+              "amount": "0.000002",
+              "currency": "USD",
+              "per": 1,
+              "unit": "output_tokens"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "languages": [
+            "en"
+          ],
+          "maxInputCharacters": 5000,
+          "speed": {
+            "max": 1.2,
+            "min": 0.7
+          },
+          "voices": [
+            {
+              "id": "rachel",
+              "languages": [
+                "en"
+              ],
+              "name": "Rachel"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1,
+          "outputModalities": [
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": false
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  },
+  "unstated": {
+    "data": [
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": []
+          },
+          "languages": [],
+          "voices": [
+            {
+              "id": "marin",
+              "languages": [],
+              "name": "Marin"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "observed-2026-09-30"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text",
+            "audio"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 32000,
+          "maxOutputTokens": 4096,
+          "outputModalities": [
+            "text",
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "realtime": {
+            "audioFormats": {
+              "input": [
+                "pcm16_24khz"
+              ],
+              "output": [
+                "pcm16_24khz"
+              ]
+            },
+            "inputAudioTranscription": true,
+            "sessionKinds": [
+              "conversation"
+            ],
+            "transports": [
+              "websocket"
+            ]
+          },
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "observed-2026-09-30",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "GPT Realtime",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "openai/gpt-realtime-2.1",
+        "powerClass": "medium",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "OpenAI",
+          "slug": "openai"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "availableRevisions": [
+          "2026-05-01"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 128000,
+          "maxOutputTokens": 8192,
+          "outputModalities": [
+            "text"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": true
+        },
+        "currentRevision": "2026-05-01",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Model",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/model",
+        "powerClass": "high",
+        "pricing": {
+          "currency": "USD",
+          "priceVersionId": "price-1",
+          "unitPrices": [
+            {
+              "amount": "0.000002",
+              "currency": "USD",
+              "per": 1,
+              "unit": "output_tokens"
+            }
+          ]
+        },
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      },
+      {
+        "audio": {
+          "audioFormats": {
+            "input": [],
+            "output": [
+              "audio/mpeg",
+              "audio/pcm"
+            ]
+          },
+          "languages": [
+            "en"
+          ],
+          "maxInputCharacters": 5000,
+          "speed": {
+            "max": 1.2,
+            "min": 0.7
+          },
+          "voices": [
+            {
+              "id": "rachel",
+              "languages": [
+                "en"
+              ],
+              "name": "Rachel"
+            }
+          ]
+        },
+        "availableRevisions": [
+          "v1"
+        ],
+        "capabilities": {
+          "inputModalities": [
+            "text"
+          ],
+          "jsonMode": false,
+          "maxContextTokens": 5000,
+          "maxOutputTokens": 1,
+          "outputModalities": [
+            "audio"
+          ],
+          "parallelToolCalls": false,
+          "promptCaching": false,
+          "reasoning": false,
+          "streaming": true,
+          "structuredOutput": false,
+          "tools": false
+        },
+        "currentRevision": "v1",
+        "dataPolicy": {
+          "retainsPayloads": false,
+          "retentionDays": 0,
+          "trainsOnCustomerData": false,
+          "zeroDataRetentionAvailable": true
+        },
+        "deprecation": {
+          "status": "active"
+        },
+        "displayName": "Stub Voice",
+        "license": {
+          "commercialUseAllowed": true,
+          "displayName": "Proprietary",
+          "licenseId": "proprietary",
+          "requiresAttribution": false
+        },
+        "modelId": "stub/voice",
+        "provenance": {
+          "releaseKind": "third_party_hosted"
+        },
+        "publisher": {
+          "displayName": "Stub Labs",
+          "slug": "stub"
+        },
+        "schemaVersion": 1
+      }
+    ]
+  }
+}

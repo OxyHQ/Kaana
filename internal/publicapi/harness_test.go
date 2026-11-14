@@ -629,6 +629,9 @@ type harnessOptions struct {
 	// realtime is the statement the realtime deployment publishes; OpenAI's
 	// when unset.
 	realtime *providerconfig.RealtimeStatement
+	// realtimeObservation replaces what the realtime deployment publishes
+	// (realtimeObserved) when set.
+	realtimeObservation json.RawMessage
 	// metrics receives the operational metrics; nil records none.
 	metrics emf.Recorder
 }
@@ -664,6 +667,10 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		realtimeStatement = *options.realtime
 	}
 
+	observation := realtimeObserved(t, realtimeStatement)
+	if options.realtimeObservation != nil {
+		observation = options.realtimeObservation
+	}
 	deployments := []map[string]any{
 		{"deploymentId": "dep_stub_a", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-a", "regions": []string{"us"}, "current": true},
 		{"deploymentId": "dep_stub_b", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-b", "regions": []string{"eu"}, "current": true},
@@ -675,7 +682,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_image", "provider": "stubimage", "modelReference": imageModel, "upstreamModelId": "stub-image", "current": true},
 		{"deploymentId": "dep_rerank", "provider": "stubrerank", "modelReference": rerankModel, "upstreamModelId": "stub-rerank", "current": true},
 		{"deploymentId": "dep_realtime", "provider": "openai-realtime", "modelReference": realtimeModel, "upstreamModelId": "gpt-realtime-2.1", "current": true,
-			"observed": realtimeObserved(t, realtimeStatement)},
+			"observed": observation},
 	}
 	document, _ := json.Marshal(map[string]any{"snapshotId": "snap_public", "issuedAt": contract.NewTimestamp(time.Now()), "deployments": deployments})
 	path := filepath.Join(t.TempDir(), "inventory.json")

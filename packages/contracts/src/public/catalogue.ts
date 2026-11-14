@@ -612,6 +612,55 @@ export const modelSchema = z.object({
 export const modelListSchema = z.object({ data: z.array(modelSchema) }).strict();
 
 /**
+ * One value `GET /v1/models` gained after a contract set (contract set 8.17.0).
+ *
+ * The catalogue's leaves are strict and its enums closed, so a reader refuses
+ * the WHOLE list on the first field or member its own set lacks. Kaana
+ * therefore renders the catalogue in the set the caller states in
+ * `Kaana-Contract-Version` (`@kaana.ai/sdk` 2.0.0 and later send it on every
+ * request): a value listed here reaches only a caller whose set is `since` or
+ * later. A caller that states no set, or one that does not parse, receives
+ * none of them.
+ *
+ * - `path` names a field of a model; a list on the way is crossed, applying the
+ *   rest of the path to each element.
+ * - Without `member`, the field is the addition and is left out.
+ * - With `member`, the value at `path` is an enum and `member` is the addition:
+ *   the list element that holds it is left out (the member itself in a list of
+ *   members; the object carrying it in a list of objects). When that empties
+ *   the list, the field at `emptied` (the nearest optional field holding the
+ *   list) is left out with it.
+ *
+ * Adding a member to an enum the catalogue reaches, or a field to one of its
+ * strict objects, appends an entry here in the same change; the
+ * `@kaana.ai/sdk` compatibility suite compares this list with the published
+ * releases deployed readers run.
+ */
+export interface CatalogueAddition {
+  readonly since: string;
+  readonly path: readonly string[];
+  readonly member?: string;
+  readonly emptied?: readonly string[];
+}
+
+export const CATALOGUE_ADDITIONS: readonly CatalogueAddition[] = [
+  { since: '8.4.0', path: ['capabilities', 'unreported'] },
+  {
+    since: '8.4.0',
+    path: ['pricing', 'unitPrices', 'unit'],
+    member: 'cache_write_input_tokens',
+    emptied: ['pricing'],
+  },
+  {
+    since: '8.16.0',
+    path: ['capabilities', 'realtime', 'sessionKinds'],
+    member: 'live',
+    emptied: ['capabilities', 'realtime'],
+  },
+  { since: '8.16.0', path: ['capabilities', 'realtime', 'defaultKinds'] },
+];
+
+/**
  * One power level as `GET /v1/power-levels` lists it for the calling
  * credential: the level, the class it draws from, the effort it asks for, and
  * the model lines it can currently choose among.

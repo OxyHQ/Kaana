@@ -116,7 +116,7 @@ func TestADefaultKindIsPublishedOnlyWhereItIsServed(t *testing.T) {
 	published := func(served ...contract.RealtimeSessionKind) []contract.RealtimeSessionKind {
 		entry := inventory.CatalogueEntry{Model: id, Reference: contract.ModelReference(string(id) + "@observed-2026-11-14"),
 			Realtime: &inventory.RealtimeObservation{Transports: []contract.RealtimeSessionTransport{contract.RealtimeWebSocket}, SessionKinds: served}}
-		rendered, err := catalogue.models[id].render(entry, []string{"observed-2026-11-14"})
+		rendered, err := catalogue.models[id].render(entry, []string{"observed-2026-11-14"}, contract.CurrentContractSet)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -860,12 +860,10 @@ over image defaults. The file is loaded at start whether or not
   is omitted when empty). A `true` cannot be listed. Today that is every `false`:
   `tools` on 52 models, `parallelToolCalls` on 260, `structuredOutput`,
   `jsonMode` and `promptCaching` on 259 each; no boolean changed. A reader must
-  treat a listed key as unknown, never as "unsupported". Like `imageInput`, it
-  travels to Oxy on `declaredCatalogue` and is NOT served on `GET /v1/models`
-  yet (`withholdUnreported`): readers on `@kaana.ai/contracts` 4.4.0 and 5.0.0
-  (Alia on `@kaana.ai/sdk` 1.0.1) parse capabilities strictly and would refuse
-  the whole model list (the compatibility test in `packages/sdk` pins it). Serve
-  it publicly only when no deployed reader is older than 8.4.0.
+  treat a listed key as unknown, never as "unsupported". It travels to Oxy on
+  `declaredCatalogue`, and `GET /v1/models` serves it only to a request stating
+  contract set 8.4.0 or later (`CATALOGUE_ADDITIONS`, below): an earlier reader
+  parses capabilities strictly and would refuse the whole model list.
   `internal/publicapi/testdata/capability_evidence.json` is the evidence rule
   the test `TestTheDeclaredCatalogueSaysWhichCapabilitiesItDoesNotKnow` applies:
   every `true` needs a source under `evidence` (the 208 `tools` trues and the
@@ -878,6 +876,20 @@ over image defaults. The file is loaded at start whether or not
   for a true, `absent` for a false). The observed `supportsTools` of the
   inventory is a measurement of one deployment, not a statement about the model
   line, so it does not by itself clear an entry.
+- **A value an older reader refuses (`CATALOGUE_ADDITIONS`, contract set
+  8.17.0):** `GET /v1/models` is rendered in the set the request states in
+  `Kaana-Contract-Version` (`internal/publicapi/catalogue_sets.go`), without the
+  catalogue values that set lacks; a request stating none gets none of them. A
+  new member of an enum the catalogue reaches (a session kind, a usage unit, a
+  modality) or a new field of one of its strict objects is appended to
+  `CATALOGUE_ADDITIONS` in `packages/contracts` in the same change, with
+  `contract.CatalogueAdditions` restating it. The compatibility suite in
+  `packages/sdk` fails until it is: it compares the list with every pinned
+  release's `modelSchema` and lists the catalogue as each release receives it.
+  A release Kaana's readers newly deploy is pinned there, its set added to
+  `PinnedReaderSets`. Declaring `live` or `defaultKinds` in this file is still
+  read by Oxy on the declared document, which Oxy parses with its own pinned
+  contracts: Oxy adopts the set first.
 - **Gates:** `publicapi.ParsePublicCatalogue` (Go) and
   `declaredCatalogueSchema` (Zod, in `tools/contract validate`) both parse the
   whole file; a model may not carry `servingProviders`, `availabilityScope`,

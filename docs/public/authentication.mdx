@@ -40,6 +40,13 @@ An Oxy service calling for one of its users may send `X-Oxy-User-Id`. It is
 honoured only with a service token, and it must agree with the OpenAI-style `user`
 field when both are present.
 
+## The contract set you parse
+
+Send `Kaana-Contract-Version` with the contract set your client validates against
+(`@kaana.ai/sdk` sends its own on every request). `GET /v1/models` is written in
+that set: a catalogue value added after it is left out, so an older client never
+receives a value it would refuse. See [Models and power levels](/developers/docs/kaana/models).
+
 ## Response headers
 
 | Header | Meaning |
