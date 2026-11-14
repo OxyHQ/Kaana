@@ -140,13 +140,15 @@ Protocols are a closed list because a binary can only construct adapters it
 contains; provider slugs are not. A built-in serving configuration does not
 imply discovery or publication support.
 
-OpenAI's own origin is served under four locked slugs, one adapter family
+OpenAI's own origin is served under five locked slugs, one adapter family
 each: `openai` (Chat Completions), `openai-audio` (transcription and spoken
 chat, docs/openai-audio.md), `openai-realtime` (WebSocket realtime sessions on
-`GET /internal/v1/realtime`, docs/realtime.md) and `openai-decisions` (the
-Decisions API, docs/decisions.md). Each takes its own credential rows and
-deployment bindings; `realtime.md`, "Operating it", covers the
-realtime slug's credential, discovery, health and load-balancer notes.
+`GET /internal/v1/realtime`, docs/realtime.md), `openai-live` (GPT-Live, the
+`live` sessions whose turns the caller's backend answers, docs/realtime.md,
+"OpenAI GPT-Live") and `openai-decisions` (the Decisions API,
+docs/decisions.md). Each takes its own credential rows and deployment
+bindings; `realtime.md`, "Operating it" and "Operating `openai-live`", covers
+the realtime slugs' credential, discovery, health and load-balancer notes.
 
 xAI's origin is served the same way under three locked slugs: `xai` (Chat
 Completions, `/v1/tts` and file transcription), `xai-realtime` (the Voice Agent

@@ -322,9 +322,15 @@ neither, and a session adapter that declares no session kind. There is one
 implementation in two dialects: `openai-realtime` (OpenAI's Realtime API) and
 `xai-realtime` (xAI's Voice Agent API, which xAI documents as
 OpenAI-Realtime-compatible), each under its own slug and origin with its own
-fake. Opening walks the key through `provider.WalkAttempts`, the same
-verdicts, retirement and attempt evidence as `provider.Walk`. `realtime.md` has
-the whole design, both mappings and the edge wire.
+fake. OpenAI GPT-Live is a second implementation, `openai-live`
+(`internal/provider/openailive`, fake `openailivetest`): the native adapter of
+the `live` kind (Kaana ADR 0012), whose wire is not OpenAI-Realtime-shaped. The
+OpenAI error vocabulary both read, the handshake status table and the in-band
+type/code classification, is one package, `internal/provider/openaierror`.
+Opening walks the key through `provider.WalkAttempts`, the same verdicts,
+retirement and attempt evidence as `provider.Walk`. Every adapter that serves
+`live` passes `TestLiveContract` (`internal/realtime`). `realtime.md` has the
+whole design, every mapping and the edge wire.
 
 ### Image generation (contract set 8.12.0)
 

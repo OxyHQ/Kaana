@@ -221,7 +221,8 @@ attributed id whose family the slug's adapter cannot execute: an audio chat id
 under `openai`, a text chat id under `openai-audio`
 (`providerconfig.ChatOutputs`). Realtime ids are session models: conversation
 models are published only under `openai-realtime` (docs/realtime.md) and
-dropped here; GPT-Live ids are dropped under every slug.
+dropped here; GPT-Live's `gpt-live-1` is a `live` session model, published only
+under `openai-live`.
 `TestOpenAIAudioIsAttributedOnlyToTheAudioAdapter` fails if any checked-in row
 would be dropped by that gate.
 

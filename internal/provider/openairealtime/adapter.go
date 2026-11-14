@@ -32,6 +32,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/provider"
+	"github.com/OxyHQ/Kaana/internal/provider/openaierror"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 )
 
@@ -327,43 +328,16 @@ func (d *dialect) transport(ctx context.Context, err error) error {
 // retired on prose (docs/realtime.md).
 func (d *dialect) classifyRefusal(status int, header http.Header, body []byte, key provider.Key) error {
 	reported := d.refusalBody(body)
-	passthrough := d.passthroughFor(reported, key)
-	passthrough.Status = &status
 	code := ""
 	if reported.Code != nil {
 		code = *reported.Code
 	}
-	failure := provider.ErrUpstream{Passthrough: passthrough}
-	switch {
-	case status == http.StatusPaymentRequired,
-		status == http.StatusTooManyRequests && quotaExhausted(reported.Type, code):
-		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
-		failure.Detail = "the platform's own " + d.name + " account cannot be billed for this session"
-	case status == http.StatusTooManyRequests:
-		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
-		failure.Detail = d.name + " rate-limited this session"
-		failure.RetryAfterMs = provider.RetryAfterMs(header)
-	case status == http.StatusUnauthorized, status == http.StatusForbidden:
-		failure.Code, failure.Category = contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication
-		failure.Detail = d.name + " refused the platform's credential for this route"
-	case status == http.StatusNotFound:
-		failure.Code, failure.Category = contract.CodeModelNotFound, contract.UpstreamInvalidReq
-		failure.Detail = d.name + " does not serve the model this route names"
-	case status == http.StatusRequestTimeout, status == http.StatusGatewayTimeout:
-		failure.Code, failure.Category = contract.CodeProviderTimeout, contract.UpstreamTimeout
-		failure.Detail = d.name + " timed out"
-	case status == http.StatusServiceUnavailable:
-		failure.Code, failure.Category = contract.CodeProviderOverloaded, contract.UpstreamOverloaded
-		failure.Detail = d.name + " is overloaded"
-		failure.RetryAfterMs = provider.RetryAfterMs(header)
-	case status >= 500:
-		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
-		failure.Detail = d.name + " returned an internal error"
-	default:
-		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
-		failure.Detail = d.name + " refused the Realtime session"
-	}
-	return provider.CustomerCredentialFailure(key, failure)
+	return openaierror.Handshake(d.session(), status, header, reported.Type, code, d.passthroughFor(reported, key), key)
+}
+
+// session names this dialect's sessions in a failure's detail.
+func (d *dialect) session() openaierror.Session {
+	return openaierror.Session{Provider: d.name, API: "Realtime"}
 }
 
 // openAIRefusalBody reads OpenAI's `{"error": {type, code, message}}`.
@@ -387,50 +361,15 @@ func xAIRefusalBody(body []byte) wireError {
 	return wireError{Type: parsed.Code, Message: parsed.Error}
 }
 
-// quotaExhausted recognises OpenAI's account-exhaustion vocabulary. The error
-// codes page documents the 429 codes below and notes that the broader type can
-// still be insufficient_quota.
-func quotaExhausted(kind, code string) bool {
-	switch {
-	case kind == "insufficient_quota", code == "insufficient_quota", code == "credit_balance_exhausted",
-		code == "organization_spend_limit_exceeded", code == "project_spend_limit_exceeded",
-		code == "organization_usage_limit_exceeded":
-		return true
-	}
-	return false
-}
-
-// classifyOpenAIEvent reads an in-band error event by OpenAI's type and code.
-// Most are refusals of one client event ("Most errors are recoverable and the
-// session will stay open"); the account and credential vocabulary is the same
-// one the HTTP API uses, and a server_error is OpenAI's own failure.
+// classifyOpenAIEvent reads an in-band error event by OpenAI's type and code
+// (openaierror.InBand): most refuse one client event ("Most errors are
+// recoverable and the session will stay open").
 func classifyOpenAIEvent(d *dialect, value wireError, key provider.Key) error {
 	code := ""
 	if value.Code != nil {
 		code = *value.Code
 	}
-	failure := provider.ErrUpstream{Passthrough: d.passthroughFor(value, key)}
-	switch {
-	case quotaExhausted(value.Type, code):
-		failure.Code, failure.Category = contract.CodeProviderBillingRefused, contract.UpstreamQuota
-		failure.Detail = "the platform's own OpenAI account cannot be billed for this session"
-	case code == "invalid_api_key", value.Type == "authentication_error":
-		failure.Code, failure.Category = contract.CodeProviderCredentialInvalid, contract.UpstreamAuthentication
-		failure.Detail = "OpenAI refused the platform's credential for this route"
-	case value.Type == "rate_limit_error", code == "rate_limit_exceeded", code == "slow_down":
-		failure.Code, failure.Category = contract.CodeRateLimited, contract.UpstreamRateLimit
-		failure.Detail = "OpenAI rate-limited this session"
-	case value.Type == "server_error":
-		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamServerError
-		failure.Detail = "OpenAI's Realtime session failed"
-	case value.Type == "invalid_request_error":
-		failure.Code, failure.Category = contract.CodeInvalidRequest, contract.UpstreamInvalidReq
-		failure.Detail = "OpenAI refused a Realtime event"
-	default:
-		failure.Code, failure.Category = contract.CodeProviderError, contract.UpstreamUnknown
-		failure.Detail = "OpenAI reported a Realtime error this adapter does not classify"
-	}
-	return provider.CustomerCredentialFailure(key, failure)
+	return openaierror.InBand(d.session(), value.Type, code, d.passthroughFor(value, key), key)
 }
 
 // classifyXAIEvent reads an in-band error event by xAI's documented types:
@@ -459,16 +398,7 @@ func classifyXAIEvent(d *dialect, value wireError, key provider.Key) error {
 }
 
 func (d *dialect) passthroughFor(value wireError, key provider.Key) *contract.ProviderErrorPassthrough {
-	passthrough := &contract.ProviderErrorPassthrough{Provider: d.slug}
-	if value.Type != "" {
-		kind := contract.SafeErrorText(provider.RedactSecret(value.Type, key.Secret()))
-		passthrough.Code = &kind
-	}
-	if value.Message != "" {
-		message := contract.SafeErrorText(provider.RedactSecret(value.Message, key.Secret()))
-		passthrough.Message = &message
-	}
-	return passthrough
+	return openaierror.Passthrough(d.slug, value.Type, value.Message, key)
 }
 
 // Health never opens a session: a probe that held one would be a charge

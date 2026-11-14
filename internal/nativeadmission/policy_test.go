@@ -164,6 +164,51 @@ func TestRealtimeMinuteQualificationAndWholeSessionBound(t *testing.T) {
 	}
 }
 
+// TestALiveLineBilledByItsClockAloneIsQuotedByTheClock: a `live` session on a
+// line priced only in session_milliseconds (GPT-Live, Kaana ADR 0012 §5) is
+// quoted by its clock, with a zero per-response fee allowed; the same line with
+// any other unit priced above zero is not clock-only and needs every audio axis
+// priced, as Oxy's clock-only plan refuses it.
+func TestALiveLineBilledByItsClockAloneIsQuotedByTheClock(t *testing.T) {
+	p := policy()
+	realtime := terms(p, "0.25")
+	realtime.MaxInput = 126976
+	realtime.MaxSessionDuration = 30 * time.Minute
+	realtime.MaxSessionResponses = 500
+	realtime.SessionKinds = []contract.RealtimeSessionKind{"live"}
+	p.Realtime = &realtime
+	if err := p.validate(); err != nil {
+		t.Fatalf("a live policy: %v", err)
+	}
+	invalid := p
+	invalidRealtime := realtime
+	invalidRealtime.SessionKinds = []contract.RealtimeSessionKind{"voicemail"}
+	invalid.Realtime = &invalidRealtime
+	if err := invalid.validate(); err == nil {
+		t.Fatal("an unknown realtime kind was accepted")
+	}
+	voice := model("live")
+	voice.RealtimeSessionKinds = []contract.RealtimeSessionKind{"live"}
+	voice.InputModalities = []string{"text", "audio"}
+	voice.OutputModalities = []string{"text", "audio"}
+	voice.Price = nonTextPrice(voice.ID, UnitPrice{contract.UnitSessionMilliseconds, "0.05", 60000, "USD"}, UnitPrice{contract.UnitRequests, "0", 1, "USD"})
+	r := Request{Operation: contract.GrantRealtimeSession, Target: ptr(contract.ModelTarget("fixture/live")), Facts: contract.GrantRequestFacts{EstimatedInputTokens: ptr(1000), RealtimeSessionKind: ptr(contract.RealtimeSessionKind("live"))}, SessionMaxDuration: 30 * time.Minute, SessionMaxResponses: 500}
+	plan, err := planner(t, p, voice).Plan(principal(), r)
+	if err != nil || plan.Quote.Amount != "1.500000000000" {
+		t.Fatalf("clock-only session bound: %+v %v", plan, err)
+	}
+	// Positive control for the rule: an audio axis priced above zero makes
+	// the line not clock-only, and its other audio axis is then unpriced.
+	voice.Price.UnitPrices = append(voice.Price.UnitPrices, UnitPrice{contract.UnitAudioOutputMilliseconds, "0.01", 60000, "USD"})
+	if _, err = planner(t, p, voice).Plan(principal(), r); !errors.Is(err, ErrNoRoute) {
+		t.Fatalf("a line priced beyond its clock was quoted clock-only: %v", err)
+	}
+	voice.Price.UnitPrices[len(voice.Price.UnitPrices)-1].Amount = "0"
+	if _, err = planner(t, p, voice).Plan(principal(), r); err != nil {
+		t.Fatalf("an axis priced at zero is still clock-only: %v", err)
+	}
+}
+
 func TestNativePopulationRequiresExactReviewedCredential(t *testing.T) {
 	p := policy()
 	known := principal()

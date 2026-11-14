@@ -130,8 +130,15 @@ Kaana status:
   and `openai-audio`. Translation (`gpt-realtime-translate`, its own endpoint
   and protocol) and transcription sessions (`gpt-live-transcribe`,
   `gpt-realtime-whisper`, no documented WebSocket endpoint) are kinds no adapter
-  here opens, and GPT-Live (`gpt-live-1`) is a separate protocol: all stay
-  unattributed.[^openai-realtime]
+  here opens: both stay unattributed.[^openai-realtime]
+- GPT-Live (`gpt-live-1`) is its own protocol (`wss://api.openai.com/v1/live/sessions`)
+  and the native `live` session, a voice that hands every turn to its client
+  (Kaana ADR 0012). It is attributed to `openai-live`, OpenAI's origin under a
+  fifth slug served by `internal/provider/openailive` (docs/realtime.md,
+  "OpenAI GPT-Live"), and the publisher drops it under every other OpenAI slug,
+  none of whose adapters opens a `live` session. The model page lists
+  `gpt-live-1` as its only snapshot and the production key's account list
+  returns it (2026-11-14).[^openai-gpt-live]
 - Audio Chat Completions (`gpt-audio-1.5`) answers aloud. Since contract set
   3.2.0 the envelope asks for it with `audioOutput` and the report meters it in
   audio-token units, so it is attributed to `openai-audio`, whose adapter
@@ -972,6 +979,7 @@ green:
 [^openai-gpt4o]: [OpenAI GPT-4o and GPT-4o mini snapshots](https://developers.openai.com/api/docs/models/gpt-4o)
 [^openai-deprecations]: [OpenAI deprecations](https://developers.openai.com/api/docs/deprecations)
 [^openai-realtime]: [OpenAI Realtime API](https://developers.openai.com/api/docs/guides/realtime)
+[^openai-gpt-live]: [OpenAI GPT-Live-1 model](https://developers.openai.com/api/docs/models/gpt-live-1), [Live conversations](https://developers.openai.com/api/docs/guides/live-conversations)
 [^openai-audio]: [OpenAI GPT-Audio-1.5 model](https://developers.openai.com/api/docs/models/gpt-audio-1.5)
 [^hf-router]: [Hugging Face Inference Providers routing](https://huggingface.co/docs/inference-providers/en/index)
 [^kilo-gateway]: [Kilo AI Gateway model routing](https://kilo.ai/docs/gateway/models-and-providers)

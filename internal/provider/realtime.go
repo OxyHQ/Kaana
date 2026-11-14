@@ -120,6 +120,33 @@ type RealtimeMeter interface {
 	Measured() []contract.UsageQuantity
 }
 
+// RealtimeFinalUsage is an open session whose provider reports the session's
+// whole usage once, when it ends: OpenAI GPT-Live's `session.closed` carries
+// the session's billed seconds, and its earlier `session.usage.updated` are
+// cumulative snapshots, not increments. The session calls FinalUsage once, when
+// it settles and before Close: the adapter ends its side of the provider's
+// session, waiting a bounded time for that report, and returns the units with
+// their source — contract.UsageProviderReported when the provider confirmed
+// them, contract.UsageOxyMeasured when it never did (the connection ended
+// first) and the units are Kaana's own measurement. Such a session's events
+// carry no units, so nothing is counted twice. ctx carries no cancellation the
+// settlement must obey; the adapter bounds the wait itself.
+type RealtimeFinalUsage interface {
+	FinalUsage(ctx context.Context) RealtimeFinal
+}
+
+// RealtimeFinal is how a RealtimeFinalUsage session ended.
+type RealtimeFinal struct {
+	Units  []contract.UsageQuantity
+	Source contract.UsageSource
+	// Trailing are the events that end what the session was carrying when it
+	// settled, which only the provider's end produces: the transcript.done of
+	// an item still open (GPT-Live has no event that ends an utterance). The
+	// session emits them, unstamped and in order, before session.closed; Next
+	// never returns them.
+	Trailing []contract.RealtimeServerEvent
+}
+
 // ErrRealtimeUpstreamClosed reports that the provider ended a session without
 // reporting a failure.
 var ErrRealtimeUpstreamClosed = errors.New("provider: the upstream ended the realtime session")

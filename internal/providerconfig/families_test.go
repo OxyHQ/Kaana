@@ -34,6 +34,7 @@ func TestOpenAIFamilies(t *testing.T) {
 		"gpt-realtime-translate":       contract.RealtimeTranslation,
 		"gpt-live-transcribe":          contract.RealtimeTranscription,
 		"gpt-realtime-whisper":         contract.RealtimeTranscription,
+		"gpt-live-1":                   contract.RealtimeLive,
 	}
 	for id, session := range sessions {
 		requests[id] = ModelFamily{Session: session}
@@ -43,7 +44,7 @@ func TestOpenAIFamilies(t *testing.T) {
 			t.Errorf("%s = %+v, %t; want %+v", id, got, ok, want)
 		}
 	}
-	for _, inexpressible := range []string{"gpt-live-1", "omni-moderation-latest"} {
+	for _, inexpressible := range []string{"omni-moderation-latest"} {
 		if got, ok := openAIFamily(inexpressible); ok {
 			t.Errorf("%s classified as %+v; nothing the contract names can execute it", inexpressible, got)
 		}

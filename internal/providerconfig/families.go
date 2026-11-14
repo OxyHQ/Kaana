@@ -66,7 +66,8 @@ type ModelFamily struct {
 // ClassifyModel classifies a model id in the namespaces where the id alone
 // names what the model's documented API requires:
 //
-//   - OpenAI's own slugs (`openai`, `openai-audio`, `openai-realtime`), and
+//   - OpenAI's own slugs (`openai`, `openai-audio`, `openai-realtime`,
+//     `openai-live`), and
 //     OpenRouter's `openai/` rows, which are the same OpenAI models under the
 //     gateway's namespace;
 //   - `openai-decisions`, whose only executable models are the Decisions
@@ -90,7 +91,7 @@ func ClassifyModel(slug contract.ProviderSlug, upstreamModelID string) (family M
 			return ModelFamily{Format: contract.APIFormatDecisions}, true, true
 		}
 		return ModelFamily{}, true, false
-	case "openai", "openai-audio", "openai-realtime":
+	case "openai", "openai-audio", "openai-realtime", "openai-live":
 		family, expressible = openAIFamily(upstreamModelID)
 		return family, true, expressible
 	case "openrouter":
@@ -146,12 +147,13 @@ func groqClassifierOnly(upstreamModelID string) bool {
 
 // openAIFamily classifies one of OpenAI's own model ids by what its
 // documentation says it executes. The second return is false when nothing the
-// contract names can express the model at all: GPT-Live is a separate session
-// protocol (/v1/live/sessions), refused under every slug.
+// contract names can express the model at all.
 //
-// Realtime ids name their session kind: gpt-realtime-translate translates,
-// gpt-live-transcribe and gpt-realtime-whisper transcribe, and every other
-// Realtime model holds conversations
+// Session ids name their session kind: gpt-realtime-translate translates,
+// gpt-live-transcribe and gpt-realtime-whisper transcribe, every other
+// Realtime model holds conversations, and GPT-Live (`gpt-live-1`, its own
+// protocol at /v1/live/sessions) is a `live` session, a voice that delegates
+// every turn (https://developers.openai.com/api/docs/models/gpt-live-1)
 // (https://developers.openai.com/api/docs/guides/realtime-translation,
 // .../realtime-transcription). Whether a slug's adapter opens that kind is
 // RealtimeSessionKinds' answer, not this function's.
@@ -176,7 +178,7 @@ func openAIFamily(upstreamModelID string) (ModelFamily, bool) {
 	case strings.Contains(id, "realtime"):
 		return ModelFamily{Session: contract.RealtimeConversation}, true
 	case strings.HasPrefix(id, "gpt-live"):
-		return ModelFamily{}, false
+		return ModelFamily{Session: contract.RealtimeLive}, true
 	case strings.Contains(id, "moderation"):
 		return ModelFamily{}, false
 	case strings.Contains(id, "transcribe"), strings.HasPrefix(id, "whisper"):

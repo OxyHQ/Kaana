@@ -78,8 +78,11 @@ func RealtimeCapabilities(slug contract.ProviderSlug, protocol string) (statemen
 	if len(kinds) == 0 {
 		return RealtimeStatement{}, false
 	}
-	if protocol == ProtocolXAISTT {
+	switch protocol {
+	case ProtocolXAISTT:
 		return xAISTTStatement(kinds), true
+	case ProtocolOpenAILive:
+		return openAILiveStatement(kinds), true
 	}
 	statement = RealtimeStatement{
 		Transports:              []contract.RealtimeSessionTransport{contract.RealtimeWebSocket},
@@ -221,6 +224,54 @@ func xAISTTStatement(kinds []contract.RealtimeSessionKind) RealtimeStatement {
 	}
 }
 
+// openAILiveStatement is OpenAI's GPT-Live, reviewed 2026-11-14 against
+// https://developers.openai.com/api/reference/resources/live/primary-websocket,
+// https://developers.openai.com/api/docs/guides/live-conversations,
+// https://developers.openai.com/api/docs/guides/live-delegation and
+// https://developers.openai.com/api/docs/models/gpt-live-1:
+//
+//   - one WebSocket, `wss://api.openai.com/v1/live/sessions`, whose
+//     `session.start` fixes everything: one `audio.format` both ways
+//     (`audio/pcm` at 24 000 or 16 000 Hz, `audio/pcmu` or `audio/pcma` at
+//     8 000 Hz), so every contract encoding is served (the contract has no
+//     16 kHz PCM);
+//   - the voice detects the turns and decides when to speak, with no
+//     turn-detection setting: server_vad and semantic_vad are both served by
+//     that, and their thresholds are not sent;
+//   - it hands every turn to the client (`delegation.type: client`) and never
+//     answers by itself, so it names no output modality, tool choice or output
+//     cap: the caller's backend owns the answer;
+//   - the caller's words always arrive as `session.input_transcript.delta`,
+//     which the `live` kind relays whether or not transcription was asked for;
+//     no transcription language or prompt is documented, so the model detects
+//     the language and a client's tag is not sent;
+//   - 38 built-in voices (openAILiveVoices).
+//
+// Billing: "Voice sessions cost $0.05 per minute, billed per second", not
+// rounded up to the minute, reported as `usage.seconds` on `session.closed`:
+// `session_milliseconds` under either detection (Kaana ADR 0012 §5).
+func openAILiveStatement(kinds []contract.RealtimeSessionKind) RealtimeStatement {
+	sessionClock := []contract.UsageUnit{contract.UnitSessionMilliseconds}
+	return RealtimeStatement{
+		Transports:              []contract.RealtimeSessionTransport{contract.RealtimeWebSocket},
+		SessionKinds:            kinds,
+		InputAudioTranscription: true,
+		InputAudioFormats:       append([]contract.RealtimeAudioFormat(nil), realtimeFormats...),
+		OutputAudioFormats:      append([]contract.RealtimeAudioFormat(nil), realtimeFormats...),
+		Voices:                  cloneVoices(openAILiveVoices),
+		Languages:               []string{},
+		DetectsLanguage:         true,
+		Parameters: contract.RealtimeParameters{
+			TurnDetection: []contract.RealtimeTurnDetectionParameters{
+				{Type: contract.TurnDetectionServerVAD, MeteredUnits: sessionClock},
+				{Type: contract.TurnDetectionSemanticVAD, MeteredUnits: slices.Clone(sessionClock)},
+			},
+			OutputModalities: [][]contract.RealtimeOutputModality{},
+			ToolChoice:       []contract.RealtimeToolChoice{},
+		},
+	}
+}
+
 // PublishesAudio is whether the statement's voices and languages are the
 // model's audio observation. A statement without voices is a transcriber's,
 // whose languages are the line's file transcription's to state.
@@ -247,6 +298,30 @@ var openAIRealtimeVoices = []RealtimeVoice{
 	{ID: "coral", Name: "Coral"}, {ID: "echo", Name: "Echo"}, {ID: "sage", Name: "Sage"},
 	{ID: "shimmer", Name: "Shimmer"}, {ID: "verse", Name: "Verse"},
 	{ID: "marin", Name: "Marin"}, {ID: "cedar", Name: "Cedar"},
+}
+
+// openAILiveVoices is GPT-Live's built-in voice enum, all 38 ids of
+// `session.start.session.audio.output.voice`, read 2026-11-14 at
+// https://developers.openai.com/api/reference/resources/live/primary-websocket
+// (default `marin`). OpenAI documents no gender and no display name for any of
+// them, so the name is the id capitalised. The two genders published are the
+// owner's decision of 2026-11-14 (Kaana ADR 0012 §3): `marin` is the female
+// product voice and `cedar` the male one; every other voice's gender stays
+// unknown, never inferred from its name.
+var openAILiveVoices = []RealtimeVoice{
+	{ID: "alloy", Name: "Alloy"}, {ID: "ash", Name: "Ash"}, {ID: "ballad", Name: "Ballad"},
+	{ID: "beacon", Name: "Beacon"}, {ID: "bossa", Name: "Bossa"}, {ID: "brise", Name: "Brise"},
+	{ID: "calandria", Name: "Calandria"}, {ID: "cedar", Name: "Cedar", Gender: "male"}, {ID: "cinder", Name: "Cinder"},
+	{ID: "compas", Name: "Compas"}, {ID: "coral", Name: "Coral"}, {ID: "delta", Name: "Delta"},
+	{ID: "destello", Name: "Destello"}, {ID: "echo", Name: "Echo"}, {ID: "flitz", Name: "Flitz"},
+	{ID: "gleam", Name: "Gleam"}, {ID: "halo", Name: "Halo"}, {ID: "harema", Name: "Harema"},
+	{ID: "hornero", Name: "Hornero"}, {ID: "juni", Name: "Juni"}, {ID: "luciernaga", Name: "Luciernaga"},
+	{ID: "marin", Name: "Marin", Gender: "female"}, {ID: "meridian", Name: "Meridian"}, {ID: "nira", Name: "Nira"},
+	{ID: "noeul", Name: "Noeul"}, {ID: "nuri", Name: "Nuri"}, {ID: "pearl", Name: "Pearl"},
+	{ID: "quartz", Name: "Quartz"}, {ID: "ripple", Name: "Ripple"}, {ID: "sage", Name: "Sage"},
+	{ID: "shida", Name: "Shida"}, {ID: "shimmer", Name: "Shimmer"}, {ID: "sillage", Name: "Sillage"},
+	{ID: "stone", Name: "Stone"}, {ID: "tempo", Name: "Tempo"}, {ID: "verse", Name: "Verse"},
+	{ID: "vesper", Name: "Vesper"}, {ID: "willow", Name: "Willow"},
 }
 
 // xAIRealtimeVoices is xAI's built-in voice list, read 2026-10-15 at

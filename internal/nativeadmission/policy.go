@@ -158,7 +158,7 @@ func (p Policy) validate() error {
 			return errors.New("nativeadmission: realtime bounds required")
 		}
 		for _, kind := range p.Realtime.SessionKinds {
-			if kind != "conversation" && kind != "transcription" && kind != "translation" {
+			if kind != "conversation" && kind != "transcription" && kind != "translation" && kind != "live" {
 				return errors.New("nativeadmission: invalid realtime kind")
 			}
 		}

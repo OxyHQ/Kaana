@@ -21,11 +21,11 @@ import (
 	"github.com/OxyHQ/Kaana/internal/realtime"
 )
 
-// No adapter serves `live` yet (Kaana ADR 0012 K2 and K3 add them), so the
-// session's half of the contract runs here against a scripted upstream: the
+// The session's half of the live contract, against a scripted upstream: the
 // provider side a native or emulated adapter implements. It returns
 // delegation.requested from Next and receives the delegation commands through
-// Send; the session numbers every event, supersedes and refuses.
+// Send; the session numbers every event, supersedes and refuses. The adapters
+// themselves are proven by TestLiveContract (live_contract_test.go).
 
 // liveUpstream is a provider session the test drives: events it is told to
 // emit, and every command the session sent it.

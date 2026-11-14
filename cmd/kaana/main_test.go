@@ -20,6 +20,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/provider/elevenlabs"
 	"github.com/OxyHQ/Kaana/internal/provider/openaiaudio"
 	"github.com/OxyHQ/Kaana/internal/provider/openaicompat"
+	"github.com/OxyHQ/Kaana/internal/provider/openailive"
 	"github.com/OxyHQ/Kaana/internal/provider/openairealtime"
 	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/rotation"
@@ -176,6 +177,42 @@ func TestOpenAIAudioBuildsTheAudioAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
 		"KAANA_PROVIDER_TRANSCRIBER_BASE_URL": "https://api.openai.com/v1",
 	})); err == nil {
 		t.Fatal("the OpenAI audio protocol was served under another slug")
+	}
+}
+
+// TestOpenAILiveBuildsTheGPTLiveAdapterOnlyAtOpenAIsOrigin: the slug builds
+// the session adapter that opens live sessions and nothing else, and its
+// protocol is refused under any other slug or origin (with the built-in slug
+// as the positive control).
+func TestOpenAILiveBuildsTheGPTLiveAdapterOnlyAtOpenAIsOrigin(t *testing.T) {
+	configs, err := parseProviders(lookup(map[string]string{"KAANA_PROVIDERS": "openai-live"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrants, err := buildAdapters(configs)
+	if err != nil || len(registrants) != 1 {
+		t.Fatalf("adapter construction: %v", err)
+	}
+	session, ok := registrants[0].(*openailive.Adapter)
+	if _, oneShot := registrants[0].(provider.Adapter); !ok || oneShot || !provider.OpensRealtime(session, contract.RealtimeLive) ||
+		provider.OpensRealtime(session, contract.RealtimeConversation) {
+		t.Fatalf("openai-live built as %T", registrants[0])
+	}
+	if _, err := parseProviders(lookup(map[string]string{
+		"KAANA_PROVIDERS":                     "openai-live",
+		"KAANA_PROVIDER_OPENAI_LIVE_BASE_URL": "https://example.com/v1",
+	})); err == nil {
+		t.Fatal("openai-live accepted an origin other than OpenAI's")
+	}
+	for _, slug := range []string{"openai", "openai-realtime", "live-elsewhere"} {
+		prefix := "KAANA_PROVIDER_" + strings.ToUpper(strings.ReplaceAll(slug, "-", "_"))
+		if _, err := parseProviders(lookup(map[string]string{
+			"KAANA_PROVIDERS":    slug,
+			prefix + "_PROTOCOL": "openai_live",
+			prefix + "_BASE_URL": "https://api.openai.com/v1",
+		})); err == nil {
+			t.Fatalf("the GPT-Live protocol was accepted under %s", slug)
+		}
 	}
 }
 

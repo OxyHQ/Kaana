@@ -4,6 +4,26 @@
 > which keeps the rules, the per-provider facts and the gates. Each section is as it stood on its
 > date; check the live inventory and the provider's own documentation before relying on one.
 
+## 2026-11-14 OpenAI GPT-Live (`openai-live`)
+
+Kaana ADR 0012, phase K2: OpenAI's GPT-Live, the native voice of the `live`
+session kind. Re-read on 2026-11-14 from OpenAI's own documentation: the model
+page (https://developers.openai.com/api/docs/models/gpt-live-1), the live
+conversations and live delegation guides, the WebSocket guide
+(`?api=live`) and the primary WebSocket reference.
+
+| Gate | Evidence | Disposition |
+|---|---|---|
+| Wire | `wss://api.openai.com/v1/live/sessions`, `Authorization: Bearer`, no query; `session.start` answered by `session.started`; client delegation; per-second billing reported as `usage.seconds` on `session.closed` | New protocol `openai_live`, locked to OpenAI's origin under the slug `openai-live` and refused under any other slug or root at startup; adapter `internal/provider/openailive`, real-wire fake `openailivetest`, `TestLiveContract` |
+| Identity | One snapshot, `gpt-live-1` ("Use `gpt-live-1` in your API requests"); Live (v1/live/sessions) is its only endpoint | Attributed to `openai-live` only, as `openai/gpt-live-1`; dropped under every other OpenAI slug |
+| Discovery | The production key's `GET /v1/models` lists `gpt-live-1` (read 2026-11-14) | `openai_models`, with the reviewed discovery key id `ac291e20-2c8e-4036-8bad-0e956f9af69f` |
+| Cost | "Voice sessions cost $0.05 per minute, billed per second", not rounded up to the minute; Build 50, Launch 300, Grow 500 concurrent sessions; the free tier is unsupported | `session_milliseconds`, provider_reported (Kaana's wall clock, oxy_measured, when `session.closed` never comes); the rate card waits for the deployment id the publisher mints (docs/realtime.md, "Operating `openai-live`") |
+
+Not verified, for the first signed canary: the handshake's refusal statuses and
+bodies, the in-band error vocabulary beyond OpenAI's one example, whether an
+acknowledgement delay of 0 requests an acknowledgement at once or none, and
+whether a turn's input transcript always precedes its delegation.
+
 ## 2026-09-03 external radar disposition
 
 The unlicensed external catalogue was used only to discover provider names.

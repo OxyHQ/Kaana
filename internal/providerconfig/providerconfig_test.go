@@ -2,6 +2,7 @@ package providerconfig_test
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -18,8 +19,8 @@ func TestEnvironmentPrefixUsesTheKaanaName(t *testing.T) {
 }
 
 func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
-	if got := len(providerconfig.Known); got != 34 {
-		t.Fatalf("built-in providers = %d, want the 34 documented in README.md and docs/operating.md", got)
+	if got := len(providerconfig.Known); got != 35 {
+		t.Fatalf("built-in providers = %d, want the 35 documented in README.md and docs/operating.md", got)
 	}
 	if endpoint := providerconfig.Known["elevenlabs"]; endpoint.Protocol != providerconfig.ProtocolElevenLabsSpeech || endpoint.Discovery != providerconfig.DiscoveryElevenLabsModels || endpoint.BaseURL != "https://api.elevenlabs.io/v1" {
 		t.Fatalf("ElevenLabs speech configuration = %+v", endpoint)
@@ -80,6 +81,24 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	}
 	if formats := providerconfig.ExecutableAPIFormats("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(formats) != 0 {
 		t.Fatalf("the realtime protocol executes requests: %v", formats)
+	}
+	if endpoint := providerconfig.Known["openai-live"]; endpoint.Protocol != providerconfig.ProtocolOpenAILive || endpoint.Discovery != providerconfig.DiscoveryOpenAIModels || endpoint.BaseURL != "https://api.openai.com/v1" ||
+		providerconfig.OpenAILiveSessionURL != "wss://api.openai.com/v1/live/sessions" {
+		t.Fatalf("OpenAI GPT-Live configuration = %+v", endpoint)
+	}
+	for _, other := range []string{"https://api.openai.com/v1/", "https://api.openai.com/v1/live", "https://api.x.ai/v1"} {
+		if err := providerconfig.ValidateEndpointIdentity("openai-live", other); err == nil {
+			t.Fatalf("openai-live accepted %q, which is not OpenAI's canonical API root", other)
+		}
+	}
+	if err := providerconfig.ValidateEndpointIdentity("openai-live", "https://api.openai.com/v1"); err != nil {
+		t.Fatalf("openai-live refused OpenAI's canonical API root: %v", err)
+	}
+	if kinds := providerconfig.RealtimeSessionKinds("openai-live", providerconfig.ProtocolOpenAILive); len(kinds) != 1 || kinds[0] != contract.RealtimeLive {
+		t.Fatalf("GPT-Live session kinds = %v", kinds)
+	}
+	if formats := providerconfig.ExecutableAPIFormats("openai-live", providerconfig.ProtocolOpenAILive); len(formats) != 0 {
+		t.Fatalf("the GPT-Live protocol executes requests: %v", formats)
 	}
 	if kinds := providerconfig.RealtimeSessionKinds("openai", providerconfig.ProtocolOpenAICompatible); len(kinds) != 0 {
 		t.Fatalf("a request protocol holds sessions: %v", kinds)
@@ -339,5 +358,55 @@ func TestExecutableAPIFormatsMatchWhatEachAdapterTranslates(t *testing.T) {
 		if fmt.Sprint(got) != fmt.Sprint(c.want) {
 			t.Errorf("%s/%s executes %v, want %v", c.slug, c.protocol, got, c.want)
 		}
+	}
+}
+
+// TestTheGPTLiveStatement is what the catalogue may say about GPT-Live: live
+// sessions over a WebSocket, every contract encoding both ways, the 38 voices
+// its reference enumerates with a gender only for the two the owner reviewed
+// (marin female, cedar male), no language list, the caller's words always
+// transcribed, and the session's clock as its one unit under either detection.
+func TestTheGPTLiveStatement(t *testing.T) {
+	statement, stated := providerconfig.RealtimeCapabilities("openai-live", providerconfig.ProtocolOpenAILive)
+	if !stated || !reflect.DeepEqual(statement.SessionKinds, []contract.RealtimeSessionKind{contract.RealtimeLive}) ||
+		!reflect.DeepEqual(statement.Transports, []contract.RealtimeSessionTransport{contract.RealtimeWebSocket}) ||
+		!statement.InputAudioTranscription || !statement.DetectsLanguage || statement.Languages == nil || len(statement.Languages) != 0 {
+		t.Fatalf("GPT-Live statement = %+v", statement)
+	}
+	formats := []contract.RealtimeAudioFormat{contract.RealtimePCM16, contract.RealtimeULaw, contract.RealtimeALaw}
+	if !reflect.DeepEqual(statement.InputAudioFormats, formats) || !reflect.DeepEqual(statement.OutputAudioFormats, formats) {
+		t.Fatalf("GPT-Live formats = %v / %v", statement.InputAudioFormats, statement.OutputAudioFormats)
+	}
+	if len(statement.Voices) != 38 {
+		t.Fatalf("GPT-Live has %d voices, want the 38 of its reference", len(statement.Voices))
+	}
+	gendered := map[string]string{}
+	seen := map[string]bool{}
+	for _, voice := range statement.Voices {
+		if seen[voice.ID] || voice.ID == "" || voice.Name == "" {
+			t.Fatalf("voice %+v is repeated or unnamed", voice)
+		}
+		seen[voice.ID] = true
+		if voice.Gender != "" {
+			gendered[voice.ID] = voice.Gender
+		}
+	}
+	if !reflect.DeepEqual(gendered, map[string]string{"marin": "female", "cedar": "male"}) {
+		t.Fatalf("gendered voices = %v; only the owner's reviewed two carry one", gendered)
+	}
+	if err := statement.Parameters.Validate(); err != nil {
+		t.Fatalf("parameters: %v", err)
+	}
+	for _, detection := range []contract.RealtimeTurnDetectionType{contract.TurnDetectionServerVAD, contract.TurnDetectionSemanticVAD} {
+		served, ok := statement.Parameters.TurnDetectionOf(detection)
+		if !ok || !reflect.DeepEqual(served.MeteredUnits, []contract.UsageUnit{contract.UnitSessionMilliseconds}) {
+			t.Fatalf("%s = %+v, %t", detection, served, ok)
+		}
+	}
+	if _, ok := statement.Parameters.TurnDetectionOf(contract.TurnDetectionNone); ok {
+		t.Fatal("GPT-Live states push-to-talk; its voice detects every turn")
+	}
+	if !statement.Parameters.NeverResponds() {
+		t.Fatalf("GPT-Live states responses of its own: %+v", statement.Parameters)
 	}
 }

@@ -80,3 +80,34 @@ func TestXAIVoiceIsAttributedOnlyToTheRealtimeAdapter(t *testing.T) {
 		t.Error("the voice model is attributed to the xai request adapter")
 	}
 }
+
+// TestGPTLiveIsAttributedOnlyToTheLiveAdapter pins `gpt-live-1` to
+// `openai-live` and nowhere else, and proves the row is one the publisher
+// would publish there and refuse under every other OpenAI slug, none of whose
+// adapters opens a `live` session.
+func TestGPTLiveIsAttributedOnlyToTheLiveAdapter(t *testing.T) {
+	table, err := LoadAttribution("../../configs/model-attribution.json")
+	if err != nil {
+		t.Fatalf("attribution: %v", err)
+	}
+	if got := len(table.byProvider["openai-live"]); got != 1 {
+		t.Fatalf("openai-live has %d attributions, want exactly gpt-live-1", got)
+	}
+	if got, ok := table.ModelLine("openai-live", "gpt-live-1"); !ok || got != "openai/gpt-live-1" {
+		t.Errorf("openai-live/gpt-live-1 = %q, %t", got, ok)
+	}
+	if !executable(Provider{Slug: "openai-live", Protocol: providerconfig.ProtocolOpenAILive}, "gpt-live-1") {
+		t.Error("gpt-live-1 is attributed and the GPT-Live adapter would not publish it")
+	}
+	for slug := range openAINamespaces {
+		if executable(Provider{Slug: slug, Protocol: providerconfig.Known[slug].Protocol}, "gpt-live-1") {
+			t.Errorf("gpt-live-1 would be published under %s, whose adapter opens no live session", slug)
+		}
+	}
+	// The live adapter publishes nothing else OpenAI lists.
+	for _, other := range []string{"gpt-realtime-2.1", "gpt-live-transcribe", "gpt-6-astra", "gpt-transcribe"} {
+		if executable(Provider{Slug: "openai-live", Protocol: providerconfig.ProtocolOpenAILive}, other) {
+			t.Errorf("%s would be published under openai-live", other)
+		}
+	}
+}

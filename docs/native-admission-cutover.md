@@ -31,6 +31,14 @@ and USD 0.25; transcription 300,000 ms and USD 0.05; realtime qualification USD
 policy. Realtime admission also quotes the complete bounded session and response
 fees, rather than treating a per-minute amount as a session hold.
 
+A `live` session (Kaana ADR 0012) is admitted by kind like any other realtime kind,
+and a line priced only by its clock (`session_milliseconds`, with `requests` at most
+at the session's maxResponses and no other unit above zero; GPT-Live) is quoted by
+that clock alone, mirroring Oxy's clock-only session plan. The reviewed policy
+`configs/native-admission/alia-kaana-v2.json` does not list `live` among its realtime
+kinds: serving `live` natively is a follow-up that needs a reviewed v3 policy
+registration, not an edit of v2.
+
 The new output ceiling of 8,192 is the reviewed implementation choice addressing
 observed reasoning exhaustion under the former 2,048 clamp. It can increase actual
 usage within unchanged monetary caps; the catalogue's price/context bounds still

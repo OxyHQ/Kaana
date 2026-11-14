@@ -35,6 +35,9 @@ const (
 	ProtocolOpenAIAudio       = "openai_audio"
 	ProtocolOpenAIRealtime    = "openai_realtime"
 	ProtocolXAIRealtime       = "xai_realtime"
+	// ProtocolOpenAILive is OpenAI's GPT-Live WebSocket, a voice that hands
+	// every turn to its client: the `live` session (Kaana ADR 0012).
+	ProtocolOpenAILive = "openai_live"
 	// ProtocolXAISTT is xAI's streaming speech-to-text WebSocket, a
 	// transcription session (Kaana ADR 0006).
 	ProtocolXAISTT = "xai_stt"
@@ -90,6 +93,7 @@ var Known = map[contract.ProviderSlug]Endpoint{
 	"openai":           {Protocol: ProtocolOpenAICompatible, BaseURL: "https://api.openai.com/v1", Discovery: DiscoveryOpenAIModels},
 	"openai-audio":     {Protocol: ProtocolOpenAIAudio, BaseURL: OpenAIAudioBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-realtime":  {Protocol: ProtocolOpenAIRealtime, BaseURL: OpenAIRealtimeBaseURL, Discovery: DiscoveryOpenAIModels},
+	"openai-live":      {Protocol: ProtocolOpenAILive, BaseURL: OpenAILiveBaseURL, Discovery: DiscoveryOpenAIModels},
 	"openai-decisions": {Protocol: ProtocolOpenAICompatible, BaseURL: OpenAIDecisionsBaseURL, Discovery: DiscoveryOpenAIModels},
 	"xai-realtime":     {Protocol: ProtocolXAIRealtime, BaseURL: XAIRealtimeBaseURL, Discovery: DiscoveryXAIRealtimeSessions},
 	"xai-stt":          {Protocol: ProtocolXAISTT, BaseURL: XAISTTBaseURL, Discovery: DiscoveryXAISpeechToText},
@@ -171,6 +175,22 @@ const (
 	OpenAIRealtimeSessionURL = "wss://api.openai.com/v1/realtime"
 )
 
+// OpenAILiveBaseURL is the only API root the `openai-live` slug may name, and
+// OpenAILiveSessionURL the only WebSocket endpoint its adapter dials: OpenAI's
+// GPT-Live (https://developers.openai.com/api/docs/guides/voice-websockets?api=live,
+// "wss://api.openai.com/v1/live/sessions", no query parameters).
+//
+// OpenAI's own origin under a fifth slug for the reason `openai-realtime` is
+// one: GPT-Live is neither a request nor the Realtime protocol, and a slug
+// resolves to exactly one adapter. The root is the HTTPS API root the
+// publisher lists the account's models at (the production key's
+// `GET /v1/models` lists `gpt-live-1`, read 2026-11-14); the session endpoint
+// is fixed here and is not configurable.
+const (
+	OpenAILiveBaseURL    = "https://api.openai.com/v1"
+	OpenAILiveSessionURL = "wss://api.openai.com/v1/live/sessions"
+)
+
 // OpenAIDecisionsBaseURL is the only API root the `openai-decisions` slug may
 // name: OpenAI's Decisions API, `POST /v1/decisions` (docs/decisions.md).
 //
@@ -227,6 +247,10 @@ func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.R
 	case ProtocolXAISTT:
 		// xAI's streaming speech-to-text transcribes and never answers.
 		return []contract.RealtimeSessionKind{contract.RealtimeTranscription}
+	case ProtocolOpenAILive:
+		// GPT-Live delegates every turn: it is the native `live` voice and
+		// holds nothing else (Kaana ADR 0012 §2).
+		return []contract.RealtimeSessionKind{contract.RealtimeLive}
 	}
 	return nil
 }
@@ -340,6 +364,12 @@ func ValidateEndpointIdentity(slug contract.ProviderSlug, raw string) error {
 	if slug == "openai-realtime" {
 		if raw != OpenAIRealtimeBaseURL {
 			return fmt.Errorf("openai-realtime requires OpenAI's canonical HTTPS API base")
+		}
+		return nil
+	}
+	if slug == "openai-live" {
+		if raw != OpenAILiveBaseURL {
+			return fmt.Errorf("openai-live requires OpenAI's canonical HTTPS API base")
 		}
 		return nil
 	}
