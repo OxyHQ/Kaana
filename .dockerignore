@@ -54,3 +54,4 @@ internal/contract/testdata/**
 !configs/native-admission/
 !configs/native-admission/alia-kaana-v1.json
 !configs/native-admission/alia-kaana-v2.json
+!configs/native-admission/alia-kaana-v3.json

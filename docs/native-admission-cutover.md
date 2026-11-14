@@ -34,10 +34,9 @@ fees, rather than treating a per-minute amount as a session hold.
 A `live` session (Kaana ADR 0012) is admitted by kind like any other realtime kind,
 and a line priced only by its clock (`session_milliseconds`, with `requests` at most
 at the session's maxResponses and no other unit above zero; GPT-Live) is quoted by
-that clock alone, mirroring Oxy's clock-only session plan. The reviewed policy
-`configs/native-admission/alia-kaana-v2.json` does not list `live` among its realtime
-kinds: serving `live` natively is a follow-up that needs a reviewed v3 policy
-registration, not an edit of v2.
+that clock alone, mirroring Oxy's clock-only session plan. Policy version 3 adds `live` to the previously reviewed conversation and
+transcription kinds. Versions 1 and 2 remain immutable historical inputs; adding
+the file to an image does not register or activate version 3.
 
 The new output ceiling of 8,192 is the reviewed implementation choice addressing
 observed reasoning exhaustion under the former 2,048 clamp. It can increase actual
@@ -54,9 +53,49 @@ unknown funding after known tiers. Unknown or unavailable promotional evidence
 cannot admit that step. No provider secret or Oxy economic authorization is needed
 for this local check.
 
+## Live voice policy version 3
+
+The current cutover candidate is `configs/native-admission/alia-kaana-v3.json`,
+policy `alia-kaana-native` version 3. Its file SHA256 is
+`bb80ef1fb91fc589d75c99446631c18e53100031de9c68c90e17d64776e6249b`;
+its canonical policy digest is
+`7c7221f912d27f2679f90a700b5acb93c1e7aca17c184a2251aaf9a6585efb39`.
+Relative to v2, only the version and addition of `live` to realtime session kinds
+change. The credential roster, eight scoped tariffs, financial treatment, all
+monetary and capacity limits, privacy and funding constraints remain identical.
+This preserves the existing Alia relationship's live voice support in Oxy's
+`oxy-inference-economics/2026-11-14.2` policy (ADR 0012); it does not introduce a
+new provider, price or permission.
+
+Deterministic tests use the real catalogue and adapter registry with explicitly
+synthetic inventory observations. The declared GPT-Live clock price quotes
+USD 0.05 per minute and USD 1.50 for the complete 30-minute bound. The existing
+xAI voice tariff qualifies at USD 0.24 per minute and quotes USD 9.20 for the
+30-minute, 500-response bound, including its response fees. Both retain the
+USD 0.25/minute qualification ceiling. Actual use is rated from measured units.
+A live kind without an inventory observation, missing audio/context capability,
+unsupported tools, excess duration or missing commercial declaration remains
+ineligible. These tests prove no current key, inventory or live provider readiness.
+
+The public realtime API requires an explicit model. The caller chooses its
+catalogue default; this policy does not add cross-model failover. In the reviewed
+source, GPT-Live is declared in the catalogue but has no deployment commercial
+entry. That remains a refusal, not an implicit permission; the existing xAI voice
+entries retain their commercial gate. Verify the caller's selection and actual
+eligible live routes before cutover.
+
+Publish an official image containing v3 before preparing operator task definitions
+that reference its file. Inspect the existing enrollment, register v3 with the
+operator CLI, then inspect v3: registration must leave the previously disabled
+enrollment disabled, without an active policy or a completed legacy fence. Set
+the serving task's policy path and byte hash to v3 through reviewed infrastructure
+and verify every running task before the fresh fence/export/import sequence.
+The import and validation operators must also use an image containing v3.
+No schema migration, balance change or activation follows from this source change.
+
 ## Initial policy evidence
 
-The reviewed activation candidate is `configs/native-admission/alia-kaana-v2.json`,
+The earlier inactive candidate is `configs/native-admission/alia-kaana-v2.json`,
 policy `alia-kaana-native` version 2. Its file SHA256 is
 `eb3385f238ff5639771542b0caeb6cb7474347d59f205400351e6f9c2adcf490`;
 its canonical policy digest is
