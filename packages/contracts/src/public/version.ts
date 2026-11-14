@@ -101,7 +101,7 @@
  * change to, say, the catalogue reject every in-flight inference request; the
  * per-shape `schemaVersion` is what a message is validated against.
  */
-export const INFERENCE_CONTRACT_VERSION = '8.15.0';
+export const INFERENCE_CONTRACT_VERSION = '8.16.0';
 
 /**
  * Contract set 4.0.0 (Kaana ADR 0002) is the first published as
@@ -268,6 +268,18 @@ export const INFERENCE_CONTRACT_VERSION = '8.15.0';
  * request and response shapes and the grant are unchanged; Kaana now serves
  * `POST /v1/rerank` and emits the `rerank` operation for a model some deployment
  * can serve.
+ */
+
+/**
+ * Contract set 8.16.0 (Kaana ADR 0012) is additive: the realtime session kind
+ * `live`, a spoken conversation whose turns the caller's backend answers. Its
+ * `config.delegation` (`realtimeDelegationConfigSchema`), the commands
+ * `delegation.reply`, `delegation.context` and `delegation.cancel`, the events
+ * `delegation.requested` and `delegation.superseded`, and the catalogue's
+ * `capabilities.realtime.defaultKinds`, with at most one active default line per
+ * kind. Every 8.15.0 message parses the same; a consumer on 8.15.0 refuses a
+ * session, a command, an event or a catalogue carrying what is new, so Oxy reads
+ * them before Kaana serves a `live` line.
  */
 
 /** The public API's one origin and version. */

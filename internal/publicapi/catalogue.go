@@ -39,7 +39,12 @@ type PublicCatalogue struct {
 type declaredModel struct {
 	audience   contract.CatalogueAudience
 	powerClass string
-	fields     map[string]json.RawMessage
+	// defaultKinds are the session kinds the line is Kaana's default for
+	// (capabilities.realtime.defaultKinds, contract set 8.16.0): a catalogue
+	// decision, kept by render, which replaces the rest of
+	// capabilities.realtime with what the inventory serves.
+	defaultKinds []contract.RealtimeSessionKind
+	fields       map[string]json.RawMessage
 }
 
 // catalogueFile is the declared file: one entry per model line, in the shape
@@ -96,6 +101,7 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 	}
 	catalogue := &PublicCatalogue{models: make(map[contract.ModelID]declaredModel, len(file.Models))}
 	declared := make([]declaredEntry, 0, len(file.Models))
+	defaultLines := make(map[contract.RealtimeSessionKind]contract.ModelID)
 	for index, fields := range file.Models {
 		for _, required := range declaredRequired {
 			if _, present := fields[required]; !present {
@@ -142,6 +148,20 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 			if err := json.Unmarshal(raw, &model.powerClass); err != nil || !slices.Contains(powerClasses, model.powerClass) {
 				return nil, fmt.Errorf("publicapi: public catalogue models[%d].powerClass is not a power class", index)
 			}
+		}
+		defaults, active, err := declaredDefaultKinds(fields)
+		if err != nil {
+			return nil, fmt.Errorf("publicapi: public catalogue models[%d].capabilities.realtime.defaultKinds: %w", index, err)
+		}
+		model.defaultKinds = defaults
+		for _, kind := range defaults {
+			if !active {
+				continue
+			}
+			if other, taken := defaultLines[kind]; taken {
+				return nil, fmt.Errorf("publicapi: public catalogue declares %s and %s as the default %s line: at most one active line is the default of a kind", other, line, kind)
+			}
+			defaultLines[kind] = line
 		}
 		catalogue.models[line] = model
 		declared = append(declared, declaredEntry{line: line, audience: model.audience, imageInput: imageInput, capabilities: internalCapabilities, fields: fields})
@@ -213,6 +233,44 @@ func withholdUnreported(fields map[string]json.RawMessage) (json.RawMessage, err
 	return original, nil
 }
 
+// declaredDefaultKinds reads a declared model's
+// capabilities.realtime.defaultKinds (contract set 8.16.0): each a kind the
+// line holds, each once. active is whether the model is active, the only
+// state in which its defaults count against another line's.
+func declaredDefaultKinds(fields map[string]json.RawMessage) ([]contract.RealtimeSessionKind, bool, error) {
+	var capabilities struct {
+		Realtime *struct {
+			SessionKinds []contract.RealtimeSessionKind  `json:"sessionKinds"`
+			DefaultKinds *[]contract.RealtimeSessionKind `json:"defaultKinds"`
+		} `json:"realtime"`
+	}
+	var deprecation struct {
+		Status string `json:"status"`
+	}
+	if err := errors.Join(json.Unmarshal(fields["capabilities"], &capabilities), json.Unmarshal(fields["deprecation"], &deprecation)); err != nil {
+		return nil, false, err
+	}
+	realtime := capabilities.Realtime
+	if realtime == nil || realtime.DefaultKinds == nil {
+		return nil, false, nil
+	}
+	defaults := *realtime.DefaultKinds
+	if len(defaults) == 0 {
+		return nil, false, errors.New("names at least one kind")
+	}
+	for index, kind := range defaults {
+		switch {
+		case !kind.Valid():
+			return nil, false, fmt.Errorf("%q is not a session kind", kind)
+		case slices.Contains(defaults[:index], kind):
+			return nil, false, fmt.Errorf("names %s twice", kind)
+		case !slices.Contains(realtime.SessionKinds, kind):
+			return nil, false, fmt.Errorf("names %s, which the line does not hold", kind)
+		}
+	}
+	return defaults, deprecation.Status == "active", nil
+}
+
 // validateImageInput holds declaredImageInputSchema: exactly a positive
 // integer maxInputTokensPerImage, on a model whose inputModalities lists
 // image (ADR 0007).
@@ -272,6 +330,17 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		}
 		realtime := map[string]any{"transports": entry.Realtime.Transports, "sessionKinds": entry.Realtime.SessionKinds,
 			"inputAudioTranscription": entry.Realtime.InputAudioTranscription, "audioFormats": entry.Realtime.AudioFormats}
+		// A line is the default only of a kind it serves: a declared default
+		// the inventory does not serve is not published.
+		var defaults []contract.RealtimeSessionKind
+		for _, kind := range m.defaultKinds {
+			if slices.Contains(entry.Realtime.SessionKinds, kind) {
+				defaults = append(defaults, kind)
+			}
+		}
+		if len(defaults) > 0 {
+			realtime["defaultKinds"] = defaults
+		}
 		encoded, err := json.Marshal(realtime)
 		if err != nil {
 			return nil, err

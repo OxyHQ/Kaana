@@ -32,6 +32,7 @@ import {
   realtimeClientCommandSchema,
   realtimePublicServerEventSchema,
   realtimeSessionOpenSchema,
+  realtimeSessionTakes,
   type Transcription,
   transcriptionJsonRequestSchema,
   transcriptionRequestSchema,
@@ -124,6 +125,8 @@ export class FakeRealtimeSession {
   #sequence = 0;
   readonly #log: RealtimeServerEvent[] = [];
   readonly #seen = new Set<string>();
+  /** The delegation a `live` session's commands may name: the newest, until it ends. */
+  #delegation: string | undefined;
   #socket: FakeSocket | undefined;
   #closed = false;
 
@@ -149,8 +152,21 @@ export class FakeRealtimeSession {
     return this.#closed;
   }
 
-  /** Emit an event to the client, as the provider's answer would arrive. */
+  /**
+   * Emit an event to the client, as the provider's answer would arrive. A
+   * `delegation.requested` supersedes the delegation still open, as Kaana's
+   * session does, so the client sees `delegation.superseded` first.
+   */
   emit(event: FakeServerEventInput): void {
+    if (event.type === 'delegation.requested') {
+      if (this.#delegation !== undefined) {
+        this.#push({
+          type: 'delegation.superseded',
+          delegationId: this.#delegation,
+        } as FakeServerEventInput);
+      }
+      this.#delegation = event.delegationId;
+    }
     this.#push(event);
   }
 
@@ -186,12 +202,30 @@ export class FakeRealtimeSession {
       );
       return;
     }
+    if (!realtimeSessionTakes(this.open.kind, command.type)) {
+      this.#refuse(
+        command.commandId,
+        'invalid_request',
+        `a ${this.open.kind} session takes no ${command.type}`,
+        'type',
+      );
+      return;
+    }
     if (this.#seen.has(command.commandId)) {
       this.#push({
         type: 'command.accepted',
         commandId: command.commandId,
         duplicate: true,
       } as FakeServerEventInput);
+      return;
+    }
+    if ('delegationId' in command && command.delegationId !== this.#delegation) {
+      this.#refuse(
+        command.commandId,
+        'invalid_request',
+        'delegationId names no open delegation of this session',
+        'delegationId',
+      );
       return;
     }
     this.#seen.add(command.commandId);
@@ -204,6 +238,12 @@ export class FakeRealtimeSession {
       this.commands.push(command);
       this.#finish('client_closed', [], 'oxy_measured');
       return;
+    }
+    if (
+      command.type === 'delegation.cancel' ||
+      (command.type === 'delegation.reply' && command.final)
+    ) {
+      this.#delegation = undefined;
     }
     this.commands.push(command);
   }

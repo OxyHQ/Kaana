@@ -1,5 +1,32 @@
 # Changelog
 
+## 8.16.0
+
+Live voice sessions with delegation (Kaana ADR 0012). Additive: everything
+8.15.0 parses still parses. No line serves `live` yet; the adapters follow.
+
+- `realtimeSessionKindSchema` gains `live`: a spoken conversation whose turns the
+  caller's backend answers.
+- `realtimeSessionConfigSchema` gains the optional `delegation`
+  (`realtimeDelegationConfigSchema`: `acknowledgement` `auto` or `none`),
+  required for `live` and refused for every other kind. A `live` session also
+  needs a `voice`, one audio format both ways and a turn detection other than
+  `none`, and refuses `outputModalities`, `tools`, `toolChoice`,
+  `maxOutputTokens`, `translation` and an input transcription `prompt`
+  (`realtimeConfigIssues`).
+- Commands `delegation.reply` (`delegationId`, `text` of 1 to 8192 UTF-16 units,
+  `verbatim?` of at most 32 spans of 1 to 256 units, each a part of `text`,
+  `final`), `delegation.context` (`delegationId`, `text`) and `delegation.cancel`
+  (`delegationId`). `MAX_REALTIME_DELEGATION_TEXT_CHARS`,
+  `MAX_REALTIME_VERBATIM_SPANS` and `MAX_REALTIME_VERBATIM_SPAN_CHARS` state the
+  bounds.
+- Events `delegation.requested` (`delegationId`, `text`) and
+  `delegation.superseded` (`delegationId`), in the public and the signed event
+  unions.
+- `capabilities.realtime.defaultKinds`: the session kinds a line is Kaana's
+  default for, each one of its `sessionKinds`. `declaredCatalogueSchema` allows
+  at most one active default line per kind.
+
 ## 8.15.0
 
 The rerank request's documents in the signed envelope. Additive: everything

@@ -99,16 +99,24 @@ export const inferenceApiFormatSchema = z.enum([
 ]);
 
 /**
- * What a realtime session is FOR. The three are different upstream products
- * with different event families and different metering, not options of one:
+ * What a realtime session is FOR. They are different upstream products with
+ * different event families and different metering, not options of one:
  *
  *  - `conversation` — a speech-to-speech (or text) model holding a dialogue,
  *    with responses, tool calls and interruption.
  *  - `transcription` — live speech-to-text; the model never responds, it only
  *    transcribes committed input audio.
  *  - `translation` — live speech-to-speech translation into one target language.
+ *  - `live` — a spoken conversation whose turns the CALLER's backend answers
+ *    (contract set 8.16.0, Kaana ADR 0012): the voice hands each turn over as
+ *    `delegation.requested` and speaks the `delegation.reply` it is given.
  */
-export const realtimeSessionKindSchema = z.enum(['conversation', 'transcription', 'translation']);
+export const realtimeSessionKindSchema = z.enum([
+  'conversation',
+  'transcription',
+  'translation',
+  'live',
+]);
 
 /**
  * How a realtime session is carried. One member today: a WebSocket, whose every
@@ -135,11 +143,19 @@ export const realtimeSessionTransportSchema = z.enum(['websocket']);
  * - `audioFormats` — the realtime encodings a session may name as
  *   `config.inputAudioFormat` and `config.outputAudioFormat`. These are not the
  *   media types of `audio.audioFormats`, which describe files.
+ *
+ * `defaultKinds` arrived in contract set 8.16.0 (Kaana ADR 0012): the session
+ * kinds for which this line is Kaana's default, each one of its `sessionKinds`.
+ * A client opens the default line of a kind after reading `GET /v1/models`, so
+ * which provider serves a kind is a catalogue decision and never a client
+ * constant. At most one active line is the default of a kind. Absent means the
+ * line is the default of none.
  */
 export const modelRealtimeCapabilitiesSchema = z
   .object({
     transports: z.array(realtimeSessionTransportSchema).min(1),
     sessionKinds: z.array(realtimeSessionKindSchema).min(1),
+    defaultKinds: z.array(realtimeSessionKindSchema).min(1).optional(),
     inputAudioTranscription: z.boolean().optional(),
     audioFormats: z
       .object({
@@ -252,6 +268,25 @@ export const modelCapabilitiesSchema = z
         path: ['realtime', 'sessionKinds'],
         message: 'each session kind is declared at most once',
       });
+    }
+    const defaults = realtime.defaultKinds;
+    if (defaults !== undefined) {
+      if (new Set(defaults).size !== defaults.length) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['realtime', 'defaultKinds'],
+          message: 'each default kind is declared at most once',
+        });
+      }
+      for (const [index, kind] of defaults.entries()) {
+        if (!realtime.sessionKinds.includes(kind)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['realtime', 'defaultKinds', index],
+            message: `a line is the default only of a kind it holds, and it holds no ${kind} session`,
+          });
+        }
+      }
     }
     if (new Set(realtime.transports).size !== realtime.transports.length) {
       ctx.addIssue({

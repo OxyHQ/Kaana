@@ -54,7 +54,7 @@ describe('@kaana.ai/sdk/testing', () => {
     const { kaana, server } = createFakeKaana();
     const models = await kaana.models.list();
     // The client states the set it parses, which Kaana renders the catalogue in.
-    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('8.15.0');
+    expect(server.requests[0]?.headers.get('Kaana-Contract-Version')).toBe('8.16.0');
     expect(models.map((model) => model.modelId)).toEqual(
       voiceCatalogue.map((model) => model.modelId),
     );
@@ -117,6 +117,95 @@ describe('@kaana.ai/sdk/testing', () => {
       'session.update',
     ]);
     await session.close();
+  });
+
+  it("hands a live session's turns over and refuses what its voice owns", async () => {
+    const grok = voiceCatalogue.find((model) => model.modelId === VOICE);
+    if (grok?.capabilities.realtime === undefined)
+      throw new Error('no realtime line to start from');
+    const liveLine = {
+      ...grok,
+      capabilities: {
+        ...grok.capabilities,
+        realtime: { ...grok.capabilities.realtime, sessionKinds: ['live' as const] },
+      },
+    };
+    const { kaana, server } = createFakeKaana({ models: [liveLine] });
+    const session = await kaana.realtime.connect({
+      model: VOICE,
+      type: 'session.open',
+      kind: 'live',
+      config: {
+        voice: 'eve',
+        inputAudioFormat: 'pcm16_24khz',
+        outputAudioFormat: 'pcm16_24khz',
+        turnDetection: { type: 'server_vad', createResponse: true, interruptResponse: true },
+        delegation: { acknowledgement: 'auto' },
+      },
+    });
+    const events = session[Symbol.asyncIterator]();
+    await next(events);
+    const opened = server.sessions[0];
+    const refusedParam = async () => {
+      const event = await next(events);
+      if (event.type !== 'error') throw new Error(`expected a refusal, got ${event.type}`);
+      return event.error.param;
+    };
+
+    opened?.emit({ type: 'delegation.requested', delegationId: 'del_1', text: 'book a table' });
+    expect(await next(events)).toMatchObject({
+      type: 'delegation.requested',
+      delegationId: 'del_1',
+    });
+    session.send({
+      type: 'delegation.reply',
+      delegationId: 'del_1',
+      text: 'One moment.',
+      final: false,
+    });
+    expect((await next(events)).type).toBe('command.accepted');
+
+    // The person moved on before the final reply: del_1 is superseded.
+    opened?.emit({ type: 'delegation.requested', delegationId: 'del_2', text: 'no, for tomorrow' });
+    expect(await next(events)).toMatchObject({
+      type: 'delegation.superseded',
+      delegationId: 'del_1',
+    });
+    expect((await next(events)).type).toBe('delegation.requested');
+    session.send({ type: 'delegation.reply', delegationId: 'del_1', text: 'Booked.', final: true });
+    expect(await refusedParam()).toBe('delegationId');
+
+    session.send({
+      type: 'delegation.reply',
+      delegationId: 'del_2',
+      text: 'Booked for 19:30 tomorrow.',
+      verbatim: ['19:30'],
+      final: true,
+    });
+    expect((await next(events)).type).toBe('command.accepted');
+    session.send({ type: 'delegation.context', delegationId: 'del_2', text: 'done' });
+    expect(await refusedParam()).toBe('delegationId');
+
+    session.send({ type: 'session.update', config: { instructions: 'Shorter.' } });
+    expect(await refusedParam()).toBe('type');
+    session.send({ type: 'input_audio.commit' });
+    expect(await refusedParam()).toBe('type');
+    expect(opened?.commands.map((command) => command.type)).toEqual([
+      'delegation.reply',
+      'delegation.reply',
+    ]);
+    await session.close();
+
+    const { kaana: voiceOnly } = createFakeKaana();
+    const conversation = await voiceOnly.realtime.connect(voiceCall());
+    const conversationEvents = conversation[Symbol.asyncIterator]();
+    await next(conversationEvents);
+    conversation.send({ type: 'delegation.cancel', delegationId: 'del_1' });
+    expect(await next(conversationEvents)).toMatchObject({
+      type: 'error',
+      error: { param: 'type' },
+    });
+    await conversation.close();
   });
 
   it('resumes a dropped connection and replays what the client missed', async () => {

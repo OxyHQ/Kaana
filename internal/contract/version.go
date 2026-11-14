@@ -79,7 +79,10 @@ package contract
 // 8.14.0 adds verified sessions without assigning economic authority.
 // 8.15.0 adds the signed envelope's optional `rerank` member (the documents and
 // controls of a rerank request); the public rerank shapes are unchanged.
-const ContractVersion = "8.15.0"
+// 8.16.0 adds the realtime session kind `live` with its delegation config,
+// commands and events, and the catalogue's `capabilities.realtime.defaultKinds`
+// (Kaana ADR 0012); no line serves `live` yet.
+const ContractVersion = "8.16.0"
 
 // SchemaVersion is the per-shape version of the unchanged error and non-usage
 // stream-event shapes. Each whole wire shape owns its version: the contract-set

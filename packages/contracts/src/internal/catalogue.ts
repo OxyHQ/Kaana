@@ -475,7 +475,28 @@ export const declaredCatalogueSchema = z
     schemaVersion: z.literal(1),
     models: z.array(declaredModelSchema),
   })
-  .strict();
+  .strict()
+  .superRefine((catalogue, ctx) => {
+    // A kind has one default (contract set 8.16.0, Kaana ADR 0012): a client
+    // opens the default line of a kind, so two active defaults would leave the
+    // choice to whichever the client read first.
+    const defaults = new Map<string, number>();
+    for (const [index, model] of catalogue.models.entries()) {
+      if (model.deprecation.status !== 'active') continue;
+      for (const kind of model.capabilities.realtime?.defaultKinds ?? []) {
+        const first = defaults.get(kind);
+        if (first !== undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['models', index, 'capabilities', 'realtime', 'defaultKinds'],
+            message: `models[${first}] is already the default ${kind} line: at most one active line is the default of a kind`,
+          });
+        } else {
+          defaults.set(kind, index);
+        }
+      }
+    }
+  });
 
 export type DeclaredModel = z.infer<typeof declaredModelSchema>;
 export type DeclaredImageInput = z.infer<typeof declaredImageInputSchema>;

@@ -203,6 +203,13 @@ var goShapes = map[string]reflect.Type{
 	"realtimeTranscriptInterimEventSchema":   reflect.TypeOf(RealtimeTranscriptInterimEvent{}),
 	"realtimeTranslationSchema":              reflect.TypeOf(RealtimeTranslationTarget{}),
 	"realtimeTurnDetectionSchema":            reflect.TypeOf(RealtimeTurnDetection{}),
+	// Contract set 8.16.0 (Kaana ADR 0012): the live session's delegation.
+	"realtimeDelegationConfigSchema":          reflect.TypeOf(RealtimeDelegationConfig{}),
+	"realtimeDelegationReplyCommandSchema":    reflect.TypeOf(RealtimeDelegationReplyCommand{}),
+	"realtimeDelegationContextCommandSchema":  reflect.TypeOf(RealtimeDelegationContextCommand{}),
+	"realtimeDelegationCancelCommandSchema":   reflect.TypeOf(RealtimeDelegationCancelCommand{}),
+	"realtimeDelegationRequestedEventSchema":  reflect.TypeOf(RealtimeDelegationRequestedEvent{}),
+	"realtimeDelegationSupersededEventSchema": reflect.TypeOf(RealtimeDelegationSupersededEvent{}),
 
 	// The grant and the settlement (ADR 0002, decisions 3 and 4), which
 	// internal/publicapi exchanges with Oxy in phase 3.
@@ -276,14 +283,15 @@ var goEnums = map[string]enumBinding{
 	// contracts 4.4.0 (set 3.2.0) named the api-format vocabulary that
 	// clientRequestMetadataSchema used to declare inline; the members did not
 	// change.
-	"inferenceApiFormatSchema":         bindEnum(apiFormatValues),
-	"realtimeAudioFormatSchema":        bindEnum(realtimeAudioFormatValues),
-	"realtimeOutputModalitySchema":     bindEnum(realtimeOutputModalityValues),
-	"realtimeResponseStatusSchema":     bindEnum(realtimeResponseStatusValues),
-	"realtimeSessionCloseReasonSchema": bindEnum(realtimeSessionCloseReasonValues),
-	"realtimeSessionKindSchema":        bindEnum(realtimeSessionKindValues),
-	"realtimeSessionTransportSchema":   bindEnum(realtimeSessionTransportValues),
-	"realtimeTranscriptSourceSchema":   bindEnum(realtimeTranscriptSourceValues),
+	"inferenceApiFormatSchema":                bindEnum(apiFormatValues),
+	"realtimeAudioFormatSchema":               bindEnum(realtimeAudioFormatValues),
+	"realtimeOutputModalitySchema":            bindEnum(realtimeOutputModalityValues),
+	"realtimeResponseStatusSchema":            bindEnum(realtimeResponseStatusValues),
+	"realtimeSessionCloseReasonSchema":        bindEnum(realtimeSessionCloseReasonValues),
+	"realtimeSessionKindSchema":               bindEnum(realtimeSessionKindValues),
+	"realtimeSessionTransportSchema":          bindEnum(realtimeSessionTransportValues),
+	"realtimeTranscriptSourceSchema":          bindEnum(realtimeTranscriptSourceValues),
+	"realtimeDelegationAcknowledgementSchema": bindEnum(realtimeDelegationAcknowledgementValues),
 	// ADR 0002 phase 3: the grant's vocabulary.
 	"grantOperationSchema":             bindEnum(grantOperationValues),
 	"grantLaneSchema":                  bindEnum(grantLaneValues),
@@ -321,6 +329,7 @@ var goScalars = map[string]reflect.Type{
 	"realtimeCommandIdSchema":          reflect.TypeOf(RealtimeCommandID("")),
 	"realtimeItemIdSchema":             reflect.TypeOf(RealtimeItemID("")),
 	"realtimeResponseIdSchema":         reflect.TypeOf(RealtimeResponseID("")),
+	"realtimeDelegationIdSchema":       reflect.TypeOf(RealtimeDelegationID("")),
 	"modelRevisionLabelSchema":         reflect.TypeOf(ModelRevisionLabel("")),
 	"exactDecimalSchema":               reflect.TypeOf(ExactDecimal("")),
 	"currencyCodeSchema":               reflect.TypeOf(CurrencyCode("")),
@@ -382,6 +391,8 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 		"transcript.interim":          reflect.TypeOf(RealtimeTranscriptInterimEvent{}),
 		"text.delta":                  reflect.TypeOf(RealtimeTextDeltaEvent{}),
 		"tool_call":                   reflect.TypeOf(RealtimeToolCallEvent{}),
+		"delegation.requested":        reflect.TypeOf(RealtimeDelegationRequestedEvent{}),
+		"delegation.superseded":       reflect.TypeOf(RealtimeDelegationSupersededEvent{}),
 		"response.done":               reflect.TypeOf(RealtimePublicResponseDoneEvent{}),
 		"error":                       reflect.TypeOf(RealtimePublicErrorEvent{}),
 		"session.closed":              reflect.TypeOf(RealtimePublicSessionClosedEvent{}),
@@ -408,6 +419,9 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 		"session.close":              reflect.TypeOf(RealtimeSessionCloseCommand{}),
 		"session.resume":             reflect.TypeOf(RealtimeSessionResumeCommand{}),
 		"session.update":             reflect.TypeOf(RealtimeSessionUpdateCommand{}),
+		"delegation.reply":           reflect.TypeOf(RealtimeDelegationReplyCommand{}),
+		"delegation.context":         reflect.TypeOf(RealtimeDelegationContextCommand{}),
+		"delegation.cancel":          reflect.TypeOf(RealtimeDelegationCancelCommand{}),
 	},
 	"realtimeServerEventSchema": {
 		"command.accepted":            reflect.TypeOf(RealtimeCommandAcceptedEvent{}),
@@ -415,6 +429,8 @@ var goUnionOfNamedShapes = map[string]map[string]reflect.Type{
 		"conversation.item.deleted":   reflect.TypeOf(RealtimeItemDeletedEvent{}),
 		"conversation.item.done":      reflect.TypeOf(RealtimeItemDoneEvent{}),
 		"conversation.item.truncated": reflect.TypeOf(RealtimeItemTruncatedEvent{}),
+		"delegation.requested":        reflect.TypeOf(RealtimeDelegationRequestedEvent{}),
+		"delegation.superseded":       reflect.TypeOf(RealtimeDelegationSupersededEvent{}),
 		"error":                       reflect.TypeOf(RealtimeErrorEvent{}),
 		"input_audio.cleared":         reflect.TypeOf(RealtimeInputAudioClearedEvent{}),
 		"input_audio.committed":       reflect.TypeOf(RealtimeInputAudioCommittedEvent{}),
@@ -670,6 +686,9 @@ func TestPublishedConstantsMatchGoDeclarations(t *testing.T) {
 		"MAX_REALTIME_RESUME_WINDOW_MS":          MaxRealtimeResumeWindowMs,
 		"MAX_REALTIME_ITEM_TEXT_CHARS":           MaxRealtimeItemTextChars,
 		"MAX_REALTIME_OPEN_FRAME_BYTES":          MaxRealtimeOpenFrameBytes,
+		"MAX_REALTIME_DELEGATION_TEXT_CHARS":     MaxRealtimeDelegationTextChars,
+		"MAX_REALTIME_VERBATIM_SPANS":            MaxRealtimeVerbatimSpans,
+		"MAX_REALTIME_VERBATIM_SPAN_CHARS":       MaxRealtimeVerbatimSpanChars,
 		"MAX_INPUT_IMAGES":                       MaxInputImages,
 		"MAX_INPUT_IMAGE_BYTES":                  MaxInputImageBytes,
 	} {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.17.0
+
+Depend on contracts 8.16.0: `realtime.connect` opens the `live` session kind
+(Kaana ADR 0012) and its session sends `delegation.reply`, `delegation.context`
+and `delegation.cancel` and yields `delegation.requested` and
+`delegation.superseded`. No line serves `live` yet. The fake server of
+`@kaana.ai/sdk/testing` refuses `session.update`, `input_audio.commit` and
+`input_audio.clear` on a `live` session, and the delegation commands on any
+other, as Kaana does.
+
 ## 3.16.0
 
 Depend on contracts 8.15.0 and add `rerank.create`, which posts

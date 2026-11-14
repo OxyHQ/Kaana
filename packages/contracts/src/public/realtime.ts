@@ -53,6 +53,20 @@ export const MAX_REALTIME_RESUME_WINDOW_MS = 60_000;
  */
 export const MAX_REALTIME_ITEM_TEXT_CHARS = 1_048_576;
 
+/**
+ * The most characters (UTF-16 code units) the text of one `delegation.reply` or
+ * `delegation.context` may hold (contract set 8.16.0). A client streams a long
+ * answer as several replies, sentence by sentence; Kaana splits each to its
+ * provider's own bound.
+ */
+export const MAX_REALTIME_DELEGATION_TEXT_CHARS = 8_192;
+
+/** The most verbatim spans one `delegation.reply` may mark (contract set 8.16.0). */
+export const MAX_REALTIME_VERBATIM_SPANS = 32;
+
+/** The most characters (UTF-16 code units) one verbatim span may hold (contract set 8.16.0). */
+export const MAX_REALTIME_VERBATIM_SPAN_CHARS = 256;
+
 /** A client-chosen command identity, unique within one session. */
 export const realtimeCommandIdSchema = z
   .string()
@@ -61,6 +75,15 @@ export const realtimeCommandIdSchema = z
 
 /** A conversation item's identity within one session. */
 export const realtimeItemIdSchema = z.string().check(minUtf16Length(1)).check(maxUtf16Length(128));
+
+/**
+ * A delegation's identity within one session: one turn a `live` session handed
+ * to its caller (contract set 8.16.0).
+ */
+export const realtimeDelegationIdSchema = z
+  .string()
+  .check(minUtf16Length(1))
+  .check(maxUtf16Length(128));
 
 /** A response's identity within one session. */
 export const realtimeResponseIdSchema = z
@@ -129,6 +152,10 @@ export const realtimeTurnDetectionSchema = z.discriminatedUnion('type', [
  * session: where the provider bills the transcription
  * apart from the session model, as `input_transcription_milliseconds` (see
  * `USAGE_UNITS`); where the session's own price includes it, as nothing more.
+ *
+ * A `live` session relays the caller's words whether or not it is set, because
+ * its delegation needs them; there it takes `language` only (contract set
+ * 8.16.0).
  */
 export const realtimeInputTranscriptionSchema = z
   .object({
@@ -154,6 +181,23 @@ export const realtimeTranslationSchema = z
   .object({
     /** A BCP 47 tag. */
     targetLanguage: z.string().check(minUtf16Length(2)).check(maxUtf16Length(35)),
+  })
+  .strict();
+
+/**
+ * Whether the voice of a `live` session acknowledges a turn it handed over:
+ * `auto` lets it say a short "one moment" while the caller's backend works;
+ * `none` keeps it silent until the first reply.
+ */
+export const realtimeDelegationAcknowledgementSchema = z.enum(['auto', 'none']);
+
+/**
+ * How a `live` session hands its turns to its caller (contract set 8.16.0,
+ * Kaana ADR 0012). Required for `live` and refused for every other kind.
+ */
+export const realtimeDelegationConfigSchema = z
+  .object({
+    acknowledgement: realtimeDelegationAcknowledgementSchema,
   })
   .strict();
 
@@ -189,6 +233,8 @@ export const realtimeSessionConfigSchema = z
     toolChoice: toolChoiceSchema.optional(),
     /** Per response, not per session: the session's ceiling is `limits`. */
     maxOutputTokens: z.number().int().positive().safe().optional(),
+    /** A `live` session's delegation; fixed at open (contract set 8.16.0). */
+    delegation: realtimeDelegationConfigSchema.optional(),
   })
   .strict();
 
@@ -212,6 +258,8 @@ export const realtimeSessionConfigUpdateSchema = z
   })
   .strict()
   .superRefine((update, ctx) => {
+    // A `live` session takes no update at all: its voice fixes everything at
+    // open, and Kaana refuses the command (`invalid_request`, param `type`).
     if (Object.keys(update).length === 0) {
       ctx.addIssue({
         code: 'custom',
@@ -422,20 +470,88 @@ export const realtimeSessionCloseCommandSchema = z.object({
   type: z.literal('session.close'),
 });
 
-/** Every command a client can send. */
-export const realtimeClientCommandSchema = z.discriminatedUnion('type', [
-  realtimeSessionUpdateCommandSchema,
-  realtimeItemCreateCommandSchema,
-  realtimeItemDeleteCommandSchema,
-  realtimeItemTruncateCommandSchema,
-  realtimeInputAudioAppendCommandSchema,
-  realtimeInputAudioCommitCommandSchema,
-  realtimeInputAudioClearCommandSchema,
-  realtimeResponseCreateCommandSchema,
-  realtimeResponseCancelCommandSchema,
-  realtimeSessionResumeCommandSchema,
-  realtimeSessionCloseCommandSchema,
-]);
+const delegationTextSchema = z
+  .string()
+  .check(minUtf16Length(1))
+  .check(maxUtf16Length(MAX_REALTIME_DELEGATION_TEXT_CHARS));
+
+/**
+ * Speak this part of a delegated turn's answer (contract set 8.16.0). A client
+ * streams its answer sentence by sentence and marks the last part `final`;
+ * after it, nothing more is spoken for the delegation. Each `verbatim` span is
+ * a part of `text` the voice says exactly as written: numbers, addresses,
+ * names, codes. A reply to a delegation that is unknown, superseded, cancelled
+ * or already final is refused (`invalid_request`, param `delegationId`).
+ */
+export const realtimeDelegationReplyCommandSchema = z.object({
+  ...commandBase,
+  type: z.literal('delegation.reply'),
+  delegationId: realtimeDelegationIdSchema,
+  text: delegationTextSchema,
+  verbatim: z
+    .array(
+      z.string().check(minUtf16Length(1)).check(maxUtf16Length(MAX_REALTIME_VERBATIM_SPAN_CHARS)),
+    )
+    .max(MAX_REALTIME_VERBATIM_SPANS)
+    .optional(),
+  final: z.boolean(),
+});
+
+/**
+ * Silent context the voice may use while a delegated turn is answered, for
+ * example "still checking your calendar" (contract set 8.16.0). Never spoken
+ * as written.
+ */
+export const realtimeDelegationContextCommandSchema = z.object({
+  ...commandBase,
+  type: z.literal('delegation.context'),
+  delegationId: realtimeDelegationIdSchema,
+  text: delegationTextSchema,
+});
+
+/** The client dropped a delegated turn: nothing more is spoken for it (contract set 8.16.0). */
+export const realtimeDelegationCancelCommandSchema = z.object({
+  ...commandBase,
+  type: z.literal('delegation.cancel'),
+  delegationId: realtimeDelegationIdSchema,
+});
+
+/**
+ * Every command a client can send. The three `delegation.*` commands are a
+ * `live` session's; `session.update`, `input_audio.commit` and
+ * `input_audio.clear` are refused on one (`invalid_request`, param `type`).
+ */
+export const realtimeClientCommandSchema = z
+  .discriminatedUnion('type', [
+    realtimeSessionUpdateCommandSchema,
+    realtimeItemCreateCommandSchema,
+    realtimeItemDeleteCommandSchema,
+    realtimeItemTruncateCommandSchema,
+    realtimeInputAudioAppendCommandSchema,
+    realtimeInputAudioCommitCommandSchema,
+    realtimeInputAudioClearCommandSchema,
+    realtimeResponseCreateCommandSchema,
+    realtimeResponseCancelCommandSchema,
+    realtimeSessionResumeCommandSchema,
+    realtimeSessionCloseCommandSchema,
+    realtimeDelegationReplyCommandSchema,
+    realtimeDelegationContextCommandSchema,
+    realtimeDelegationCancelCommandSchema,
+  ])
+  .superRefine((command, ctx) => {
+    // Checked on the union because a discriminated union's options must stay
+    // plain objects.
+    if (command.type !== 'delegation.reply' || command.verbatim === undefined) return;
+    for (const [index, span] of command.verbatim.entries()) {
+      if (!command.text.includes(span)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['verbatim', index],
+          message: 'a verbatim span is a part of the reply text, exactly as written',
+        });
+      }
+    }
+  });
 
 const eventBase = {
   /** See `version.ts`: each event is a whole message on the wire. */
@@ -617,6 +733,31 @@ export const realtimeToolCallEventSchema = z.object({
   complete: z.boolean(),
 });
 
+/**
+ * A `live` session hands one turn to its caller (contract set 8.16.0). `text`
+ * is the caller's words since the previous delegation, assembled by Kaana from
+ * the input transcript, so no client stitches transcripts. Answer it with
+ * `delegation.reply`; a newer delegation before its `final` reply supersedes
+ * it.
+ */
+export const realtimeDelegationRequestedEventSchema = z.object({
+  ...eventBase,
+  type: z.literal('delegation.requested'),
+  delegationId: realtimeDelegationIdSchema,
+  text: z.string(),
+});
+
+/**
+ * The person moved on: a newer delegation opened before this one's `final`
+ * reply (contract set 8.16.0). Its reply is no longer spoken, and a command
+ * naming it is refused.
+ */
+export const realtimeDelegationSupersededEventSchema = z.object({
+  ...eventBase,
+  type: z.literal('delegation.superseded'),
+  delegationId: realtimeDelegationIdSchema,
+});
+
 /** How a response ended. */
 export const realtimeResponseStatusSchema = z.enum([
   'completed',
@@ -707,6 +848,40 @@ export function realtimeConfigIssues(
         found(['tools'], 'a translation session calls no tools');
       }
       break;
+    case 'live':
+      // Kaana ADR 0012 §1: the voice speaks, detects turns and hands each one
+      // over; the caller's backend answers it, with its own tools.
+      if (config.voice === undefined) {
+        found(['voice'], 'a live session speaks in a voice');
+      }
+      if (config.outputAudioFormat !== config.inputAudioFormat) {
+        found(['outputAudioFormat'], 'a live session speaks the audio format it hears');
+      }
+      if (config.turnDetection.type === 'none') {
+        found(['turnDetection'], 'the voice of a live session detects the turns');
+      }
+      if (config.delegation === undefined) {
+        found(['delegation'], 'a live session hands its turns over');
+      }
+      for (const field of [
+        'outputModalities',
+        'tools',
+        'toolChoice',
+        'maxOutputTokens',
+        'translation',
+      ] as const) {
+        if (config[field] !== undefined) {
+          found([field], "a live session's answers and their tools are its caller's");
+        }
+      }
+      if (config.inputAudioTranscription?.prompt !== undefined) {
+        found(['inputAudioTranscription', 'prompt'], 'a live session transcribes with no prompt');
+      }
+      break;
+  }
+
+  if (kind !== 'live' && config.delegation !== undefined) {
+    found(['delegation'], 'only a live session hands its turns over');
   }
 
   if (kind !== 'transcription' && config.inputAudioTranscription?.interimResults === true) {
@@ -732,6 +907,29 @@ export function realtimeConfigIssues(
   }
 
   return issues;
+}
+
+const REFUSED_BY_LIVE: ReadonlySet<string> = new Set([
+  'session.update',
+  'input_audio.commit',
+  'input_audio.clear',
+]);
+
+/**
+ * Whether a session of this kind takes a command (contract set 8.16.0, Kaana
+ * ADR 0012): a `live` session takes no `session.update`, `input_audio.commit`
+ * or `input_audio.clear`, because its voice fixes the session at open and
+ * detects the turns, and only a `live` session takes the `delegation.*`
+ * commands. Kaana refuses any other with `invalid_request`, param `type`,
+ * before acknowledging it. Whether the model serves a command it takes is the
+ * model's to answer.
+ */
+export function realtimeSessionTakes(
+  kind: z.infer<typeof realtimeSessionKindSchema>,
+  command: z.infer<typeof realtimeClientCommandSchema>['type'],
+): boolean {
+  if (kind === 'live') return !REFUSED_BY_LIVE.has(command);
+  return !command.startsWith('delegation.');
 }
 
 /* -------------------------------------------------------------------------- */
@@ -957,6 +1155,8 @@ export const realtimePublicServerEventSchema = z
     realtimeTranscriptInterimEventSchema,
     realtimeTextDeltaEventSchema,
     realtimeToolCallEventSchema,
+    realtimeDelegationRequestedEventSchema,
+    realtimeDelegationSupersededEventSchema,
     realtimePublicResponseDoneEventSchema,
     realtimePublicErrorEventSchema,
     realtimePublicSessionClosedEventSchema,
@@ -978,6 +1178,21 @@ export type RealtimeTurnDetection = z.infer<typeof realtimeTurnDetectionSchema>;
 export type RealtimeInputTranscription = z.infer<typeof realtimeInputTranscriptionSchema>;
 export type RealtimeTranslation = z.infer<typeof realtimeTranslationSchema>;
 export type RealtimeSessionConfig = z.infer<typeof realtimeSessionConfigSchema>;
+export type RealtimeDelegationAcknowledgement = z.infer<
+  typeof realtimeDelegationAcknowledgementSchema
+>;
+export type RealtimeDelegationConfig = z.infer<typeof realtimeDelegationConfigSchema>;
+export type RealtimeDelegationReplyCommand = z.infer<typeof realtimeDelegationReplyCommandSchema>;
+export type RealtimeDelegationContextCommand = z.infer<
+  typeof realtimeDelegationContextCommandSchema
+>;
+export type RealtimeDelegationCancelCommand = z.infer<typeof realtimeDelegationCancelCommandSchema>;
+export type RealtimeDelegationRequestedEvent = z.infer<
+  typeof realtimeDelegationRequestedEventSchema
+>;
+export type RealtimeDelegationSupersededEvent = z.infer<
+  typeof realtimeDelegationSupersededEventSchema
+>;
 export type RealtimeSessionConfigUpdate = z.infer<typeof realtimeSessionConfigUpdateSchema>;
 export type RealtimeSessionLimits = z.infer<typeof realtimeSessionLimitsSchema>;
 export type RealtimeContentPart = z.infer<typeof realtimeContentPartSchema>;
