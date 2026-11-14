@@ -23,7 +23,7 @@ func executable(target Provider, upstreamModelID string) bool {
 		protocol = providerconfig.Known[target.Slug].Protocol
 	}
 	if required.Session != "" {
-		for _, kind := range providerconfig.RealtimeSessionKinds(target.Slug, protocol) {
+		for _, kind := range providerconfig.RealtimeModelKinds(target.Slug, protocol) {
 			if kind == required.Session {
 				return true
 			}

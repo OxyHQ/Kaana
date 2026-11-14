@@ -327,7 +327,11 @@ billed as `input_transcription_milliseconds`, a unit the lane's consumer cannot 
 Neither OpenAI-Realtime-shaped wire hands a turn to its caller, so a `live` session is served as a
 conversation whose one tool hands it over (ADR 0012 §2, `internal/provider/openairealtime/live.go`).
 Both dialects run the same code; what their wires spell differently is the dialect's, exactly as for
-a conversation.
+a conversation. `live` is an emulated kind there (`providerconfig.RealtimeSessionKinds` lists it, after the
+kinds the protocol's models are): the publisher matches a session model's own kind against
+`RealtimeModelKinds` only, so the conversation lines (`gpt-realtime-*`, `grok-voice-*`) serve `live`
+and the native `gpt-live-1` is never attached to `openai-realtime`
+(`TestGPTLiveIsAttributedOnlyToTheLiveAdapter`).
 
 **Configuration** (`dialect.liveConversation`, then the conversation's own `wireSession`):
 
