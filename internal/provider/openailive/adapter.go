@@ -130,7 +130,7 @@ func (a *Adapter) refuseOpen(request provider.RealtimeOpenRequest) error {
 	if issues := statement().Parameters.Unservable("config", config.Fields()); len(issues) > 0 {
 		return provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: issues[0].Param, Detail: issues[0].Message}
 	}
-	if !slices.ContainsFunc(statement().Voices, func(voice providerconfig.RealtimeVoice) bool { return voice.ID == *config.Voice }) {
+	if !slices.ContainsFunc(statement().Voices, func(voice providerconfig.Voice) bool { return voice.ID == *config.Voice }) {
 		return provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "config.voice", Detail: "this model has no voice " + *config.Voice}
 	}
 	if _, err := wireFormat(config.InputAudioFormat); err != nil {
