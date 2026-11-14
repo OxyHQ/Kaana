@@ -3,6 +3,7 @@ package contract
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -277,6 +278,20 @@ func TestRealtimeFixturesAreRefusedByKaanaToo(t *testing.T) {
 	}
 	if _, err := DecodeRealtimeCommand([]byte(`{"schemaVersion":1,"requestId":"req_01JQZABCDEF","commandId":"c","type":"input_audio.commit","extra":1}`), "req_01JQZABCDEF"); err == nil {
 		t.Error("a command with an unknown field was accepted")
+	}
+	// A reply's `final` is a required boolean: absent or null is refused, as
+	// the published schema refuses it, and both values are read as sent.
+	const reply = `{"schemaVersion":1,"requestId":"req_01JQZABCDEF","commandId":"c","type":"delegation.reply","delegationId":"del_1","text":"Booked."`
+	for _, refused := range []string{reply + `}`, reply + `,"final":null}`, reply + `,"final":false,"extra":1}`} {
+		if _, err := DecodeRealtimeCommand([]byte(refused), "req_01JQZABCDEF"); err == nil {
+			t.Errorf("a reply the contract refuses was accepted: %s", refused)
+		}
+	}
+	for _, final := range []bool{false, true} {
+		decoded, err := DecodeRealtimeCommand([]byte(reply+`,"final":`+strconv.FormatBool(final)+`}`), "req_01JQZABCDEF")
+		if err != nil || decoded.(*RealtimeDelegationReplyCommand).Final != final || decoded.(*RealtimeDelegationReplyCommand).Text != "Booked." {
+			t.Errorf("a reply with final %v decoded as %+v (%v)", final, decoded, err)
+		}
 	}
 }
 

@@ -4,6 +4,12 @@
 
 package contract
 
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+)
+
 /* -------------------------------------------------------------------------- */
 /*  Client commands                                                           */
 /* -------------------------------------------------------------------------- */
@@ -233,6 +239,28 @@ type RealtimeDelegationReplyCommand struct {
 	Text          string               `json:"text"`
 	Verbatim      []string             `json:"verbatim,omitempty"`
 	Final         bool                 `json:"final"`
+}
+
+// UnmarshalJSON decodes a reply strictly and refuses one without a `final`
+// boolean: the contract requires it, and a plain bool would read an absent or
+// null `final` as an unfinished part.
+func (c *RealtimeDelegationReplyCommand) UnmarshalJSON(data []byte) error {
+	type plain RealtimeDelegationReplyCommand
+	var decoded struct {
+		plain
+		Final *bool `json:"final"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if decoded.Final == nil {
+		return errors.New("a delegation.reply states whether it is final")
+	}
+	*c = RealtimeDelegationReplyCommand(decoded.plain)
+	c.Final = *decoded.Final
+	return nil
 }
 
 func (*RealtimeDelegationReplyCommand) CommandType() RealtimeCommandType {
