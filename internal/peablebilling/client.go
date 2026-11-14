@@ -22,6 +22,7 @@ const peableVersion = "2026-11-03"
 // or another application's assumed role. Tokens are never stored or logged.
 type TokenProvider func(context.Context, string) (string, error)
 type Config struct {
+	FinalizationEnabled                                    bool
 	Enabled                                                bool
 	ApplicationID, OwnerAccountID, MerchantID, Environment string
 }
@@ -84,11 +85,26 @@ func (c *Client) request(ctx context.Context, method, path, key string, body, ou
 		return ErrReconcile
 	}
 	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode < 200 || res.StatusCode >= 300 || !strings.HasPrefix(res.Header.Get("Content-Type"), "application/json") {
+	if !strings.HasPrefix(res.Header.Get("Content-Type"), "application/json") {
 		return ErrReconcile
 	}
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 2<<20+1))
 	if err != nil || len(raw) > 2<<20 {
+		return ErrReconcile
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		// Only this authenticated, typed pre-effect refusal may release a close fence.
+		// All other failures, including arbitrary 409s, retain ambiguity.
+		if method == http.MethodPost && strings.HasSuffix(path, "/finalize") && res.StatusCode == http.StatusConflict {
+			var failure struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(raw, &failure) == nil && failure.Error.Code == "invoice_finalization_conflict" {
+				return ErrFinalizationConflict
+			}
+		}
 		return ErrReconcile
 	}
 	if err = json.Unmarshal(raw, out); err != nil {
@@ -130,7 +146,8 @@ func (c *Client) Verify(ctx context.Context, d Draft) error {
 
 type Invoice struct {
 	AutomaticTax struct {
-		Enabled *bool `json:"enabled"`
+		Enabled *bool   `json:"enabled"`
+		Status  *string `json:"status"`
 	} `json:"automatic_tax"`
 	Lines struct {
 		Data []struct {

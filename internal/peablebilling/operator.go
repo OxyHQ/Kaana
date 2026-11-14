@@ -21,15 +21,16 @@ import (
 // OperatorConfig is non-secret reviewed deployment configuration. It neither
 // selects a payer nor grants permission to create a merchant or a billing account.
 type OperatorConfig struct {
-	Enabled        bool   `json:"enabled"`
-	ApplicationID  string `json:"applicationId"`
-	OwnerAccountID string `json:"ownerAccountId"`
-	MerchantID     string `json:"merchantId"`
-	Environment    string `json:"environment"`
+	Enabled             bool   `json:"enabled"`
+	FinalizationEnabled bool   `json:"finalizationEnabled,omitempty"`
+	ApplicationID       string `json:"applicationId"`
+	OwnerAccountID      string `json:"ownerAccountId"`
+	MerchantID          string `json:"merchantId"`
+	Environment         string `json:"environment"`
 }
 
 func (c OperatorConfig) ClientConfig() Config {
-	return Config(c)
+	return Config{FinalizationEnabled: c.FinalizationEnabled, Enabled: c.Enabled, ApplicationID: c.ApplicationID, OwnerAccountID: c.OwnerAccountID, MerchantID: c.MerchantID, Environment: c.Environment}
 }
 
 // ReadOperatorConfig verifies exact reviewed bytes before any database or
@@ -66,10 +67,12 @@ func ReadOperatorConfig(path, expectedSHA string) (OperatorConfig, error) {
 	return c, nil
 }
 
-// Operation names exact existing receipts/terms. Delivery and event wakeup have
-// no account-creation, finalization, send, pay, refund or funding operation.
+// Operation names exact existing receipts/terms. Invoice close is a separate
+// opt-in action; delivery and event wakeup never acquire that authority.
+// No action provisions accounts, funds them, collects payments or refunds.
 type Operation struct {
 	Action       string   `json:"action"`
+	Revision     string   `json:"revision,omitempty"`
 	AccountID    string   `json:"accountId,omitempty"`
 	CustomerID   string   `json:"customerId,omitempty"`
 	Key          string   `json:"key,omitempty"`
@@ -96,7 +99,7 @@ func ReadOperation(input io.Reader) (Operation, error) {
 func (o Operation) Validate() error {
 	var expected Operation
 	switch o.Action {
-	case "migrate":
+	case "migrate", "migrate-close":
 		expected = Operation{Action: o.Action}
 	case "bind":
 		if !operatorID(o.AccountID) || !operatorID(o.CustomerID) {
@@ -115,11 +118,16 @@ func (o Operation) Validate() error {
 			seen[id] = true
 		}
 		expected = Operation{Action: o.Action, AccountID: o.AccountID, Key: o.Key, ReceiptIDs: o.ReceiptIDs, DaysUntilDue: o.DaysUntilDue}
-	case "inspect", "deliver":
+	case "inspect", "deliver", "review-close":
 		if !operatorID(o.DraftID) {
 			return ErrMismatch
 		}
 		expected = Operation{Action: o.Action, DraftID: o.DraftID}
+	case "close":
+		if !operatorID(o.DraftID) || !operatorID(o.Key) || !revisionPattern.MatchString(o.Revision) {
+			return ErrMismatch
+		}
+		expected = Operation{Action: o.Action, DraftID: o.DraftID, Key: o.Key, Revision: o.Revision}
 	case "reconcile-event":
 		if !operatorID(o.EventID) {
 			return ErrMismatch
@@ -192,10 +200,12 @@ func OpenOperator(ctx context.Context, databaseURL string, op Operation) (*Store
 }
 func operatorRole(action string) string {
 	switch action {
-	case "migrate":
+	case "migrate", "migrate-close":
 		return "kaana_billing_migrator"
 	case "bind", "prepare":
 		return "kaana_peable_billing_admin"
+	case "review-close", "close":
+		return "kaana_peable_billing_closer"
 	default:
 		return "kaana_peable_billing_runtime"
 	}
@@ -233,6 +243,13 @@ func verifyOperator(ctx context.Context, pool *pgxpool.Pool, role string) error 
 	if role == "kaana_billing_migrator" {
 		err = pool.QueryRow(ctx, `SELECT n.nspowner=current_user::regrole AND has_schema_privilege(current_user,'public','CREATE') AND has_database_privilege(current_user,current_database(),'CREATE') FROM pg_namespace n WHERE n.nspname='kaana_billing'`).Scan(&valid)
 	} else {
+		allowed := []string{"kaana_peable_billing.read_draft(text)", "kaana_peable_billing.claim_step(text,text)", "kaana_peable_billing.record_step(text,text,text)"}
+		if role == "kaana_peable_billing_admin" {
+			allowed = []string{"kaana_peable_billing.bind_customer(text,text,text)", "kaana_peable_billing.prepare_draft(text,text,text[],integer)"}
+		}
+		if role == "kaana_peable_billing_closer" {
+			allowed = []string{"kaana_peable_billing.read_draft(text)", "kaana_peable_billing.read_close(text,text)", "kaana_peable_billing.claim_close(text,text,text)", "kaana_peable_billing.record_close(text,text,jsonb)"}
+		}
 		err = pool.QueryRow(ctx, `SELECT has_schema_privilege(current_user,'kaana_peable_billing','USAGE')
  AND NOT has_schema_privilege(current_user,'kaana_peable_billing','CREATE')
  AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -248,13 +265,9 @@ func verifyOperator(ctx context.Context, pool *pgxpool.Pool, role string) error 
  AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='kaana_peable_billing'
  AND (has_function_privilege(current_user,p.oid,'EXECUTE') OR has_function_privilege(session_user,p.oid,'EXECUTE'))
- AND p.oid<>ALL(CASE WHEN $1 THEN ARRAY['kaana_peable_billing.bind_customer(text,text,text)'::regprocedure,'kaana_peable_billing.prepare_draft(text,text,text[],integer)'::regprocedure]::oid[]
- ELSE ARRAY['kaana_peable_billing.read_draft(text)'::regprocedure,'kaana_peable_billing.claim_step(text,text)'::regprocedure,'kaana_peable_billing.record_step(text,text,text)'::regprocedure]::oid[] END))
- AND has_function_privilege(current_user,'kaana_peable_billing.bind_customer(text,text,text)','EXECUTE')=$1
- AND has_function_privilege(current_user,'kaana_peable_billing.prepare_draft(text,text,text[],integer)','EXECUTE')=$1
- AND has_function_privilege(current_user,'kaana_peable_billing.read_draft(text)','EXECUTE')= (NOT $1)
- AND has_function_privilege(current_user,'kaana_peable_billing.claim_step(text,text)','EXECUTE')= (NOT $1)
- AND has_function_privilege(current_user,'kaana_peable_billing.record_step(text,text,text)','EXECUTE')= (NOT $1)`, role == "kaana_peable_billing_admin").Scan(&valid)
+ AND p.oid<>ALL(SELECT to_regprocedure(f)::oid FROM unnest($1::text[]) f))
+ AND NOT EXISTS(SELECT 1 FROM unnest($1::text[]) f WHERE to_regprocedure(f) IS NULL
+ OR NOT has_function_privilege(current_user,to_regprocedure(f),'EXECUTE'))`, allowed).Scan(&valid)
 	}
 	if err != nil || !valid {
 		return fmt.Errorf("operator schema or least-privilege role not ready: %w", ErrMismatch)
