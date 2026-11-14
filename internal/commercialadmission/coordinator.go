@@ -1,6 +1,6 @@
 // Package commercialadmission joins native authorization and validated rating
-// to the commercial ledger in the same PostgreSQL transaction. It is not wired
-// into the serving process; no account, funding or policy is auto-enrolled.
+// to the commercial ledger in the same PostgreSQL transaction. Serving requires
+// explicit configuration; no account, funding or policy is auto-enrolled.
 package commercialadmission
 
 import (
@@ -49,6 +49,13 @@ func (c *Coordinator) Migrate(ctx context.Context) error {
 		return err
 	}
 	hash := digest([]byte(migration))
+	var unknown bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.kaana_commercial_migrations WHERE version<>'0001')`).Scan(&unknown); err != nil {
+		return err
+	}
+	if unknown {
+		return billing.ErrConflict
+	}
 	var old string
 	err = tx.QueryRow(ctx, `SELECT checksum FROM public.kaana_commercial_migrations WHERE version='0001'`).Scan(&old)
 	if err == nil {
