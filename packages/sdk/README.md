@@ -67,9 +67,12 @@ credential; only a new session obtains a current token.
 
 `attribution` is immutable inference attribution, not permission to read an
 account's private data or to charge that account. Oxy's signed admission keeps
-the payer and application identity. An explicit requester proof can be supplied
-instead where the caller already has one; the two options are exclusive.
-Per-call `onBehalfOfUserId` must match the fixed account. Production uses only
+the payer and application identity. Instead, an Oxy service that acts for a
+person passes `actingFor: { accountId, requesterAccountId? }` (oxy ADR 0066):
+the account it acts for, and the person when they operate it rather than own
+it. Oxy checks the service's first-party declaration and the accounts live; no
+session, task or consent is sent. The two options are exclusive. Per-call
+`onBehalfOfUserId` must match the fixed account. Production uses only
 `https://kaana.ai/v1`; loopback remains available for development.
 
 External credentials continue using `new Kaana({ credential })`. This SDK

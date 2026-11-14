@@ -56,6 +56,9 @@ bun run lint:fix                                 # apply Biome fixes
   without primary evidence ([operating](docs/operating.md#the-declared-catalogue)).
 - An Oxy id is opaque: never parse it, join on it or use it as a primary key.
 - No `TODO`/`FIXME`/shims; wrap errors for `errors.Is`; Conventional Commits.
+- First-party never asks people for permissions: this service acts for a person with `actingFor`
+  on what oxy's first-party registry declares (oxy ADR 0066); permissions, scopes and consent are
+  only for third parties.
 
 ## Boundaries
 
