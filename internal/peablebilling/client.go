@@ -93,8 +93,8 @@ func (c *Client) request(ctx context.Context, method, path, key string, body, ou
 		return ErrReconcile
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		// Only this authenticated, typed pre-effect refusal may release a close fence.
-		// All other failures, including arbitrary 409s, retain ambiguity.
+		// This authenticated typed conflict permits reconciliation, never releases
+		// the claim. Other failures, including arbitrary 409s, retain ambiguity.
 		if method == http.MethodPost && strings.HasSuffix(path, "/finalize") && res.StatusCode == http.StatusConflict {
 			var failure struct {
 				Error struct {
