@@ -2,15 +2,15 @@
 
 This opt-in package connects **Kaana's own Peable application/merchant** to existing Peable invoice, item and event APIs. It does not assume Oxy's central-billing role. Peable already uses Oxy's platform processor/MoR for verified first-party merchants (`Peable` ADR 0015); an app's merchant registration is distinct from a new processor account or legal entity. The existing platform configuration is the source to reuse, not evidence that another seller must be invented.
 
-This slice is source-only and unactivated. No merchant, customer, account, balance, tax setting, invoice or role is created by construction, startup or deployment. There is no serving route, timer, automatic migration or configuration in the production image. The native internal-metered population and PR312's separate commercial serving constructor are unchanged.
+These slices are source-only and unactivated. No merchant, customer, account, balance, tax setting, invoice or role is created by construction, startup or deployment. There is no serving route, timer, automatic migration or configuration in the production image. The native internal-metered population and PR312's separate commercial serving constructor are unchanged.
 
 ## Exact boundaries
 
 - Kaana's ledger owns the settled receivable. `receipts.invoiced` minus existing `refunds.invoiced` is invoiceable; promotional and already-purchased funds are excluded. Account/receipt ownership and unique receipt-to-draft linkage are enforced in PostgreSQL.
 - An operator explicitly binds a pre-existing Kaana account to its own-merchant Peable customer. The worker verifies the authenticated merchant's application, owner and environment and the customer's `kaana_account_id` metadata/currency. The expected application is Kaana's reviewed workload identity, never an arbitrary request field or the central merchant's assumed role. `owner_account` here is the seller/application owner, not a replacement payer decision.
 - Operator preparation names exact receipt IDs and explicit payment terms (`daysUntilDue`); no billing interval or allowance is guessed. A batch snapshots the exact subtotal, currency exponent and rounding adjustment. Invoice rounding uses the existing Oxy invoice-boundary rule: sum exact decimals, then HALF-UP once to the currency minor unit. The reviewed currency exponent set is USD/EUR/GBP/CHF/CAD/AUD=2 and JPY=0 (`Oxy utils/minorUnits.ts`, `accountInvoicing.service.ts`). Unknown currencies and a subtotal that rounds to zero fail closed; no receipt is claimed in that failed transaction. This does not silently forgive tiny debt.
-- The rounding adjustment remains **draft evidence**, not a posted financial adjustment. Finalization/collection and booking its adjustment require the next invoice-close slice; no debt is cleared or money moved here. Compensation after a snapshot makes its reads/delivery fail for reconciliation, rather than silently changing an issued amount.
-- Peable receives a draft with `auto_advance:false`, `send_invoice`, explicit due terms, `pending_invoice_items_behavior:exclude` and automatic tax enabled. Exactly one fixed-amount, non-discountable item is linked directly to that draft. Existing pricing/discounts must already be reflected in the settled ledger; a second discount is not inferred. Final readback rejects added/changed lines. This package **never finalizes, sends, pays or voids** an invoice and supplies no tax rates.
+- During draft delivery the rounding adjustment remains **draft evidence**. The separately enabled close operation below books that adjustment once; issuing never clears debt as paid. Compensation after a snapshot makes its reads/delivery fail for reconciliation, rather than silently changing an issued amount.
+- Peable receives a draft with `auto_advance:false`, `send_invoice`, explicit due terms, `pending_invoice_items_behavior:exclude` and automatic tax enabled. Exactly one fixed-amount, non-discountable item is linked directly to that draft. Existing pricing/discounts must already be reflected in the settled ledger; a second discount is not inferred. Final readback rejects added/changed lines. The draft worker **never finalizes, sends, pays or voids** an invoice and supplies no tax rates.
 
 ## Durable ambiguity handling
 
@@ -30,7 +30,7 @@ The admin can bind customers and prepare batches. Delivery runtime can only read
 
 Directed Go/HTTP tests exercise exact request semantics, own-merchant refusal, redirects, response loss and DB-receipt loss, duplicate events, absent-result reconciliation, paid/manual invoice refusal and no extra financial endpoint. Real PostgreSQL tests exercise amount partitions, aggregate fractional rounding, compensation conflicts, duplicate/foreign receipts, concurrent one-shot claims, checksums, role denial and worker restart with persisted state.
 
-Still required before real commercial billing: actual own-app merchant binding under the already-configured Oxy seller; reviewed reuse of that seller's fiscal settings (Peable settings/numbering are merchant-scoped, not automatically inherited); explicit customer enrollment/terms; invoice close and durable rounding postings; signed payment/funding/reversal reconciliation; collection/credit notes and operational alerts. This package adds no production permission, funds, seller choice or financial activation.
+Still required before real commercial billing: actual own-app merchant binding under the already-configured Oxy seller; reviewed reuse of that seller's fiscal settings (Peable settings/numbering are merchant-scoped, not automatically inherited); explicit customer enrollment/terms; verified signed payment/funding/reversal reconciliation; collection/credit notes and operational alerts. This package adds no production permission, funds, seller choice or financial activation.
 
 ## Explicit operator (source-only)
 
@@ -85,8 +85,8 @@ keys must never be used to evade an ambiguous attempt.
 
 This operator is independent of PR312's serving recovery: native recovery rates
 and settles usage; prepared invoice batches are consumed outside inference latency.
-No timer, receipt-selection cadence, financial close, webhook listener or deployment
-is enabled here. A future scheduler may claim only explicitly prepared work and
+No timer, receipt-selection cadence, webhook listener or deployment
+is enabled here; close requires its separate explicit configuration and action. A future scheduler may claim only explicitly prepared work and
 must retain the same claim-before-POST and reconciliation guarantees.
 
 The confirmed production mapping reuses Oxy's existing Peable platform/MoR. Its
@@ -99,3 +99,56 @@ identity/timestamps nor absent registrations are copied or invented. No new lega
 entity or processor account is implied. Existing merchant-specific default invoice
 series are allocated by Peable; their absence before first use is not a missing
 platform seller.
+
+
+## Reviewed issue and durable close (additional opt-in)
+
+This source adds a separate `finalizationEnabled:true` configuration gate and
+NOLOGIN `kaana_peable_billing_closer` group. Neither is provisioned or enabled by
+this repository. Existing delivery configuration and grants remain insufficient
+to issue invoices. `migrate-close` explicitly applies checksummed migration0002
+under `kaana_billing_migrator`, after billing and draft migrations. It adds the
+attempt/evidence table and refund guard and extends the balanced journal's kind
+set; old migration bytes remain unchanged. `migrate` alone does not install it.
+
+The reviewed operator sequence is `review-close` with a draft ID, followed by
+`close` with that draft ID, a durable operation key and the exact returned
+`revision`. The review uses Peable's opt-in retrieve. A close accepts only the
+same own-merchant/customer/line/terms and commits its local claim BEFORE POST.
+The account lock is the same lock used by refunds; it rechecks receipt net under
+that lock. Only one claim can issue. No constructor, serving request, recovery
+loop or delivery action invokes this sequence automatically. Peable finalization
+can number and issue an invoice, apply its existing customer balance, and queue
+mail according to the already-reviewed merchant settings. Real execution of this
+operation therefore requires review of the exact merchant, customer, receipt
+batch, terms and revision; this source does not execute it or invent those terms.
+
+A lost HTTP/DB response, crash, 409 or missing receipt never permits another POST
+or a changed operation key. Even a typed conflict may mean another actor already
+issued the invoice. Recovery retrieves its `accepted_finalization_revision` and
+requires exact equality; equal totals/customer are insufficient. Peable's matching
+opt-in contract must be published/deployed first. A missing or different proof
+remains unresolved. No automatic fence-release/reset operation is exposed.
+
+Local close stores bounded financial evidence (invoice number/status, accepted
+revision, base/tax/total, due/paid and balance snapshot, digest) and posts the
+previously reviewed aggregate rounding adjustment once. It adjusts `invoiced`
+only by that exact adjustment; invoice issue does not collect the usage debt.
+Tax and customer-balance effects remain Peable evidence, not fabricated Kaana
+funding or duplicated tax journals. Inference budget usage remains its original
+exact rated amount. Positive, negative and zero rounding have directed controls.
+
+Any invoice-credit compensation for a receipt under an attempted or closed
+invoice is refused before the refund inserts or alters balances. Purchased or
+promotional-only compensations remain outside this guard. This prevents silent
+post-issue net changes; it does not implement credit notes, forgiveness, collection
+or an operator override. Resolving a refused/ambiguous issue, subsequent credit
+notes and payment reconciliation remain explicit follow-up operations. No
+unresolved attempt expires into permission to issue again.
+
+The closer can only read the draft and read/claim/record close evidence. It cannot
+prepare/bind customers, create draft invoices, directly edit billing tables,
+execute billing-admin functions, or delegate grants. Current/session permissions
+are checked against exact function signatures. The CLI refuses a close operation
+before opening DB or identity unless its separately hashed configuration enables
+finalization. There is no production config or financial activation in this PR.
