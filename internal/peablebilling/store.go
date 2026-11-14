@@ -1,5 +1,6 @@
 // Package peablebilling delivers explicitly prepared Kaana receivables as Peable
-// drafts. It never creates a merchant, funds an account, finalizes or pays an invoice.
+// drafts. Its separately opted-in close worker can issue a reviewed invoice;
+// neither worker creates a merchant, funds an account or marks a payment collected.
 package peablebilling
 
 import (

@@ -181,3 +181,43 @@ func TestPeableOperatorDeliverReadback(t *testing.T) {
 		})
 	}
 }
+
+func (s *operatorFakeStore) MigrateClose(context.Context) error { return s.result("migrate-close") }
+func (s *operatorFakeStore) ReadClose(context.Context, string, string) (peablebilling.CloseAttempt, error) {
+	return peablebilling.CloseAttempt{}, peablebilling.ErrCloseMissing
+}
+func (s *operatorFakeStore) ClaimClose(context.Context, string, string, string) (peablebilling.CloseClaim, error) {
+	return peablebilling.CloseClaim{}, peablebilling.ErrDisabled
+}
+func (s *operatorFakeStore) RecordClose(context.Context, string, string, peablebilling.CloseEvidence) (peablebilling.CloseAttempt, error) {
+	return peablebilling.CloseAttempt{}, peablebilling.ErrDisabled
+}
+func TestPeableCloseRequiresSeparateOptInBeforeDatabase(t *testing.T) {
+	for _, operation := range []string{`{"action":"migrate-close"}`, `{"action":"review-close","draftId":"d"}`, `{"action":"close","draftId":"d","key":"k","revision":"` + strings.Repeat("a", 64) + `"}`} {
+		if err := runPeableBilling(peableArgs(t), strings.NewReader(operation), io.Discard, func(string) string { t.Fatal("DB opened before separate finalization opt-in"); return "" }, nil, nil); err == nil {
+			t.Fatal("close implicitly enabled")
+		}
+	}
+	args := peableArgs(t)
+	raw, err := os.ReadFile(args[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = bytes.Replace(raw, []byte(`"enabled":true`), []byte(`"enabled":true,"finalizationEnabled":true`), 1)
+	if err = os.WriteFile(args[1], raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(raw)
+	args[3] = hex.EncodeToString(digest[:])
+	store := &operatorFakeStore{}
+	var output bytes.Buffer
+	err = runPeableBilling(args, strings.NewReader(`{"action":"migrate-close"}`), &output, func(string) string { return "private-db" }, func(context.Context, string, peablebilling.Operation) (peableOperatorStore, func(), error) {
+		return store, func() {}, nil
+	}, func(context.Context, peablebilling.OperatorConfig) (*peablebilling.Client, error) {
+		t.Fatal("migration opened identity")
+		return nil, nil
+	})
+	if err != nil || len(store.calls) != 1 || store.calls[0] != "migrate-close" {
+		t.Fatalf("migration positive control: %v %v", err, store.calls)
+	}
+}

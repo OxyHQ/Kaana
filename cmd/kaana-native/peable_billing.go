@@ -18,6 +18,8 @@ import (
 
 type peableOperatorStore interface {
 	peablebilling.DraftStore
+	peablebilling.CloseStore
+	MigrateClose(context.Context) error
 	Migrate(context.Context) error
 	BindCustomer(context.Context, string, string, string) error
 	PrepareForMerchant(context.Context, string, string, string, []string, int) (peablebilling.Draft, error)
@@ -64,6 +66,9 @@ func runPeableBilling(args []string, input io.Reader, output io.Writer, getenv f
 	if err != nil {
 		return errors.New("peable billing operation refused")
 	}
+	if (op.Action == "migrate-close" || op.Action == "review-close" || op.Action == "close") && !cfg.FinalizationEnabled {
+		return errors.New("peable invoice finalization is disabled")
+	}
 	databaseURL := strings.TrimSpace(getenv("DATABASE_URL"))
 	if databaseURL == "" {
 		return errors.New("peable billing database configuration required")
@@ -76,15 +81,33 @@ func runPeableBilling(args []string, input io.Reader, output io.Writer, getenv f
 	}
 	defer closePool()
 	var draft peablebilling.Draft
+	var closeAttempt peablebilling.CloseAttempt
+	var reviewRevision string
 	switch op.Action {
 	case "migrate":
 		err = store.Migrate(ctx)
+	case "migrate-close":
+		err = store.MigrateClose(ctx)
 	case "bind":
 		err = store.BindCustomer(ctx, op.AccountID, cfg.MerchantID, op.CustomerID)
 	case "prepare":
 		draft, err = store.PrepareForMerchant(ctx, cfg.MerchantID, op.AccountID, op.Key, op.ReceiptIDs, op.DaysUntilDue)
 	case "inspect":
 		draft, err = store.Read(ctx, op.DraftID)
+	case "review-close", "close":
+		var client *peablebilling.Client
+		client, err = clientOpen(ctx, cfg)
+		if err == nil {
+			var worker *peablebilling.CloseWorker
+			worker, err = peablebilling.NewCloseWorker(cfg.FinalizationEnabled, store, client)
+			if err == nil {
+				if op.Action == "review-close" {
+					reviewRevision, err = worker.Review(ctx, op.DraftID)
+				} else {
+					closeAttempt, err = worker.Close(ctx, op.DraftID, op.Key, op.Revision)
+				}
+			}
+		}
 	case "deliver", "reconcile-event":
 		var client *peablebilling.Client
 		client, err = clientOpen(ctx, cfg)
@@ -107,6 +130,16 @@ func runPeableBilling(args []string, input io.Reader, output io.Writer, getenv f
 		return errors.New("peable billing seller mismatch")
 	}
 	// No upstream error bodies, credentials, customer profile or invoice contents.
+	if op.Action == "review-close" || op.Action == "close" {
+		return json.NewEncoder(output).Encode(struct {
+			Operation string `json:"operation"`
+			Complete  bool   `json:"complete"`
+			DraftID   string `json:"draftId"`
+			Revision  string `json:"revision,omitempty"`
+			CloseID   string `json:"closeId,omitempty"`
+			State     string `json:"state,omitempty"`
+		}{op.Action, true, op.DraftID, reviewRevision, closeAttempt.ID, closeAttempt.State})
+	}
 	result := struct {
 		Operation string `json:"operation"`
 		Complete  bool   `json:"complete"`
