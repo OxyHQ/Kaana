@@ -302,9 +302,8 @@ kaana.ai/v1: open, audio both ways, transcripts both ways, a delegation answered
 verbatim span, supersession, cancel, the refusals above, close and exactly-once settlement in the
 adapter's own units. An adapter joins it by one entry in `liveFixtures` and its fixture beside it.
 `TestALiveSessionHandsItsTurnsOverAndRefusesWhatItsVoiceOwns` still runs the session's half against a
-scripted upstream. `configs/public-catalogue.json` names no `live` line and no default yet: the
-`openai/gpt-live-1` entry waits for its consumers (Oxy, Gemies) to parse contract set 8.16.0
-("Operating `openai-live`").
+scripted upstream. `configs/public-catalogue.json` declares `openai/gpt-live-1` as the default
+`live` line ("Operating `openai-live`").
 
 ## OpenAI GPT-Live: `openai-live`
 
@@ -854,8 +853,8 @@ inventory's: it is declared in `configs/public-catalogue.json`, a reviewed catal
 the line a client opens for a kind. Each default kind is one of the line's `sessionKinds`, and at most
 one active line is the default of a kind (`declaredCatalogueSchema`, checked by `validate.mjs` with
 its controls, and by `publicapi.ParsePublicCatalogue` when Kaana loads the file). `GET /v1/models`
-publishes a declared default only for a kind the inventory serves on the line. No line declares one
-yet.
+publishes a declared default only for a kind the inventory serves on the line, and only to a reader
+whose contract set has `defaultKinds` (8.16.0 or later). `openai/gpt-live-1` is the default of `live`.
 
 | | OpenAI | xAI |
 |---|---|---|
@@ -1140,9 +1139,10 @@ charge within the wall-clock figure.
   unknown.
 - Publish it: the `openai/gpt-live-1` entry of `configs/public-catalogue.json` declares
   `capabilities.realtime.defaultKinds: ["live"]` and its price version, which prices
-  `session_milliseconds` for the customer. It merges only once every consumer that parses the catalogue
-  strictly (Oxy, the Gemies SDK) reads contract set 8.16.0: a line with `sessionKinds: ["live"]` or
-  `defaultKinds` fails an older parse of the whole list.
+  `session_milliseconds` for the customer: `01a1d9d6-cdbb-79aa-96ee-335708a286fe`, $0.05 per 60 000 ms
+  and nothing else, which Oxy's clock-only session plan requires. Oxy reads the declared catalogue at
+  contract set 8.16.0 (oxy#2288), and `GET /v1/models` renders `live` and `defaultKinds` only for a
+  reader of that set or later (Kaana#321). The line appears there once the inventory serves it.
 - Health never opens a session and stays `degraded` until a signed canary session has been validated
   (ADR 0012 phase K5): a `live` session on the catalogue default, a spoken turn, a delegation answered
   with a verbatim span, and a close whose `session_milliseconds` matches OpenAI's usage for it.
