@@ -38,17 +38,26 @@ type RealtimeAudioFormats struct {
 	Output []contract.RealtimeAudioFormat `json:"output"`
 }
 
-// AudioObservation is a model's voices, languages and accepted uploads: the
-// inventory's statement of the contract's `audio` for a realtime or a
-// transcription model. `languages` empty means the provider documents none;
-// `gender` empty is unknown.
+// AudioObservation is a model's voices, languages, accepted uploads and
+// speech limits: the inventory's statement of the contract's `audio` for a
+// realtime, a transcription or a speech model. `languages` empty means the
+// provider documents none; `gender` empty is unknown.
 type AudioObservation struct {
 	Voices    []VoiceObservation `json:"voices"`
 	Languages []string           `json:"languages"`
 	// InputMediaTypes are the media types a transcription upload may have,
-	// sorted; absent for a realtime model, whose encodings are
-	// RealtimeObservation.AudioFormats.
+	// sorted; absent for a realtime or speech model (a realtime model's
+	// encodings are RealtimeObservation.AudioFormats).
 	InputMediaTypes []contract.AudioInputMediaType `json:"inputMediaTypes,omitempty"`
+	// OutputMediaTypes are the media types speech is produced in, sorted;
+	// absent for a model that synthesizes no speech.
+	OutputMediaTypes []contract.AudioMediaType `json:"outputMediaTypes,omitempty"`
+	// Speed is the inclusive `speed` range a speech request may name; absent
+	// takes no speed control.
+	Speed *contract.NumberRange `json:"speed,omitempty"`
+	// MaxInputCharacters is the longest text one speech request may carry, in
+	// UTF-16 code units; absent states no ceiling.
+	MaxInputCharacters *int `json:"maxInputCharacters,omitempty"`
 }
 
 // VoiceObservation is one voice.
@@ -104,6 +113,18 @@ func (a AudioObservation) Validate() error {
 		if err := sortedSet("inputMediaTypes", a.InputMediaTypes, 1, func(m contract.AudioInputMediaType) bool { return m.Valid() }); err != nil {
 			return err
 		}
+	}
+	if a.OutputMediaTypes != nil {
+		if err := sortedSet("outputMediaTypes", a.OutputMediaTypes, 1, func(m contract.AudioMediaType) bool { return m.Valid() }); err != nil {
+			return err
+		}
+	}
+	// The contract's speech bounds: a speed of 0.25 to 4 (modelAudioCapabilitiesSchema).
+	if a.Speed != nil && (a.Speed.Min < 0.25 || a.Speed.Max > 4 || a.Speed.Min > a.Speed.Max) {
+		return fmt.Errorf("speed %g to %g is not a range within 0.25 to 4", a.Speed.Min, a.Speed.Max)
+	}
+	if a.MaxInputCharacters != nil && *a.MaxInputCharacters < 1 {
+		return fmt.Errorf("maxInputCharacters must be positive")
 	}
 	if !sort.SliceIsSorted(a.Voices, func(i, j int) bool { return a.Voices[i].ID < a.Voices[j].ID }) {
 		return fmt.Errorf("voices must be sorted by id")
@@ -239,6 +260,20 @@ func tighterRange(a, b *contract.NumberRange) *contract.NumberRange {
 	return &contract.NumberRange{Min: max(a.Min, b.Min), Max: min(a.Max, b.Max)}
 }
 
+// commonRange is the speeds both of two routes take: absent if either takes
+// no speed control or the two ranges do not meet, since a request naming any
+// speed could then reach a route that refuses it.
+func commonRange(a, b *contract.NumberRange) *contract.NumberRange {
+	if a == nil || b == nil {
+		return nil
+	}
+	common := contract.NumberRange{Min: max(a.Min, b.Min), Max: min(a.Max, b.Max)}
+	if common.Min > common.Max {
+		return nil
+	}
+	return &common
+}
+
 // lowerBound is the smaller of two ceilings, where absent is no ceiling.
 func lowerBound(a, b *int) *int {
 	switch {
@@ -259,7 +294,8 @@ func lowerBound(a, b *int) *int {
 // the languages every reporting deployment declares, and the voices every one
 // offers, each speaking only what all of them say it speaks. A voice's name
 // is the first reported (deployment-id order); its gender survives only if
-// every report agrees on it.
+// every report agrees on it. A speech line keeps the output media types and
+// speeds every route serves and the lowest input ceiling.
 func aggregateAudio(current, reported *AudioObservation) *AudioObservation {
 	if reported == nil {
 		return current
@@ -267,7 +303,8 @@ func aggregateAudio(current, reported *AudioObservation) *AudioObservation {
 	if current == nil {
 		copied := AudioObservation{
 			Languages: slices.Clone(reported.Languages), Voices: make([]VoiceObservation, 0, len(reported.Voices)),
-			InputMediaTypes: cloneOrNil(reported.InputMediaTypes),
+			InputMediaTypes: cloneOrNil(reported.InputMediaTypes), OutputMediaTypes: cloneOrNil(reported.OutputMediaTypes),
+			Speed: commonRange(reported.Speed, reported.Speed), MaxInputCharacters: lowerBound(reported.MaxInputCharacters, nil),
 		}
 		for _, voice := range reported.Voices {
 			voice.Languages = slices.Clone(voice.Languages)
@@ -277,7 +314,10 @@ func aggregateAudio(current, reported *AudioObservation) *AudioObservation {
 	}
 	narrowed := AudioObservation{
 		Languages: intersectSorted(current.Languages, reported.Languages), Voices: []VoiceObservation{},
-		InputMediaTypes: intersectMediaTypes(current.InputMediaTypes, reported.InputMediaTypes),
+		InputMediaTypes:    intersectMediaTypes(current.InputMediaTypes, reported.InputMediaTypes),
+		OutputMediaTypes:   intersectMediaTypes(current.OutputMediaTypes, reported.OutputMediaTypes),
+		Speed:              commonRange(current.Speed, reported.Speed),
+		MaxInputCharacters: lowerBound(current.MaxInputCharacters, reported.MaxInputCharacters),
 	}
 	for _, voice := range current.Voices {
 		index := slices.IndexFunc(reported.Voices, func(other VoiceObservation) bool { return other.ID == voice.ID })
@@ -302,9 +342,9 @@ func cloneOrNil[T any](values []T) []T {
 	return slices.Clone(values)
 }
 
-// intersectMediaTypes is the upload types both accept; absent (a realtime
-// model) stays absent.
-func intersectMediaTypes(a, b []contract.AudioInputMediaType) []contract.AudioInputMediaType {
+// intersectMediaTypes is the media types both accept; absent (a model that
+// takes no upload, or produces no speech) stays absent.
+func intersectMediaTypes[T comparable](a, b []T) []T {
 	if a == nil || b == nil {
 		return nil
 	}

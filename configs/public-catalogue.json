@@ -22697,6 +22697,9 @@
         "promptCaching": false,
         "maxContextTokens": 15008,
         "maxOutputTokens": 1,
+        "apiFormats": [
+          "audio_speech"
+        ],
         "unreported": [
           "tools",
           "parallelToolCalls",

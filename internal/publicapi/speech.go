@@ -60,7 +60,7 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 	format := speechFormatOf(request)
 	envelope := admitted.request(contract.ModalityAudio, contract.APIFormatAudioSpeech, contract.Input{Format: contract.InputText, Text: &request.Input})
 	envelope.Speech = &contract.SpeechParameters{Voice: request.Voice, ResponseFormat: format, Speed: request.Speed}
-	mediaType := string(speechMediaType(format))
+	mediaType := string(format.MediaType())
 	if format == "pcm" {
 		mediaType = "audio/pcm;rate=24000"
 	}

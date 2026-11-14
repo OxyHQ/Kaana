@@ -634,6 +634,9 @@ type harnessOptions struct {
 	realtimeObservation json.RawMessage
 	// metrics receives the operational metrics; nil records none.
 	metrics emf.Recorder
+	// speechObserved is the speech deployment's observation: the statement
+	// the publisher wrote for it. Unset: none.
+	speechObserved json.RawMessage
 }
 
 type lockedBuffer struct {
@@ -651,6 +654,16 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
+}
+
+// speechDeployment is the stub speech line's one deployment, with the
+// observation the publisher wrote for it when there is one.
+func speechDeployment(observed json.RawMessage) map[string]any {
+	deployment := map[string]any{"deploymentId": "dep_speech", "provider": "stub", "modelReference": speechModel, "upstreamModelId": "stub-voice", "current": true}
+	if observed != nil {
+		deployment["observed"] = observed
+	}
+	return deployment
 }
 
 func newHarness(t *testing.T, options harnessOptions) *harness {
@@ -675,7 +688,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 		{"deploymentId": "dep_stub_a", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-a", "regions": []string{"us"}, "current": true},
 		{"deploymentId": "dep_stub_b", "provider": "stub", "modelReference": textModel, "upstreamModelId": "stub-b", "regions": []string{"eu"}, "current": true},
 		{"deploymentId": "dep_fallback", "provider": "stub", "modelReference": fallbackModel, "upstreamModelId": "stub-fallback", "current": true},
-		{"deploymentId": "dep_speech", "provider": "stub", "modelReference": speechModel, "upstreamModelId": "stub-voice", "current": true},
+		speechDeployment(options.speechObserved),
 		{"deploymentId": "dep_judge", "provider": "stub", "modelReference": judgeModel, "upstreamModelId": "stub-judge", "current": true},
 		{"deploymentId": "dep_whisper", "provider": "stub", "modelReference": whisperModel, "upstreamModelId": "stub-whisper", "current": true,
 			"observed": json.RawMessage(whisperObserved)},

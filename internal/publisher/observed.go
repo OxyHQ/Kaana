@@ -387,15 +387,17 @@ func applyStatedReasoningEfforts(slug contract.ProviderSlug, models []Discovered
 
 // StatedObservation is what Kaana itself states about one model of a slug,
 // beside what the provider's model list says: a realtime session model's
-// `realtime` and `audio`, a transcription model's `audio`. It is exactly what
-// the publisher writes into the inventory for that model (applyStatedRealtime,
-// applyStatedTranscription), for a reader that needs the published facts of a
-// model without discovering it; nil when nothing is stated.
+// `realtime` and `audio`, a transcription or speech model's `audio`. It is
+// exactly what the publisher writes into the inventory for that model
+// (applyStatedRealtime, applyStatedTranscription, applyStatedSpeech), for a
+// reader that needs the published facts of a model without discovering it;
+// nil when nothing is stated.
 func StatedObservation(slug contract.ProviderSlug, protocol string, upstreamModelID string) *inventory.Observed {
 	models := []DiscoveredModel{{UpstreamModelID: upstreamModelID}}
 	target := Provider{Slug: slug, Protocol: protocol}
 	applyStatedRealtime(target, models)
 	applyStatedTranscription(target, models)
+	applyStatedSpeech(target, models)
 	return models[0].Observed
 }
 
@@ -493,6 +495,52 @@ func applyStatedTranscription(target Provider, models []DiscoveredModel) {
 			Voices: []inventory.VoiceObservation{}, Languages: slices.Clone(languages),
 			InputMediaTypes: slices.Sorted(slices.Values(statement.MediaTypes)),
 		}
+	}
+}
+
+// applyStatedSpeech publishes a speech adapter's reviewed statement
+// (providerconfig.SpeechCapabilities) as each speech model's `audio`
+// observation: the voices a request may name (gender only where reviewed),
+// the media types it produces, its speed range and input ceiling. No
+// provider's model list says any of it (xAI's speech endpoint is not even in
+// its list), and the adapter refuses exactly what the statement does not
+// serve, so it is what the catalogue publishes and a client chooses a voice
+// from. A voice's aliases are not voices and are not published.
+func applyStatedSpeech(target Provider, models []DiscoveredModel) {
+	protocol := target.Protocol
+	if protocol == "" {
+		protocol = providerconfig.Known[target.Slug].Protocol
+	}
+	for index := range models {
+		model := &models[index]
+		family, classified, _ := providerconfig.ClassifyModel(target.Slug, model.UpstreamModelID)
+		if !classified || family.Format != contract.APIFormatAudioSpeech {
+			continue
+		}
+		statement, stated := providerconfig.SpeechCapabilities(target.Slug, protocol, model.UpstreamModelID)
+		if !stated {
+			continue
+		}
+		if model.Observed == nil {
+			model.Observed = &inventory.Observed{}
+		}
+		// Lists, never absent: an empty one says the statement names none.
+		languages := append([]string{}, slices.Sorted(slices.Values(statement.Languages))...)
+		audio := &inventory.AudioObservation{
+			Voices: make([]inventory.VoiceObservation, 0, len(statement.Voices)), Languages: languages,
+			OutputMediaTypes: slices.Sorted(slices.Values(statement.OutputMediaTypes)),
+		}
+		for _, voice := range statement.Voices {
+			audio.Voices = append(audio.Voices, inventory.VoiceObservation{ID: voice.ID, Name: voice.Name, Gender: voice.Gender, Languages: slices.Clone(languages)})
+		}
+		sort.Slice(audio.Voices, func(i, j int) bool { return audio.Voices[i].ID < audio.Voices[j].ID })
+		if statement.Speed != nil {
+			speed := *statement.Speed
+			audio.Speed = &speed
+		}
+		characters := statement.MaxInputCharacters
+		audio.MaxInputCharacters = &characters
+		model.Observed.Audio = audio
 	}
 }
 

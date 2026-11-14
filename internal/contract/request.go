@@ -906,3 +906,21 @@ type SpeechFormat string
 var speechFormatValues = []SpeechFormat{"mp3", "opus", "aac", "flac", "wav", "pcm"}
 
 func (f SpeechFormat) Valid() bool { return isMember(f, speechFormatValues) }
+
+// MediaType is `speechMediaType` of the contract: the media type audio in
+// this format is published and served as.
+func (f SpeechFormat) MediaType() AudioMediaType {
+	switch f {
+	case "mp3":
+		return "audio/mpeg"
+	case "opus":
+		return "audio/ogg"
+	case "aac":
+		return "audio/aac"
+	case "flac":
+		return "audio/flac"
+	case "wav":
+		return "audio/wav"
+	}
+	return "audio/pcm"
+}

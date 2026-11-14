@@ -162,3 +162,92 @@ func TestThePublisherPublishesWhatATranscriptionAdapterTakes(t *testing.T) {
 		t.Errorf("a chat model was given transcription audio: %+v", models[1].Observed)
 	}
 }
+
+// TestThePublisherPublishesWhatTheXAISpeechAdapterTakes publishes xAI's speech
+// endpoint through the real snapshot path and reads the catalogue entry back
+// from the published bytes: the voices a request may name (gender only where
+// reviewed, no alias), MP3, the speed range and the input ceiling — what
+// openaicompat's translateSpeech enforces, so a client can cast voices from
+// the catalogue. Before the statement the line published no audio at all.
+func TestThePublisherPublishesWhatTheXAISpeechAdapterTakes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"grok-4.6"}]}`))
+		case "/v1/tts/voices":
+			_, _ = w.Write([]byte(`{"voices":[{"voice_id":"eve"},{"voice_id":"rex"},{"voice_id":"ara"}]}`))
+		default:
+			t.Errorf("unexpected discovery endpoint %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	table, err := ParseAttribution([]byte(`{"attribution":{"xai":{"tts":"x-ai/text-to-speech"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{}
+	inventoryPublisher, err := New(Config{
+		Providers: []Provider{{
+			Slug: "xai", BaseURL: server.URL + "/v1", APIKey: "test-key",
+			Discovery: providerconfig.DiscoveryXAIModels, Protocol: providerconfig.ProtocolOpenAICompatible,
+		}},
+		Attribution: table, Store: store, Client: server.Client(), Logger: quietLogger(),
+		Now: func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inventoryPublisher.PublishOnce(context.Background()); err != nil {
+		t.Fatalf("publishing: %v", err)
+	}
+	parsed, err := inventory.Parse(store.written()[0], time.Hour)
+	if err != nil {
+		t.Fatalf("the published snapshot does not parse: %v", err)
+	}
+	catalogue := parsed.Catalogue()
+	if len(catalogue) != 1 || catalogue[0].Model != "x-ai/text-to-speech" {
+		t.Fatalf("catalogue = %+v", catalogue)
+	}
+	speed, characters := contract.NumberRange{Min: 0.7, Max: 1.5}, 15000
+	voice := func(id, name, gender string) inventory.VoiceObservation {
+		return inventory.VoiceObservation{ID: id, Name: name, Gender: gender, Languages: []string{}}
+	}
+	want := &inventory.AudioObservation{
+		Voices: []inventory.VoiceObservation{
+			voice("ara", "Ara", ""), voice("eve", "Eve", "female"), voice("leo", "Leo", ""),
+			voice("rex", "Rex", "male"), voice("sal", "Sal", ""),
+		},
+		Languages: []string{}, OutputMediaTypes: []contract.AudioMediaType{"audio/mpeg"},
+		Speed: &speed, MaxInputCharacters: &characters,
+	}
+	if got := catalogue[0].Audio; !reflect.DeepEqual(got, want) {
+		t.Errorf("audio = %+v, want %+v", got, want)
+	}
+	if catalogue[0].Realtime != nil {
+		t.Errorf("a speech line was published as a session: %+v", catalogue[0].Realtime)
+	}
+}
+
+// A speech statement is published only on a speech deployment: a chat model
+// and the transcriber of the same slug get none, and StatedObservation (what
+// the SDK's fake catalogue is generated from) says the same as discovery.
+func TestOnlyASpeechDeploymentIsPublishedWithASpeechStatement(t *testing.T) {
+	models := []DiscoveredModel{{UpstreamModelID: "grok-4.6"}, {UpstreamModelID: providerconfig.XAISpeechEndpoint}}
+	applyStatedSpeech(Provider{Slug: "xai", Protocol: providerconfig.ProtocolOpenAICompatible}, models)
+	if models[0].Observed != nil {
+		t.Errorf("a chat model was given speech audio: %+v", models[0].Observed)
+	}
+	if models[1].Observed == nil || models[1].Observed.Audio == nil || models[1].Observed.Audio.OutputMediaTypes == nil {
+		t.Fatalf("the speech endpoint was published without its statement: %+v", models[1].Observed)
+	}
+	if err := models[1].Observed.Validate(); err != nil {
+		t.Errorf("the published speech audio does not validate: %v", err)
+	}
+	if stated := StatedObservation("xai", providerconfig.ProtocolOpenAICompatible, providerconfig.XAISpeechEndpoint); !reflect.DeepEqual(stated, models[1].Observed) {
+		t.Errorf("StatedObservation = %+v, discovery = %+v", stated, models[1].Observed)
+	}
+	if transcriber := StatedObservation("xai", providerconfig.ProtocolOpenAICompatible, "grok-voice-transcribe-2.0"); transcriber == nil || transcriber.Audio.OutputMediaTypes != nil || transcriber.Audio.Speed != nil {
+		t.Errorf("the transcriber was given speech limits: %+v", transcriber)
+	}
+}

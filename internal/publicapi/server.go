@@ -104,7 +104,8 @@ type Config struct {
 	// which as request adapters; nil resolves every route of an admitted line.
 	Kinds RouteKinds
 	// Audio publishes each speech model's voice limits (ADR 0002, decision 9);
-	// nil takes them from Catalogue.
+	// nil takes what GET /v1/models publishes: the inventory's statement, else
+	// Catalogue's declaration.
 	Audio AudioCatalogue
 	// Costs are the rate cards; a card's requestInputTokens bounds the
 	// decisions input estimate. Nil declares none.
@@ -193,7 +194,7 @@ func New(config Config) (*Server, error) {
 	}
 	audio := config.Audio
 	if audio == nil {
-		audio = catalogue
+		audio = servedAudio{inventory: config.Inventory, catalogue: catalogue}
 	}
 	rate := config.RateLimit
 	if rate == (RateLimit{}) {

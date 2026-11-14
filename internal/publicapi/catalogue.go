@@ -50,8 +50,8 @@ type declaredModel struct {
 // catalogueFile is the declared file: one entry per model line, in the shape
 // of modelSchema without the fields Kaana fills (schemaVersion, the
 // revisions), plus its audience. A realtime line's capabilities.realtime and
-// audio are Kaana's own reviewed statement (inventory) and replace any
-// declared ones; a speech model's audio limits are declared here.
+// a realtime, transcription or speech line's audio are Kaana's own reviewed
+// statement (inventory) and replace any declared ones.
 type catalogueFile struct {
 	// Comment is the file's own provenance note (a string or a list of them);
 	// it is never served.
@@ -327,13 +327,24 @@ func (m declaredModel) render(entry inventory.CatalogueEntry, revisions []string
 		}
 		// A realtime line names no file media types (its encodings are
 		// capabilities.realtime.audioFormats); a transcription line names the
-		// uploads its adapter takes.
+		// uploads its adapter takes, and a speech line the media types, speeds
+		// and input length its adapter serves.
 		input := entry.Audio.InputMediaTypes
 		if input == nil {
 			input = []contract.AudioInputMediaType{}
 		}
+		output := entry.Audio.OutputMediaTypes
+		if output == nil {
+			output = []contract.AudioMediaType{}
+		}
 		audio := map[string]any{"voices": voices, "languages": entry.Audio.Languages,
-			"audioFormats": map[string]any{"input": input, "output": []string{}}}
+			"audioFormats": map[string]any{"input": input, "output": output}}
+		if entry.Audio.Speed != nil {
+			audio["speed"] = entry.Audio.Speed
+		}
+		if entry.Audio.MaxInputCharacters != nil {
+			audio["maxInputCharacters"] = *entry.Audio.MaxInputCharacters
+		}
 		if err := set("audio", audio); err != nil {
 			return nil, err
 		}
@@ -500,8 +511,9 @@ func ceilDecimal(value *big.Rat, places int) string {
 	return text
 }
 
-// Audio implements AudioCatalogue from the declared audio limits of a speech
-// model (ADR 0002, decision 9): what the speech handler checks before a grant.
+// Audio implements AudioCatalogue from the declared audio limits of a model
+// (ADR 0002, decision 9): what the speech handler checks before a grant when
+// the inventory states none (servedAudio).
 func (c *PublicCatalogue) Audio(model contract.ModelReference) (*AudioCapabilities, bool) {
 	declared, known := c.models[model.ModelID()]
 	if !known {

@@ -217,7 +217,7 @@ func (a *Adapter) Translate(request *contract.Request, route provider.Route) (*p
 	if isImageModel(a.config.Provider, route.UpstreamModelID) {
 		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the image deployment requires images_generations"}
 	}
-	if a.config.Provider == "xai" && route.UpstreamModelID == "tts" {
+	if a.config.Provider == "xai" && route.UpstreamModelID == providerconfig.XAISpeechEndpoint {
 		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "modality", Detail: "the speech deployment requires audio_speech"}
 	}
 	if isTranscriptionModel(a.config.Provider, route.UpstreamModelID) {

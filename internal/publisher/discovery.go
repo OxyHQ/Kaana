@@ -200,10 +200,10 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 			available[voice.ID] = true
 		}
 		if target.Discovery == providerconfig.DiscoveryXAIModels && available["eve"] && available["rex"] {
-			if _, duplicate := seen["tts"]; duplicate {
+			if _, duplicate := seen[providerconfig.XAISpeechEndpoint]; duplicate {
 				return nil, fmt.Errorf("publisher: xai returned a model that collides with its speech endpoint")
 			}
-			models = append(models, DiscoveredModel{UpstreamModelID: "tts"})
+			models = append(models, DiscoveredModel{UpstreamModelID: providerconfig.XAISpeechEndpoint})
 		}
 		if len(voices.Voices) > 0 {
 			if _, listed := seen[xaiTranscriptionModel]; !listed {
@@ -226,6 +226,7 @@ func Discover(ctx context.Context, client *http.Client, target Provider) ([]Disc
 
 	applyStatedRealtime(target, models)
 	applyStatedTranscription(target, models)
+	applyStatedSpeech(target, models)
 
 	// Sorted so a snapshot's content — and therefore its id — does not change
 	// because a provider reordered its list.
