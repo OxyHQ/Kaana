@@ -12,6 +12,10 @@ whose every value Kaana translates or emulates per provider (Kaana ADR 0003,
 "How Kaana serves every contract value");
 Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 
+Voice mode moves to the `live` session kind, whose turns the caller's backend answers
+(native delegation on OpenAI GPT-Live, emulated on the speech-to-speech providers below):
+[ADR 0012](adr/0012-live-voice-sessions-with-delegation.md), accepted 2026-11-14, not yet built.
+
 | Piece | Where |
 |---|---|
 | The edge↔Kaana wire, below | `internal/realtime` (`GET /internal/v1/realtime`) |
