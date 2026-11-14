@@ -67,3 +67,24 @@
     credential or quota verdict), the shape of `words`, and whether
     `speech_final` text always extends the locked chunks (when it does not,
     `transcript.done` carries xAI's final text and no delta reconciles it).
+
+12. **UNVERIFIED for the emulated `live` session on `openai-realtime` and `xai-realtime`** (ADR 0012
+    §2, built without a live provider session):
+    - how faithfully each voice speaks a `function_call_output`: whether it says the answer as
+      written or paraphrases it, and whether it ever adds its own words, though the preamble and the
+      tool description forbid it. GPT-Live documents paraphrase; neither OpenAI nor xAI documents
+      either way for a function output;
+    - whether a span between `⟦` `⟧` is said exactly, and whether either voice ever reads the marks
+      into its output transcript (Kaana strips them either way);
+    - whether the voice calls `delegate` for every turn under `tool_choice: auto` (xAI: no choice
+      field), or sometimes answers by itself, which would be spoken without a delegation;
+    - whether the `Context, not to be said:` framing keeps the context unspoken;
+    - whether a call left without an output (a delegation the session superseded) changes how the
+      voice answers later turns; Kaana sends it none;
+    - on xAI, whether a `function_call_output` with no `response.create` (a cancel) is ever spoken:
+      xAI documents sending `response.create` after a function output, not what happens without one;
+    - on OpenAI, what happens when a final reply's `response.create` arrives while the response that
+      made the call is still open (`conversation_already_has_active_response` is OpenAI's documented
+      error for a second response; Kaana does not wait for the first's `response.done`);
+    - the order OpenAI sends a turn's completed transcript and the voice's call in: the hold covers
+      either order, and the xAI order is the measured one (testdata), spliced with a synthetic call.

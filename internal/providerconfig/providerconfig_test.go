@@ -3,6 +3,7 @@ package providerconfig_test
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -43,7 +44,7 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	if err := providerconfig.ValidateEndpointIdentity("xai-realtime", "https://api.openai.com/v1"); err == nil {
 		t.Fatal("xai-realtime accepted an address other than xAI's canonical API root")
 	}
-	if kinds := providerconfig.RealtimeSessionKinds("xai-realtime", providerconfig.ProtocolXAIRealtime); len(kinds) != 1 || kinds[0] != contract.RealtimeConversation {
+	if kinds := providerconfig.RealtimeSessionKinds("xai-realtime", providerconfig.ProtocolXAIRealtime); !slices.Equal(kinds, []contract.RealtimeSessionKind{contract.RealtimeConversation, contract.RealtimeLive}) {
 		t.Fatalf("xAI realtime session kinds = %v", kinds)
 	}
 	if formats := providerconfig.ExecutableAPIFormats("xai-realtime", providerconfig.ProtocolXAIRealtime); len(formats) != 0 {
@@ -76,7 +77,7 @@ func TestVerifiedProviderEndpointsAreBuiltIn(t *testing.T) {
 	if err := providerconfig.ValidateEndpointIdentity("openai-realtime", "https://api.openai.com/v1/"); err == nil {
 		t.Fatal("openai-realtime accepted an address other than OpenAI's canonical API root")
 	}
-	if kinds := providerconfig.RealtimeSessionKinds("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(kinds) != 1 || kinds[0] != contract.RealtimeConversation {
+	if kinds := providerconfig.RealtimeSessionKinds("openai-realtime", providerconfig.ProtocolOpenAIRealtime); !slices.Equal(kinds, []contract.RealtimeSessionKind{contract.RealtimeConversation, contract.RealtimeLive}) {
 		t.Fatalf("realtime session kinds = %v", kinds)
 	}
 	if formats := providerconfig.ExecutableAPIFormats("openai-realtime", providerconfig.ProtocolOpenAIRealtime); len(formats) != 0 {

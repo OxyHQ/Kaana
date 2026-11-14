@@ -56,7 +56,7 @@ func TestThePublisherPublishesWhatAnXAIVoiceSessionServes(t *testing.T) {
 	statement, _ := providerconfig.RealtimeCapabilities("xai-realtime", providerconfig.ProtocolXAIRealtime)
 	wantRealtime := &inventory.RealtimeObservation{
 		Transports:              []contract.RealtimeSessionTransport{contract.RealtimeWebSocket},
-		SessionKinds:            []contract.RealtimeSessionKind{contract.RealtimeConversation},
+		SessionKinds:            []contract.RealtimeSessionKind{contract.RealtimeConversation, contract.RealtimeLive},
 		InputAudioTranscription: true,
 		AudioFormats:            inventory.RealtimeAudioFormats{Input: allRealtimeFormats, Output: allRealtimeFormats},
 		// What a session may set is the adapter's own statement, published

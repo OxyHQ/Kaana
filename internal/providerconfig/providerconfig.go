@@ -230,29 +230,53 @@ const (
 // RealtimeSessionKinds is the realtime session kinds a slug's adapter opens
 // under a protocol: the session-family counterpart of ExecutableAPIFormats,
 // read by the adapter's own declaration (which the registry enforces) and by
-// the publisher (which attaches a session model only to an adapter that can
-// open it). Empty means the protocol holds no session.
-func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.RealtimeSessionKind {
+// the catalogue statement. Empty means the protocol holds no session. It is
+// the kinds the protocol's models are (RealtimeModelKinds), then the kinds it
+// serves on top of them by emulation.
+func RealtimeSessionKinds(slug contract.ProviderSlug, protocol string) []contract.RealtimeSessionKind {
+	models, emulated := realtimeKinds(protocol)
+	if models == nil {
+		return nil
+	}
+	return append(models, emulated...)
+}
+
+// RealtimeModelKinds is the session kinds a model attached to a slug's
+// adapter may be: what the publisher matches a session model's own kind
+// against (ClassifyModel). A kind served only by emulation is not one: an
+// emulated `live` session runs on a conversation model, so a native live
+// model (GPT-Live) is never attached to an adapter that emulates the kind.
+func RealtimeModelKinds(_ contract.ProviderSlug, protocol string) []contract.RealtimeSessionKind {
+	models, _ := realtimeKinds(protocol)
+	return models
+}
+
+// realtimeKinds is, per protocol, the session kinds its models are, and the
+// kinds it serves on those models by emulation.
+func realtimeKinds(protocol string) (models, emulated []contract.RealtimeSessionKind) {
 	switch protocol {
 	case ProtocolOpenAIRealtime:
-		// Conversation only. OpenAI's translation sessions are a separate
-		// endpoint and event protocol with no items, responses or usage, and
-		// its transcription sessions document no WebSocket endpoint; both are
-		// refused rather than approximated (docs/realtime.md).
-		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+		// Conversations, and live sessions emulated on a conversation whose
+		// one tool hands each turn over (Kaana ADR 0012 §2). OpenAI's
+		// translation sessions are a separate endpoint and event protocol with
+		// no items, responses or usage, and its transcription sessions
+		// document no WebSocket endpoint; both are refused rather than
+		// approximated (docs/realtime.md).
+		return []contract.RealtimeSessionKind{contract.RealtimeConversation}, []contract.RealtimeSessionKind{contract.RealtimeLive}
 	case ProtocolXAIRealtime:
-		// xAI's Voice Agent API holds conversations only; it documents no
+		// xAI's Voice Agent API holds conversations, and live sessions
+		// emulated on one (Kaana ADR 0012 §2, §6); it documents no
 		// transcription or translation session.
-		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+		return []contract.RealtimeSessionKind{contract.RealtimeConversation}, []contract.RealtimeSessionKind{contract.RealtimeLive}
 	case ProtocolXAISTT:
 		// xAI's streaming speech-to-text transcribes and never answers.
-		return []contract.RealtimeSessionKind{contract.RealtimeTranscription}
+		return []contract.RealtimeSessionKind{contract.RealtimeTranscription}, nil
 	case ProtocolOpenAILive:
 		// GPT-Live delegates every turn: it is the native `live` voice and
 		// holds nothing else (Kaana ADR 0012 §2).
-		return []contract.RealtimeSessionKind{contract.RealtimeLive}
+		return []contract.RealtimeSessionKind{contract.RealtimeLive}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // ExecutableAPIFormats is the request families a slug's adapter executes under

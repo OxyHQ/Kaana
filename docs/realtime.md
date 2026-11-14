@@ -15,8 +15,9 @@ Go: `internal/contract/realtime.go`, `realtime_wire.go`. Issue: OxyHQ/Kaana#90.
 Voice mode moves to the `live` session kind, whose turns the caller's backend answers
 (native delegation on OpenAI GPT-Live, emulated on the speech-to-speech providers below):
 [ADR 0012](adr/0012-live-voice-sessions-with-delegation.md). Its contract and the session's half are
-built (contract set 8.16.0, "Live sessions" below), and its native adapter is OpenAI GPT-Live
-("OpenAI GPT-Live: `openai-live`").
+built (contract set 8.16.0, "Live sessions" below). Its native adapter is OpenAI GPT-Live
+("OpenAI GPT-Live: `openai-live`"), and `openai-realtime` and `xai-realtime` serve it by emulation
+("Emulated delegation").
 
 | Piece | Where |
 |---|---|
@@ -25,6 +26,7 @@ built (contract set 8.16.0, "Live sessions" below), and its native adapter is Op
 | The provider-side session interface | `provider.RealtimeAdapter`, `provider.RealtimeUpstream` |
 | OpenAI Realtime (GA) | `internal/provider/openairealtime`, slug `openai-realtime` |
 | xAI Voice Agent (the same adapter, xAI's dialect) | `internal/provider/openairealtime` (`dialect.go`, `meter.go`), slug `xai-realtime` |
+| `live` by emulated delegation (both dialects) | `internal/provider/openairealtime/live.go`; the shared preamble and verbatim marks in `internal/provider/live.go` |
 | The real-wire fake upstreams | `internal/provider/openairealtime/openairealtimetest` (`New`, `NewXAI`) |
 | OpenAI GPT-Live, the native `live` voice | `internal/provider/openailive`, slug `openai-live`; fake `openailivetest` |
 | OpenAI's error vocabulary, shared by both OpenAI wires | `internal/provider/openaierror` |
@@ -305,6 +307,87 @@ adapter's own units. An adapter joins it by one entry in `liveFixtures` and its 
 scripted upstream. `configs/public-catalogue.json` declares `openai/gpt-live-1` as the default
 `live` line ("Operating `openai-live`").
 
+K3 lists `live` in the statements of `openai-realtime` and `xai-realtime` ("Emulated delegation"), so
+the inventory publishes it in the `sessionKinds` of their lines (`x-ai/grok-voice-3.0`, the
+`gpt-realtime` lines), none of them a default. `configs/public-catalogue.json` still declares
+`sessionKinds: ["conversation"]` for those lines: the
+declared catalogue is what Oxy parses (`declaredCatalogueSchema`), and Oxy on a contracts package older
+than 8.16.0 refuses the whole document when a line names `live`. The served kinds come from the
+inventory either way. `GET /v1/models` lists `live` only to a reader whose
+`Kaana-Contract-Version` is 8.16.0 or later (`CATALOGUE_ADDITIONS`, contract set 8.17.0,
+`contract.md`): an older reader's closed `realtimeSessionKindSchema` would refuse the whole list, so
+it is served those lines with `conversation` alone.
+
+The signed-envelope lane refuses a `live` session at open (`kaana.EnvelopeLiveRefused`, param
+`kind`): its voice transcribes the caller whatever the configuration says, and on OpenAI that is
+billed as `input_transcription_milliseconds`, a unit the lane's consumer cannot settle.
+
+## Emulated delegation (`openai-realtime`, `xai-realtime`)
+
+Neither OpenAI-Realtime-shaped wire hands a turn to its caller, so a `live` session is served as a
+conversation whose one tool hands it over (ADR 0012 §2, `internal/provider/openairealtime/live.go`).
+Both dialects run the same code; what their wires spell differently is the dialect's, exactly as for
+a conversation. `live` is an emulated kind there (`providerconfig.RealtimeSessionKinds` lists it, after the
+kinds the protocol's models are): the publisher matches a session model's own kind against
+`RealtimeModelKinds` only, so the conversation lines (`gpt-realtime-*`, `grok-voice-*`) serve `live`
+and the native `gpt-live-1` is never attached to `openai-realtime`
+(`TestGPTLiveIsAttributedOnlyToTheLiveAdapter`).
+
+**Configuration** (`dialect.liveConversation`, then the conversation's own `wireSession`):
+
+| Wire field | Value |
+|---|---|
+| `instructions` | `provider.LivePreamble`, a blank line, the caller's persona (`provider.LiveInstructions`). The preamble is shared with the native adapter, word for word (`internal/provider/live.go`) |
+| `tools` | exactly one: `{type: "function", name: "delegate", description, parameters: {type: object, properties: {request: {type: string}}, required: [request]}}`. The description says to call it for every request, what its result holds and, by `delegation.acknowledgement`, whether one very short acknowledgement ("one moment") may precede the call (`auto`) or nothing (`none`) |
+| `tool_choice` | `auto`; nothing on xAI, whose only choice it is |
+| output | audio only (OpenAI `output_modalities: ["audio"]`; on xAI each `response.create` asks `modalities: ["audio"]`), the session's voice and format |
+| turn detection | the caller's `server_vad` / `semantic_vad`, translated as for a conversation, with `create_response` and `interrupt_response` sent `true` whatever the caller asked: the voice answers every turn by delegating and is interruptible. On xAI they are fixed, so `false` is refused as Unservable says, before a grant |
+| input transcription | always on, with the caller's language when it named one; the deployment's transcription model as for a conversation |
+
+**Events.**
+
+| Provider | Contract |
+|---|---|
+| The completed call to `delegate` (`response.function_call_arguments.done`; the name from the call's output item, or on the event itself on xAI) | `delegation.requested {delegationId: call_id, text}`. `text` is the caller's final input transcripts since the previous delegation, joined by a space; when none arrived, the voice's `request` argument |
+| The call while a committed turn of the caller's has no final transcript yet | held, and handed over once every committed turn has its final transcript, its transcription failed, or the caller starts talking again (`input_audio_buffer.speech_started`). A turn still untranscribed when its delegation went is not waited for again, and its words, when they come, are relayed and join no later delegation. OpenAI transcribes asynchronously, so its call can come first; xAI sends the final transcript right after the commit, before the response's output (testdata) |
+| A second call while one is held | the held one is handed over first, with what was heard; the session supersedes it |
+| Input and output transcripts, output audio deltas, `error` | relayed as for a conversation; `⟦` and `⟧` are removed from the voice's transcripts (`provider.StripVerbatimMarks`), and a delta left empty is not sent |
+| Everything else: `response.*`, items, `tool_call`, speech and commit markers, `output_audio.done` | not relayed (GPT-Live has no counterpart); the units an event carried are still reported, as a units-only event |
+| A call to any other function name | dropped |
+
+**Commands.**
+
+| Contract | Provider |
+|---|---|
+| `input_audio.append` | `input_audio_buffer.append`, as for a conversation |
+| `delegation.reply` (not final) | buffered for the delegation it names, never discarded when the voice's next call is read (the session reads ahead and may still apply this one's final reply): the parts are joined with a space where neither side has one, each `verbatim` span wrapped in `⟦` `⟧` (`provider.WrapVerbatim`); nothing is sent |
+| `delegation.context` | buffered with the delegation's answer |
+| `delegation.reply` (final) | `conversation.item.create {type: function_call_output, call_id, output}` then `response.create`, both with `event_id` = the final reply's `commandId`. `output` is the reply, or with context `Context, not to be said: <context>`, a blank line, then the reply. A reply longer than a function output carries (1 048 576 UTF-16 units) is refused, `text`, and the earlier parts stay |
+| `delegation.cancel` | `conversation.item.create` of the call's output `This request was dropped. Say nothing about it.`, with no `response.create`, so nothing is spoken for it. Closing the call with an unspoken output is the closest the wire allows to dropping it |
+| any other command (`conversation.item.*`, `response.*`) | refused, param `type`, unsent: a `live` session exposes no conversation |
+
+**Billing** is the dialect's, unchanged (ADR 0012 §5): OpenAI settles the tokens each `response.done`
+reports (the call's response and the spoken answer's) and the transcription model's
+`input_transcription_milliseconds`, both relayed as units even though the events are not. xAI's
+`server_vad` session is metered by its clock, `session_milliseconds`; a function output and
+`response.create` are not billed by xAI and add no `requests` (`meter.measure` names neither).
+The emulation adds no unit.
+
+**Tests.** Both dialects pass `TestLiveContract` (`internal/realtime`), as the fixtures
+`openai-realtime` and `xai-realtime` (`live_contract_openairealtime_test.go`): the voice's turns
+committed by its server_vad and transcribed in each provider's spelling, its `delegate` call, and the
+function outputs read back; OpenAI settles its reported tokens and transcription minutes, xAI its
+session clock, `oxy_measured`. In the package (`live_test.go`, both dialects): the configuring `session.update`, one whole turn with a
+two-part reply, context and a verbatim span (output, relayed events and units exact), the wait for a
+turn's transcript, an untranscribed turn, a call with no turn, the release when the caller talks on,
+cancel without `response.create`, a newer call's own answer, the refused conversation commands, and a
+replay of the measured xAI captures (`xai-ended-turn.jsonl`, `xai-interrupted-turn.jsonl`) with the
+call spliced into xAI's response. `TestTheDialectTranslatesEveryContractValue` covers every live
+value on both dialects. The fakes script the call and read the answer back
+(`openairealtimetest.Upstream.Delegate`, `DelegateCall`, `Conn.ExpectOutput`). What no fake can prove
+(how faithfully each voice speaks a function output, and verbatim spans) is in
+[realtime-findings](realtime-findings.md).
+
 ## OpenAI GPT-Live: `openai-live`
 
 GPT-Live is a full-duplex voice that listens, speaks, decides when a turn ends and hands every turn to
@@ -413,7 +496,7 @@ reach it.
 | Configured root | `https://api.openai.com/v1`, locked; the publisher reads the account's `GET /v1/models` there |
 | Session endpoint | `wss://api.openai.com/v1/realtime?model=<signed upstream id>`, fixed in `providerconfig` |
 | Authentication | `Authorization: Bearer <key>` on the handshake; no `OpenAI-Beta` header (GA) |
-| Session kinds | `conversation` only |
+| Session kinds | `conversation`, and `live` by emulated delegation ("Emulated delegation") |
 
 **Opening.** Dial (a non-101 handshake is classified from its status and
 OpenAI's error body), wait for `session.created`, send one `session.update`
@@ -557,7 +640,7 @@ shared code, and every documented difference is a dialect field.
 | Configured root | `https://api.x.ai/v1`, locked; the publisher reads the account's `GET /v1/models` there and, for the voice models that list omits, opens a read-only session (`xai_models_and_realtime_sessions`, "Publishing") |
 | Session endpoint | `wss://api.x.ai/v1/realtime?model=<signed upstream id>`, fixed in `providerconfig` |
 | Authentication | `Authorization: Bearer <key>` on the handshake |
-| Session kinds | `conversation` only (xAI documents no other) |
+| Session kinds | `conversation` (xAI documents no other), and `live` emulated on it ("Emulated delegation") |
 | Model | `grok-voice-3.0` (attributed 2026-10-16); `grok-voice-latest` is xAI's moving alias and `grok-voice-2.0` is deprecated, so neither is attributed. `grok-voice-think-fast-2.0`, attributed until then, stopped being served on 2026-10-14 (item 10 below) |
 | Turn detection | `none` (push-to-talk, billed by audio) or `server_vad` (billed by session wall clock) — see "Metering" |
 | Session limit | xAI's own: 120 minutes, 10 concurrent sessions per team at tier 0 |
@@ -858,7 +941,7 @@ whose contract set has `defaultKinds` (8.16.0 or later). `openai/gpt-live-1` is 
 
 | | OpenAI | xAI |
 |---|---|---|
-| Transports, kinds | `websocket`; `conversation` | `websocket`; `conversation` |
+| Transports, kinds | `websocket`; `conversation`, `live` | `websocket`; `conversation`, `live` |
 | `inputAudioTranscription` | `true` | `true` |
 | Encodings in and out | `pcm16_24khz`, `g711_ulaw`, `g711_alaw` | the same |
 | Voices | the 10 documented (`alloy` … `marin`, `cedar`), no gender | the 26 built-in ids xAI documents; gender only for `eve` (female) and `rex` (male), Kaana's reviewed product voices |
@@ -1272,6 +1355,10 @@ replay admission or fabricate an empty settlement.
   supersedes, refuses a command for any delegation but the open one, and refuses the commands a
   `live` session does not take before they are acknowledged. An adapter returns
   `delegation.requested` and serves or refuses what `Send` hands it.
+- **An emulated `live` session relays only what a native one can**: transcripts, the voice's
+  audio, errors and `delegation.requested`; the conversation it runs on (responses, items, tool
+  calls, conversation commands) never reaches the client, its units always reach settlement, and the
+  preamble and verbatim marks are `internal/provider/live.go`'s, shared with the native adapter.
 - **A provider speaking the OpenAI Realtime shape is a dialect of
   `internal/provider/openairealtime`, not a copy**: its differences are
   `dialect` fields, each from the provider's documentation, and it gets its own

@@ -322,10 +322,19 @@ func TestTheDialectTranslatesEveryContractValue(t *testing.T) {
 	}
 	for _, d := range []*dialect{openAIDialect, xAIDialect} {
 		parameters := d.statement().Parameters
-		check := func(name string, config contract.RealtimeSessionConfig) {
+		// check serves a configuration the way its kind is served: a
+		// conversation as it is, a live session as the conversation that
+		// emulates it (liveConversation).
+		check := func(name string, kind contract.RealtimeSessionKind, config contract.RealtimeSessionConfig) {
 			t.Helper()
 			issues := parameters.Unservable("config", config.Fields())
-			_, err := d.wireSession(config)
+			served, err := config, error(nil)
+			if kind == contract.RealtimeLive {
+				served, err = d.liveConversation(config)
+			}
+			if err == nil {
+				_, err = d.wireSession(served)
+			}
 			var unsupported provider.ErrUnsupported
 			switch {
 			case len(issues) == 0 && err != nil:
@@ -345,8 +354,21 @@ func TestTheDialectTranslatesEveryContractValue(t *testing.T) {
 						config := conversationConfig()
 						config.TurnDetection, config.ToolChoice, config.OutputModalities = detection, &choice, set
 						config.InputAudioTranscription, config.MaxOutputTokens = transcription, pointer(8192)
-						check(fmt.Sprintf("%v/%v/%v/%v", detection.Type, contract.RealtimeToolChoiceOf(choice), set, transcription != nil), config)
+						check(fmt.Sprintf("%v/%v/%v/%v", detection.Type, contract.RealtimeToolChoiceOf(choice), set, transcription != nil), contract.RealtimeConversation, config)
 					}
+				}
+			}
+		}
+		// A live session (Kaana ADR 0012) sets no tool choice, modalities or
+		// cap: the rest of what the contract lets it set is served as the
+		// conversation that emulates it, or refused as Unservable says.
+		for _, detection := range detections {
+			for _, acknowledgement := range []contract.RealtimeDelegationAcknowledgement{contract.RealtimeAcknowledgementAuto, contract.RealtimeAcknowledgementNone} {
+				for _, transcription := range []*contract.RealtimeInputTranscription{nil, {Language: pointer("es-AR")}, {Language: pointer("gl")}} {
+					config := liveConfig("eve")
+					config.TurnDetection, config.InputAudioTranscription = detection, transcription
+					config.Delegation = &contract.RealtimeDelegationConfig{Acknowledgement: acknowledgement}
+					check(fmt.Sprintf("live %v/%v/%v", detection.Type, acknowledgement, transcription != nil), contract.RealtimeLive, config)
 				}
 			}
 		}
