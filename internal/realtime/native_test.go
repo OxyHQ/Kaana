@@ -37,8 +37,10 @@ func (g *nativeGate) Admit(_ context.Context, r *http.Request, _ []byte) (*realt
 	}}, nil
 }
 func TestNativeRealtimeUsesAbsoluteAdmissionDeadline(t *testing.T) {
-	gate := &nativeGate{deadline: time.Now().Add(time.Second)}
+	gate := &nativeGate{}
 	h := newHarness(t, options{gate: gate})
+	// Admission starts after harness setup; retain the same absolute one-second lease.
+	gate.deadline = time.Now().Add(time.Second)
 	ws := publicConnect(t, h, "Bearer synthetic", []byte(`{"type":"session.open"}`))
 	created := read(t, ws)
 	var event contract.RealtimePublicSessionCreatedEvent
