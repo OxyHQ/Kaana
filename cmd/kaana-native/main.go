@@ -23,6 +23,9 @@ func main() {
 	}
 }
 func run(args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) error {
+	if len(args) > 0 && args[0] == "billing-accounts" {
+		return runBillingAccounts(args[1:], stdin, stdout, getenv, openAccountOperator)
+	}
 	if len(args) > 0 && args[0] == "migrate-commercial" {
 		return migrateCommercial(args[1:], stdout, getenv)
 	}
