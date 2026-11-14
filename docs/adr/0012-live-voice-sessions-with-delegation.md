@@ -1,12 +1,13 @@
 # ADR 0012 — Live voice sessions with delegation
 
-- Status: accepted (2026-11-14). Implementation is pending, in the phases of §8. Production is unchanged
-  until phase K5 and its canary have run.
+- Status: accepted (2026-11-14), with the owner's answers to the first draft's open points (§9). Being
+  built in the phases of §8. Production is unchanged until phase K5 and its canary have run.
 - Authority: the owner's decisions of 2026-11-14, relayed by the coordinator: voice mode uses OpenAI
   GPT-Live (`gpt-live-1`) instead of xAI Grok Voice. Switching later to Grok voice, ElevenLabs or any
   other voice provider must be a catalogue or routing change, not a rewrite. The voice front end hands
   every user turn to the client's own backend ("client delegation"), so a call has exactly the tools,
-  memory and model of a typed turn.
+  memory and model of a typed turn. The owner approved the contract change explicitly ("ok pues mejor el
+  live si… que sea fácil cambiar").
 - Date: 2026-11-14
 - Consumers: Gemies voice mode (Gemies ADR 0041, which amends Gemies ADR 0017), and through it the Alia
   and Gemies apps.
@@ -59,106 +60,129 @@ https://developers.openai.com/api/docs/models/gpt-live-1, all read 2026-11-14):
 
 ### 1. One canonical live session kind: `live`
 
-`realtimeSessionKindSchema` gains `live`: a spoken conversation whose turns are answered by the caller's
-backend. It is the only kind voice mode opens. `conversation` stays for callers that want the model to
-answer by itself. Its model list is what Kaana serves today and nothing changes for it.
+`realtimeSessionKindSchema` gains `live`: a spoken conversation whose turns the caller's backend answers.
+Voice mode opens only this kind. `conversation` stays as it is, for callers that want the model to answer
+by itself.
 
-A `live` session is configured at open, and only at open:
+**Configuration** (`realtimeSessionConfigSchema`, cross-field rules in `realtimeConfigIssues`). A `live`
+session:
 
-| Field | Meaning |
+| Field | Rule for `live` |
 |---|---|
-| `voice` | A voice id from the line's catalogue `audio.voices` |
-| `audioFormat` | One format both ways: `pcm16_24khz`, `pcm16_16khz`, `g711_ulaw`, `g711_alaw`. The line's `realtime.audioFormats` say which it takes |
-| `persona` | How the voice speaks (name, tone, language). Never the backend's instructions or tools. Bounded by the contract |
-| `language` | The caller's BCP 47 tag, as for input transcription |
-| `history` | Prior turns as text, `{role: user \| assistant, text}`, bounded |
-| `delegation.acknowledgement` | `auto`: the voice may say a short "one moment". `none`: it stays silent until the answer |
+| `instructions` | The persona only: who speaks, its tone, the language. Never the backend's instructions or tools |
+| `voice` | Required. An id from the line's `audio.voices` |
+| `inputAudioFormat`, `outputAudioFormat` | Both required and equal: one format both ways (GPT-Live's rule; the emulated wires accept it too) |
+| `turnDetection` | `server_vad` or `semantic_vad`. The voice decides when a turn ends; `none` is refused. Thresholds and silence are translated where the wire takes them and ignored where the voice owns turn-taking (GPT-Live) |
+| `inputAudioTranscription` | Optional, `{language?}`. The caller's words are relayed as `transcript.*` with `source: input_audio` whether or not it is set: delegation needs them. `prompt` and `interimResults` are refused |
+| `delegation` | Required for `live`, refused for every other kind: `{acknowledgement: 'auto' \| 'none'}`. `auto` lets the voice say a short "one moment" while the backend works |
+| `outputModalities`, `tools`, `toolChoice`, `maxOutputTokens`, `translation` | Refused: the backend owns the answer and its tools |
 
-The commands and events, numbered and acknowledged as every realtime session's are (`docs/realtime.md`,
-wire rules 5–10):
+`session.update` cannot change a `live` session (GPT-Live fixes everything at start): it is refused with
+`invalid_request`, `param: type`.
 
-| Direction | Name | Meaning |
+**Commands** (client → Kaana), with the usual `schemaVersion`, `requestId`, `commandId`:
+
+| Command | Fields | Meaning |
 |---|---|---|
-| client → Kaana | `input_audio.append`, `input_audio.mute`, `input_audio.unmute` | Audio and the microphone |
-| client → Kaana | `delegation.reply {delegationId, text, final}` | Speak this part of the answer. Chunked by the client; Kaana splits it to the provider's bound |
-| client → Kaana | `delegation.context {delegationId, text}` | Silent context the voice may use later (for example "still working on it") |
-| client → Kaana | `delegation.cancel {delegationId}` | The client dropped the turn; the voice says nothing more for it |
-| client → Kaana | `session.close` | As today |
-| Kaana → client | `delegation.requested {delegationId, text, transcriptItemIds}` | One user turn to answer. Kaana assembles `text` from the input transcript since the previous delegation, so no client rebuilds it |
-| Kaana → client | `delegation.superseded {delegationId}` | The person changed the request. Discard that turn's result |
-| Kaana → client | `transcript.delta` / `transcript.done`, `source: input_audio \| output_audio` | As today |
-| Kaana → client | `output_audio.delta` | As today. Kaana numbers the frames; there is no provider done event to relay |
-| Kaana → client | `usage.updated {sessionMilliseconds}` | Running total, from the provider's own figure where it reports one |
-| Kaana → client | `session.created`, `session.closed`, `error` | As today |
+| `input_audio.append` | `data` | As today. `input_audio.commit` and `.clear` are refused for `live`: the voice detects turns |
+| `delegation.reply` | `delegationId`, `text` (1–8 192 UTF-16 units), `verbatim?` (≤ 32 strings, each an exact substring of `text`, ≤ 256 units), `final` | Speak this part of the answer. A client streams sentence by sentence; Kaana splits to the provider's bound. `verbatim` marks spans the voice must say exactly: numbers, addresses, names, codes |
+| `delegation.context` | `delegationId`, `text` (1–8 192) | Silent context the voice may use, for example "still checking your calendar" |
+| `delegation.cancel` | `delegationId` | The client dropped the turn: nothing more is spoken for it |
+| `session.close`, `session.resume` | | As today |
 
-Turn-taking, barge-in and acknowledgement speech belong to the voice. A `live` session takes no
-`turnDetection`, no `tools`, no `toolChoice` and no `outputModalities`, and the contract refuses them for
-the kind (`realtimeConfigIssues`). The backend's tools are the client's own business.
+The voice is told, in a fixed preamble Kaana adds before the caller's persona, that every request is
+answered by delegation and that a span between `⟦` and `⟧` is spoken exactly as written. Kaana wraps
+each `verbatim` span in those marks on the wire and never relays them back in `transcript.*`.
+
+**Events** (Kaana → client), numbered as every realtime event is:
+
+| Event | Fields | Meaning |
+|---|---|---|
+| `delegation.requested` | `delegationId` (1–128), `text` | One turn to answer. `text` is the caller's words since the previous delegation, assembled by Kaana from the input transcript, so no client stitches transcripts |
+| `delegation.superseded` | `delegationId` | The person moved on (a newer delegation opened before this one's `final` reply). Its reply is no longer spoken |
+| `transcript.delta`, `transcript.done` | as today | `source: input_audio` (the person) and `output_audio` (the voice) |
+| `output_audio.delta` | as today | Kaana numbers frames; GPT-Live has no done event, so `output_audio.done` is not sent for `live` |
+| `session.created`, `session.closed`, `error`, `command.accepted` | as today | |
+
+A reply to an unknown, superseded or already-final `delegationId` is refused with a non-fatal
+`invalid_request` naming `delegationId`.
+
+**Catalogue.** A line that serves `live` lists it in `capabilities.realtime.sessionKinds`.
+`capabilities.realtime.defaultKinds` (new, optional) lists the session kinds for which the line is
+Kaana's default; at most one active line is the default of a kind, which `configs/public-catalogue.json`
+validation enforces.
 
 ### 2. Provider adapters stay in Kaana; delegation is native or emulated
 
 `provider.RealtimeAdapter` serves `live` for any provider that can speak a turn it was handed:
 
-- **Native** (OpenAI GPT-Live, new slug `openai-live`, `internal/provider/openailive`, real-wire fake
-  `openailivetest`). `delegation.requested` comes from `session.delegation.created` plus the input
-  transcript Kaana has been relaying. `delegation.reply` becomes `session.commentary.append`, cut at 500
-  tokens on sentence boundaries. `delegation.context` becomes `session.thinking.append`.
-  `acknowledgement: none` becomes an empty `thinking.append` on each delegation. `delegation.cancel`
-  becomes `session.instructions.append` naming the turn as dropped. `usage.seconds` becomes
-  `session_milliseconds`, labelled `provider_reported`, and a socket that ends without `session.closed`
-  settles Kaana's own wall clock, labelled `oxy_measured`.
-- **Emulated**, for a speech-to-speech provider without delegation (`openai-realtime` `gpt-realtime-*`,
-  `xai-realtime` `grok-voice-*`, and later ElevenLabs Conversational AI). Kaana configures one canonical
-  tool, `delegate {request: string}`, plus a fixed, reviewed persona preamble telling the model to call
-  it for every request and to speak only what the tool returns. The model's `tool_call` becomes
-  `delegation.requested` (`delegationId` = the call id, `text` = the input transcript, with the model's
-  `request` kept as a hint). `delegation.reply` with `final: true` becomes the function output plus
-  `response.create`. Barge-in maps to `delegation.superseded`. The dialect's existing statement still
-  decides voices, formats and billing (`clockBilled`, `tokenUsage`).
+- **Native: OpenAI GPT-Live.** New slug `openai-live`, protocol `openai_live`, package
+  `internal/provider/openailive`, real-wire fake `openailivetest`. `session.start` carries the model, the
+  preamble plus persona as `instructions`, `audio.format`, `audio.output.voice` and
+  `delegation: {type: "client", acknowledgement_delay_ms}` (`auto` → 400, `none` → 0). Then:
+  `session.delegation.created` → `delegation.requested` with the input transcript accumulated since the
+  previous delegation; `delegation.reply` → `session.commentary.append`, cut at 500 tokens on sentence
+  boundaries, verbatim spans never cut; `delegation.context` → `session.thinking.append`;
+  `acknowledgement: none` → an empty `session.thinking.append` on each delegation;
+  `delegation.cancel` → `session.instructions.append` naming the turn as dropped;
+  `session.input_transcript.delta` / `session.output_transcript.delta` → `transcript.delta`, with
+  `transcript.done` at each delegation (input) and at a gap of 1.5 s in output deltas (output);
+  `session.output_audio.delta` → `output_audio.delta`; `session.usage.updated` / `session.closed`
+  `usage.seconds` → `session_milliseconds`, `provider_reported`. A socket that ends without
+  `session.closed` settles Kaana's own wall clock, `oxy_measured`.
+- **Emulated: the OpenAI-Realtime-shaped wires** (`openai-realtime` `gpt-realtime-*`, `xai-realtime`
+  `grok-voice-*`), and later any speech-to-speech provider without delegation. The dialect configures one
+  canonical tool, `delegate {request: string}`, `tool_choice: auto` (sent as nothing on xAI), audio output,
+  input transcription on, and the same preamble. The model's completed `tool_call` for `delegate` becomes
+  `delegation.requested` (`delegationId` = the call id; `text` = the input transcript since the previous
+  delegation, or the model's `request` when no transcript arrived). Replies are buffered until `final`,
+  then sent as the call's `function_call_output` followed by `response.create`; `delegation.context`
+  received before `final` is prepended to that output. A new delegation before `final` supersedes the
+  old one. The dialect's statement still decides voices, formats and billing (`clockBilled`,
+  `tokenUsage`).
 
-A client never sees which of the two is serving. One test suite in `internal/realtime`
-(`TestLiveContract`) runs the whole canonical contract against `openailivetest` and against the
-`openairealtimetest` fakes in both dialects. An adapter that does not pass it is not served for `live`.
+A client never sees which of the two is serving. One suite in `internal/realtime`, `TestLiveContract`,
+runs the whole canonical contract (open, audio both ways, transcripts, a delegation answered in two
+replies with a verbatim span, supersession, cancel, refusals, close and settlement) against
+`openailivetest` and against `openairealtimetest` in both dialects. An adapter that does not pass it is
+not served for `live`.
 
 ### 3. Voices are Kaana's, through the catalogue
 
-`audio.voices` on each `live` line lists the provider's voice ids. Product gender is published only for
-the voices Kaana has reviewed as product voices (`providerconfig`, as `eve` and `rex` are for xAI today),
-never inferred from a name. For `gpt-live-1` the proposal is `marin` (female) and `cedar` (male), OpenAI's
-documented default and its recommended pair on the Realtime models. The owner confirms it (§9). A client
-picks by gender from the catalogue; it never writes a voice id.
+`audio.voices` of a `live` line lists the provider's voice ids. Product gender is published only for the
+voices Kaana has reviewed as product voices (`providerconfig`), never inferred from a name: for
+`gpt-live-1`, `marin` is female and `cedar` is male (the owner's decision, 2026-11-14); for xAI, `eve`
+and `rex`, as today. A client picks a voice by gender from the catalogue and never writes a voice id.
 
 ### 4. Selection is a catalogue default, never a client constant
 
-A `live` open may name `model: "default"`, a routing slug with no `/`, as a power level is. Oxy resolves
-it from the application's policy (`liveVoiceDefault`, set per application in Oxy's catalogue) to signed
-exact routes, as it resolves a power level for text. The catalogue marks the line that is the default
-for the caller (`defaults.live`). Switching provider is then one Oxy catalogue change: point the default
-at another `live` line. Gemies never names a voice model.
-
-`modelReferenceSchema` accepts the slug only on a `live` open; every other open keeps the exact reference.
+`configs/public-catalogue.json` declares `capabilities.realtime.defaultKinds: ["live"]` on exactly one
+active `live` line: `openai/gpt-live-1`. A client opens `GET /v1/realtime?model=<that line>` after reading
+`GET /v1/models`, so the line is named by the catalogue, never by the client's code. Oxy (or Kaana's
+native admission) still authorizes the session for the exact line like any other. Switching provider is
+then one reviewed change of `defaultKinds` in the catalogue. Grok stays as the second `live` line and the
+fallback: a client tries the default first and the next `live` line only on the model's own refusal, as
+voice mode does today.
 
 ### 5. Billing
 
-- The voice is `session_milliseconds`, per second, priced by the line's Kaana price version
-  ($0.05 / 60 000 ms = `833333.33…` ⇒ `833334` in 10⁻¹² USD per ms, rounded up for the customer;
-  the rate card holds OpenAI's exact figure for operator cost). `pricePerMinute` on the catalogue entry
-  is that price for one minute.
-- Oxy holds the session against `realtimeDurationCeiling` (`inferenceEdge.service.ts`) with the
-  duration rule: the signed `maxDurationMs` × the line's `session_milliseconds` price. A `live` session
-  has no audio-token units, so the token and byte rules do not apply to it.
-- The backend's turns are ordinary Kaana inference requests from the client, billed as such. Kaana does
-  not fold them into the session.
+- GPT-Live is billed `session_milliseconds`, per second. The rate card holds OpenAI's figure for operator
+  cost ($0.05 / 60 000 ms = `833334` in 10⁻¹² USD per ms, rounded up), and the line's Kaana price version
+  prices the unit for the customer. `pricePerMinute` is that price for one minute.
+- Oxy holds a `live` session with a duration-only ceiling: `session_milliseconds` ≤ the signed
+  `maxDurationMs` plus the bounded open, and `requests: 1`. A line priced only in `session_milliseconds`
+  quotes that plan; the token and audio-byte plans do not apply to it.
+- The backend's turns are ordinary inference requests from the client, billed as such. Kaana never folds
+  them into the session.
 - An emulated provider is billed as its dialect bills today (xAI `server_vad`: `session_milliseconds`
-  and `requests`; OpenAI Realtime: tokens). The client's price check reads `pricePerMinute` alone.
+  and `requests`; OpenAI Realtime: tokens), held by the plans Oxy already has.
 
 ### 6. Grok Voice
 
-`xai-realtime` stays only if it passes `TestLiveContract` through emulation, as a second adapter that
-proves the contract is not shaped around one provider. It is then a catalogue alternative, not the
-default. If it does not pass cleanly, it is deleted with its publisher probe, fake, rate card,
-attribution and infrastructure switch, in one change. xAI streaming dictation (`xai-stt`,
-`grok-voice-transcribe-2.0`) is a different feature and is unaffected.
+`xai-realtime` stays, converted to the `live` shape by emulation (§2), as the second adapter: it proves
+the contract does not depend on one provider, and it is the fallback (§4). Its `conversation` kind stays
+for callers that use it. xAI streaming dictation (`xai-stt`, `grok-voice-transcribe-2.0`) is a different
+feature and is unaffected.
 
 ### 7. What does not change
 
@@ -169,24 +193,23 @@ apply to `live` unchanged. A `live` session is one request for attribution and s
 
 | Phase | Repo | What | Done when |
 |---|---|---|---|
-| K1 | Kaana | `@kaana.ai/contracts`: kind `live`, its config, commands and events, `defaults.live`, the `default` slug on a `live` open; descriptor and OpenAPI regenerated | `make check` green, contract published |
-| K2 | Kaana | `openailive` adapter, fake, `providerconfig` slug `openai-live`, attribution of `gpt-live-1`, discovery through `GET /v1/models`, voice statement | `TestLiveContract` passes against `openailivetest` |
-| K3 | Kaana | Emulated delegation in `openairealtime` (both dialects), or deletion of `xai-realtime` per §6 | `TestLiveContract` passes against both fakes, or the deletion lands |
-| K4 | Oxy | `openai-live` provider row, price version (`session_milliseconds`), `liveVoiceDefault` for the Gemies and Alia applications, duration ceiling covered by tests | Oxy CI green, deployed |
-| K5 | Kaana, oxy-infra | Key imported under `openai-live` (§9), `kaana_openai_live_enabled`, rate card and `deployment-commercial.json` for the minted deployment id, deploy, signed canary: a `live` session with audio both ways and one delegated turn | Canary receipt read back; health leaves `degraded` |
-| G1 | Gemies | Voice mode opens `live` with `model: "default"` and answers every `delegation.requested` with the chat route's own turn (Gemies ADR 0041) | Gemies CI green, production canary passes |
+| K1 | Kaana | `@kaana.ai/contracts` minor: kind `live`, `delegation` config, the three commands and two events, `defaultKinds`; Go mirrors; descriptor and OpenAPI regenerated; SDK types | `make check` green, packages released |
+| K2 | Kaana | `openailive` adapter and fake, slug `openai-live`, attribution of `gpt-live-1`, discovery, voice statement, catalogue entry with `defaultKinds: ["live"]` and its price version | `TestLiveContract` passes against `openailivetest` |
+| K3 | Kaana | Emulated delegation in `openairealtime` (both dialects); `live` added to their statements | `TestLiveContract` passes against both fakes |
+| K4 | Oxy | Grants and ceilings accept kind `live`; the duration-only plan; contracts bump | Oxy CI green, deployed |
+| K5 | Kaana, oxy-infra | Key under `openai-live` (§9.1), `kaana_openai_live_enabled`, rate card and `deployment-commercial.json` for the minted deployment id, deploy, signed canary | Canary receipt read back |
+| G1 | Gemies | Voice mode opens `live` on the catalogue default, answers every `delegation.requested` with the chat route's own turn (Gemies ADR 0041); the tool bridge and the price ranking are deleted | Gemies CI green, production canary passes |
 
-## 9. Open points for the owner
+## 9. The owner's answers (2026-11-14)
 
-1. **The OpenAI key.** Kaana holds one enabled `openai` key row (`610adcc8-…`), and no `openai` slug is
-   served. A key row belongs to exactly one slug and no command copies ciphertext across slugs, so
-   `openai-live` needs its own import from stdin: a new key in the same OpenAI project (preferred, so
-   each can be revoked alone) or the same secret. The account must be on a paid tier (Build or higher).
-2. **Paraphrase.** GPT-Live speaks commentary "paraphrasing it". A figure, an address or a name in the
-   backend's answer can come out reworded. If that is not acceptable, the emulated path (§2) speaks the
-   tool output closer to verbatim, at the Realtime models' price.
-3. **Voices.** Confirm `marin` (female) and `cedar` (male) as the product voices for `gpt-live-1`.
-4. **Grok.** Keep `xai-realtime` as an emulated second adapter (§6), or delete it.
+1. **Key.** The same OpenAI project as the existing `openai` key row (`610adcc8-…`). A key row belongs to
+   one slug, so `openai-live` gets its own row holding the same secret, imported through Kaana's own
+   credential tooling without the secret ever being printed. The account must be on a paid tier.
+2. **Paraphrase.** Accepted, with the verbatim spans of §1: the backend marks numbers, addresses, names
+   and codes, and the preamble tells the voice to say them exactly. GPT-Live documents no verbatim mode
+   (its `session.output_audio.fixture.play` plays prerecorded audio, not text).
+3. **Voices.** `marin` is female and `cedar` is male, through the catalogue (§3).
+4. **Grok.** Kept as the second `live` adapter and the fallback (§6).
 
 ## Consequences
 
