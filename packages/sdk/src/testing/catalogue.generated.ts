@@ -946,7 +946,8 @@ export const voiceCatalogueSnapshot: readonly unknown[] = [
         },
         "inputAudioTranscription": true,
         "sessionKinds": [
-          "conversation"
+          "conversation",
+          "live"
         ],
         "transports": [
           "websocket"

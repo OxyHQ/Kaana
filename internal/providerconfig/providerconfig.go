@@ -235,15 +235,18 @@ const (
 func RealtimeSessionKinds(_ contract.ProviderSlug, protocol string) []contract.RealtimeSessionKind {
 	switch protocol {
 	case ProtocolOpenAIRealtime:
-		// Conversation only. OpenAI's translation sessions are a separate
-		// endpoint and event protocol with no items, responses or usage, and
-		// its transcription sessions document no WebSocket endpoint; both are
-		// refused rather than approximated (docs/realtime.md).
-		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+		// Conversations, and live sessions emulated on a conversation whose
+		// one tool hands each turn over (Kaana ADR 0012 §2). OpenAI's
+		// translation sessions are a separate endpoint and event protocol with
+		// no items, responses or usage, and its transcription sessions
+		// document no WebSocket endpoint; both are refused rather than
+		// approximated (docs/realtime.md).
+		return []contract.RealtimeSessionKind{contract.RealtimeConversation, contract.RealtimeLive}
 	case ProtocolXAIRealtime:
-		// xAI's Voice Agent API holds conversations only; it documents no
+		// xAI's Voice Agent API holds conversations, and live sessions
+		// emulated on one (Kaana ADR 0012 §2, §6); it documents no
 		// transcription or translation session.
-		return []contract.RealtimeSessionKind{contract.RealtimeConversation}
+		return []contract.RealtimeSessionKind{contract.RealtimeConversation, contract.RealtimeLive}
 	case ProtocolXAISTT:
 		// xAI's streaming speech-to-text transcribes and never answers.
 		return []contract.RealtimeSessionKind{contract.RealtimeTranscription}

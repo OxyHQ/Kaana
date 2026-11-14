@@ -40,6 +40,17 @@ func EnvelopeInputTranscriptionRefused(requestID contract.RequestID) *contract.E
 		WithParam("config.inputAudioTranscription")
 }
 
+// EnvelopeLiveRefused is why the signed-envelope lane refuses a `live`
+// session (Kaana ADR 0012): its voice transcribes the caller whatever the
+// configuration says, because delegation needs the caller's words, and on an
+// emulated wire that transcription is billed in the unit this lane cannot
+// carry (EnvelopeInputTranscriptionRefused). It is served on kaana.ai/v1.
+func EnvelopeLiveRefused(requestID contract.RequestID) *contract.Error {
+	return contract.NewError(requestID, contract.CodeInvalidRequest,
+		"a live session transcribes its caller, which the signed-envelope lane cannot settle; it is served on kaana.ai/v1").
+		WithParam("kind")
+}
+
 // SessionOpening is what opening a realtime session produced.
 type SessionOpening struct {
 	// Upstream is the open provider session. Nil when no route opened.
@@ -98,6 +109,9 @@ func (e *Executor) OpenSession(ctx context.Context, request *contract.RealtimeSe
 	}
 	if !request.Attribution.Principal.IsFirstParty() && !request.Attribution.HasScope(contract.ScopeInvoke) {
 		return refuse(contract.NewError(requestID, contract.CodeInsufficientScope, "the session request does not carry inference:invoke"))
+	}
+	if request.Kind == contract.RealtimeLive && !settledByGrant(ctx) {
+		return refuse(EnvelopeLiveRefused(requestID))
 	}
 	if request.Config.InputAudioTranscription != nil && !settledByGrant(ctx) {
 		return refuse(EnvelopeInputTranscriptionRefused(requestID))

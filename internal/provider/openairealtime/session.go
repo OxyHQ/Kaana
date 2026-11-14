@@ -91,6 +91,9 @@ type session struct {
 	// item (inputItem).
 	lastInput     *inputItem
 	responseEnded bool
+	// live is a `live` session's emulated delegation (live.go); nil for a
+	// conversation, whose events and commands it never touches.
+	live *liveState
 
 	closeOnce sync.Once
 }
@@ -119,17 +122,22 @@ type inputItem struct {
 }
 
 func newSession(d *dialect, conn *websocket.Conn, request provider.RealtimeOpenRequest, key provider.Key, inputFormat contract.RealtimeAudioFormat) *session {
+	var live *liveState
+	if request.Kind == contract.RealtimeLive {
+		live = &liveState{}
+	}
 	return &session{
 		dialect: d, conn: conn, requestID: request.RequestID, key: key,
 		inputFormat: inputFormat, outputFormat: d.wireOutputFormat(request.Config), config: request.Config,
 		toolNames: make(map[string]string), namedTool: make(map[string]bool), streamed: make(map[string]bool),
 		asked: make(map[contract.RealtimeResponseID][]contract.RealtimeOutputModality), inputs: make(map[string]*inputItem),
+		live: live,
 	}
 }
 
 // Send applies one command upstream, once.
 func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) error {
-	event, err := s.wireCommand(command)
+	events, err := s.clientEvents(command)
 	if err != nil {
 		return err
 	}
@@ -144,9 +152,13 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 			return err
 		}
 	}
-	data, err := json.Marshal(event)
-	if err != nil {
-		return refused("type", "the command could not be encoded for "+s.dialect.name)
+	frames := make([][]byte, 0, len(events))
+	for _, event := range events {
+		data, err := json.Marshal(event)
+		if err != nil {
+			return refused("type", "the command could not be encoded for "+s.dialect.name)
+		}
+		frames = append(frames, data)
 	}
 	if update, ok := command.(*contract.RealtimeSessionUpdateCommand); ok {
 		s.mu.Lock()
@@ -158,8 +170,10 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 	// connection, and the session ends with it.
 	writeContext, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
-	if err := s.conn.Write(writeContext, websocket.MessageText, data); err != nil {
-		return s.dialect.transport(writeContext, err)
+	for _, data := range frames {
+		if err := s.conn.Write(writeContext, websocket.MessageText, data); err != nil {
+			return s.dialect.transport(writeContext, err)
+		}
 	}
 	// Recorded only once the provider has it: a command that never left is
 	// not billed.
@@ -167,6 +181,16 @@ func (s *session) Send(ctx context.Context, command contract.RealtimeCommand) er
 		s.meter.record(billed)
 	}
 	return nil
+}
+
+// clientEvents is what one command is written upstream as: one client event
+// in a conversation; in a live session none, one or two (liveCommands).
+func (s *session) clientEvents(command contract.RealtimeCommand) ([]clientEvent, error) {
+	if s.live != nil {
+		return s.liveCommands(command)
+	}
+	event, err := s.wireCommand(command)
+	return []clientEvent{event}, err
 }
 
 // admitUpdate refuses, before anything is written, an update whose effect the
@@ -258,7 +282,11 @@ func (s *session) Next(ctx context.Context) (provider.RealtimeUpstreamEvent, err
 		if alias, named := s.dialect.aliases[event.Type]; named {
 			event.Type = alias
 		}
-		events, err := s.translate(event)
+		translate := s.translate
+		if s.live != nil {
+			translate = s.translateLive
+		}
+		events, err := translate(event)
 		if err != nil {
 			return provider.RealtimeUpstreamEvent{}, err
 		}

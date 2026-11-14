@@ -693,7 +693,7 @@ func TestTheRegistryAcceptsTheAdapterOnlyAsASessionAdapter(t *testing.T) {
 	if _, _, err := registry.ResolveExecution("dep", Slug, false); err == nil {
 		t.Error("a request resolved to the realtime adapter")
 	}
-	if !reflect.DeepEqual(adapter.RealtimeSessionKinds(), []contract.RealtimeSessionKind{contract.RealtimeConversation}) {
+	if !reflect.DeepEqual(adapter.RealtimeSessionKinds(), []contract.RealtimeSessionKind{contract.RealtimeConversation, contract.RealtimeLive}) {
 		t.Errorf("declared kinds = %v", adapter.RealtimeSessionKinds())
 	}
 }

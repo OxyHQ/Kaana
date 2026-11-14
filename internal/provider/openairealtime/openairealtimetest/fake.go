@@ -298,6 +298,80 @@ func (c *Conn) waitForClose(ctx context.Context) {
 	}
 }
 
+// Delegate is how the voice of a live session hands a turn over on this
+// provider's wire (Kaana ADR 0012 §2, emulated): one response whose one
+// output is a call to the `delegate` tool with the caller's request
+// (DelegateCall), then its response.done with usage (nil for none).
+func (u *Upstream) Delegate(responseID, callID, request string, usage Event) []Event {
+	call := delegateItem(callID, request, "completed")
+	response := Event{"id": responseID, "object": "realtime.response", "status": "completed", "output": []Event{call}}
+	if usage != nil {
+		response["usage"] = usage
+	}
+	events := []Event{{"type": "response.created", "response": Event{"id": responseID, "object": "realtime.response", "status": "in_progress", "output": []Event{}}}}
+	events = append(events, u.DelegateCall(responseID, callID, request)...)
+	return append(events, Event{"type": "response.done", "response": response})
+}
+
+// DelegateCall is the call itself inside a response the provider already
+// created, spelled as each provider's reference spells a completed function
+// call: the output item names the function, its arguments stream in two
+// deltas, and arguments.done carries them whole; xAI also names the function
+// on arguments.done (https://docs.x.ai/voice-realtime.ws.json), OpenAI only on
+// the item.
+func (u *Upstream) DelegateCall(responseID, callID, request string) []Event {
+	call := delegateItem(callID, request, "completed")
+	arguments := call["arguments"].(string)
+	itemID := call["id"]
+	done := Event{"type": "response.function_call_arguments.done", "response_id": responseID, "item_id": itemID, "output_index": 0, "call_id": callID, "arguments": arguments}
+	if u.host == "api.x.ai" {
+		done["name"] = "delegate"
+	}
+	half := len(arguments) / 2
+	return []Event{
+		{"type": "response.output_item.added", "response_id": responseID, "output_index": 0, "item": delegateItem(callID, "", "in_progress")},
+		{"type": "response.function_call_arguments.delta", "response_id": responseID, "item_id": itemID, "output_index": 0, "call_id": callID, "delta": arguments[:half]},
+		{"type": "response.function_call_arguments.delta", "response_id": responseID, "item_id": itemID, "output_index": 0, "call_id": callID, "delta": arguments[half:]},
+		done,
+		{"type": "response.output_item.done", "response_id": responseID, "output_index": 0, "item": call},
+	}
+}
+
+// delegateItem is the function_call item of a delegate call; an in-progress
+// one has no arguments yet.
+func delegateItem(callID, request, status string) Event {
+	arguments := ""
+	if status == "completed" {
+		encoded, _ := json.Marshal(map[string]string{"request": request})
+		arguments = string(encoded)
+	}
+	return Event{"id": "item_" + callID, "type": "function_call", "status": status, "call_id": callID, "name": "delegate", "arguments": arguments}
+}
+
+// SendAll writes server events in order.
+func (c *Conn) SendAll(events []Event) {
+	for _, event := range events {
+		c.Send(event)
+	}
+}
+
+// ExpectOutput reads the delegate call's answer the adapter sends back: one
+// conversation.item.create of a function_call_output for callID, returning
+// its output, then the response.create that has the voice speak it when
+// spoken is true.
+func (c *Conn) ExpectOutput(callID string, spoken bool) string {
+	created := c.Expect("conversation.item.create")
+	item, _ := created["item"].(map[string]any)
+	if item["type"] != "function_call_output" || item["call_id"] != callID {
+		c.upstream.t.Errorf("the adapter answered with item %v, not the output of call %s", item, callID)
+	}
+	output, _ := item["output"].(string)
+	if spoken {
+		c.Expect("response.create")
+	}
+	return output
+}
+
 // TranscriptionDuration is the usage OpenAI documents on
 // `conversation.item.input_audio_transcription.completed` for an ASR model
 // billed by audio duration: `{"type": "duration", "seconds": <n>}`.

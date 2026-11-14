@@ -4865,7 +4865,8 @@
             },
             "inputAudioTranscription": true,
             "sessionKinds": [
-              "conversation"
+              "conversation",
+              "live"
             ],
             "transports": [
               "websocket"

@@ -672,6 +672,35 @@ func TestACustomerCredentialIsRefusedForASession(t *testing.T) {
 	}
 }
 
+// TestTheSignedEnvelopeLaneRefusesALiveSession: a live session always
+// transcribes its caller, which an emulated wire bills in a unit this lane's
+// consumer cannot settle, so it is refused by name at open, before anything
+// is dialled, even when it names no transcription.
+func TestTheSignedEnvelopeLaneRefusesALiveSession(t *testing.T) {
+	h := newHarness(t, options{})
+	request := sessionRequest("req_live", primary)
+	request.Kind = contract.RealtimeLive
+	request.Config.OutputModalities = nil
+	request.Config.TurnDetection = contract.RealtimeTurnDetection{Type: contract.TurnDetectionServerVAD, CreateResponse: pointer(true), InterruptResponse: pointer(true)}
+	request.Config.Delegation = &contract.RealtimeDelegationConfig{Acknowledgement: contract.RealtimeAcknowledgementAuto}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("the live request is not valid: %v", err)
+	}
+	ws := h.open(request)
+	frames := readUntil(t, ws, "session.closed")
+	failure, _ := frames[0]["error"].(map[string]any)
+	if frames[0].kind() != "error" || failure["code"] != "invalid_request" || failure["param"] != "kind" || frames[1]["reason"] != "no_route_available" {
+		t.Fatalf("frames = %v", frames)
+	}
+	if h.upstream.Dials() != 0 {
+		t.Fatalf("a refused live session dialled the provider %d times", h.upstream.Dials())
+	}
+	control := h.open(sessionRequest("req_live_control", primary))
+	if created := read(t, control); created.kind() != "session.created" {
+		t.Fatalf("control = %v", created)
+	}
+}
+
 // TestTheSignedEnvelopeLaneRefusesInputTranscription: the adapters serve
 // input transcription (contract set 4.1.0), but this lane's consumer settles
 // with a unit set that has no input_transcription_milliseconds. It is refused

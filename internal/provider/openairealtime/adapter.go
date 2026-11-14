@@ -95,21 +95,38 @@ func buildAdapter(d *dialect, config Config) (*Adapter, error) {
 func (a *Adapter) Provider() contract.ProviderSlug        { return a.dialect.slug }
 func (a *Adapter) PlatformCredentials() *provider.KeyPool { return a.credentials }
 
-// RealtimeSessionKinds implements provider.RealtimeAdapter: conversations only.
+// RealtimeSessionKinds implements provider.RealtimeAdapter: conversations, and
+// live sessions by emulated delegation (live.go).
 func (a *Adapter) RealtimeSessionKinds() []contract.RealtimeSessionKind {
 	return providerconfig.RealtimeSessionKinds(a.dialect.slug, a.dialect.protocol)
 }
 
-func (a *Adapter) refuseOpen(request provider.RealtimeOpenRequest) (*sessionConfig, error) {
+// refuseOpen refuses a session this wire cannot hold, and otherwise returns
+// its configuring session.update and the configuration the session then runs
+// under: the caller's for a conversation, and for a live session the
+// conversation that emulates it (liveConversation).
+func (a *Adapter) refuseOpen(request provider.RealtimeOpenRequest) (*sessionConfig, contract.RealtimeSessionConfig, error) {
 	d := a.dialect
+	served := request.Config
 	if request.Route.Provider != d.slug || request.Route.UpstreamModelID == "" {
-		return nil, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "authorizedRoutes", Detail: "an exact " + d.name + " Realtime deployment is required"}
+		return nil, served, provider.ErrUnsupported{Code: contract.CodeInvalidRequest, Param: "authorizedRoutes", Detail: "an exact " + d.name + " Realtime deployment is required"}
 	}
 	if !provider.OpensRealtime(a, request.Kind) {
-		return nil, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "kind",
-			Detail: fmt.Sprintf("the %s deployment holds %s sessions only; %s's %s sessions are not served", d.slug, contract.RealtimeConversation, d.name, request.Kind)}
+		kinds := make([]string, 0, 2)
+		for _, kind := range a.RealtimeSessionKinds() {
+			kinds = append(kinds, string(kind))
+		}
+		return nil, served, provider.ErrUnsupported{Code: contract.CodeUnsupportedModality, Param: "kind",
+			Detail: fmt.Sprintf("the %s deployment holds %s sessions only; %s's %s sessions are not served", d.slug, strings.Join(kinds, " and "), d.name, request.Kind)}
 	}
-	return d.wireSession(request.Config)
+	if request.Kind == contract.RealtimeLive {
+		var err error
+		if served, err = d.liveConversation(request.Config); err != nil {
+			return nil, served, err
+		}
+	}
+	configuration, err := d.wireSession(served)
+	return configuration, served, err
 }
 
 // Open dials the provider, waits for the session it creates, configures it,
@@ -119,10 +136,11 @@ func (a *Adapter) refuseOpen(request provider.RealtimeOpenRequest) (*sessionConf
 // read a refused request.
 func (a *Adapter) Open(ctx context.Context, request provider.RealtimeOpenRequest, credentials *provider.KeyPool) (provider.RealtimeUpstream, provider.RealtimeOpened, error) {
 	var opened provider.RealtimeOpened
-	configuration, err := a.refuseOpen(request)
+	configuration, served, err := a.refuseOpen(request)
 	if err != nil {
 		return nil, opened, err
 	}
+	request.Config = served
 	update, err := json.Marshal(clientEvent{Type: "session.update", EventID: openEventID, Session: configuration})
 	if err != nil {
 		return nil, opened, fmt.Errorf("openairealtime: encoding the session configuration: %w", err)
