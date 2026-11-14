@@ -104,7 +104,15 @@ type liveState struct {
 	// still being transcribed: it is handed over once no committed item waits
 	// for its final transcript, so its text is the whole turn.
 	held *heldDelegation
-	// answer is the newest delegation's reply and context so far.
+	// handedOver is the committed items of the caller's speech still without
+	// a final transcript when a delegation was handed over without them: no
+	// later delegation waits for them, and their words, when they come, are
+	// relayed but belong to none.
+	handedOver map[string]bool
+	// answer is the reply and context so far of the delegation the session
+	// last sent a command for (answerFor). It is never reset when a newer
+	// delegation is read: the session may still apply the open one's final
+	// reply before it supersedes it.
 	answer liveAnswer
 }
 
@@ -148,6 +156,7 @@ func (s *session) translateLive(event serverEvent) ([]provider.RealtimeUpstreamE
 		if item := s.inputs[event.ItemID]; item != nil {
 			item.done = true
 		}
+		delete(s.live.handedOver, event.ItemID)
 		s.mu.Unlock()
 	case "input_audio_buffer.speech_started":
 		// The caller goes on talking: a held delegation is handed over with
@@ -207,23 +216,31 @@ func (s *session) delegated(event serverEvent) (*contract.RealtimeDelegationRequ
 // final transcript has not arrived. Called with s.mu held.
 func (s *session) awaitingTranscript() bool {
 	for _, id := range s.awaiting {
-		if item := s.inputs[id]; item != nil && !item.done {
+		if item := s.inputs[id]; item != nil && !item.done && !s.live.handedOver[id] {
 			return true
 		}
 	}
 	return false
 }
 
-// handOver is the held delegation as delegation.requested, and the start of
-// its answer. Called with s.mu held.
+// handOver is the held delegation as delegation.requested. A committed item
+// still waiting for its transcript is handed over with it, as words not
+// heard: nothing waits for it again. Called with s.mu held.
 func (s *session) handOver() *contract.RealtimeDelegationRequestedEvent {
 	held := s.live.held
 	text := strings.Join(s.live.heard, " ")
 	if text == "" {
 		text = held.request
 	}
+	for _, id := range s.awaiting {
+		if item := s.inputs[id]; item != nil && !item.done {
+			if s.live.handedOver == nil {
+				s.live.handedOver = make(map[string]bool)
+			}
+			s.live.handedOver[id] = true
+		}
+	}
 	s.live.held, s.live.heard = nil, nil
-	s.live.answer = liveAnswer{id: held.id}
 	return &contract.RealtimeDelegationRequestedEvent{DelegationID: held.id, Text: text}
 }
 
@@ -247,6 +264,8 @@ func (s *session) liveRelayed(upstream provider.RealtimeUpstreamEvent) (provider
 	case *contract.RealtimeTranscriptDoneEvent:
 		if e.Source == contract.RealtimeTranscriptOutput {
 			e.Transcript = provider.StripVerbatimMarks(e.Transcript)
+		} else if s.live.handedOver[string(e.ItemID)] {
+			delete(s.live.handedOver, string(e.ItemID))
 		} else if heard := strings.TrimSpace(e.Transcript); heard != "" {
 			s.live.heard = append(s.live.heard, heard)
 		}

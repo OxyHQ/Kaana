@@ -497,7 +497,10 @@ func TestALiveDelegationOnXAIsCapturedTurns(t *testing.T) {
 
 // TestAHeldDelegationGoesWhenTheCallerTalksOn: a call held for a transcript
 // that has not come is handed over, with the voice's request, as soon as the
-// caller starts talking again, rather than taking the next turn's words.
+// caller starts talking again, rather than taking the next turn's words. The
+// turn it was handed over without is not waited for again: the next turn's
+// call goes as soon as its own transcript is in, and the old turn's words,
+// arriving late, are relayed but join no later delegation.
 func TestAHeldDelegationGoesWhenTheCallerTalksOn(t *testing.T) {
 	for _, wire := range liveWires {
 		t.Run(wire.name, func(t *testing.T) {
@@ -506,6 +509,10 @@ func TestAHeldDelegationGoesWhenTheCallerTalksOn(t *testing.T) {
 				conn.SendAll(transcribedTurn("item_1", "")[:3])
 				conn.SendAll(upstream.Delegate("resp_1", "call_1", "the weather", nil))
 				conn.SendAll(transcribedTurn("item_2", "y mañana"))
+				conn.SendAll(upstream.Delegate("resp_2", "call_2", "and tomorrow", nil))
+				conn.Send(transcribedTurn("item_1", "el tiempo")[3])
+				conn.SendAll(transcribedTurn("item_3", "y el lunes"))
+				conn.SendAll(upstream.Delegate("resp_3", "call_3", "and monday", nil))
 			}
 			session := wire.open(t, upstream, liveConfig(wire.voice), nil)
 			events, types, _ := liveRelayed(t, session, contract.RealtimeEventDelegationRequestedType)
@@ -514,6 +521,47 @@ func TestAHeldDelegationGoesWhenTheCallerTalksOn(t *testing.T) {
 			}
 			if got := events[0].Event.(*contract.RealtimeDelegationRequestedEvent); got.Text != "the weather" {
 				t.Errorf("delegation text = %q; want the voice's request", got.Text)
+			}
+			for _, want := range []struct{ id, text string }{{"call_2", "y mañana"}, {"call_3", "y el lunes"}} {
+				events, _, _ = liveRelayed(t, session, contract.RealtimeEventDelegationRequestedType)
+				if got := events[len(events)-1].Event.(*contract.RealtimeDelegationRequestedEvent); string(got.DelegationID) != want.id || got.Text != want.text {
+					t.Errorf("delegation = %+v; want %s with %q alone", got, want.id, want.text)
+				}
+				for _, event := range events {
+					if done, ok := event.Event.(*contract.RealtimeTranscriptDoneEvent); ok && done.ItemID == "item_1" && want.id == "call_2" {
+						t.Errorf("%s waited for the turn the first delegation was handed over without", want.id)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestAnAnswerSurvivesReadingTheNextCall: the session reads the provider
+// ahead of the commands it applies, so the voice's next call can be read
+// while the open delegation's final reply is still to be applied. That reply
+// still carries every part and the context the delegation was given.
+func TestAnAnswerSurvivesReadingTheNextCall(t *testing.T) {
+	for _, wire := range liveWires {
+		t.Run(wire.name, func(t *testing.T) {
+			upstream := wire.fake(t)
+			outputs := make(chan string, 1)
+			second := make(chan struct{})
+			upstream.Script = func(conn *fake.Conn) {
+				conn.SendAll(upstream.Delegate("resp_1", "call_1", "book it", nil))
+				<-second
+				conn.SendAll(upstream.Delegate("resp_2", "call_2", "and a taxi", nil))
+				outputs <- conn.ExpectOutput("call_1", true)
+			}
+			session := wire.open(t, upstream, liveConfig(wire.voice), nil)
+			liveRelayed(t, session, contract.RealtimeEventDelegationRequestedType)
+			send(t, session, reply("call_1", "Your booking is confirmed", false))
+			send(t, session, &contract.RealtimeDelegationContextCommand{SchemaVersion: 1, RequestID: requestID, CommandID: "cmd_context", DelegationID: "call_1", Text: "Booked."})
+			close(second)
+			liveRelayed(t, session, contract.RealtimeEventDelegationRequestedType)
+			send(t, session, reply("call_1", "for tomorrow.", true))
+			if output := <-outputs; output != liveContextLabel+" Booked.\n\nYour booking is confirmed for tomorrow." {
+				t.Errorf("the open delegation's output = %q", output)
 			}
 		})
 	}

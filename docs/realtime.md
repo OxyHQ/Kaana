@@ -349,7 +349,7 @@ and the native `gpt-live-1` is never attached to `openai-realtime`
 | Provider | Contract |
 |---|---|
 | The completed call to `delegate` (`response.function_call_arguments.done`; the name from the call's output item, or on the event itself on xAI) | `delegation.requested {delegationId: call_id, text}`. `text` is the caller's final input transcripts since the previous delegation, joined by a space; when none arrived, the voice's `request` argument |
-| The call while a committed turn of the caller's has no final transcript yet | held, and handed over once every committed turn has its final transcript, its transcription failed, or the caller starts talking again (`input_audio_buffer.speech_started`). OpenAI transcribes asynchronously, so its call can come first; xAI sends the final transcript right after the commit, before the response's output (testdata) |
+| The call while a committed turn of the caller's has no final transcript yet | held, and handed over once every committed turn has its final transcript, its transcription failed, or the caller starts talking again (`input_audio_buffer.speech_started`). A turn still untranscribed when its delegation went is not waited for again, and its words, when they come, are relayed and join no later delegation. OpenAI transcribes asynchronously, so its call can come first; xAI sends the final transcript right after the commit, before the response's output (testdata) |
 | A second call while one is held | the held one is handed over first, with what was heard; the session supersedes it |
 | Input and output transcripts, output audio deltas, `error` | relayed as for a conversation; `⟦` and `⟧` are removed from the voice's transcripts (`provider.StripVerbatimMarks`), and a delta left empty is not sent |
 | Everything else: `response.*`, items, `tool_call`, speech and commit markers, `output_audio.done` | not relayed (GPT-Live has no counterpart); the units an event carried are still reported, as a units-only event |
@@ -360,7 +360,7 @@ and the native `gpt-live-1` is never attached to `openai-realtime`
 | Contract | Provider |
 |---|---|
 | `input_audio.append` | `input_audio_buffer.append`, as for a conversation |
-| `delegation.reply` (not final) | buffered: the parts are joined with a space where neither side has one, each `verbatim` span wrapped in `⟦` `⟧` (`provider.WrapVerbatim`); nothing is sent |
+| `delegation.reply` (not final) | buffered for the delegation it names, never discarded when the voice's next call is read (the session reads ahead and may still apply this one's final reply): the parts are joined with a space where neither side has one, each `verbatim` span wrapped in `⟦` `⟧` (`provider.WrapVerbatim`); nothing is sent |
 | `delegation.context` | buffered with the delegation's answer |
 | `delegation.reply` (final) | `conversation.item.create {type: function_call_output, call_id, output}` then `response.create`, both with `event_id` = the final reply's `commandId`. `output` is the reply, or with context `Context, not to be said: <context>`, a blank line, then the reply. A reply longer than a function output carries (1 048 576 UTF-16 units) is refused, `text`, and the earlier parts stay |
 | `delegation.cancel` | `conversation.item.create` of the call's output `This request was dropped. Say nothing about it.`, with no `response.create`, so nothing is spoken for it. Closing the call with an unspoken output is the closest the wire allows to dropping it |
