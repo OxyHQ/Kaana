@@ -1220,6 +1220,9 @@ charge within the wall-clock figure.
   rounded up, ADR 0012 §5) and the `configs/deployment-commercial.json` entry for that id, read by the
   serving task through `KAANA_PROVIDER_RATES_PATH`. Without the card every session's operator cost is
   unknown.
+  Done on 2026-11-14: the publisher minted `dep_openai_live_gpt_live_1_observed_2026_11_14` (snapshot
+  `snap_e58d195534fc191b`); its card is in rate-card version `rc_live_voice_2026_11_14`, and
+  `configs/deployment-commercial.json` sells it `platform_internal` / `standard_application_use`.
 - Publish it: the `openai/gpt-live-1` entry of `configs/public-catalogue.json` declares
   `capabilities.realtime.defaultKinds: ["live"]` and its price version, which prices
   `session_milliseconds` for the customer: `01a1d9d6-cdbb-79aa-96ee-335708a286fe`, $0.05 per 60 000 ms
