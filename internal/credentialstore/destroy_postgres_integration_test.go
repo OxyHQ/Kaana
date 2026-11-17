@@ -198,3 +198,102 @@ func TestProviderCredentialDestructionPostgres(t *testing.T) {
 		t.Fatalf("destruction records = %d, want the duplicate and the rejected key", n)
 	}
 }
+
+// A bind that saw the key enabled and is still uncommitted when the key is
+// disabled and destroyed must not leave a pin on a destroyed key: destroy
+// waits for it on the row lock, then sees the pin and refuses.
+func TestDestroyWaitsForAnUncommittedPinAndRefusesIt(t *testing.T) {
+	databaseURL := os.Getenv("KAANA_POSTGRES_TEST_URL")
+	if databaseURL == "" {
+		t.Skip("KAANA_POSTGRES_TEST_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := &Postgres{pool: pool}
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(repository, newFakeProviderKMS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slug := contract.ProviderSlug("destroy-" + freshHex(t, "")[:8])
+	const key = "123e4567-e89b-42d3-a456-426614174301"
+	putProviderCredential(t, ctx, store, slug, key, 1, "sk-raced")
+
+	bind, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = bind.Rollback(context.WithoutCancel(ctx)) }()
+	var outcome string
+	if err := bind.QueryRow(ctx, `SELECT kaana_bind_provider_deployment($1,$2,$3,$4,$5)`,
+		freshHex(t, "kdb_"), "dep_raced_"+freshHex(t, "")[:8], slug, key, "operator:integration").Scan(&outcome); err != nil || outcome != "applied" {
+		t.Fatalf("bind = %q, %v", outcome, err)
+	}
+	if _, err := store.Disable(ctx, Scope{Provider: slug, KeyID: key}, "operator:integration"); err != nil {
+		t.Fatalf("disable while the bind is open: %v", err)
+	}
+
+	probe := &integrationProbe{verdicts: map[string]LivenessVerdict{"sk-raced": LivenessRejected}}
+	result := make(chan error, 1)
+	go func() {
+		_, err := store.Destroy(ctx, DestroyOperation{OperationID: freshHex(t, "kcd_"), Scope: Scope{Provider: slug, KeyID: key}, Actor: "operator:integration"}, probe)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("destroy did not wait for the open bind: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if err := bind.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; !errors.Is(err, ErrCredentialPinned) {
+		t.Fatalf("destroy after the pin committed = %v, want ErrCredentialPinned", err)
+	}
+	var present bool
+	if err := pool.QueryRow(ctx, `SELECT encrypted_secret IS NOT NULL FROM provider_credentials WHERE provider_slug = $1 AND key_id = $2`, slug, key).Scan(&present); err != nil || !present {
+		t.Fatalf("the pinned key lost its ciphertext (%v)", err)
+	}
+}
+
+func TestTheOperatorListingViewOmitsDestroyedKeysForEveryReader(t *testing.T) {
+	databaseURL := os.Getenv("KAANA_POSTGRES_TEST_URL")
+	if databaseURL == "" {
+		t.Skip("KAANA_POSTGRES_TEST_URL is not set")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repository := &Postgres{pool: pool}
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := New(repository, newFakeProviderKMS())
+	slug := contract.ProviderSlug("destroy-" + freshHex(t, "")[:8])
+	const key = "123e4567-e89b-42d3-a456-426614174401"
+	putProviderCredential(t, ctx, store, slug, key, 1, "sk-gone")
+	if _, err := store.Disable(ctx, Scope{Provider: slug, KeyID: key}, "operator:integration"); err != nil {
+		t.Fatal(err)
+	}
+	probe := &integrationProbe{verdicts: map[string]LivenessVerdict{"sk-gone": LivenessRejected}}
+	if _, err := store.Destroy(ctx, DestroyOperation{OperationID: freshHex(t, "kcd_"), Scope: Scope{Provider: slug, KeyID: key}, Actor: "operator:integration"}, probe); err != nil {
+		t.Fatal(err)
+	}
+	// The exact query of the administration image pinned before migration 0025.
+	if n := countRows(t, ctx, pool, `SELECT count(*) FROM (SELECT provider_slug, key_id, kms_key_arn, key_class,
+		       budget_usd::double precision, position, enabled
+		FROM provider_credential_metadata
+		ORDER BY provider_slug, position, key_id) listed WHERE provider_slug = $1`, slug); n != 0 {
+		t.Fatalf("the pre-0025 listing query still returns %d destroyed rows", n)
+	}
+}

@@ -473,14 +473,13 @@ func (p *Postgres) Disable(ctx context.Context, scope Scope, actor string) (bool
 }
 
 // ListMetadata deliberately does not select encrypted_secret. A destroyed key
-// (migration 0025) is not listed: it holds no secret and can never serve or be
-// written again; its record is provider_credential_destructions.
+// (migration 0025) is not listed: the view omits it, for every image that
+// reads it; its record is provider_credential_destructions.
 func (p *Postgres) ListMetadata(ctx context.Context) ([]Metadata, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT provider_slug, key_id, kms_key_arn, key_class,
 		       budget_usd::double precision, position, enabled
 		FROM provider_credential_metadata
-		WHERE destroyed_at IS NULL
 		ORDER BY provider_slug, position, key_id`)
 	if err != nil {
 		return nil, err

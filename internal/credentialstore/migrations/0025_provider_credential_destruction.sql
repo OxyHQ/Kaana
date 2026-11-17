@@ -77,10 +77,14 @@ CREATE TABLE public.provider_credential_destructions (
     CHECK (duplicate_of_key_id IS NULL OR duplicate_of_key_id <> key_id)
 );
 
+-- Every reader of the operator listing, including an administration image
+-- built before this migration, stops seeing a destroyed key: the filter is in
+-- the view, not in one version of the Go query.
 CREATE OR REPLACE VIEW public.provider_credential_metadata AS
 SELECT provider_slug, key_id, kms_key_arn, key_class, budget_usd,
-       position, enabled, created_at, updated_at, destroyed_at
-FROM public.provider_credentials;
+       position, enabled, created_at, updated_at
+FROM public.provider_credentials
+WHERE destroyed_at IS NULL;
 
 -- Prepare returns one 'candidate' row (the disabled key) and one 'reference'
 -- row per enabled key of the same provider, whose ciphertexts the admin task
@@ -139,10 +143,15 @@ BEGIN
         RETURN;
     END IF;
 
+    -- FOR UPDATE conflicts with the KEY SHARE lock a pin's foreign key holds
+    -- on this row until its transaction ends, so a bind that is still
+    -- uncommitted (it saw the key enabled before a disable) is waited for and
+    -- its pin is then seen below. The lock lasts until complete commits.
     SELECT * INTO candidate
     FROM public.provider_credentials AS stored
     WHERE stored.provider_slug = p_provider_slug
-      AND stored.key_id = p_key_id;
+      AND stored.key_id = p_key_id
+    FOR UPDATE;
     IF NOT FOUND THEN
         RETURN QUERY SELECT 'source_unavailable'::TEXT, NULL::TEXT, NULL::TEXT,
             NULL::TEXT, NULL::TEXT, NULL::BYTEA, NULL::TEXT;
@@ -225,6 +234,9 @@ BEGIN
         RETURN;
     END IF;
 
+    PERFORM 1 FROM public.provider_credentials AS stored
+    WHERE stored.provider_slug = p_provider_slug AND stored.key_id = p_key_id
+    FOR UPDATE;
     IF EXISTS (
         SELECT 1 FROM public.provider_deployment_credential_bindings AS pin
         WHERE pin.provider_slug = p_provider_slug AND pin.key_id = p_key_id
