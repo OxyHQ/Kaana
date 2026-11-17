@@ -1057,11 +1057,18 @@ Three tables grow with traffic and had no policy. This is it, with the tool that
 | Table | One row per | Kept | Why |
 |---|---|---|---|
 | `provider_cost_events` | upstream attempt | 395 days (13 months) | a financial year plus a month of close, to reconcile provider invoices |
-| `provider_credential_attempt_events` | credential attempt | 395 days | the evidence behind key retirement and withholding; far older than any streak it feeds |
+| `provider_credential_attempt_events` | credential attempt | 90 days | the evidence behind key retirement and withholding, whose windows are minutes to days |
 | `inference_settlement_outbox` | settlement | **delivered** rows 90 days | Oxy settles within minutes and reconciles from the signed read; an **undelivered** row is never purged |
 
-Not purged: the audit tables (`provider_credential_audit`, the operation and policy audits),
-which are low volume and are the evidence; `provider_credentials`; everything small.
+Not purged: the audit tables (`provider_credential_audit`, the operation and policy audits,
+`provider_credential_destructions`), which are low volume and are the evidence; everything small.
+
+**Destroyed keys are forgotten last.** After the tables above, the same run deletes every
+destroyed key ([key-pools](key-pools.md#destroying-a-dead-key)) that nothing names any more (no
+cost event, no attempt, no unexpired claim, no pin), with its description, description documents
+and capacity evidence (migration `0026`). What stays is its audit rows, including one `forget`,
+and its destruction record, both without secret or label. A destroyed key therefore disappears
+at most 13 months after its last cost event; a key with no history goes on the next run.
 
 How it runs:
 
@@ -1075,12 +1082,13 @@ How it runs:
   tasks.
 - It deletes the oldest rows first and skips rows another transaction holds, so it is safe beside
   live traffic.
-- **Nothing runs it automatically.** No scheduled job exists and none is added by this change. To
-  run it from the credential-admin workflow or on a schedule needs an operation in
-  `.github/credential-admin-operations.json` (it pins an image digest) and a schedule in
-  oxy-infra; both are deliberate follow-ups.
-- Deletion is irreversible and Kaana keeps no backup beyond the database's own. Run the dry run
-  first, and take a snapshot before the first `--apply`.
+- **It runs every Monday at 04:17 UTC.** `.github/workflows/retention.yml` dispatches the fixed
+  `purge-retention` operation of `credential-admin.yml` (`kaana-credentials purge-retention --apply`,
+  default windows), which runs it like every credential operation: from `main`, on the image of
+  the dispatched commit, as `github-actions:OxyHQ/Kaana:<run id>`. Dispatch either workflow by hand
+  to run it now; run the dry run (no `--apply`) from an operator shell to see what it would take.
+- Deletion is irreversible and Kaana keeps no backup beyond the database's own: RDS automated
+  backups, 14 days of point-in-time recovery on `oxy-postgres` (read 2026-11-17).
 
 This policy is Kaana's technical default. The accepted [ADR 0010](adr/0010-kaana-sells-and-invoices.md) financial migration
 requires a separately reviewed retention policy for customer receipts and invoices;

@@ -16,15 +16,20 @@ import (
 // passed here.
 const (
 	defaultCostEventsDays    = 395 // 13 months: one financial year plus a month of close
-	defaultAttemptEventsDays = 395
-	defaultSettlementsDays   = 90 // delivered settlements only; Oxy reconciles within minutes
+	defaultAttemptEventsDays = 90  // the evidence behind retirement and withholding, whose windows are minutes to days
+	defaultSettlementsDays   = 90  // delivered settlements only; Oxy reconciles within minutes
 	defaultPurgeBatch        = 5000
 	maxBatchesPerRun         = 100 // bounds one run to 100 batches per table
 )
 
 type retentionPurger interface {
 	PurgeRetention(ctx context.Context, table credentialstore.RetentionTable, olderThan time.Time, limit int, dryRun bool) (int64, error)
+	ForgetDestroyedCredentials(ctx context.Context, actor string, limit int, dryRun bool) (int64, error)
 }
+
+// dryRunActor names a dry run to the database, which requires an actor even
+// for a count; it never writes anything.
+const dryRunActor = "purge-retention:dry-run"
 
 // purgeRetentionCommand parses and runs `purge-retention`. It is a dry run
 // unless --apply is given, so the only way to delete is to ask for it.
@@ -90,5 +95,24 @@ func purgeRetentionCommand(ctx context.Context, arguments []string, purger func(
 			return err
 		}
 	}
-	return nil
+
+	// Last, because the purge above is what lets a destroyed key's history
+	// age out: a destroyed key nothing names any more is deleted entirely.
+	forgetActor, verb := dryRunActor, "eligible"
+	if *apply {
+		forgetActor, verb = actor, "forgotten"
+	}
+	var forgotten int64
+	for batches := 0; batches < maxBatchesPerRun; batches++ {
+		affected, err := store.ForgetDestroyedCredentials(ctx, forgetActor, *batch, !*apply)
+		if err != nil {
+			return err
+		}
+		forgotten += affected
+		if !*apply || affected < int64(*batch) {
+			break
+		}
+	}
+	_, err = fmt.Fprintf(stdout, "destroyed credentials (%s): %d %s (nothing names them any more)\n", mode, forgotten, verb)
+	return err
 }
