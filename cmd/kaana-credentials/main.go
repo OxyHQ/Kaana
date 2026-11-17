@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
+	"github.com/OxyHQ/Kaana/internal/credentialprobe"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
 	"github.com/OxyHQ/Kaana/internal/openrouterkey"
@@ -335,6 +336,22 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		}
 		return writeReceipt(stdout, receipt)
 
+	case "destroy":
+		operation, err := parseDestroyOperation(arguments[1:], mutationActor)
+		if err != nil {
+			return err
+		}
+		store, repository, err := credentialstore.Open(ctx, databaseURL, getenv("KAANA_PROVIDER_CREDENTIALS_KMS_KEY_ARN"))
+		if err != nil {
+			return err
+		}
+		defer repository.Close()
+		receipt, err := store.Destroy(ctx, operation, credentialprobe.NewProduction())
+		if err != nil {
+			return err
+		}
+		return writeReceipt(stdout, receipt)
+
 	case "list":
 		flags := flag.NewFlagSet("list", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -555,7 +572,7 @@ func parseDeduplicationOperation(arguments []string, actor string) (credentialst
 	return operation, nil
 }
 
-func writeReceipt(output io.Writer, receipt credentialstore.CredentialAdminReceipt) error {
+func writeReceipt(output io.Writer, receipt any) error {
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(receipt)
@@ -604,7 +621,7 @@ func parseBudget(raw string) (*float64, error) {
 }
 
 func usageError() error {
-	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|list|list-deployment-bindings|set-key-policy|list-key-policies|purge-retention|put-credential-metadata|record-capacity-evidence|list-credential-metadata|inspect-openrouter-key>")
+	return errors.New("usage: kaana-credentials <migrate|create-platform-control-roles|put|import-ssm|disable|bind-deployment|apply-deployment-bindings|verify-deployment-bindings|rekey-id|deduplicate|destroy|list|list-deployment-bindings|set-key-policy|list-key-policies|purge-retention|put-credential-metadata|record-capacity-evidence|list-credential-metadata|inspect-openrouter-key>")
 }
 
 // maxDocumentBytes bounds a metadata or evidence document read from stdin.

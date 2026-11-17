@@ -349,6 +349,39 @@ refused it, and the customer got a retryable `provider_error` instead of
 `provider_billing_refused` or `provider_credential_invalid`, while the key
 stayed in rotation.
 
+## Destroying a dead key
+
+Nothing temporary disables a key: a spent or refused key is RETIRED with a
+return time, and a failing deployment is the breaker's. So a disabled row is a
+key that was replaced or superseded, and keeping its KMS ciphertext buys
+nothing while leaving a secret that database and KMS access could recover.
+
+`kaana-credentials destroy` (migration `0025`) removes the ciphertext of one
+disabled, unpinned key and keeps its identity: cost events, attempts, metadata
+and audit rows name the exact key that served, and that history must keep
+resolving. A destroyed identity is final; a trigger refuses every later write
+to the row, so no put, import, rekey or rotation can reuse it, and `list` no
+longer shows it (its record is `provider_credential_destructions`).
+
+It destroys only on one of two proofs, both meaning no working credential is
+lost, and refuses otherwise:
+
+1. **Duplicate.** The secret is byte-identical (constant-time, in memory) to an
+   ENABLED key of the same provider, which keeps serving with it. Checked first;
+   no network.
+2. **Rejected by the provider.** One authenticated, non-billable GET
+   (`internal/credentialprobe`) answered with the provider's own documented
+   invalid-credential error: Anthropic `401 authentication_error`, ElevenLabs
+   `401` with `invalid_api_key`, both measured with a made-up key on
+   2026-11-17. A provider with no reviewed probe is never "rejected", so its
+   keys are destroyed only as duplicates.
+
+A secret the provider still accepts is a live credential: destroying Kaana's
+only copy would hide it, not revoke it, so the command refuses and says to
+revoke it upstream first. The comparison and the write happen in one
+transaction under the provider's admin advisory lock and a `SHARE ROW
+EXCLUSIVE` table lock, so no put, disable or rekey interleaves.
+
 ## Rules a reviewer applies
 
 A credential is a POOL per provider, and the pool is a different rotation from
@@ -387,6 +420,15 @@ change to.
 - **Operator metadata is admin-only and never an identity.** A label, email or
   commercial-use evidence text is readable by `kaana_credential_admin` alone;
   no runtime path, feed or response carries it.
+
+- **A disabled key keeps no secret it does not need.** `destroy` removes the
+  ciphertext and keeps the identity; it never deletes the row, which history
+  references. It requires a disabled, unpinned key and one of two proofs: a
+  byte-identical ENABLED key of the same provider, or the provider's own
+  documented invalid-credential error. A status alone, a throttle, an outage,
+  an IP restriction or a provider without a reviewed probe proves nothing.
+- **A destroyed identity is final.** The database refuses any later write to the
+  row; a new key gets a new opaque id.
 
 ### Rotation
 
