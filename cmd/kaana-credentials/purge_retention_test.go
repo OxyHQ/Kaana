@@ -15,6 +15,8 @@ type fakePurger struct {
 	calls     []string
 	dryRuns   int
 	cutoffs   map[credentialstore.RetentionTable]time.Time
+	// forgettable is how many destroyed keys nothing names any more.
+	forgettable int64
 }
 
 func (f *fakePurger) PurgeRetention(_ context.Context, table credentialstore.RetentionTable, olderThan time.Time, limit int, dryRun bool) (int64, error) {
@@ -29,6 +31,15 @@ func (f *fakePurger) PurgeRetention(_ context.Context, table credentialstore.Ret
 		return available, nil
 	}
 	f.remaining[table] -= available
+	return available, nil
+}
+
+func (f *fakePurger) ForgetDestroyedCredentials(_ context.Context, actor string, limit int, dryRun bool) (int64, error) {
+	f.calls = append(f.calls, "forget:"+actor)
+	available := min(f.forgettable, int64(limit))
+	if !dryRun {
+		f.forgettable -= available
+	}
 	return available, nil
 }
 
@@ -93,10 +104,37 @@ func TestPurgeRetentionUsesTheDocumentedWindows(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 13, 0, 0, 0, 0, time.UTC)
 	for table, days := range map[credentialstore.RetentionTable]int{
-		credentialstore.RetentionCostEvents: 395, credentialstore.RetentionAttemptEvents: 395, credentialstore.RetentionSettlementsOut: 90,
+		credentialstore.RetentionCostEvents: 395, credentialstore.RetentionAttemptEvents: 90, credentialstore.RetentionSettlementsOut: 90,
 	} {
 		if got := now.Sub(store.cutoffs[table]); got != time.Duration(days)*24*time.Hour {
 			t.Errorf("%s keeps %v, want %d days", table, got, days)
+		}
+	}
+}
+
+func TestPurgeRetentionForgetsDestroyedKeysLastAndOnlyWhenApplied(t *testing.T) {
+	store := &fakePurger{remaining: map[credentialstore.RetentionTable]int64{}, forgettable: 3}
+	out, err := runPurge(t, store, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.forgettable != 3 || !strings.Contains(out, "destroyed credentials (dry run): 3 eligible") {
+		t.Fatalf("a dry run forgot keys or did not report them: %d left, %q", store.forgettable, out)
+	}
+	store.calls = nil
+	out, err = runPurge(t, store, "github-actions:OxyHQ/Kaana:7", "--apply", "--batch", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.forgettable != 0 || !strings.Contains(out, "3 forgotten") {
+		t.Fatalf("apply left %d destroyed keys: %q", store.forgettable, out)
+	}
+	if last := store.calls[len(store.calls)-1]; last != "forget:github-actions:OxyHQ/Kaana:7" {
+		t.Fatalf("calls = %v; forgetting must run last, under the named actor", store.calls)
+	}
+	for _, call := range store.calls[:3] {
+		if strings.HasPrefix(call, "forget:") {
+			t.Fatalf("calls = %v; a key was forgotten before the tables that name it were purged", store.calls)
 		}
 	}
 }

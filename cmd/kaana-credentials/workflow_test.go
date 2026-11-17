@@ -156,6 +156,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"destroy", "--operation-id", "kcd_eed6066329848e4d6b532e29fb0c7e77",
 			"--provider", "xai", "--key-id", "relay-xai-20260902",
 		},
+		"purge-retention": {"purge-retention", "--apply"},
 	}
 	if !reflect.DeepEqual(manifest.Operations, expectedOperations) {
 		t.Fatalf("credential operations drifted: %#v", manifest.Operations)
@@ -179,7 +180,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
 		}
-		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" || operationName == "unpin-deployment" || strings.Contains(operationName, "production-deployment-bindings") {
+		if operationName == "list" || operationName == "list-deployment-bindings" || operationName == "migrate" || operationName == "bind-deployment" || operationName == "unpin-deployment" || operationName == "purge-retention" || strings.Contains(operationName, "production-deployment-bindings") {
 			continue
 		}
 		if strings.HasPrefix(operationName, "destroy-") {
@@ -276,6 +277,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"destroy-openrouter-relay":       "admin",
 			"destroy-xai-legacy-alia":        "admin",
 			"destroy-xai-relay":              "admin",
+			"purge-retention":                "admin",
 		},
 		DiscoveryCredentialIDs: map[string]string{
 			"anthropic":    "30033d0c-3ca8-48c4-be44-8538d81028dd",
@@ -328,7 +330,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
           - destroy-openrouter-legacy-alia
           - destroy-openrouter-relay
           - destroy-xai-legacy-alia
-          - destroy-xai-relay`
+          - destroy-xai-relay
+          - purge-retention`
 	if !strings.Contains(workflow, expectedOperationChoices) {
 		t.Errorf("credential workflow operation choices drifted")
 	}
@@ -423,5 +426,34 @@ func TestDeployProtectsThePinnedCredentialAdminImage(t *testing.T) {
 	}
 	if !strings.Contains(workflow, "      - '.github/credential-admin-operations.json'\n") {
 		t.Error("a credential-admin pin change does not trigger the deploy that protects it")
+	}
+}
+
+// The weekly retention workflow may only dispatch the one reviewed operation;
+// it must never hold AWS credentials or build a command of its own.
+func TestRetentionScheduleOnlyDispatchesTheReviewedPurge(t *testing.T) {
+	document, err := os.ReadFile("../../.github/workflows/retention.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(document)
+	for _, required := range []string{
+		"schedule:",
+		"actions: write",
+		"gh workflow run credential-admin.yml",
+		"--ref main",
+		"-f operation=purge-retention",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("retention workflow lacks %q", required)
+		}
+	}
+	for _, forbidden := range []string{"aws-actions", "id-token", "kaana-credentials", "DATABASE_URL", "--apply", "inputs."} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("retention workflow contains %q", forbidden)
+		}
+	}
+	if strings.Count(workflow, "-f ") != 1 {
+		t.Error("retention workflow passes inputs beyond the operation name")
 	}
 }

@@ -1,0 +1,37 @@
+name: Kaana data retention
+
+# Weekly, the reviewed `purge-retention` credential operation deletes what the
+# retention policy no longer keeps (docs/operating.md, "Data retention") and
+# then forgets destroyed keys nothing names any more. This workflow holds no
+# AWS credential and builds no command: it only dispatches that fixed
+# operation of credential-admin.yml from main, which runs it as every other
+# credential operation, under its own identity, image and audit actor.
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: kaana-data-retention
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch the reviewed retention purge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch purge-retention from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run credential-admin.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f operation=purge-retention

@@ -56,3 +56,24 @@ func (p *Postgres) PurgeRetention(ctx context.Context, table RetentionTable, old
 	}
 	return affected, nil
 }
+
+// ForgetDestroyedCredentials counts (dryRun) or deletes up to limit destroyed
+// credentials (migration 0025) that nothing still names: no cost event, no
+// attempt, no unexpired claim and no pin. Each goes with its description,
+// description documents and capacity evidence; one 'forget' audit row and its
+// destruction record remain. Run it after the retention purge, which is what
+// lets a destroyed key's history age out. Call again until it returns less
+// than limit.
+func (p *Postgres) ForgetDestroyedCredentials(ctx context.Context, actor string, limit int, dryRun bool) (int64, error) {
+	if limit < 1 || limit > MaxPurgeBatch {
+		return 0, fmt.Errorf("credential store: a purge batch is 1 to %d rows", MaxPurgeBatch)
+	}
+	if err := validateActor(actor); err != nil {
+		return 0, err
+	}
+	var affected int64
+	if err := p.pool.QueryRow(ctx, "SELECT kaana_forget_destroyed_provider_credentials($1,$2,$3)", actor, limit, dryRun).Scan(&affected); err != nil {
+		return 0, fmt.Errorf("credential store: forgetting destroyed credentials: %w", err)
+	}
+	return affected, nil
+}
