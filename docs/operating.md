@@ -1064,11 +1064,13 @@ Not purged: the audit tables (`provider_credential_audit`, the operation and pol
 `provider_credential_destructions`), which are low volume and are the evidence; everything small.
 
 **Destroyed keys are forgotten last.** After the tables above, the same run deletes every
-destroyed key ([key-pools](key-pools.md#destroying-a-dead-key)) that nothing names any more (no
-cost event, no attempt, no unexpired claim, no pin), with its description, description documents
+key destroyed at least 30 days earlier ([key-pools](key-pools.md#destroying-a-dead-key)) that
+nothing names any more (no cost event, no attempt, no unexpired claim, no pin; the 30 days cover a
+request that took the key before its disable and writes its cost only when the upstream answers), with its description, description documents
 and capacity evidence (migration `0026`). What stays is its audit rows, including one `forget`,
 and its destruction record, both without secret or label. A destroyed key therefore disappears
-at most 13 months after its last cost event; a key with no history goes on the next run.
+at most 13 months after its last cost event, and never sooner than 30 days after its destruction.
+Its identity is never created again: an insert naming a destroyed identity is refused.
 
 How it runs:
 
@@ -1084,8 +1086,9 @@ How it runs:
   live traffic.
 - **It runs every Monday at 04:17 UTC.** `.github/workflows/retention.yml` dispatches the fixed
   `purge-retention` operation of `credential-admin.yml` (`kaana-credentials purge-retention --apply`,
-  default windows), which runs it like every credential operation: from `main`, on the image of
-  the dispatched commit, as `github-actions:OxyHQ/Kaana:<run id>`. Dispatch either workflow by hand
+  default windows), which runs it like every credential operation from `main`, as
+  `github-actions:OxyHQ/Kaana:<run id>`, on the image the `kaana` service is serving (main's head
+  may be a commit no deploy built; the serving image always exists and carries its schema). Dispatch either workflow by hand
   to run it now; run the dry run (no `--apply`) from an operator shell to see what it would take.
 - Deletion is irreversible and Kaana keeps no backup beyond the database's own: RDS automated
   backups, 14 days of point-in-time recovery on `oxy-postgres` (read 2026-11-17).

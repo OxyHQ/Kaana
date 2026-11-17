@@ -364,7 +364,8 @@ to the row, so no put, import, rekey or rotation can reuse it, and `list` no
 longer shows it (its record is `provider_credential_destructions`).
 
 Once nothing names it (its cost events and attempts aged out under the
-retention policy, no unexpired claim, no pin), the weekly retention run deletes
+retention policy, no unexpired claim, no pin) and at least 30 days after its
+destruction, the weekly retention run deletes
 the row entirely with its description and capacity evidence; one `forget` audit
 row and the destruction record remain (`operating.md`, "Data retention").
 
@@ -435,8 +436,10 @@ change to.
 - **A destroyed identity is final.** The database refuses any later write to the
   row; a new key gets a new opaque id.
 - **A destroyed key is forgotten only when nothing names it.** The forget
-  function deletes nothing a cost event, attempt, unexpired claim or pin still
-  references, and the append-only ledgers yield only to it, only for the exact
+  function waits 30 days after destruction (an in-flight request writes its
+  cost after the upstream answers), deletes nothing a cost event, attempt,
+  unexpired claim or pin still references, and a forgotten identity is never
+  inserted again, and the append-only ledgers yield only to it, only for the exact
   destroyed key it names. A live key's records are never deleted.
 
 ### Rotation

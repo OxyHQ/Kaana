@@ -99,6 +99,33 @@ func TestDestroyedCredentialsAreForgottenOnlyWhenNothingNamesThem(t *testing.T) 
 		}
 	}
 
+	// Freshly destroyed keys are inside the 30-day grace in which a request
+	// that took the key before its disable may still write its cost.
+	if eligible, err := repository.ForgetDestroyedCredentials(ctx, "purge-retention:dry-run", MaxPurgeBatch, true); err != nil || eligible != 0 {
+		t.Fatalf("dry run inside the grace = %d, %v; want 0", eligible, err)
+	}
+	age := func(keyIDs ...string) {
+		t.Helper()
+		// destroyed_is_final refuses every update of a destroyed row; the
+		// test backdates under replica mode, in its own transaction only.
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE provider_credentials SET destroyed_at = NOW() - INTERVAL '31 days'
+			WHERE provider_slug = $1 AND key_id = ANY($2)`, slug, keyIDs); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	age(bare, described, costed, claimed)
+
 	rows := func(keyID string) map[string]int {
 		t.Helper()
 		counts := map[string]int{}
@@ -179,5 +206,13 @@ func TestDestroyedCredentialsAreForgottenOnlyWhenNothingNamesThem(t *testing.T) 
 	}
 	if n := countRows(t, ctx, pool, `SELECT count(*) FROM provider_credentials WHERE provider_slug = $1`, slug); n != 1 {
 		t.Fatalf("%d credential rows remain, want only the live key", n)
+	}
+
+	// A forgotten identity is never created again, by any insert path.
+	if err := store.Put(ctx, EncryptedCredential{Scope: Scope{Provider: slug, KeyID: bare}, Position: 7}, []byte("sk-reborn"), "operator:integration"); err == nil {
+		t.Fatal("put recreated a forgotten identity")
+	}
+	if n := countRows(t, ctx, pool, `SELECT count(*) FROM provider_credentials WHERE provider_slug = $1 AND key_id = $2`, slug, bare); n != 0 {
+		t.Fatal("a forgotten identity exists again")
 	}
 }

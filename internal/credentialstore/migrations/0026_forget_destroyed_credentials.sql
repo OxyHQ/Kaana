@@ -7,7 +7,8 @@
 -- description, the documents that described it, its capacity evidence) are
 -- protected metadata about a credential that no longer exists.
 --
--- kaana_forget_destroyed_provider_credentials deletes such a key entirely and
+-- kaana_forget_destroyed_provider_credentials deletes such a key, destroyed
+-- at least 30 days ago, entirely and
 -- writes one 'forget' audit row. What remains, by value and without any
 -- secret or label: the audit rows (who put, disabled, destroyed and forgot
 -- it, and when) and its provider_credential_destructions record.
@@ -53,6 +54,31 @@ BEGIN
 END
 $body$;
 
+-- The destroyed-is-final trigger (0025) guards UPDATE of a row that still
+-- exists; once forgotten there is no row, so a put, import or rekey could
+-- INSERT the identity again. The destruction ledger outlives the row, and an
+-- identity it names is never created again.
+CREATE FUNCTION public.kaana_refuse_destroyed_provider_credential_identity() RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $kaana_refuse_destroyed_identity$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM public.provider_credential_destructions AS destroyed
+        WHERE destroyed.provider_slug = NEW.provider_slug AND destroyed.key_id = NEW.key_id
+    ) THEN
+        RAISE EXCEPTION 'provider credential %/% was destroyed; its identity is never created again',
+            NEW.provider_slug, NEW.key_id;
+    END IF;
+    RETURN NEW;
+END
+$kaana_refuse_destroyed_identity$;
+
+CREATE TRIGGER provider_credential_destroyed_identity_is_final
+BEFORE INSERT ON public.provider_credentials
+FOR EACH ROW EXECUTE FUNCTION public.kaana_refuse_destroyed_provider_credential_identity();
+
+REVOKE ALL ON FUNCTION public.kaana_refuse_destroyed_provider_credential_identity() FROM PUBLIC;
+
 CREATE FUNCTION public.kaana_forget_destroyed_provider_credentials(
     p_operation_actor TEXT,
     p_limit INTEGER,
@@ -79,6 +105,13 @@ BEGIN
         SELECT credential.provider_slug, credential.key_id
         FROM public.provider_credentials AS credential
         WHERE credential.destroyed_at IS NOT NULL
+          -- Persisted history is not the only thing that names a key: a
+          -- request that took the key from a pool before it was disabled
+          -- writes its attempt and cost (with its settlement, atomically)
+          -- only after the upstream answers. Forgetting under it would make
+          -- that write fail its foreign key on every retry. No request lives
+          -- for 30 days; the destroyed_at clock starts after the disable.
+          AND credential.destroyed_at < clock_timestamp() - INTERVAL '30 days'
           AND NOT EXISTS (SELECT 1 FROM public.provider_cost_events AS e
                           WHERE e.provider_slug = credential.provider_slug AND e.key_id = credential.key_id)
           AND NOT EXISTS (SELECT 1 FROM public.provider_credential_attempt_events AS e
