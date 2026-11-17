@@ -70,11 +70,9 @@ CREATE TABLE public.provider_credential_destructions (
         ),
     database_actor TEXT NOT NULL,
     destroyed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- A ledger by value, like provider_credential_audit: no foreign key, so
+    -- the record outlives the credential row once nothing else names it.
     UNIQUE (provider_slug, key_id),
-    FOREIGN KEY (provider_slug, key_id)
-        REFERENCES public.provider_credentials (provider_slug, key_id),
-    FOREIGN KEY (provider_slug, duplicate_of_key_id)
-        REFERENCES public.provider_credentials (provider_slug, key_id),
     CHECK ((proof = 'duplicate_of_enabled') = (duplicate_of_key_id IS NOT NULL)),
     CHECK (duplicate_of_key_id IS NULL OR duplicate_of_key_id <> key_id)
 );
