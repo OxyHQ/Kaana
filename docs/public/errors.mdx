@@ -54,7 +54,7 @@ body. The Messages endpoint uses Anthropic's error shape instead
 | `spending_limit_exceeded` | 402 | No | A spending limit of the account or application was reached. |
 | `quota_exceeded` | 429 | No | A quota was reached. |
 | `byok_credential_invalid` | 400 | No | Your own provider key was refused by the provider. |
-| `policy_violation` | 403 | No | Your account policy forbids this request. |
+| `policy_violation` | 403 | No | Your account policy or Kaana's content policy forbids this request. |
 | `commercial_permission_denied` | 403 | No | This model may not be served to you commercially. |
 | `no_route_available` | 503 | No | Nothing your account admits can serve this request, or your preferences left nothing. |
 | `upstream_content_filtered` | 400 | No | The provider filtered the request or the answer. |

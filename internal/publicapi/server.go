@@ -45,7 +45,6 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/provider"
-	"github.com/OxyHQ/Kaana/internal/providerconfig"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
@@ -115,6 +114,9 @@ type Config struct {
 	Catalogue *PublicCatalogue
 	// Realtime serves GET /v1/realtime; nil answers it unavailable.
 	Realtime http.Handler
+	// ImageSafety is Kaana's own content check on image generation (ADR 0013);
+	// nil serves no image generation, because nothing can say an image is safe.
+	ImageSafety ImageSafety
 	// AllowedOrigins may call /v1 from a browser (CORS): Oxy Console's
 	// playground and the registered origins of apps that use sessions.
 	AllowedOrigins []string
@@ -130,25 +132,26 @@ type Config struct {
 
 // Server serves /v1.
 type Server struct {
-	native     *NativeConfig
-	executor   Executor
-	authorizer Authorizer
-	settler    *Settler
-	metrics    emf.Recorder
-	inventory  *inventory.Store
-	funding    FundingRanker
-	latency    PerformanceReader
-	affinity   *affinityTable
-	kinds      RouteKinds
-	audio      AudioCatalogue
-	realtime   http.Handler
-	catalogue  *PublicCatalogue
-	costs      *providercost.Cards
-	origins    map[string]struct{}
-	limiter    *limiter
-	logger     *slog.Logger
-	now        func() time.Time
-	settling   sync.WaitGroup
+	native      *NativeConfig
+	executor    Executor
+	authorizer  Authorizer
+	settler     *Settler
+	metrics     emf.Recorder
+	inventory   *inventory.Store
+	funding     FundingRanker
+	latency     PerformanceReader
+	affinity    *affinityTable
+	kinds       RouteKinds
+	audio       AudioCatalogue
+	realtime    http.Handler
+	imageSafety ImageSafety
+	catalogue   *PublicCatalogue
+	costs       *providercost.Cards
+	origins     map[string]struct{}
+	limiter     *limiter
+	logger      *slog.Logger
+	now         func() time.Time
+	settling    sync.WaitGroup
 }
 
 // New builds the server, refusing a configuration that could serve unpaid or
@@ -202,7 +205,7 @@ func New(config Config) (*Server, error) {
 	}
 	return &Server{
 		native: config.Native, executor: config.Executor, authorizer: config.Authorizer, settler: config.Settler,
-		inventory: config.Inventory, funding: config.Funding, latency: config.Latency, affinity: newAffinityTable(), kinds: config.Kinds, audio: audio, realtime: config.Realtime, catalogue: catalogue, costs: config.Costs,
+		inventory: config.Inventory, funding: config.Funding, latency: config.Latency, affinity: newAffinityTable(), kinds: config.Kinds, audio: audio, realtime: config.Realtime, imageSafety: config.ImageSafety, catalogue: catalogue, costs: config.Costs,
 		origins: origins, limiter: newLimiter(rate, now), logger: logger, metrics: config.Metrics, now: now,
 	}, nil
 }
@@ -365,13 +368,19 @@ type FormatKinds interface {
 	ExecutesFormat(slug contract.ProviderSlug, format contract.APIFormat) (executes, known bool)
 }
 
-// servesImages is whether any deployment of the model reference could
-// generate an image here; servesRerank, whether one could rerank. See
-// servesFormat.
+// servesImages is whether the model reference is served for image generation
+// here (ADR 0013). Three things must all hold, and each is read before Oxy is
+// asked: this process has Kaana's own content check, the declared catalogue
+// states strict content filtering and a provenance marking for the line, and
+// some deployment of it could generate an image (servesFormat). A line whose
+// declaration is missing or weaker is not served however many deployments
+// could draw it.
 func (s *Server) servesImages(reference contract.ModelReference) bool {
-	return s.servesFormat(reference, contract.APIFormatImagesGenerations)
+	return s.imageSafety != nil && s.catalogue.DeclaresImageGenerationSafety(reference.ModelID()) &&
+		s.servesFormat(reference, contract.APIFormatImagesGenerations)
 }
 
+// servesRerank is whether any deployment of the model reference could rerank.
 func (s *Server) servesRerank(reference contract.ModelReference) bool {
 	return s.servesFormat(reference, contract.APIFormatRerank)
 }
@@ -394,13 +403,9 @@ func (s *Server) servesFormat(reference contract.ModelReference, format contract
 		return false
 	}
 	for _, route := range set.Candidates() {
-		if executes, _ := formats.ExecutesFormat(route.Provider, format); !executes {
-			continue
+		if ExecutesFamily(formats, route, format) {
+			return true
 		}
-		if family, classified, _ := providerconfig.ClassifyModel(route.Provider, route.UpstreamModelID); classified && family.Format != format {
-			continue
-		}
-		return true
 	}
 	return false
 }

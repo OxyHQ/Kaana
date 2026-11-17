@@ -97,7 +97,7 @@ func imageBody(extra map[string]any) map[string]any {
 // Oxy how many images and how many input tokens it holds for, hands the
 // adapter every control, and settles the report's units.
 func TestAnImageRequestIsServedAndSettled(t *testing.T) {
-	h := newHarness(t, harnessOptions{})
+	h, _ := newImageHarness(t)
 	response := h.post("/v1/images/generations", validKey, imageBody(map[string]any{
 		"n": 2, "size": "1024x1024", "quality": "high", "style": "vivid", "response_format": "b64_json", "user": "end-user-1"}))
 	answer := readAll(t, response)
@@ -159,7 +159,7 @@ func TestAnImageRequestIsServedAndSettled(t *testing.T) {
 }
 
 func TestAnImageRequestWithoutControlsSendsNone(t *testing.T) {
-	h := newHarness(t, harnessOptions{})
+	h, _ := newImageHarness(t)
 	response := h.post("/v1/images/generations", validKey, imageBody(map[string]any{"response_format": "url"}))
 	answer := readAll(t, response)
 	if response.StatusCode != http.StatusOK || !strings.Contains(string(answer), `"url":"https://images.invalid/a.png"`) || strings.Contains(string(answer), "b64_json") {
@@ -176,7 +176,7 @@ func TestAnImageRequestWithoutControlsSendsNone(t *testing.T) {
 // An attempt that produced no image is never served or billed: the customer
 // gets a retryable provider error and the settlement carries no unit.
 func TestAnEmptyImageAnswerIsNeverServed(t *testing.T) {
-	h := newHarness(t, harnessOptions{})
+	h, _ := newImageHarness(t)
 	h.image.setMode("empty")
 	response := h.post("/v1/images/generations", validKey, imageBody(nil))
 	failure := publicError(t, response, http.StatusBadGateway)
@@ -195,7 +195,7 @@ func TestAnEmptyImageAnswerIsNeverServed(t *testing.T) {
 // Oxy is asked: nothing is held, whether the model is a text model, an
 // unknown one, or a revision nothing serves.
 func TestAModelNothingServesForImagesIsRefusedBeforeAGrant(t *testing.T) {
-	h := newHarness(t, harnessOptions{})
+	h, _ := newImageHarness(t)
 	for _, model := range []string{"stub/model", "stub/model@2026-05-01", "stub/unknown", string(imageModel) + "9"} {
 		failure := publicError(t, h.post("/v1/images/generations", validKey, imageBody(map[string]any{"model": model})), http.StatusBadRequest)
 		if failure.Code != "unsupported_modality" || failure.Param == nil || *failure.Param != "model" {
@@ -212,7 +212,7 @@ func TestAModelNothingServesForImagesIsRefusedBeforeAGrant(t *testing.T) {
 }
 
 func TestImageRequestValidationIsUnchanged(t *testing.T) {
-	h := newHarness(t, harnessOptions{})
+	h, _ := newImageHarness(t)
 	for name, extra := range map[string]map[string]any{
 		"n":               {"n": 11},
 		"response_format": {"response_format": "png"},

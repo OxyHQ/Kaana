@@ -865,6 +865,13 @@ over image defaults. The file is loaded at start whether or not
   documentation cited in the commit. Without it no request carrying an image is
   granted on the line. It travels to Oxy on the declared document and is not
   served on `GET /v1/models`.
+- **Image generation (ADR 0013):** a line is served for
+  `POST /v1/images/generations` only when its `safety` declares
+  `contentFilteringDefault: strict` and a `provenanceMarking` other than `none`.
+  `strict` on an image line states that every prompt and every generated image
+  passes Kaana's own content check, and the marking needs primary evidence of
+  who stamps it; neither is declared to make a deployment servable. A `safety`
+  member outside the contract's vocabulary stops the catalogue from loading.
 - **Capabilities that are not recorded (`capabilities.unreported`):** the five
   booleans `tools`, `parallelToolCalls`, `structuredOutput`, `jsonMode` and
   `promptCaching` were hand-authored in the one-time export of Oxy's catalogue

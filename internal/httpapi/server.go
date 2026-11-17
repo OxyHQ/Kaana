@@ -356,6 +356,16 @@ func (s *Server) handleInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.Client.APIFormat == contract.APIFormatImagesGenerations || request.Modality == contract.ModalityImage || request.Image != nil {
+		// Image generation is an ordinary grant on
+		// https://kaana.ai/v1/images/generations, where Kaana's own content
+		// check runs on the prompt and on the generated images (ADR 0013).
+		// The signed envelope lane runs no such check and has no response
+		// shape for an image, so it serves none.
+		s.writeRejection(w, http.StatusBadRequest, contract.NewError(requestID, contract.CodeInvalidRequest, "image generation is served on https://kaana.ai/v1/images/generations").WithParam("client.apiFormat"))
+		return
+	}
+
 	if request.Modality == contract.ModalityEmbedding {
 		startedAt := time.Now()
 		result := s.executor.Execute(r.Context(), &request, func(contract.StreamEvent) error { return nil })
