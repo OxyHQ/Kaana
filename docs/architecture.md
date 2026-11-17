@@ -105,7 +105,9 @@ absent, and the code refuses rather than pretending.
   (`POST /v1/audio/speech`, `POST /v1/audio/transcriptions`; see
   [openai-audio](openai-audio.md)) and image generation is
   `POST /v1/images/generations`, served by the OpenAI-compatible adapter where the
-  capability table lists it (see [adapters](adapters.md#image-generation-contract-set-8120)). Rerank is `POST /v1/rerank`, served
+  capability table lists it (see [adapters](adapters.md#image-generation-contract-set-8120)) and only
+  behind Kaana's own content check, which has no implementation yet, so no line is
+  served ([ADR 0013](adr/0013-image-generation-content-check.md)). Rerank is `POST /v1/rerank`, served
   by the OpenAI-compatible adapter where the capability table lists it
   (`openrouter` only; see [adapters](adapters.md#rerank-contract-set-8150)) and refused with
   `unsupported_modality` for a model no deployment can serve, which until the

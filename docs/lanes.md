@@ -51,6 +51,9 @@ service, not a customer.
   price or inventory position, never adds a route and never interprets the
   routing-policy reference ([routing.md](routing.md)).
 - The usage record rides the stream as a `usage_report` event; Oxy settles from it.
+- It serves no decisions, rerank or image generation: each is an ordinary grant
+  on its public route. Image generation in particular runs Kaana's own content
+  check there and nowhere else ([ADR 0013](adr/0013-image-generation-content-check.md)).
 
 ## Who decides what
 

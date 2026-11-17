@@ -44,7 +44,10 @@ type declaredModel struct {
 	// decision, kept by render, which replaces the rest of
 	// capabilities.realtime with what the inventory serves.
 	defaultKinds []contract.RealtimeSessionKind
-	fields       map[string]json.RawMessage
+	// safety is the line's declared safety member, nil when it declares none.
+	// Image generation is served only on what it states (ADR 0013).
+	safety *declaredSafety
+	fields map[string]json.RawMessage
 }
 
 // catalogueFile is the declared file: one entry per model line, in the shape
@@ -144,6 +147,13 @@ func ParsePublicCatalogue(raw []byte) (*PublicCatalogue, error) {
 			if err := json.Unmarshal(raw, &model.powerClass); err != nil || !slices.Contains(powerClasses, model.powerClass) {
 				return nil, fmt.Errorf("publicapi: public catalogue models[%d].powerClass is not a power class", index)
 			}
+		}
+		if raw, present := fields["safety"]; present {
+			safety, err := parseDeclaredSafety(raw)
+			if err != nil {
+				return nil, fmt.Errorf("publicapi: public catalogue models[%d].safety: %w", index, err)
+			}
+			model.safety = safety
 		}
 		defaults, active, err := declaredDefaultKinds(fields)
 		if err != nil {
@@ -847,10 +857,17 @@ type imageResponse struct {
 const maxImagePromptLength = 32000
 
 // handleImages serves POST /v1/images/generations. It validates the request
-// and refuses it before any grant unless some deployment of the model could
-// generate an image (servesImages): a model nothing here serves holds no
-// money. The prompt and the generated images are customer content: they are
-// never logged, and the prompt is sent to Oxy as neither text nor hash.
+// and refuses it before any grant unless the model is served for image
+// generation (servesImages): a model nothing here serves holds no money.
+//
+// Kaana's own content check (ADR 0013) runs twice and fails closed both
+// times: on the prompt after validation and before Oxy is asked, so a refused
+// prompt holds no money and reaches no provider; and on the generated images
+// after the provider answered and before the caller receives anything. The
+// provider's own filter is in addition to it, never instead of it.
+//
+// The prompt and the generated images are customer content: they are never
+// logged, and the prompt is sent to Oxy as neither text nor hash.
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	requestID, receivedAt := NewRequestID(), s.now()
 	body, failure := s.readJSON(w, r, requestID)
@@ -889,6 +906,17 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The content check answers nobody who presented no credential: admit
+	// would refuse the request anyway, and the check must not be free to call.
+	if _, ok := bearerFrom(r); !ok {
+		writeError(w, requestID, contract.NewPublicError(requestID, "authentication_failed", contract.PublicMessage("authentication_failed")))
+		return
+	}
+	if failure := s.checkImagePrompt(r.Context(), requestID, request.Prompt); failure != nil {
+		writeError(w, requestID, failure)
+		return
+	}
+
 	images := 1
 	if request.N != nil {
 		images = *request.N
@@ -918,6 +946,12 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	result := s.execute(r.Context(), admitted, &envelope, func(contract.StreamEvent) error { return nil })
 	if result.Failure != nil || result.Image == nil || len(result.Image.Images) == 0 {
 		writeError(w, requestID, failureOf(result, requestID))
+		return
+	}
+	// The request is settled by now, whatever the check answers: the provider
+	// drew and billed the images, and a withheld image was still generated.
+	if failure := s.checkGeneratedImages(r.Context(), requestID, request.Prompt, result.Image.Images); failure != nil {
+		writeError(w, requestID, failure)
 		return
 	}
 	answer := imageResponse{Created: s.now().Unix(), Data: make([]imageData, 0, len(result.Image.Images))}

@@ -355,6 +355,17 @@ Nothing is served until an operator declares an image model in
 entry Oxy admits no image line, and the public API refuses a model no deployment
 can draw with `unsupported_modality` before any grant.
 
+A deployment that can draw is not enough ([ADR 0013](adr/0013-image-generation-content-check.md)).
+The public API serves a line only when the process has Kaana's own content check
+(`publicapi.ImageSafety`) and the line's declared `safety` states
+`contentFilteringDefault: strict` and a `provenanceMarking` other than `none`. The check
+is asked about the prompt before any grant and about the generated images before the
+caller receives them, and it fails closed: a refusal is `policy_violation`, no answer is
+`service_unavailable`, and a withheld image still settles the units the provider drew.
+The provider's own filter is in addition to it. The check has no implementation yet and
+`cmd/kaana` wires none, so no line is served; the ADR lists what enabling it needs. The
+signed envelope lane refuses an image-generation envelope, because no check runs there.
+
 ### Rerank (contract set 8.15.0)
 
 `rerank` is a whole, non-streaming response: the adapter returns `Outcome.Rerank`

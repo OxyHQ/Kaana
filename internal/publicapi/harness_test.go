@@ -621,11 +621,14 @@ type harnessOptions struct {
 	native          *publicapi.NativeConfig
 	realtimeFunding provider.Funding
 	catalogue       *publicapi.PublicCatalogue
-	audio           publicapi.AudioCatalogue
-	rate            publicapi.RateLimit
-	origins         []string
-	store           publicapi.SettlementStore
-	authorize       func(publicapi.Authorizer) publicapi.Authorizer
+	// imageSafety is Kaana's own content check on image generation; nil
+	// serves no image generation.
+	imageSafety publicapi.ImageSafety
+	audio       publicapi.AudioCatalogue
+	rate        publicapi.RateLimit
+	origins     []string
+	store       publicapi.SettlementStore
+	authorize   func(publicapi.Authorizer) publicapi.Authorizer
 	// realtime is the statement the realtime deployment publishes; OpenAI's
 	// when unset.
 	realtime *providerconfig.RealtimeStatement
@@ -792,7 +795,7 @@ func newHarness(t *testing.T, options harnessOptions) *harness {
 	}
 	api, err := publicapi.New(publicapi.Config{
 		Executor: executor, Authorizer: authorizer, Settler: settler, Inventory: store, Native: options.native,
-		Funding: publicapi.RegistryFunding{Registry: registry}, Kinds: registry, Audio: options.audio, Catalogue: options.catalogue, Costs: cards,
+		Funding: publicapi.RegistryFunding{Registry: registry}, Kinds: registry, Audio: options.audio, Catalogue: options.catalogue, ImageSafety: options.imageSafety, Costs: cards,
 		AllowedOrigins: options.origins, RateLimit: options.rate, Logger: logger, Metrics: options.metrics,
 	})
 	if err != nil {
