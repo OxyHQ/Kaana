@@ -91,6 +91,9 @@ var migration0023 string
 //go:embed migrations/0024_retention_purge.sql
 var migration0024 string
 
+//go:embed migrations/0025_provider_credential_destruction.sql
+var migration0025 string
+
 // Postgres owns a bounded connection pool to Kaana's database.
 type Postgres struct {
 	pool             *pgxpool.Pool
@@ -211,6 +214,7 @@ func schemaMigrations() []schemaMigration {
 		{version: "0022", body: migration0022},
 		{version: "0023", body: migration0023},
 		{version: "0024", body: migration0024},
+		{version: "0025", body: migration0025},
 	}
 }
 
@@ -468,7 +472,9 @@ func (p *Postgres) Disable(ctx context.Context, scope Scope, actor string) (bool
 	return changed, err
 }
 
-// ListMetadata deliberately does not select encrypted_secret.
+// ListMetadata deliberately does not select encrypted_secret. A destroyed key
+// (migration 0025) is not listed: the view omits it, for every image that
+// reads it; its record is provider_credential_destructions.
 func (p *Postgres) ListMetadata(ctx context.Context) ([]Metadata, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT provider_slug, key_id, kms_key_arn, key_class,

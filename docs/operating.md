@@ -700,6 +700,19 @@ Disable without deleting ciphertext or losing the operator identity:
 kaana-credentials disable --provider openrouter --key-id 123e4567-e89b-42d3-a456-426614174000
 ```
 
+Once a disabled key will never serve again, remove its ciphertext and keep its
+identity ([key-pools](key-pools.md#destroying-a-dead-key)):
+
+```bash
+kaana-credentials destroy --operation-id kcd_0123456789abcdef0123456789abcdef \
+  --provider openrouter --key-id 123e4567-e89b-42d3-a456-426614174000
+```
+
+It destroys only a duplicate of an enabled key or a secret the provider rejects,
+and refuses a key the provider still accepts: revoke that one upstream first. In
+production each destruction is a fixed operation in `credential-admin.yml`; the
+task role needs `kms:Decrypt` for it, which it does not hold by default.
+
 Historical platform key IDs are replaced only through `rekey-id`, never by
 copying ciphertext or reading plaintext into a shell. Exact duplicate checks use
 `deduplicate`; PostgreSQL receives only `deduplicated` or `different`, never a
