@@ -95,6 +95,59 @@ func TestCompletedTemporarySSMHandoffsAreRefused(t *testing.T) {
 	}
 }
 
+func TestTheAnthropicHandoffReadsOnlyItsOwnKeyAndMetadataPaths(t *testing.T) {
+	scope := Scope{Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"}
+	const keyPath = "/oxy/kaana/provider-key-handoff/20261119/anthropic"
+	const metadataPath = "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata"
+	if len(temporaryProviderCredentialHandoffs) != 1 || len(temporaryCredentialMetadataHandoffs) != 1 {
+		t.Fatalf("temporary handoffs = %d keys, %d metadata; want exactly one of each",
+			len(temporaryProviderCredentialHandoffs), len(temporaryCredentialMetadataHandoffs))
+	}
+	read := func(name string, metadata bool, scope Scope) (*fakeSSMClient, error) {
+		client := &fakeSSMClient{value: "value"}
+		source, err := NewSSMSource(client)
+		if err != nil {
+			t.Fatalf("NewSSMSource: %v", err)
+		}
+		if metadata {
+			_, err = source.ReadMetadataDocument(context.Background(), name, scope)
+		} else {
+			_, err = source.ReadSecureString(context.Background(), name, scope)
+		}
+		return client, err
+	}
+	if client, err := read(keyPath, false, scope); err != nil || client.input == nil || *client.input.Name != keyPath {
+		t.Fatalf("the reviewed key handoff was not read: %v", err)
+	}
+	if client, err := read(metadataPath, true, scope); err != nil || client.input == nil || *client.input.Name != metadataPath {
+		t.Fatalf("the reviewed metadata handoff was not read: %v", err)
+	}
+	for name, attempt := range map[string]struct {
+		path     string
+		metadata bool
+		scope    Scope
+	}{
+		"metadata path as a key":    {metadataPath, false, scope},
+		"key path as metadata":      {keyPath, true, scope},
+		"legacy path as metadata":   {"/oxy/alia/PROVIDER_KEY_GROQ", true, Scope{Provider: "groq", KeyID: "legacy-alia-20260901"}},
+		"key under another id":      {keyPath, false, Scope{Provider: "anthropic", KeyID: "30033d0c-3ca8-48c4-be44-8538d81028dd"}},
+		"metadata under another id": {metadataPath, true, Scope{Provider: "anthropic", KeyID: "30033d0c-3ca8-48c4-be44-8538d81028dd"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, err := read(attempt.path, attempt.metadata, attempt.scope)
+			if err == nil {
+				t.Fatal("an unreviewed handoff read was accepted")
+			}
+			if client.input != nil {
+				t.Fatal("an unreviewed handoff read reached SSM")
+			}
+		})
+	}
+	if !reviewedProviderCredentialHandoffScope(scope) {
+		t.Fatal("the reviewed handoff identity cannot be imported")
+	}
+}
+
 func TestSSMImportRefusesUnsafeInputsWithoutEchoingSecrets(t *testing.T) {
 	for _, name := range []string{
 		"",

@@ -25,6 +25,23 @@ var legacyProviderParameters = map[string]Scope{
 	"/oxy/relay/RELAY_PROVIDER_XAI_API_KEY":        {Provider: "xai", KeyID: "relay-xai-20260902"},
 }
 
+// temporaryProviderCredentialHandoffs is a closed, removable bridge for the
+// 2026-11-19 operator handoff (docs/provider-credential-handoff-20261119.md).
+// It is deliberately separate from the frozen legacy allow-list: deleting
+// these entries after verification removes the capability without broadening
+// historical migration authority.
+var temporaryProviderCredentialHandoffs = map[string]Scope{
+	"/oxy/kaana/provider-key-handoff/20261119/anthropic": {Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"},
+}
+
+// temporaryCredentialMetadataHandoffs carries the protected metadata document
+// of the same handoff. The document names its funding account's label, which
+// belongs neither in this public repository nor in argv, so it crosses the
+// same reviewed SecureString boundary as the key.
+var temporaryCredentialMetadataHandoffs = map[string]Scope{
+	"/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata": {Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"},
+}
+
 type ssmClient interface {
 	GetParameter(context.Context, *ssm.GetParameterInput, ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
 }
@@ -56,10 +73,22 @@ func NewSSMSource(client ssmClient) (*SSMSource, error) {
 // ReadSecureString retrieves one explicit parameter with KMS decryption. The
 // result must be cleared by the caller after it has been re-encrypted.
 func (s *SSMSource) ReadSecureString(ctx context.Context, parameterName string, scope Scope) ([]byte, error) {
+	expectedScope, allowed := reviewedProviderCredentialHandoff(parameterName)
+	return s.readReviewed(ctx, parameterName, scope, expectedScope, allowed, "provider-key")
+}
+
+// ReadMetadataDocument retrieves the protected metadata document reviewed for
+// exactly one handoff identity. The caller still parses and validates it, and
+// must refuse a document naming another key.
+func (s *SSMSource) ReadMetadataDocument(ctx context.Context, parameterName string, scope Scope) ([]byte, error) {
+	expectedScope, allowed := temporaryCredentialMetadataHandoffs[parameterName]
+	return s.readReviewed(ctx, parameterName, scope, expectedScope, allowed, "credential-metadata")
+}
+
+func (s *SSMSource) readReviewed(ctx context.Context, parameterName string, scope, expectedScope Scope, allowed bool, kind string) ([]byte, error) {
 	name := strings.TrimSpace(parameterName)
-	expectedScope, allowed := reviewedProviderCredentialHandoff(name)
 	if name == "" || name != parameterName || !allowed || len(name) > 2048 {
-		return nil, fmt.Errorf("credential import: parameter must be an exact reviewed provider-key handoff path")
+		return nil, fmt.Errorf("credential import: parameter must be an exact reviewed %s handoff path", kind)
 	}
 	if scope != expectedScope {
 		return nil, errors.New("credential import: the legacy handoff provider/key identity does not match")
@@ -101,6 +130,18 @@ func legacyProviderCredentialScope(scope Scope) bool {
 }
 
 func reviewedProviderCredentialHandoff(name string) (Scope, bool) {
+	if scope, ok := temporaryProviderCredentialHandoffs[name]; ok {
+		return scope, true
+	}
 	scope, ok := legacyProviderParameters[name]
 	return scope, ok
+}
+
+func reviewedProviderCredentialHandoffScope(scope Scope) bool {
+	for _, expected := range temporaryProviderCredentialHandoffs {
+		if scope == expected {
+			return true
+		}
+	}
+	return legacyProviderCredentialScope(scope)
 }
