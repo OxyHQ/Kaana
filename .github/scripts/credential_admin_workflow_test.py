@@ -10,10 +10,10 @@ SOURCE = (pathlib.Path(__file__).parents[1] / "workflows/credential-admin.yml").
 
 class ReviewedMigrationWorkflow(unittest.TestCase):
     def test_image_selection_is_operation_scoped(self):
-        start = SOURCE.index('          if [[ "$OPERATION" == *production-deployment-bindings || "$OPERATION" == migrate || "$OPERATION" == unpin-deployment || "$OPERATION" == destroy-* ]]; then')
+        start = SOURCE.index('          if [[ "$OPERATION" == *production-deployment-bindings || "$OPERATION" == migrate || "$OPERATION" == unpin-deployment || "$OPERATION" == destroy-* || "$OPERATION" == handoff-* ]]; then')
         end = SOURCE.index('          printf', start)
         fragment = "\n".join(line[10:] for line in SOURCE[start:end].splitlines())
-        for operation, current in [("migrate", True), ("apply-production-deployment-bindings", True), ("verify-production-deployment-bindings", True), ("unpin-deployment", True), ("destroy-groq-relay", True), ("destroy-anthropic-b46cc8c4", True), ("list", False), ("bind-deployment", False), ("rekey-openrouter-primary", False), ("deduplicate-groq", False)]:
+        for operation, current in [("migrate", True), ("apply-production-deployment-bindings", True), ("verify-production-deployment-bindings", True), ("unpin-deployment", True), ("destroy-groq-relay", True), ("destroy-anthropic-b46cc8c4", True), ("handoff-import-anthropic", True), ("handoff-describe-anthropic", True), ("list", False), ("bind-deployment", False), ("rekey-openrouter-primary", False), ("deduplicate-groq", False)]:
             with self.subTest(operation=operation):
                 with tempfile.TemporaryDirectory() as folder:
                     path = pathlib.Path(folder) / "config.json"

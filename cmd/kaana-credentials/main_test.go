@@ -149,3 +149,42 @@ func TestBudgetMetadataCannotBeNegative(t *testing.T) {
 		t.Fatalf("valid budget = %v, %v", value, err)
 	}
 }
+
+func TestMetadataHandoffNeedsItsWholeBindingBeforeReachingSSM(t *testing.T) {
+	for name, arguments := range map[string][]string{
+		"parameter alone":      {"put-credential-metadata", "--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata"},
+		"parameter, no key":    {"put-credential-metadata", "--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata", "--provider", "anthropic"},
+		"binding, no path":     {"put-credential-metadata", "--provider", "anthropic", "--key-id", "7e9c2e7e-fffb-4389-bec6-59647882ff2c"},
+		"evidence from a path": {"record-capacity-evidence", "--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := run(arguments, strings.NewReader(""), &bytes.Buffer{}, func(string) string { return "" })
+			if err == nil || !strings.HasPrefix(err.Error(), "usage:") {
+				t.Fatalf("run(%v) = %v, want a usage refusal", arguments, err)
+			}
+		})
+	}
+}
+
+func TestMetadataHandoffRefusesADocumentAboutAnotherKey(t *testing.T) {
+	document := []byte(`{"schemaVersion":1,"operationId":"kcm_0123456789abcdef0123456789abcdef","provider":"anthropic",` +
+		`"keyId":"7e9c2e7e-fffb-4389-bec6-59647882ff2c","title":"t","fundingAccount":{"id":"kfa_0123456789abcdef0123456789abcdef","label":"l"},` +
+		`"capacityCategory":"promotional","environment":"production","commercialUse":{"eligibility":"unknown"}}`)
+	bound := credentialstore.Scope{Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"}
+	if _, err := handoffMetadata(document, true, bound); err != nil {
+		t.Fatalf("the handoff's own document was refused: %v", err)
+	}
+	for name, other := range map[string]credentialstore.Scope{
+		"another key":      {Provider: "anthropic", KeyID: "30033d0c-3ca8-48c4-be44-8538d81028dd"},
+		"another provider": {Provider: "openai", KeyID: bound.KeyID},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := handoffMetadata(document, true, other); err == nil {
+				t.Fatal("a handoff document describing another key was accepted")
+			}
+			if _, err := handoffMetadata(document, false, other); err != nil {
+				t.Fatalf("a stdin document is not bound to a handoff: %v", err)
+			}
+		})
+	}
+}

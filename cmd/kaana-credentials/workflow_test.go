@@ -157,6 +157,14 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"--provider", "xai", "--key-id", "relay-xai-20260902",
 		},
 		"purge-retention": {"purge-retention", "--apply"},
+		"handoff-import-anthropic": {
+			"import-ssm", "--provider", "anthropic", "--key-id", "7e9c2e7e-fffb-4389-bec6-59647882ff2c",
+			"--position", "2", "--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic",
+		},
+		"handoff-describe-anthropic": {
+			"put-credential-metadata", "--provider", "anthropic", "--key-id", "7e9c2e7e-fffb-4389-bec6-59647882ff2c",
+			"--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata",
+		},
 	}
 	if !reflect.DeepEqual(manifest.Operations, expectedOperations) {
 		t.Fatalf("credential operations drifted: %#v", manifest.Operations)
@@ -171,11 +179,19 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		t.Fatalf("reading credential destruction runbook: %v", err)
 	}
 	destructionRunbook := string(destructionRunbookBytes)
+	handoffRunbookBytes, err := os.ReadFile("../../docs/provider-credential-handoff-20261119.md")
+	if err != nil {
+		t.Fatalf("reading credential handoff runbook: %v", err)
+	}
+	handoffRunbook := string(handoffRunbookBytes)
 	operationIDs := make(map[string]string)
 	canonicalIDs := make(map[string]struct{})
 	for operationName, command := range manifest.Operations {
 		joined := strings.Join(command, " ")
 		for _, forbidden := range []string{"--position", "--value", "import-ssm"} {
+			if forbidden != "--value" && operationName == "handoff-import-anthropic" {
+				continue
+			}
 			if operationName != "list" && strings.Contains(joined, forbidden) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
@@ -186,6 +202,10 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		if strings.HasPrefix(operationName, "destroy-") {
 			if !strings.Contains(destructionRunbook, joined) {
 				t.Errorf("destruction runbook does not contain exact command %q", joined)
+			}
+		} else if strings.HasPrefix(operationName, "handoff-") {
+			if !strings.Contains(handoffRunbook, joined) {
+				t.Errorf("handoff runbook does not contain exact command %q", joined)
 			}
 		} else if !strings.Contains(runbook, joined) {
 			t.Errorf("runbook does not contain exact command %q", joined)
@@ -278,6 +298,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"destroy-xai-legacy-alia":        "admin",
 			"destroy-xai-relay":              "admin",
 			"purge-retention":                "admin",
+			"handoff-import-anthropic":       "admin",
+			"handoff-describe-anthropic":     "admin",
 		},
 		DiscoveryCredentialIDs: map[string]string{
 			"anthropic":    "30033d0c-3ca8-48c4-be44-8538d81028dd",
@@ -331,7 +353,9 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
           - destroy-openrouter-relay
           - destroy-xai-legacy-alia
           - destroy-xai-relay
-          - purge-retention`
+          - purge-retention
+          - handoff-import-anthropic
+          - handoff-describe-anthropic`
 	if !strings.Contains(workflow, expectedOperationChoices) {
 		t.Errorf("credential workflow operation choices drifted")
 	}
