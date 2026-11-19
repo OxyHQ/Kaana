@@ -120,51 +120,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"destroy", "--operation-id", "kcd_a6776a5c762fa23bff8eccfac41040c8",
 			"--provider", "anthropic", "--key-id", "b46cc8c4-736e-4e7e-b3e4-be74c0d75f66",
 		},
-		"destroy-cerebras-relay-main": {
-			"destroy", "--operation-id", "kcd_7b5b670af00bc17fff7ac4f3d47ea6f7",
-			"--provider", "cerebras", "--key-id", "cerebras-relay-main",
-		},
-		"destroy-elevenlabs-legacy-alia": {
-			"destroy", "--operation-id", "kcd_934ed4f25f7ad1ef62b0165a7dda825f",
-			"--provider", "elevenlabs", "--key-id", "legacy-alia-20260901",
-		},
-		"destroy-elevenlabs-6e4abb22": {
-			"destroy", "--operation-id", "kcd_ad20b03078706cf4a89bce1deb28fc10",
-			"--provider", "elevenlabs", "--key-id", "6e4abb22-af03-46fb-95d9-b2e4286657f2",
-		},
-		"destroy-groq-legacy-alia": {
-			"destroy", "--operation-id", "kcd_668fa053b78f7784bd6dc543d41c8eb9",
-			"--provider", "groq", "--key-id", "legacy-alia-20260901",
-		},
-		"destroy-groq-relay": {
-			"destroy", "--operation-id", "kcd_85dabf9f40fcba26750284e2e733071e",
-			"--provider", "groq", "--key-id", "relay-groq-20260902",
-		},
-		"destroy-openrouter-legacy-alia": {
-			"destroy", "--operation-id", "kcd_ded7d342f1f2b8c3131b426753eb2866",
-			"--provider", "openrouter", "--key-id", "legacy-alia-20260901",
-		},
-		"destroy-openrouter-relay": {
-			"destroy", "--operation-id", "kcd_c7a5bf74f09a031cad714c0b9aaacfc7",
-			"--provider", "openrouter", "--key-id", "relay-openrouter-20260902",
-		},
-		"destroy-xai-legacy-alia": {
-			"destroy", "--operation-id", "kcd_38b04461957ef6d2d810bb24235fa291",
-			"--provider", "xai", "--key-id", "legacy-alia-20260901",
-		},
-		"destroy-xai-relay": {
-			"destroy", "--operation-id", "kcd_eed6066329848e4d6b532e29fb0c7e77",
-			"--provider", "xai", "--key-id", "relay-xai-20260902",
-		},
 		"purge-retention": {"purge-retention", "--apply"},
-		"handoff-import-anthropic": {
-			"import-ssm", "--provider", "anthropic", "--key-id", "7e9c2e7e-fffb-4389-bec6-59647882ff2c",
-			"--position", "2", "--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic",
-		},
-		"handoff-describe-anthropic": {
-			"put-credential-metadata", "--provider", "anthropic", "--key-id", "7e9c2e7e-fffb-4389-bec6-59647882ff2c",
-			"--parameter", "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata",
-		},
 	}
 	if !reflect.DeepEqual(manifest.Operations, expectedOperations) {
 		t.Fatalf("credential operations drifted: %#v", manifest.Operations)
@@ -179,19 +135,11 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		t.Fatalf("reading credential destruction runbook: %v", err)
 	}
 	destructionRunbook := string(destructionRunbookBytes)
-	handoffRunbookBytes, err := os.ReadFile("../../docs/provider-credential-handoff-20261119.md")
-	if err != nil {
-		t.Fatalf("reading credential handoff runbook: %v", err)
-	}
-	handoffRunbook := string(handoffRunbookBytes)
 	operationIDs := make(map[string]string)
 	canonicalIDs := make(map[string]struct{})
 	for operationName, command := range manifest.Operations {
 		joined := strings.Join(command, " ")
 		for _, forbidden := range []string{"--position", "--value", "import-ssm"} {
-			if forbidden != "--value" && operationName == "handoff-import-anthropic" {
-				continue
-			}
 			if operationName != "list" && strings.Contains(joined, forbidden) {
 				t.Errorf("credential operation %q contains forbidden authority/transport %q", operationName, forbidden)
 			}
@@ -202,10 +150,6 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 		if strings.HasPrefix(operationName, "destroy-") {
 			if !strings.Contains(destructionRunbook, joined) {
 				t.Errorf("destruction runbook does not contain exact command %q", joined)
-			}
-		} else if strings.HasPrefix(operationName, "handoff-") {
-			if !strings.Contains(handoffRunbook, joined) {
-				t.Errorf("handoff runbook does not contain exact command %q", joined)
 			}
 		} else if !strings.Contains(runbook, joined) {
 			t.Errorf("runbook does not contain exact command %q", joined)
@@ -228,8 +172,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			destructionIDs++
 		}
 	}
-	if len(operationIDs) != 21 || destructionIDs != 10 {
-		t.Fatalf("exact operation id count = %d (%d destructions), want 11 credential-id operations and 10 destructions", len(operationIDs), destructionIDs)
+	if len(operationIDs) != 12 || destructionIDs != 1 {
+		t.Fatalf("exact operation id count = %d (%d destructions), want 11 credential-id operations and 1 destruction", len(operationIDs), destructionIDs)
 	}
 	expectedCanonicalIDs := map[string]struct{}{
 		"43405cea-a7d1-49c2-ba73-5a84536d3abf": {},
@@ -287,19 +231,8 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
 			"rekey-openrouter-primary": "admin", "rekey-xai-primary": "admin",
 			"rekey-elevenlabs-primary": "admin", "rekey-groq-secondary-if-different": "admin",
 			"rekey-openrouter-secondary-if-different": "admin", "rekey-xai-secondary-if-different": "admin",
-			"destroy-anthropic-b46cc8c4":     "admin",
-			"destroy-cerebras-relay-main":    "admin",
-			"destroy-elevenlabs-legacy-alia": "admin",
-			"destroy-elevenlabs-6e4abb22":    "admin",
-			"destroy-groq-legacy-alia":       "admin",
-			"destroy-groq-relay":             "admin",
-			"destroy-openrouter-legacy-alia": "admin",
-			"destroy-openrouter-relay":       "admin",
-			"destroy-xai-legacy-alia":        "admin",
-			"destroy-xai-relay":              "admin",
-			"purge-retention":                "admin",
-			"handoff-import-anthropic":       "admin",
-			"handoff-describe-anthropic":     "admin",
+			"destroy-anthropic-b46cc8c4": "admin",
+			"purge-retention":            "admin",
 		},
 		DiscoveryCredentialIDs: map[string]string{
 			"anthropic":    "30033d0c-3ca8-48c4-be44-8538d81028dd",
@@ -344,18 +277,7 @@ func TestCredentialAdminWorkflowHasOnlyReviewedOperations(t *testing.T) {
           - rekey-openrouter-secondary-if-different
           - rekey-xai-secondary-if-different
           - destroy-anthropic-b46cc8c4
-          - destroy-cerebras-relay-main
-          - destroy-elevenlabs-legacy-alia
-          - destroy-elevenlabs-6e4abb22
-          - destroy-groq-legacy-alia
-          - destroy-groq-relay
-          - destroy-openrouter-legacy-alia
-          - destroy-openrouter-relay
-          - destroy-xai-legacy-alia
-          - destroy-xai-relay
-          - purge-retention
-          - handoff-import-anthropic
-          - handoff-describe-anthropic`
+          - purge-retention`
 	if !strings.Contains(workflow, expectedOperationChoices) {
 		t.Errorf("credential workflow operation choices drifted")
 	}

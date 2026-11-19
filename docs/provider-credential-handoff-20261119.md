@@ -1,5 +1,12 @@
 # Provider credential handoff — 2026-11-19
 
+**Completed 2026-11-19.** `handoff-import-anthropic` imported the key and
+`handoff-describe-anthropic` applied `kcm_c47e220d252a6545c3e24bcef993352e`;
+`list` read the row back enabled at position 2. Both SSM parameters and the
+local copies were deleted, and the operations, the two `ssm.go` map entries,
+the `put-credential-metadata --parameter` path and the IAM grant were retired.
+A new handoff re-adds them from this record's change (OxyHQ/Kaana#341).
+
 A temporary, closed handoff for one Anthropic key: the monthly API credit that
 comes with the owner's subscription (200 USD a month). It is a rollout record,
 not a rule. Cleanup is part of the handoff, not a follow-up.

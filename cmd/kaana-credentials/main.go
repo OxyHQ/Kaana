@@ -431,36 +431,12 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 	case "put-credential-metadata", "record-capacity-evidence":
 		flags := flag.NewFlagSet(arguments[0], flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
-		var parameter, providerSlug, keyID string
-		if arguments[0] == "put-credential-metadata" {
-			flags.StringVar(&parameter, "parameter", "", "exact reviewed metadata SecureString handoff path")
-			flags.StringVar(&providerSlug, "provider", "", "provider slug the handoff is bound to")
-			flags.StringVar(&keyID, "key-id", "", "exact opaque key id the handoff is bound to")
-		}
-		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 ||
-			(parameter == "") != (providerSlug == "" && keyID == "") ||
-			(parameter != "" && (providerSlug == "" || keyID == "")) {
-			if arguments[0] == "put-credential-metadata" {
-				return errors.New("usage: kaana-credentials put-credential-metadata < document.json | --provider <slug> --key-id <id> --parameter </path>")
-			}
+		if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
 			return fmt.Errorf("usage: kaana-credentials %s < document.json", arguments[0])
 		}
-		handoff := credentialstore.Scope{Provider: contract.ProviderSlug(providerSlug), KeyID: keyID}
-		var document []byte
-		if parameter != "" {
-			source, err := credentialstore.OpenSSMSource(ctx)
-			if err != nil {
-				return err
-			}
-			if document, err = source.ReadMetadataDocument(ctx, parameter, handoff); err != nil {
-				return err
-			}
-			defer clear(document)
-		} else {
-			var err error
-			if document, err = readDocument(stdin); err != nil {
-				return err
-			}
+		document, err := readDocument(stdin)
+		if err != nil {
+			return err
 		}
 		repository, err := credentialstore.OpenPostgres(ctx, databaseURL)
 		if err != nil {
@@ -469,7 +445,7 @@ func run(arguments []string, stdin io.Reader, stdout io.Writer, getenv func(stri
 		defer repository.Close()
 		var outcome, subject string
 		if arguments[0] == "put-credential-metadata" {
-			metadata, err := handoffMetadata(document, parameter != "", handoff)
+			metadata, err := credentialstore.ParseCredentialMetadata(document)
 			if err != nil {
 				return err
 			}
@@ -654,19 +630,6 @@ const maxDocumentBytes = 64 << 10
 // readDocument reads one operator document from stdin. Metadata is protected
 // rather than secret, but it still arrives the same way as a key: never in
 // argv, where an account email would sit in shell history.
-// handoffMetadata parses a metadata document and, when it came from a reviewed
-// handoff, refuses one describing any key but the handoff's own.
-func handoffMetadata(document []byte, fromHandoff bool, handoff credentialstore.Scope) (credentialstore.CredentialMetadata, error) {
-	metadata, err := credentialstore.ParseCredentialMetadata(document)
-	if err != nil {
-		return credentialstore.CredentialMetadata{}, err
-	}
-	if fromHandoff && (metadata.Provider != handoff.Provider || metadata.KeyID != handoff.KeyID) {
-		return credentialstore.CredentialMetadata{}, errors.New("credential metadata handoff describes another key than the one it is bound to")
-	}
-	return metadata, nil
-}
-
 func readDocument(input io.Reader) ([]byte, error) {
 	document, err := io.ReadAll(io.LimitReader(input, maxDocumentBytes+1))
 	if err != nil {

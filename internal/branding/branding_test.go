@@ -36,7 +36,6 @@ var forbiddenIdentityMarkers = []string{
 
 var legacyCredentialFiles = []string{
 	".github/credential-admin-operations.json",
-	".github/workflows/credential-admin.yml",
 	"cmd/kaana-credentials/main_test.go",
 	"cmd/kaana-credentials/workflow_test.go",
 	"docs/operating.md",
