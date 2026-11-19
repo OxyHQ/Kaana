@@ -70,14 +70,19 @@ func TestSSMImportRequestsDecryptionAndReturnsNoMetadata(t *testing.T) {
 
 func TestCompletedTemporarySSMHandoffsAreRefused(t *testing.T) {
 	parameters := map[string]Scope{
-		"cheaperinference": {Provider: "cheaperinference", KeyID: "e97a886e-ab58-4492-b250-84a944e44276"},
-		"mistral":          {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
-		"cohere":           {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
-		"cohere-2":         {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
-		"openai":           {Provider: "openai", KeyID: "610adcc8-4a29-4ab1-a1c8-fca191a1fadd"},
+		"cheaperinference":            {Provider: "cheaperinference", KeyID: "e97a886e-ab58-4492-b250-84a944e44276"},
+		"mistral":                     {Provider: "mistral", KeyID: "fcb72e20-6b68-418f-bf34-50b58e59744e"},
+		"cohere":                      {Provider: "cohere", KeyID: "3574baf0-c7b8-4985-bc5f-94d29b72eafb"},
+		"cohere-2":                    {Provider: "cohere", KeyID: "5db11d45-b08a-4b2a-a318-3f88f5d8466a"},
+		"openai":                      {Provider: "openai", KeyID: "610adcc8-4a29-4ab1-a1c8-fca191a1fadd"},
+		"20261119/anthropic":          {Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"},
+		"20261119/anthropic-metadata": {Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"},
 	}
 	for provider, scope := range parameters {
 		parameter := "/oxy/kaana/provider-key-handoff/" + "20260911/" + provider
+		if strings.HasPrefix(provider, "20261119/") {
+			parameter = "/oxy/kaana/provider-key-handoff/" + provider
+		}
 		if _, allowed := reviewedProviderCredentialHandoff(parameter); allowed {
 			t.Fatalf("completed temporary handoff %q remains allow-listed", provider)
 		}
@@ -92,59 +97,6 @@ func TestCompletedTemporarySSMHandoffsAreRefused(t *testing.T) {
 		if client.input != nil {
 			t.Fatalf("completed temporary handoff %q reached SSM", provider)
 		}
-	}
-}
-
-func TestTheAnthropicHandoffReadsOnlyItsOwnKeyAndMetadataPaths(t *testing.T) {
-	scope := Scope{Provider: "anthropic", KeyID: "7e9c2e7e-fffb-4389-bec6-59647882ff2c"}
-	const keyPath = "/oxy/kaana/provider-key-handoff/20261119/anthropic"
-	const metadataPath = "/oxy/kaana/provider-key-handoff/20261119/anthropic-metadata"
-	if len(temporaryProviderCredentialHandoffs) != 1 || len(temporaryCredentialMetadataHandoffs) != 1 {
-		t.Fatalf("temporary handoffs = %d keys, %d metadata; want exactly one of each",
-			len(temporaryProviderCredentialHandoffs), len(temporaryCredentialMetadataHandoffs))
-	}
-	read := func(name string, metadata bool, scope Scope) (*fakeSSMClient, error) {
-		client := &fakeSSMClient{value: "value"}
-		source, err := NewSSMSource(client)
-		if err != nil {
-			t.Fatalf("NewSSMSource: %v", err)
-		}
-		if metadata {
-			_, err = source.ReadMetadataDocument(context.Background(), name, scope)
-		} else {
-			_, err = source.ReadSecureString(context.Background(), name, scope)
-		}
-		return client, err
-	}
-	if client, err := read(keyPath, false, scope); err != nil || client.input == nil || *client.input.Name != keyPath {
-		t.Fatalf("the reviewed key handoff was not read: %v", err)
-	}
-	if client, err := read(metadataPath, true, scope); err != nil || client.input == nil || *client.input.Name != metadataPath {
-		t.Fatalf("the reviewed metadata handoff was not read: %v", err)
-	}
-	for name, attempt := range map[string]struct {
-		path     string
-		metadata bool
-		scope    Scope
-	}{
-		"metadata path as a key":    {metadataPath, false, scope},
-		"key path as metadata":      {keyPath, true, scope},
-		"legacy path as metadata":   {"/oxy/alia/PROVIDER_KEY_GROQ", true, Scope{Provider: "groq", KeyID: "legacy-alia-20260901"}},
-		"key under another id":      {keyPath, false, Scope{Provider: "anthropic", KeyID: "30033d0c-3ca8-48c4-be44-8538d81028dd"}},
-		"metadata under another id": {metadataPath, true, Scope{Provider: "anthropic", KeyID: "30033d0c-3ca8-48c4-be44-8538d81028dd"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			client, err := read(attempt.path, attempt.metadata, attempt.scope)
-			if err == nil {
-				t.Fatal("an unreviewed handoff read was accepted")
-			}
-			if client.input != nil {
-				t.Fatal("an unreviewed handoff read reached SSM")
-			}
-		})
-	}
-	if !reviewedProviderCredentialHandoffScope(scope) {
-		t.Fatal("the reviewed handoff identity cannot be imported")
 	}
 }
 

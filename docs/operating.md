@@ -600,10 +600,7 @@ the value under Kaana's KMS key, and never writes it to stdout, argv, an
 environment variable, or a file. It accepts only `SecureString` values under
 the four exact historical Alia handoff paths for ElevenLabs, Groq, OpenRouter
 and xAI plus four exact historical Relay paths for Cerebras, Groq, OpenRouter
-and xAI. A separate temporary map holds only the UUID-bound 2026-11-19
-Anthropic handoff and its metadata document
-(`provider-credential-handoff-20261119.md`); it is removed after verification.
-It accepts no prefix, wildcard or other provider. Every path is bound
+and xAI. It accepts no prefix, wildcard or other provider. Every path is bound
 to its exact provider slug, and the task role narrows that code allow-list
 further to the exact parameters being migrated. It exists only for migration;
 after a verified
@@ -631,7 +628,7 @@ not proof that the account can invoke a model.
 `(provider, keyId)` encrypts new plaintext and atomically rotates that row.
 Adding another key is another opaque row and does not register a task
 definition. The legacy importer is the only named-ID exception and only for its
-eight frozen historical handoffs; temporary handoffs use normal UUIDv4 identities. Serving reloads the complete set atomically every
+eight frozen historical handoffs. Serving reloads the complete set atomically every
 `KAANA_PROVIDER_RESPONSE_HEADER_TIMEOUT` bounds the one half of an upstream
 exchange that is never legitimately unbounded: the time to response HEADERS. It
 is not a client timeout and never bounds the body, because the body is the

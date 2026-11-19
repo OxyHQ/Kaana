@@ -11,6 +11,22 @@ superseded, and each still holds its KMS ciphertext. This cleanup removes those
 ciphertexts with `kaana-credentials destroy` (migration `0025`) and keeps every
 identity, so cost, attempt, metadata and audit history keep resolving.
 
+## Outcome, 2026-11-19
+
+Run on `main` at `34dd8f5` with the temporary grant of OxyHQ/oxy-infra#471:
+
+| Operation | Result |
+|---|---|
+| `destroy-cerebras-relay-main`, `destroy-groq-legacy-alia`, `destroy-groq-relay`, `destroy-openrouter-legacy-alia`, `destroy-openrouter-relay`, `destroy-xai-legacy-alia`, `destroy-xai-relay` | destroyed, `duplicate_of_enabled` |
+| `destroy-elevenlabs-legacy-alia`, `destroy-elevenlabs-6e4abb22` | destroyed, `provider_rejected` |
+| `destroy-anthropic-b46cc8c4` | **refused**: Anthropic still accepts the secret and no enabled key holds it |
+
+`list` then read 15 rows (24 before): the nine destroyed rows no longer appear.
+The grant was reverted and the nine completed operations retired.
+`destroy-anthropic-b46cc8c4` stays: the key is alive at Anthropic though Kaana never
+serves it. Revoke it in the Anthropic Console, re-grant decryption bound to
+`anthropic` only, dispatch it, then retire it and the grant.
+
 ## The ten operations
 
 | Operation | Provider | Key id | Why it is disabled | Expected proof |
