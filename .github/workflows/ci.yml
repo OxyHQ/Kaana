@@ -26,6 +26,39 @@ jobs:
   # descriptor that `contract drift` regenerates from the TypeScript contracts,
   # and that job's fixtures come from the Go types, so a change on either side
   # is a change to both.
+  # The Seldon race (OxyHQ/oxy docs/engineering/build-and-deploy.md, CI on
+  # Seldon), opt-in with the repository variable CI_SELDON_RACE=true, on
+  # same-repository pull requests only (push runs stay hosted). Unset, every
+  # job runs hosted as before and none of these takes a runner. Set, `build,
+  # vet, lint, test` and `contract drift` run on the self-hosted seldon-ci pool;
+  # a lane still queued 3 minutes after it was created gets its hosted twin
+  # (the `-hosted` jobs), the lane that starts first wins and the finish job
+  # cancels the other through its job-level concurrency group. A Seldon lane
+  # that fails, whatever the reason (the house network drops new connections
+  # in bursts), reruns hosted in its `-rescue` job, which fails again on a
+  # genuine failure. CI complete takes the raced jobs' verdict from the race.
+  race:
+    if: ${{ vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    uses: OxyHQ/oxy/.github/workflows/seldon-race-start.yml@main
+    permissions:
+      actions: read
+    with:
+      names: |
+        build, vet, lint, test
+        contract drift
+
+  race-finish:
+    needs: race
+    # `!cancelled()`: an ancestor skipped on this event must not skip it.
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    uses: OxyHQ/oxy/.github/workflows/seldon-race-finish.yml@main
+    permissions:
+      actions: read
+    with:
+      names: |
+        build, vet, lint, test
+        contract drift
+
   cloudflare-guardrail:
     name: Cloudflare guardrail tests
     runs-on: ubuntu-latest
@@ -48,11 +81,16 @@ jobs:
 
   go:
     name: build, vet, lint, test
-    runs-on: ubuntu-latest
+    runs-on: &seldon-lane ${{ vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork && 'seldon-ci' || 'ubuntu-latest' }}
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-seldon-build, vet, lint, test
+    permissions: &race-lane-permissions
+      contents: read
+      actions: read # the Seldon race guard reads this run's jobs
     # Measured 2-3 min with a warm module cache; a cold cache rebuilds the
     # dependency graph twice (with and without -race).
     timeout-minutes: 25
-    services:
+    services: &go-services
       postgres:
         image: postgres:17-alpine
         env:
@@ -66,7 +104,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    steps:
+    steps: &go-steps
+      # A lane that starts after its hosted twin waits here to be cancelled (the Seldon race).
+      - &race-guard
+        name: Seldon race guard
+        if: vars.CI_SELDON_RACE == 'true' && !endsWith(github.job, '-rescue')
+        uses: OxyHQ/oxy/.github/actions/seldon-race@main
+        with:
+          mode: guard
       - uses: actions/checkout@v4
 
       # This job is the ONLY writer of the Go module + build cache. setup-go
@@ -130,12 +175,41 @@ jobs:
         # cancellation and an upstream read all touch the same request.
         run: go test -race -count=1 ./...
 
+  # go's hosted twin in the Seldon race: the same name, services and steps.
+  go-hosted:
+    name: build, vet, lint, test
+    needs: race
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-hosted-build, vet, lint, test
+    permissions: *race-lane-permissions
+    services: *go-services
+    steps: *go-steps
+
+  # go's rescue: reruns it hosted when its Seldon lane failed (the house
+  # network drops connections); a genuine failure fails again.
+  go-rescue:
+    name: build, vet, lint, test
+    needs: go
+    if: ${{ !cancelled() && needs.go.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: *race-lane-permissions
+    services: *go-services
+    steps: *go-steps
+
   contract:
     name: contract drift
-    runs-on: ubuntu-latest
+    runs-on: *seldon-lane
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-seldon-contract drift
+    permissions: *race-lane-permissions
     # Measured about 1 min.
     timeout-minutes: 15
-    steps:
+    steps: &contract-steps
+      - *race-guard
       - uses: actions/checkout@v4
 
       # No cache here, deliberately: see `build, vet, lint, test`. This job
@@ -191,3 +265,111 @@ jobs:
         # cannot pass as a clean run.
         run: bun run validate
         working-directory: tools/contract
+
+  # contract's hosted twin in the Seldon race: the same name, services and steps.
+  contract-hosted:
+    name: contract drift
+    needs: race
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-hosted-contract drift
+    permissions: *race-lane-permissions
+    steps: *contract-steps
+
+  # contract's rescue: reruns it hosted when its Seldon lane failed (the house
+  # network drops connections); a genuine failure fails again.
+  contract-rescue:
+    name: contract drift
+    needs: contract
+    if: ${{ !cancelled() && needs.contract.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: *race-lane-permissions
+    steps: *contract-steps
+
+  # The one check this workflow stands for, modelled on OxyHQ/Gemies' and
+  # OxyHQ/Bloom's: green only when every job above passed, so a cancelled or
+  # skipped job can never read as a pass. A required check by job name cannot
+  # follow the Seldon race (a twin and a rescue share their job's name, and a
+  # cancelled loser is not a failure); this one can. Nothing here is path
+  # filtered, so the only skips it allows are the race's own: the race start,
+  # the twins and the rescues skip whenever they are not needed. When the race
+  # or a rescue ran, a raced job passes on the race's verdict: each of its
+  # names passed in some lane and failed in no hosted lane.
+  ci-complete:
+    name: CI complete
+    if: always()
+    # Not race-finish: its reapers run on seldon-ci-light and only follow the
+    # cancellation, so needing it would wait on Seldon.
+    needs:
+      - race
+      - cloudflare-guardrail
+      - go
+      - go-hosted
+      - go-rescue
+      - contract
+      - contract-hosted
+      - contract-rescue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the Seldon race verdict reads this run's jobs
+    steps:
+      # Per job name: passed when one of its lanes succeeded and no hosted lane
+      # failed. Whenever the race is on: a rescue can run without the race.
+      - name: Seldon race verdict
+        id: race
+        if: vars.CI_SELDON_RACE == 'true'
+        uses: OxyHQ/oxy/.github/actions/seldon-race@main
+        with:
+          mode: verdict
+      - name: Every job passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          RACE_VERDICT: ${{ steps.race.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          failures=()
+          result() { jq -r --arg job "$1" '.[$job].result // "missing"' <<<"$RESULTS"; }
+
+          # The race's start: skipped when not needed, never failed.
+          r="$(result race)"
+          case "$r" in
+            success | skipped) ;;
+            *) failures+=("race did not pass: $r") ;;
+          esac
+
+          # A raced family's result, in $family: the verdict when the race
+          # raced (and the job was not skipped) or its rescue ran; otherwise
+          # the job's own, with its twin and rescue skipped. Not called in a
+          # subshell, so its failures reach the list.
+          family() {
+            local job="$1" own twin rescue raced
+            own="$(result "$job")"
+            twin="$(result "$job-hosted")"
+            rescue="$(result "$job-rescue")"
+            raced="$(jq -r '.race.outputs.race // ""' <<<"$RESULTS")"
+            if [ "$rescue" != skipped ] || { [ "$raced" = true ] && ! { [ "$own" = skipped ] && [ "$twin" = skipped ]; }; }; then
+              family="${RACE_VERDICT:-no verdict}"
+              return
+            fi
+            [ "$twin" = skipped ] || failures+=("$job-hosted ran although the Seldon race did not: $twin")
+            family="$own"
+          }
+
+          r="$(result cloudflare-guardrail)"
+          [ "$r" = success ] || failures+=("cloudflare-guardrail did not pass: $r")
+          for job in go contract; do
+            family "$job"
+            [ "$family" = success ] || failures+=("$job did not pass: $family")
+          done
+
+          if [ ${#failures[@]} -gt 0 ]; then
+            for failure in "${failures[@]}"; do
+              echo "::error::$failure"
+            done
+            exit 1
+          fi
+          echo 'Every job passed.'
