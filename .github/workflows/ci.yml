@@ -177,7 +177,9 @@ jobs:
 
   # go's hosted twin in the Seldon race: the same name, services and steps.
   go-hosted:
-    name: build, vet, lint, test
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && 'build, vet, lint, test' || 'build, vet, lint, test (seldon twin, off)' }}
     needs: race
     if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
     runs-on: ubuntu-latest
@@ -191,7 +193,9 @@ jobs:
   # go's rescue: reruns it hosted when its Seldon lane failed (the house
   # network drops connections); a genuine failure fails again.
   go-rescue:
-    name: build, vet, lint, test
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && 'build, vet, lint, test' || 'build, vet, lint, test (seldon rescue, off)' }}
     needs: go
     if: ${{ !cancelled() && needs.go.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
     runs-on: ubuntu-latest
@@ -268,7 +272,9 @@ jobs:
 
   # contract's hosted twin in the Seldon race: the same name, services and steps.
   contract-hosted:
-    name: contract drift
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && 'contract drift' || 'contract drift (seldon twin, off)' }}
     needs: race
     if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
     runs-on: ubuntu-latest
@@ -281,7 +287,9 @@ jobs:
   # contract's rescue: reruns it hosted when its Seldon lane failed (the house
   # network drops connections); a genuine failure fails again.
   contract-rescue:
-    name: contract drift
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && 'contract drift' || 'contract drift (seldon rescue, off)' }}
     needs: contract
     if: ${{ !cancelled() && needs.contract.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
     runs-on: ubuntu-latest
