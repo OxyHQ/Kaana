@@ -100,13 +100,16 @@ func TestOtherDatabaseFailuresKeepTheirAnswer(t *testing.T) {
 	}
 }
 
-func TestReadOnlyCompletionRecordAnswers503WithRetryAfter(t *testing.T) {
+func TestReadOnlyCompletionRecordGetsNoRetryHint(t *testing.T) {
 	config, store, catalogue := nativeFixture(t)
 	store.stageErr = fmt.Errorf("nativeadmission: stage completion: %w", readOnlyRefusal())
 	h := newHarness(t, harnessOptions{native: config, catalogue: catalogue})
 	response := h.post("/v1/responses", validKey, map[string]any{"model": "auto", "input": "hello"})
-	if response.StatusCode != http.StatusServiceUnavailable || response.Header.Get("Retry-After") != "5" ||
-		!strings.Contains(string(response.Body), `"retryAfterMs":5000`) {
-		t.Fatalf("status=%d Retry-After=%q body=%s", response.StatusCode, response.Header.Get("Retry-After"), response.Body)
+	// Inference already ran: a hint to retry in five seconds would let a
+	// caller without an idempotency key run it a second time once the freeze
+	// lifts, so this keeps the answer it had.
+	if response.StatusCode != http.StatusServiceUnavailable || response.Header.Get("Retry-After") != "" ||
+		strings.Contains(string(response.Body), "retryAfterMs") || h.adapter.called() != 1 {
+		t.Fatalf("status=%d Retry-After=%q calls=%d body=%s", response.StatusCode, response.Header.Get("Retry-After"), h.adapter.called(), response.Body)
 	}
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/kaana"
-	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
 
@@ -55,9 +54,6 @@ func (s *Server) executeNative(ctx context.Context, a *admission, request *contr
 	if persistErr != nil {
 		s.logger.Error("native completion was not persisted", "requestId", a.requestID, "admissionId", a.native.ID, "errorType", "completion_persistence")
 		result.Failure = contract.NewError(a.requestID, contract.CodeServiceUnavailable, "the completion could not be durably recorded; do not repeat inference with another idempotency key")
-		if pgerror.ReadOnly(persistErr) {
-			result.Failure = result.Failure.WithRetryAfter(int(pgerror.ReadOnlyRetryAfter.Milliseconds()))
-		}
 		sequence := nextSequence
 		if terminal != nil {
 			sequence = terminal.Sequence()
