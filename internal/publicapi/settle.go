@@ -64,6 +64,8 @@ type Settler struct {
 	interval time.Duration
 	nudge    chan struct{}
 	pending  pendingWrites
+	// deliverOne replaces deliver in tests that need no Oxy.
+	deliverOne func(context.Context, credentialstore.ClaimedSettlement)
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -209,7 +211,6 @@ func (s *Settler) Run(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 	for {
-		s.WritePending(ctx)
 		s.DeliverDue(ctx)
 		select {
 		case <-ctx.Done():
@@ -228,16 +229,23 @@ func (s *Settler) Stop() {
 	<-s.stopped
 }
 
-// DeliverDue delivers every settlement that is due now, in batches.
+// DeliverDue delivers every settlement that is due now, in batches. Before
+// each batch it gives held settlements their turn at the outbox, so a long
+// delivery backlog never keeps them out of it.
 func (s *Settler) DeliverDue(ctx context.Context) {
+	deliver := s.deliver
+	if s.deliverOne != nil {
+		deliver = s.deliverOne
+	}
 	for ctx.Err() == nil {
+		s.WritePending(ctx)
 		claimed, err := s.store.ClaimSettlements(ctx, settlementBatch, settlementLease)
 		if err != nil {
 			s.logger.Error("settlements could not be claimed for delivery", "errorType", "settlement_claim", "error", err)
 			return
 		}
 		for _, row := range claimed {
-			s.deliver(ctx, row)
+			deliver(ctx, row)
 		}
 		if len(claimed) < settlementBatch {
 			return

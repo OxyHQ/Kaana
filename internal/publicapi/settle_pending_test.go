@@ -260,3 +260,42 @@ func TestFlushPendingWritesOnRecoveryAndCountsWhatIsLost(t *testing.T) {
 		t.Fatal("lost settlements stayed held")
 	}
 }
+
+// backlogOutbox always has a full batch to deliver, as after a long Oxy
+// outage, and stops DeliverDue once the held settlement reached the outbox.
+type backlogOutbox struct {
+	*outageOutbox
+	cancel context.CancelFunc
+	claims int
+}
+
+func (b *backlogOutbox) ClaimSettlements(context.Context, int, time.Duration) ([]credentialstore.ClaimedSettlement, error) {
+	b.claims++
+	if _, rows := b.state(); rows > 0 || b.claims > 50 {
+		b.cancel()
+		return nil, nil
+	}
+	return make([]credentialstore.ClaimedSettlement, settlementBatch), nil
+}
+
+// A delivery backlog that fills every batch does not keep a held settlement
+// out of the outbox once its backoff has passed.
+func TestADeliveryBacklogDoesNotStarveHeldSettlements(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := &backlogOutbox{outageOutbox: &outageOutbox{down: true, rows: map[string][]byte{}}, cancel: cancel}
+	clock := &steppedClock{now: time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC)}
+	settler := newOutageSettler(store.outageOutbox, clock, &countingMetrics{counts: map[string]float64{}})
+	settler.store = store
+	settler.deliverOne = func(context.Context, credentialstore.ClaimedSettlement) {
+		clock.advance(time.Second)
+		store.set(false)
+	}
+	settler.hold(heldWrite("grt_a"))
+	settler.WritePending(ctx) // fails: the held settlement backs off
+
+	settler.DeliverDue(ctx)
+	if _, rows := store.state(); rows != 1 || settler.PendingWrites() != 0 {
+		t.Fatalf("rows %d held %d after %d full batches: the backlog starved the held settlement", rows, settler.PendingWrites(), store.claims)
+	}
+}
