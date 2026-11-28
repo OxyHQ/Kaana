@@ -63,6 +63,9 @@ type Settler struct {
 	now      func() time.Time
 	interval time.Duration
 	nudge    chan struct{}
+	pending  pendingWrites
+	// deliverOne replaces deliver in tests that need no Oxy.
+	deliverOne func(context.Context, credentialstore.ClaimedSettlement)
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -113,7 +116,9 @@ func NewSettler(config SettlerConfig) (*Settler, error) {
 // outbox. It is called exactly once per grant, whatever the outcome — served,
 // failed, cancelled or never attempted — so Oxy releases the hold now rather
 // than at its expiry. It never blocks the caller's response on Oxy: delivery
-// is the worker's.
+// is the worker's. When the outbox stays unreachable through the write's
+// retries, the settlement is held in memory and the worker keeps writing it
+// (ErrSettlementWriteDeferred).
 func (s *Settler) Settle(ctx context.Context, grant *contract.Grant, report contract.UsageReport, servedStep *int, cost providercost.Record) error {
 	settlement := contract.Settlement{
 		SchemaVersion: contract.SettlementSchemaVersion,
@@ -168,6 +173,15 @@ func (s *Settler) Settle(ctx context.Context, grant *contract.Grant, report cont
 		}
 		break
 	}
+	if err != nil && !errors.Is(err, credentialstore.ErrSettlementConflict) && s.hold(pendingWrite{events: events, row: row}) {
+		// The outbox is unreachable. The worker retries these exact bytes
+		// until it accepts them, so an outage longer than this call does not
+		// leave the request unsettled while its Oxy hold runs out.
+		s.logger.Warn("a settlement could not be written to the outbox yet and is held for retry", "requestId", grant.RequestID, "grantId", grant.GrantID,
+			"errorType", "settlement_persistence", "error", err)
+		s.record(emf.SettlementWriteDeferred, 1)
+		return ErrSettlementWriteDeferred
+	}
 	if err != nil {
 		s.logger.Error("a settlement could not be written to the outbox", "requestId", grant.RequestID, "grantId", grant.GrantID,
 			"errorType", "settlement_persistence", "error", err)
@@ -215,16 +229,23 @@ func (s *Settler) Stop() {
 	<-s.stopped
 }
 
-// DeliverDue delivers every settlement that is due now, in batches.
+// DeliverDue delivers every settlement that is due now, in batches. Before
+// each batch it gives held settlements their turn at the outbox, so a long
+// delivery backlog never keeps them out of it.
 func (s *Settler) DeliverDue(ctx context.Context) {
+	deliver := s.deliver
+	if s.deliverOne != nil {
+		deliver = s.deliverOne
+	}
 	for ctx.Err() == nil {
+		s.WritePending(ctx)
 		claimed, err := s.store.ClaimSettlements(ctx, settlementBatch, settlementLease)
 		if err != nil {
 			s.logger.Error("settlements could not be claimed for delivery", "errorType", "settlement_claim", "error", err)
 			return
 		}
 		for _, row := range claimed {
-			s.deliver(ctx, row)
+			deliver(ctx, row)
 		}
 		if len(claimed) < settlementBatch {
 			return
