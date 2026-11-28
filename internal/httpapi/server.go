@@ -50,6 +50,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
+	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/rotation"
@@ -243,6 +244,12 @@ func (s *Server) handleCredentialValidation(w http.ResponseWriter, r *http.Reque
 	switch {
 	case errors.Is(err, credentialvalidation.ErrOperationConflict):
 		s.writeRejection(w, http.StatusConflict, contract.NewError(newLocalRequestID(), contract.CodeIdempotencyConflict, "the validation operation id names another exact task"))
+		return
+	case pgerror.ReadOnly(err):
+		s.logger.Warn("customer credential validation refused: the database is read-only", "errorType", "database_read_only")
+		w.Header().Set("Retry-After", pgerror.RetryAfterSeconds())
+		s.writeRejection(w, http.StatusServiceUnavailable, contract.NewError(newLocalRequestID(), contract.CodeServiceUnavailable,
+			"the credential validation operation is temporarily unavailable").WithRetryAfter(int(pgerror.ReadOnlyRetryAfter.Milliseconds())))
 		return
 	case err != nil:
 		s.logger.Error("customer credential validation could not be processed", "errorType", "credential_validation")

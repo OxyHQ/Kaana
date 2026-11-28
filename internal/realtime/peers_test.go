@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,12 +21,17 @@ import (
 	"github.com/OxyHQ/Kaana/internal/realtime"
 	"github.com/OxyHQ/Kaana/internal/sessionowner"
 	"github.com/coder/websocket"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type memoryOwners struct {
 	mu             sync.Mutex
 	rows           map[string]sessionowner.Entry
 	failedRenewals atomic.Int32
+	// readOnlyRenewals is how many renewals are refused as a read-only
+	// database refuses them, before the directory answers normally again.
+	readOnlyRenewals atomic.Int32
+	renewals         atomic.Int32
 }
 
 func (d *memoryOwners) Claim(_ context.Context, e sessionowner.Entry) (bool, error) {
@@ -45,6 +51,11 @@ func (d *memoryOwners) Lookup(_ context.Context, id, lane string) (sessionowner.
 	return e, ok && e.Lane == lane && e.ExpiresAt.After(time.Now()), nil
 }
 func (d *memoryOwners) Renew(_ context.Context, e sessionowner.Entry) (bool, error) {
+	d.renewals.Add(1)
+	if d.readOnlyRenewals.Add(-1) >= 0 {
+		return false, fmt.Errorf("renewing realtime owner: %w", &pgconn.PgError{Code: "25006", Message: "cannot execute UPDATE in a read-only transaction"})
+	}
+	d.readOnlyRenewals.Store(0)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	old, ok := d.rows[e.RequestID]
@@ -353,6 +364,44 @@ func TestPrivatePeerLeaseLossCancelsProviderAndSettlesExactlyOnce(t *testing.T) 
 	owner.upstream.WaitClosed(t)
 	if gate.admits.Load() != 1 || gate.settles.Load() != 1 || owner.upstream.Dials() != 1 {
 		t.Fatal("lease loss duplicated admission/settlement")
+	}
+}
+
+func TestPrivatePeerRenewalWaitsOutAReadOnlyDatabase(t *testing.T) {
+	gate := &countedPublicGate{}
+	owner, _, directory := peerPair(t, gate)
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	owner.upstream.Script = func(*fake.Conn) { <-release }
+	ws := publicConnect(t, owner, "Bearer original", []byte(`{"type":"session.open"}`))
+	read(t, ws)
+	directory.readOnlyRenewals.Store(1)
+	// The actual intervals: the first renewal meets the freeze, and the next
+	// comes after pgerror.ReadOnlyRetryAfter rather than a full interval.
+	waitForWithin(t, "renewal after a read-only refusal", sessionowner.RenewInterval+10*time.Second, func() bool { return directory.renewals.Load() >= 2 })
+	if owner.manager.Open() != 1 || gate.settles.Load() != 0 || directory.failedRenewals.Load() != 0 {
+		t.Fatalf("a read-only refusal ended the session: open=%d settles=%d failed=%d", owner.manager.Open(), gate.settles.Load(), directory.failedRenewals.Load())
+	}
+	// Renewed after the refusal, the lease runs a full LeaseDuration from now;
+	// the claim alone would lapse 20 seconds sooner.
+	entry, found, err := directory.Lookup(context.Background(), "peer_public", sessionowner.Public)
+	if err != nil || !found || time.Until(entry.ExpiresAt) < sessionowner.LeaseDuration-10*time.Second {
+		t.Fatalf("the lease was not renewed once the database accepted writes again: found=%v err=%v", found, err)
+	}
+	// The harness's cleanup ends the session; a client close here would only
+	// wait out the resume window.
+}
+
+func waitForWithin(t *testing.T, what string, limit time.Duration, done func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(limit)
+	for !done() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

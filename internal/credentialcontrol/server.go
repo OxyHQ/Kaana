@@ -15,6 +15,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 )
 
@@ -331,6 +332,13 @@ func customerScope(provider contract.ProviderSlug, ownerAccountID contract.Accou
 func (s *Server) writeMutationFailure(w http.ResponseWriter, err error) {
 	// Never attach the request body, ciphertext, or underlying database/KMS
 	// error to the response or structured log.
+	if pgerror.ReadOnly(err) {
+		// A planned freeze: the caller waits it out instead of paging anyone.
+		s.logger.Warn("customer provider credential mutation refused: the database is read-only", "errorType", "database_read_only")
+		w.Header().Set("Retry-After", pgerror.RetryAfterSeconds())
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
 	s.logger.Error("customer provider credential mutation failed", "errorType", "credential_mutation")
 	writeError(w, http.StatusServiceUnavailable, "service_unavailable")
 }

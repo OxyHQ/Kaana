@@ -13,6 +13,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/commercialadmission"
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/nativeadmission"
+	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/providercost"
 )
@@ -87,6 +88,8 @@ func (c *NativeConfig) selects(identity contract.IdentityPrincipal) bool {
 func nativeFailure(id contract.RequestID, err error) *contract.PublicError {
 	code := contract.PublicErrorCode("service_unavailable")
 	switch {
+	case pgerror.ReadOnly(err):
+		return readOnlyRefusal(id)
 	case errors.Is(err, billing.ErrFunds):
 		code = "insufficient_balance"
 	case errors.Is(err, billing.ErrBudget):
