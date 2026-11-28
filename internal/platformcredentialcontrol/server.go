@@ -14,6 +14,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/credentialstore"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 )
 
@@ -102,6 +103,12 @@ func (s *Server) handleMutation(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, ErrInvalid) {
 		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if pgerror.ReadOnly(err) {
+		s.logger.Warn("platform credential mutation refused: the database is read-only", "errorType", "database_read_only")
+		w.Header().Set("Retry-After", pgerror.RetryAfterSeconds())
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
 		return
 	}
 	if err != nil {

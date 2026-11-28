@@ -31,6 +31,7 @@ import (
 	"github.com/OxyHQ/Kaana/internal/inventory"
 	"github.com/OxyHQ/Kaana/internal/kaana"
 	"github.com/OxyHQ/Kaana/internal/oxyvalidation"
+	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/platformactivity"
 	"github.com/OxyHQ/Kaana/internal/provider"
 	"github.com/OxyHQ/Kaana/internal/provider/anthropic"
@@ -136,7 +137,10 @@ func run(logger *slog.Logger) error {
 	defer credentialDatabase.Close()
 	for _, observation := range costs.Observations() {
 		registerContext, cancelRegister := context.WithTimeout(context.Background(), 15*time.Second)
-		err := credentialDatabase.RegisterRateCardVersion(registerContext, observation)
+		// A task that starts while the database is frozen read-only retries
+		// within the same deadline rather than exiting at the first refusal.
+		err := pgerror.WaitOutReadOnly(registerContext, logger, "register provider rate card version", pgerror.ReadOnlyRetryAfter,
+			func(ctx context.Context) error { return credentialDatabase.RegisterRateCardVersion(ctx, observation) })
 		cancelRegister()
 		if err != nil {
 			return err

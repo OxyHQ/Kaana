@@ -15,6 +15,7 @@ import (
 
 	"github.com/OxyHQ/Kaana/internal/contract"
 	"github.com/OxyHQ/Kaana/internal/edgeauth"
+	"github.com/OxyHQ/Kaana/internal/pgerror"
 	"github.com/OxyHQ/Kaana/internal/sessionowner"
 	"github.com/coder/websocket"
 )
@@ -96,20 +97,36 @@ func (m *Manager) renewOwner(ctx context.Context, s *session) {
 	if m.peers == nil {
 		return
 	}
-	ticker := time.NewTicker(sessionowner.RenewInterval)
-	defer ticker.Stop()
+	timer := time.NewTimer(sessionowner.RenewInterval)
+	defer timer.Stop()
+	waitingOutReadOnly := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			attempt, cancel := context.WithTimeout(ctx, peerTimeout)
 			ok, err := m.peers.Directory.Renew(attempt, m.ownerEntry(s.requestID, s.public))
 			cancel()
+			if pgerror.ReadOnly(err) {
+				// A read-only database (a planned freeze) can neither renew
+				// this lease nor let another process claim the session, and
+				// the renewal's compare-and-set still refuses a lease that
+				// lapsed meanwhile. So the session is kept and the renewal
+				// retried sooner, instead of every live session ending.
+				if !waitingOutReadOnly {
+					m.logger.Warn("realtime owner renewal refused: the database is read-only; retrying", "requestId", s.requestID, "errorType", "database_read_only")
+					waitingOutReadOnly = true
+				}
+				timer.Reset(min(pgerror.ReadOnlyRetryAfter, sessionowner.RenewInterval))
+				continue
+			}
 			if err != nil || !ok {
 				s.cancel()
 				return
 			}
+			waitingOutReadOnly = false
+			timer.Reset(sessionowner.RenewInterval)
 		}
 	}
 }
