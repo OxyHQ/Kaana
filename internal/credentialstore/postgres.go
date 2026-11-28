@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/OxyHQ/Kaana/internal/contract"
@@ -110,10 +112,38 @@ func MigrateDatabase(ctx context.Context, pool *pgxpool.Pool) error {
 	return (&Postgres{pool: pool}).Migrate(ctx)
 }
 
+// postgresDatabaseIdentity is the exact database a connection reaches. On
+// PlanetScale several branches share a host, port and database name, and the
+// routing layer picks the branch from the login's `.<branch id>` suffix, so
+// the branch is part of the identity; it is empty for any other server.
 type postgresDatabaseIdentity struct {
 	host     string
 	port     uint16
 	database string
+	branch   string
+}
+
+func postgresIdentity(config *pgconn.Config) (identity postgresDatabaseIdentity, role string) {
+	role, branch := splitPostgresLogin(config.User)
+	return postgresDatabaseIdentity{host: config.Host, port: config.Port, database: config.Database, branch: branch}, role
+}
+
+// planetScaleBranchID is the shape of a PlanetScale branch id, the routing
+// suffix in a PlanetScale login `<role>.<branch id>` (`cnlmx96ec5kw` in
+// PlanetScale's documentation): lowercase letters and digits only, so a
+// replica selector (`|replica`), a second dot or any other suffix never
+// matches.
+var planetScaleBranchID = regexp.MustCompile(`^[a-z0-9]{8,32}$`)
+
+// splitPostgresLogin returns the PostgreSQL role a connection user names and
+// the PlanetScale branch id it routes to. A user whose last dot is not followed
+// by a branch id is entirely the role, so a look-alike never loses its suffix.
+func splitPostgresLogin(user string) (role, branch string) {
+	dot := strings.LastIndexByte(user, '.')
+	if dot < 0 || !planetScaleBranchID.MatchString(user[dot+1:]) {
+		return user, ""
+	}
+	return user[:dot], user[dot+1:]
 }
 
 // OpenPostgres connects and proves the database is reachable.
@@ -130,12 +160,8 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*Postgres, error) {
 		pool.Close()
 		return nil, fmt.Errorf("credential store: pinging PostgreSQL: %w", err)
 	}
-	return &Postgres{
-		pool: pool,
-		databaseIdentity: postgresDatabaseIdentity{
-			host: config.ConnConfig.Host, port: config.ConnConfig.Port, database: config.ConnConfig.Database,
-		},
-	}, nil
+	identity, _ := postgresIdentity(&config.ConnConfig.Config)
+	return &Postgres{pool: pool, databaseIdentity: identity}, nil
 }
 
 // VerifiedPostgresConfig is the shared connection boundary for credential and

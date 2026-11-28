@@ -377,6 +377,14 @@ same host, port and database as `DATABASE_URL`, then atomically:
 2. creates or verifies the unprivileged LOGIN mapping and rotates its password;
 3. grants the authorization role to that login.
 
+On PlanetScale every login is `<role>.<branch id>` and branches share a host,
+port and database name, so the branch is part of that identity: the user must
+then be exactly `kaana_platform_credential_control_login.<branch id>` with the
+branch id of `DATABASE_URL`'s own user (lowercase letters and digits; a
+`|replica` selector, another branch, a second suffix or any other role is
+refused). PlanetScale URLs use `sslmode=verify-full&sslrootcert=system`, which
+the image's distroless CA bundle satisfies.
+
 The password reaches PostgreSQL as a bound parameter stored in a
 transaction-local setting. The logged SQL text contains `$1`, not the password
 or a verifier. Supply both URLs only from a reviewed secret transport in the
