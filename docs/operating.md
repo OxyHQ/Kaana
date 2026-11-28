@@ -1129,6 +1129,7 @@ is flushed on shutdown.
 | `UpstreamLatency` | distribution, ms | | p99: time waiting on providers |
 | `RateLimited` | sum | | a sustained rate |
 | `SettlementWriteFailed` | sum | | **any**: the settlement is lost |
+| `SettlementWriteDeferred` | sum | | any: the outbox is unreachable and settlements are held in memory |
 | `SettlementWritten` | sum | | zero while traffic flows |
 | `SettlementDeliveryFailed` | sum | | a sustained rate: Oxy is refusing or unreachable |
 | `SettlementDelivered` | sum | | zero while `SettlementWritten` is not |
@@ -1208,6 +1209,19 @@ transcriptions, decisions) that reached Oxy's authorization writes one
 A request refused before Oxy was asked writes no line. Settlement is written
 to the outbox after the response, never before it, and logs its own
 `public request settlement` line (`settleMs`, `written`).
+
+When the outbox is still unreachable after that write's own retries (about one
+second, at most ten), the settlement is held in a bounded in-memory queue
+(4,096 settlements) and counted as `SettlementWriteDeferred`; `written` is then
+`false`. The settler's worker retries the held settlements with the same bytes,
+oldest first, one probe per backoff (1 s doubling to 30 s), so an outage of any
+length is written once the database answers. A retried write that had
+committed is a replay in `kaana_enqueue_settlement`, never a second row, and
+Oxy answers a redelivery `duplicate`, so nothing settles twice. The drain
+writes held settlements before the task stops; what is still held at its
+deadline, or arrives when the queue is full, is logged and counted as
+`SettlementWriteFailed`. A held settlement does not survive the process: a
+crash during an outage loses it, and its Oxy hold then expires.
 
 The line carries ids, an operation, an outcome code, durations, booleans and
 status codes only: no body, header, URL, credential, user id or upstream text

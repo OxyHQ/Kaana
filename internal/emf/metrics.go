@@ -15,9 +15,12 @@ var (
 	// RateLimited is a request the per-credential limiter refused.
 	RateLimited = Metric{Name: "RateLimited", Unit: "Count", Kind: Sum}
 	// SettlementWritten and SettlementWriteFailed count outbox writes; a failure
-	// loses the settlement, so it is the metric to alarm on.
-	SettlementWritten     = Metric{Name: "SettlementWritten", Unit: "Count", Kind: Sum}
-	SettlementWriteFailed = Metric{Name: "SettlementWriteFailed", Unit: "Count", Kind: Sum}
+	// loses the settlement, so it is the metric to alarm on. SettlementWriteDeferred
+	// counts settlements held in memory while the outbox is unreachable; each is
+	// later counted once as written or, if the task stops first, as failed.
+	SettlementWritten       = Metric{Name: "SettlementWritten", Unit: "Count", Kind: Sum}
+	SettlementWriteFailed   = Metric{Name: "SettlementWriteFailed", Unit: "Count", Kind: Sum}
+	SettlementWriteDeferred = Metric{Name: "SettlementWriteDeferred", Unit: "Count", Kind: Sum}
 	// SettlementDelivered and SettlementDeliveryFailed count deliveries to Oxy.
 	SettlementDelivered      = Metric{Name: "SettlementDelivered", Unit: "Count", Kind: Sum}
 	SettlementDeliveryFailed = Metric{Name: "SettlementDeliveryFailed", Unit: "Count", Kind: Sum}

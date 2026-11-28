@@ -577,6 +577,13 @@ func (m *memoryOutbox) ReadSettlements(_ context.Context, after int64, limit int
 	return page, nil
 }
 
+// setFailWrites makes the next n RecordSettlement calls fail.
+func (m *memoryOutbox) setFailWrites(n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failWrites = n
+}
+
 // makeDue lets every deferred row be claimed now.
 func (m *memoryOutbox) makeDue() {
 	m.mu.Lock()

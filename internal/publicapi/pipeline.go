@@ -224,7 +224,8 @@ func (s *Server) logFailure(a *admission, result kaana.Result) {
 	s.logger.Warn("inference request failed", attributes...)
 }
 
-// Drain waits for every settlement still being written, or for ctx.
+// Drain waits for every settlement still being written, then writes the
+// settlements held while the outbox was unreachable, or until ctx ends.
 func (s *Server) Drain(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -233,9 +234,10 @@ func (s *Server) Drain(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
-		return nil
+		return s.settler.FlushPending(ctx)
 	case <-ctx.Done():
-		return ctx.Err()
+		// Held settlements are then logged and counted as lost.
+		return errors.Join(ctx.Err(), s.settler.FlushPending(ctx))
 	}
 }
 
