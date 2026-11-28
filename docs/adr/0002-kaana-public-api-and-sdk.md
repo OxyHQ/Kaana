@@ -1009,7 +1009,7 @@ y de llamadas al borde sobre la rama por defecto de los 35 repos de `~/Oxy`
 
 Sin uso del cliente: Allo, Atlas, Clarity (vía Alia), Nilo/CRM (mismo repo;
 solo gates y docs), CrowdSource, GoWay, Inbox (frontend → `api.oxy.so/email/ai/*`),
-Mercaria (vía agente de Alia), Moovo, Move, Noted, Peable, Schedio, Syra
+Mercaria (vía agente de Alia), Moovo, Move, Noted, Peable, Syra
 (gate y docs), tnp, Willo y el resto. Tipos que pasan a `@kaana.ai/contracts`:
 Alia (`InferenceMessage`, `InferenceStreamEvent`, `InferenceErrorCode`,
 `InferenceContentPart`), Mention (`DecisionRequest`, `DecisionSuccess`,
