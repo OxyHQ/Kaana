@@ -112,11 +112,14 @@ func platformControlPassword(controlDatabaseURL string, expected postgresDatabas
 	if modes, roots := query["sslmode"], query["sslrootcert"]; len(modes) != 1 || modes[0] != "verify-full" || len(roots) != 1 || roots[0] == "" {
 		return "", errors.New("credential store: platform control DATABASE_URL must use exact sslmode=verify-full and one trusted root")
 	}
-	identity := postgresDatabaseIdentity{host: config.ConnConfig.Host, port: config.ConnConfig.Port, database: config.ConnConfig.Database}
+	// The login is the exact role, or on PlanetScale the exact role plus the
+	// branch id of the master connection: the identity check below binds the
+	// branch, so the control URL cannot name another branch on a shared host.
+	identity, role := postgresIdentity(&config.ConnConfig.Config)
 	if identity != expected {
 		return "", errors.New("credential store: platform control DATABASE_URL targets a different PostgreSQL database")
 	}
-	if config.ConnConfig.User != platformControlLogin {
+	if role != platformControlLogin {
 		return "", fmt.Errorf("credential store: platform control DATABASE_URL user must be %s", platformControlLogin)
 	}
 	if config.ConnConfig.Password == "" {
